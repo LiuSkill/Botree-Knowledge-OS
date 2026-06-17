@@ -7,7 +7,7 @@
   3. 接入后端流式问答，并展示引用来源、执行过程和知识范围
 -->
 <script setup lang="ts">
-import { ChatContent as TChatContent, ChatMessage as TChatMessage, ChatReasoning as TChatReasoning, ChatSender as TChatSender } from '@tdesign-vue-next/chat';
+import { ChatContent as TChatContent, ChatMessage as TChatMessage, ChatSender as TChatSender, ChatThinking as TChatThinking } from '@tdesign-vue-next/chat';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, nextTick, onMounted, provide, ref } from 'vue';
 
@@ -21,6 +21,7 @@ import type {
   AgentTraceStep,
   ChatMessage,
   ChatStreamDoneEvent,
+  ChatTraceDeltaEvent,
   Citation,
   ProjectInfo,
 } from '@/types/api';
@@ -30,7 +31,7 @@ interface UiChatMessage extends Omit<ChatMessage, 'id' | 'citations'> {
   id: number | string;
   citations: Citation[];
   agentTrace: AgentTraceStep[];
-  status?: '' | 'error';
+  status?: '' | 'streaming' | 'complete' | 'stop' | 'error';
   streaming?: boolean;
 }
 
@@ -106,12 +107,13 @@ function createStreamingAssistantMessage(): UiChatMessage {
     citations: [],
     agentTrace: [],
     created_at: new Date().toISOString(),
-    status: '',
+    status: 'streaming',
     streaming: true,
   };
 }
 
 function renderTraceSummary(step: AgentTraceStep): string {
+  if (step.display_text) return step.display_text;
   if (step.result) return step.result;
   if (step.output_summary && Object.keys(step.output_summary).length) {
     return JSON.stringify(step.output_summary, null, 2);
@@ -120,6 +122,41 @@ function renderTraceSummary(step: AgentTraceStep): string {
     return JSON.stringify(step.details, null, 2);
   }
   return '已执行';
+}
+
+function traceStepKey(message: UiChatMessage, step: AgentTraceStep): string {
+  return `${message.id}-${step.sequence ?? step.step}`;
+}
+
+function mergeTraceStep(items: AgentTraceStep[], nextStep: AgentTraceStep): AgentTraceStep[] {
+  const index =
+    nextStep.sequence !== undefined && nextStep.sequence !== null
+      ? items.findIndex((item) => item.sequence === nextStep.sequence)
+      : items.findIndex((item) => item.step === nextStep.step);
+  if (index < 0) return [...items, nextStep];
+  const merged = [...items];
+  merged[index] = { ...merged[index], ...nextStep };
+  return merged;
+}
+
+function applyTraceDelta(assistantId: number | string, payload: ChatTraceDeltaEvent): void {
+  const currentAssistant = messages.value.find((item) => item.id === assistantId);
+  trace.value = mergeTraceStep(trace.value, payload);
+  if (!currentAssistant) return;
+  currentAssistant.agentTrace = mergeTraceStep(currentAssistant.agentTrace, payload);
+}
+
+function thinkingStatus(message: UiChatMessage): 'streaming' | 'complete' | 'stop' | 'error' {
+  if (message.status === 'error') return 'error';
+  if (message.status === 'stop') return 'stop';
+  if (message.streaming) return 'streaming';
+  return 'complete';
+}
+
+function traceStatusText(step: AgentTraceStep): string {
+  if (step.status === 'running') return '进行中';
+  if (step.status === 'failed') return '失败';
+  return step.elapsed_ms !== undefined && step.elapsed_ms !== null ? `${step.elapsed_ms} ms` : '完成';
 }
 
 async function scrollToBottom(): Promise<void> {
