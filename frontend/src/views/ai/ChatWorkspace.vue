@@ -290,6 +290,10 @@ async function submitQuestion(): Promise<void> {
           currentAssistant.citations = payload.citations;
           currentAssistant.agentTrace = payload.agent_trace;
         },
+        onTraceDelta: (payload) => {
+          applyTraceDelta(assistantId, payload);
+          void scrollToBottom();
+        },
         onDelta: (delta) => {
           const currentAssistant = messages.value.find((item) => item.id === assistantId);
           if (!currentAssistant) return;
@@ -314,7 +318,7 @@ async function submitQuestion(): Promise<void> {
       if (currentAssistant && !currentAssistant.content.trim()) {
         currentAssistant.content = '已停止生成';
       }
-      if (currentAssistant) currentAssistant.status = 'error';
+      if (currentAssistant) currentAssistant.status = 'stop';
       MessagePlugin.info('已停止本次回答生成');
       return;
     }
@@ -327,6 +331,13 @@ async function submitQuestion(): Promise<void> {
     MessagePlugin.error(error instanceof Error ? error.message : '问答失败');
   } finally {
     streaming.value = false;
+    const currentAssistant = messages.value.find((item) => item.id === assistantId);
+    if (currentAssistant) {
+      currentAssistant.streaming = false;
+      if (currentAssistant.status === 'streaming') {
+        currentAssistant.status = currentAssistant.content.trim() ? 'complete' : '';
+      }
+    }
     streamAbortController.value = null;
     await scrollToBottom();
   }
@@ -336,7 +347,7 @@ onMounted(loadBaseData);
 </script>
 
 <template>
-  <PageContainer :title="title" :subtitle="subtitle">
+  <PageContainer class="chat-workspace-page" :title="title" :subtitle="subtitle">
     <div v-if="chatType === 'base_chat' && isExternalUser" class="surface no-access">
       外部用户默认不能访问基础问答，请从项目问答入口进入已授权项目。
     </div>
