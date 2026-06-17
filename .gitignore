@@ -1,0 +1,32 @@
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Local runtime state
+**/.env
+**/.env.*
+!**/.env.example
+/storage/
+backend/*.db
+backend/tmp_*
+backend/storage/derived/
+backend/storage/page_index/
+backend/storage/mineru-output/
+backend/storage/uploads/*
+backend/storage/smoke_uploads/
+!backend/storage/uploads/.gitkeep
+
+# Frontend dependencies and builds
+frontend/node_modules/
+frontend/dist/
+frontend/.npm-cache-local/
+frontend/.tdesign-chat-inspect/
+frontend/*.tsbuildinfo
+
+# Logs and editor files
+*.log
+.idea/
+.vscode/

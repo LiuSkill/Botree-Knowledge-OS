@@ -1,0 +1,153 @@
+/**
+ * Botree Knowledge OS Global Styles
+ *
+ * 负责：
+ * 1. 定义企业级蓝白后台基础视觉
+ * 2. 统一页面、卡片、布局间距
+ * 3. 补充 TDesign 组件之外的业务布局样式
+ */
+
+:root {
+  font-family:
+    Inter, "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+  color: #1f2937;
+  background: #f5f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 1280px;
+  min-height: 100vh;
+  background: #f5f7fb;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page {
+  padding: 24px;
+}
+
+.page-title {
+  margin: 0;
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.page-subtitle {
+  margin: 6px 0 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.surface {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.two-column {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.muted {
+  color: #6b7280;
+}
+
+.mono {
+  font-family: "JetBrains Mono", Consolas, monospace;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plain-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.plain-table th,
+.plain-table td {
+  border-bottom: 1px solid #edf0f5;
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.plain-table th {
+  background: #f8fafc;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.plain-table td {
+  color: #374151;
+  font-size: 14px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.detail-item {
+  padding: 12px;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.detail-label {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.detail-value {
+  margin-top: 6px;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  white-space: nowrap;
+}

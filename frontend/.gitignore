@@ -1,0 +1,29 @@
+# Botree Knowledge OS Frontend Ignore Rules
+#
+# 负责：
+# 1. 排除依赖安装产物
+# 2. 排除构建输出目录
+# 3. 排除本地环境变量与编辑器缓存
+
+node_modules
+dist
+dist-ssr
+.npm-cache
+*.tsbuildinfo
+*.local
+
+.env
+.env.*.local
+.codex/
+
+.DS_Store
+Thumbs.db
+
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
