@@ -424,22 +424,32 @@ onMounted(loadBaseData);
               </t-tag>
             </div>
 
-            <TChatReasoning
-              v-if="message.role === 'assistant' && message.agentTrace.length"
-              class="message-reasoning"
-              :default-collapsed="true"
+            <TChatThinking
+              v-if="message.role === 'assistant' && (message.streaming || message.agentTrace.length)"
+              class="message-thinking"
+              layout="border"
+              :status="thinkingStatus(message)"
+              :collapsed="!message.streaming"
+              max-height="260px"
             >
-              <template #header>Agent 执行过程</template>
-              <div class="reasoning-list">
-                <div v-for="step in message.agentTrace" :key="`${message.id}-${step.step}`" class="reasoning-step">
-                  <div class="reasoning-step-header">
-                    <strong>{{ step.step }}</strong>
-                    <span>{{ step.elapsed_ms ? `${step.elapsed_ms} ms` : '已完成' }}</span>
+              <div class="thinking-list">
+                <div
+                  v-for="step in message.agentTrace"
+                  :key="traceStepKey(message, step)"
+                  class="thinking-step"
+                  :class="step.status || 'success'"
+                >
+                  <span class="thinking-dot"></span>
+                  <div class="thinking-step-body">
+                    <div class="thinking-step-header">
+                      <strong>{{ step.step }}</strong>
+                      <span>{{ traceStatusText(step) }}</span>
+                    </div>
+                    <p>{{ renderTraceSummary(step) }}</p>
                   </div>
-                  <pre>{{ renderTraceSummary(step) }}</pre>
                 </div>
               </div>
-            </TChatReasoning>
+            </TChatThinking>
           </div>
         </div>
 
