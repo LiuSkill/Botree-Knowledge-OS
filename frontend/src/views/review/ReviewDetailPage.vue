@@ -23,7 +23,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const task = ref<ReviewTask | null>(null);
-const canReviewTask = computed(() => authStore.hasPermission('review:review'));
+const canReviewTask = computed(() => authStore.hasActionPermission('review:review'));
 
 async function loadTask(): Promise<void> {
   /**
@@ -52,8 +52,8 @@ onMounted(loadTask);
   <PageContainer title="审核详情" subtitle="查看资料审核状态和处理结果">
     <template #actions>
       <t-button variant="outline" @click="router.push('/reviews')">返回审核中心</t-button>
-      <t-button theme="success" :disabled="!canReviewTask || !isReviewTaskPending(task?.review_status)" @click="decide('approve')">审核通过</t-button>
-      <t-button theme="danger" :disabled="!canReviewTask || !isReviewTaskPending(task?.review_status)" @click="decide('reject')">审核驳回</t-button>
+      <t-button v-permission="'review:review'" theme="success" :disabled="!canReviewTask || !isReviewTaskPending(task?.review_status)" @click="decide('approve')">审核通过</t-button>
+      <t-button v-permission="'review:review'" theme="danger" :disabled="!canReviewTask || !isReviewTaskPending(task?.review_status)" @click="decide('reject')">审核驳回</t-button>
     </template>
 
     <div v-if="task" class="review-detail-scroll data-scroll">

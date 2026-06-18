@@ -9,25 +9,69 @@
 
 import { defineStore } from 'pinia';
 
-import { changeMyPassword, deleteMyAvatar, loginApi, logoutApi, meApi, uploadMyAvatar } from '@/api/auth';
-import type { UserInfo } from '@/types/api';
+import { changeMyPassword, currentPermissionsApi, deleteMyAvatar, loginApi, logoutApi, meApi, uploadMyAvatar } from '@/api/auth';
+import { getSystemMenus } from '@/api/system';
+import type { CurrentPermissions, SystemMenuNode, UserInfo } from '@/types/api';
 import { clearToken, getToken, setToken } from '@/utils/auth';
+import { filterAuthorizedMenuTree, firstMenuPath } from '@/utils/rbacMenus';
+
+const EMPTY_PERMISSIONS: CurrentPermissions = {
+  menus: [],
+  actions: [],
+};
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     token: getToken(),
     user: null as UserInfo | null,
+    permissions: { ...EMPTY_PERMISSIONS } as CurrentPermissions,
+    menuTree: [] as SystemMenuNode[],
     loaded: false,
   }),
   getters: {
     isLoggedIn: (state) => Boolean(state.token),
-    isAdmin: (state) => Boolean(state.user?.roles?.some((role) => role.code === 'admin')),
+    isAdmin: (state) => Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled)),
     hasPermission: (state) => {
       /**
        * 判断当前用户是否拥有指定权限编码。
        */
       return (permissionCode: string): boolean =>
-        Boolean(state.user?.roles?.some((role) => role.code === 'admin') || state.user?.permission_codes?.includes(permissionCode));
+        Boolean(
+          state.user?.roles?.some((role) => role.code === 'admin' && role.enabled) ||
+            state.permissions.menus.includes(permissionCode) ||
+            state.permissions.actions.includes(permissionCode) ||
+            state.user?.permission_codes?.includes(permissionCode),
+        );
+    },
+    hasMenuPermission: (state) => {
+      /**
+       * 判断当前用户是否拥有菜单/路由访问权限。
+       */
+      return (permissionCode: string): boolean =>
+        Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled) || state.permissions.menus.includes(permissionCode));
+    },
+    hasActionPermission: (state) => {
+      /**
+       * 判断当前用户是否拥有按钮级操作权限。
+       */
+      return (permissionCode: string): boolean =>
+        Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled) || state.permissions.actions.includes(permissionCode));
+    },
+    authorizedMenuTree: (state): SystemMenuNode[] => {
+      /**
+       * 后端菜单树 + 当前用户菜单权限 = 实际可注册路由和可见菜单。
+       */
+      const isAdmin = Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled));
+      const menuCodes = new Set(state.permissions.menus);
+      return filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || menuCodes.has(menuId));
+    },
+    firstAccessiblePath: (state): string | null => {
+      /**
+       * 当前用户登录后可进入的第一个页面。
+       */
+      const isAdmin = Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled));
+      const menuCodes = new Set(state.permissions.menus);
+      return firstMenuPath(filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || menuCodes.has(menuId)));
     },
   },
   actions: {
@@ -38,8 +82,10 @@ export const useAuthStore = defineStore('auth', {
       const result = await loginApi({ username, password });
       this.token = result.access_token;
       this.user = result.user;
-      this.loaded = true;
+      this.permissions = result.user.permissions || { ...EMPTY_PERMISSIONS };
       setToken(result.access_token);
+      await this.loadAccessContext();
+      this.loaded = true;
     },
     async loadMe() {
       /**
@@ -47,7 +93,25 @@ export const useAuthStore = defineStore('auth', {
        */
       if (!this.token) return;
       this.user = await meApi();
+      this.permissions = this.user.permissions || { ...EMPTY_PERMISSIONS };
+      await this.loadAccessContext();
       this.loaded = true;
+    },
+    async loadAccessContext() {
+      /**
+       * 登录态权限上下文：一次性加载用户菜单/按钮权限和后端菜单树。
+       */
+      if (!this.token) return;
+      const [permissions, menuTree] = await Promise.all([currentPermissionsApi(), getSystemMenus()]);
+      this.permissions = permissions;
+      this.menuTree = menuTree;
+    },
+    async loadCurrentPermissions() {
+      /**
+       * 从后端加载当前用户的菜单和按钮权限。
+       */
+      if (!this.token) return;
+      this.permissions = await currentPermissionsApi();
     },
     async uploadAvatar(file: File) {
       /**
@@ -76,6 +140,8 @@ export const useAuthStore = defineStore('auth', {
       }
       this.token = null;
       this.user = null;
+      this.permissions = { ...EMPTY_PERMISSIONS };
+      this.menuTree = [];
       this.loaded = false;
       clearToken();
     },

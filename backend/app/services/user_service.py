@@ -20,8 +20,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.minio import get_minio_client
+from app.core.rbac import action_page_bindings, action_permission_codes, filter_bound_action_codes, menu_permission_codes
 from app.core.security import hash_password, verify_password
-from app.models.user import Role, User
+from app.models.user import Permission, Role, User
 from app.repositories.user_repository import RoleRepository, UserRepository
 from app.schemas.role import RoleCreate, RoleUpdate
 from app.schemas.user import UserCreate, UserUpdate
@@ -38,6 +39,7 @@ AVATAR_CONTENT_TYPES = {
     "image/jpg": "jpg",
     "image/webp": "webp",
 }
+MENU_PERMISSION_CODES = menu_permission_codes()
 
 
 class UserService:
@@ -219,6 +221,7 @@ class UserService:
     def _current_user_profile(self, user: User) -> dict:
         """返回与 /auth/me 一致的当前用户资料。"""
 
+        permission_codes = self._user_permission_codes(user)
         return {
             "id": user.id,
             "username": user.username,
@@ -226,10 +229,18 @@ class UserService:
             "email": user.email,
             "phone": user.phone,
             "department": user.department,
+            "status": user.status,
             "avatar_url": avatar_url_for_user(user),
             "avatar_updated_at": user.avatar_updated_at.isoformat() if user.avatar_updated_at else None,
-            "roles": [{"id": role.id, "name": role.name, "code": role.code} for role in user.roles],
-            "permission_codes": sorted({permission.code for role in user.roles for permission in role.permissions}),
+            "roles": [
+                {"id": role.id, "name": role.name, "code": role.code, "enabled": role.enabled}
+                for role in user.roles
+            ],
+            "permission_codes": sorted(permission_codes),
+            "permissions": {
+                "menus": sorted(permission_codes & MENU_PERMISSION_CODES),
+                "actions": sorted(filter_bound_action_codes(permission_codes)),
+            },
         }
 
     def _can_read_avatar(self, target: User, current_user: User) -> bool:
@@ -237,9 +248,19 @@ class UserService:
 
         if target.id == current_user.id:
             return True
-        if any(role.code == "admin" for role in current_user.roles):
+        if any(role.code == "admin" and role.enabled for role in current_user.roles):
             return True
-        return any(permission.code == "system:view" for role in current_user.roles for permission in role.permissions)
+        return "system:user" in self._user_permission_codes(current_user)
+
+    def _user_permission_codes(self, user: User) -> set[str]:
+        """仅汇总启用角色授予的权限码。"""
+
+        return {
+            permission.code
+            for role in user.roles
+            if role.enabled
+            for permission in role.permissions
+        }
 
     def _remove_avatar_object(self, client, object_key: str | None) -> None:
         """删除 MinIO 头像对象，旧对象不存在时仅记录告警。"""
@@ -301,7 +322,7 @@ class RoleService:
         if self.role_repository.get_by_code(payload.code):
             raise AppException("角色编码已存在")
         role = Role(name=payload.name, code=payload.code, description=payload.description, enabled=True)
-        role.permissions = [permission for permission in self.role_repository.list_permissions() if permission.id in payload.permission_ids]
+        role.permissions = self._resolve_bound_permissions(payload.permission_ids)
         self.role_repository.add(role)
         SystemService(self.db).record_operation(operator, "新增角色", "role", role.id, f"新增角色 {role.name}")
         self.db.commit()
@@ -318,7 +339,7 @@ class RoleService:
             if value is not None:
                 setattr(role, field, value)
         if payload.permission_ids is not None:
-            role.permissions = [permission for permission in self.role_repository.list_permissions() if permission.id in payload.permission_ids]
+            role.permissions = self._resolve_bound_permissions(payload.permission_ids)
         SystemService(self.db).record_operation(operator, "编辑角色", "role", role.id, f"编辑角色 {role.name}")
         self.db.commit()
         return role
@@ -332,3 +353,25 @@ class RoleService:
         self.role_repository.delete(role)
         SystemService(self.db).record_operation(operator, "删除角色", "role", role_id, "删除角色")
         self.db.commit()
+
+    def _resolve_bound_permissions(self, permission_ids: list[int]) -> list[Permission]:
+        """
+        根据页面-按钮绑定关系过滤角色权限。
+
+        业务规则：
+        - 菜单权限可独立授权，用于控制路由和菜单可见性；
+        - 按钮权限必须挂靠在已授权页面下，取消页面权限时同步取消该页按钮权限；
+        - 后端保存时再次裁剪，防止绕过前端提交孤立按钮权限。
+        """
+
+        selected_ids = set(permission_ids)
+        permissions = self.role_repository.list_permissions()
+        selected_permissions = [permission for permission in permissions if permission.id in selected_ids]
+        selected_codes = {permission.code for permission in selected_permissions}
+        action_codes = action_permission_codes()
+        bindings = action_page_bindings()
+        return [
+            permission
+            for permission in selected_permissions
+            if permission.code not in action_codes or bool(bindings.get(permission.code, set()) & selected_codes)
+        ]

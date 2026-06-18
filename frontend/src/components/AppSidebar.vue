@@ -21,42 +21,48 @@ import {
 } from 'tdesign-icons-vue-next';
 
 import { useAuthStore } from '@/stores/auth';
+import type { SystemMenuNode } from '@/types/api';
+import { firstMenuPath } from '@/utils/rbacMenus';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
 type MenuItem = {
+  id: string;
   path: string;
   label: string;
   icon: Component;
-  permission: string;
+  menuIds: string[];
 };
 
-const menuItems: MenuItem[] = [
-  { path: '/dashboard', label: '首页', icon: HomeIcon, permission: 'dashboard:view' },
-  { path: '/knowledge', label: '知识中心', icon: BookIcon, permission: 'knowledge:view' },
-  { path: '/projects', label: '项目中心', icon: FolderIcon, permission: 'project:view' },
-  { path: '/authorization', label: '知识授权中心', icon: LockOnIcon, permission: 'authorization:view' },
-  { path: '/reviews', label: '审核中心', icon: CheckCircleIcon, permission: 'review:view' },
-  { path: '/ai/project-chat', label: '项目问答', icon: ChatBubbleIcon, permission: 'ai:view' },
-  { path: '/ai/base-chat', label: '基础问答', icon: ChatIcon, permission: 'ai:view' },
-  { path: '/system', label: '系统管理', icon: SettingIcon, permission: 'system:view' },
-];
+const iconByMenuId: Record<string, Component> = {
+  dashboard: HomeIcon,
+  knowledge: BookIcon,
+  project: FolderIcon,
+  authorization: LockOnIcon,
+  review: CheckCircleIcon,
+  'ai:project-chat': ChatBubbleIcon,
+  'ai:base-chat': ChatIcon,
+  system: SettingIcon,
+};
 
 const visibleMenuItems = computed(() => {
   /**
-   * 根据 RBAC 权限过滤左侧菜单。
+   * 左侧菜单完全由后端菜单树和登录态权限生成。
    */
-  return menuItems.filter((item) => authStore.hasPermission(item.permission));
+  return authStore.authorizedMenuTree
+    .map((node) => toMenuItem(node))
+    .filter((item): item is MenuItem => Boolean(item));
 });
 
 const activePath = computed(() => {
   /**
    * 根据当前路由高亮主菜单。
    */
-  const matched = visibleMenuItems.value.find((item) => route.path.startsWith(item.path));
-  return matched?.path || '/dashboard';
+  const menuId = route.meta.menuId as string | undefined;
+  const matched = visibleMenuItems.value.find((item) => (menuId ? item.menuIds.includes(menuId) : route.path.startsWith(item.path)));
+  return matched?.path || visibleMenuItems.value[0]?.path || '/';
 });
 
 function navigate(path: string): void {
@@ -64,6 +70,22 @@ function navigate(path: string): void {
    * 跳转主菜单路径。
    */
   router.push(path);
+}
+
+function toMenuItem(node: SystemMenuNode): MenuItem | null {
+  const path = node.path || firstMenuPath([node]);
+  if (!path) return null;
+  return {
+    id: node.id,
+    path,
+    label: node.name,
+    icon: iconByMenuId[node.id] || SettingIcon,
+    menuIds: collectMenuIds(node),
+  };
+}
+
+function collectMenuIds(node: SystemMenuNode): string[] {
+  return [node.id, ...(node.children || []).flatMap((child) => collectMenuIds(child))];
 }
 </script>
 

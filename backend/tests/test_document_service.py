@@ -707,6 +707,81 @@ def test_submit_review_targets_new_draft_version_and_keeps_current_document_effe
         db.close()
 
 
+def test_list_review_tasks_includes_document_display_fields() -> None:
+    """审核任务列表应携带前端表格所需的文档展示字段。"""
+
+    db = make_session()
+    try:
+        uploader = User(username="uploader", password_hash="x", real_name="上传人")
+        category = KnowledgeCategory(
+            scope_type="base",
+            name="工艺资料",
+            code="process",
+            sort_order=1,
+            enabled=True,
+        )
+        db.add_all([uploader, category])
+        db.flush()
+        document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="old.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/old.md",
+            category_id=category.id,
+            document_status="active",
+            parse_status="success",
+            review_status="approved",
+            index_status="indexed",
+            version_no=2,
+            current_version=True,
+            created_by=uploader.id,
+        )
+        db.add(document)
+        db.flush()
+        version = DocumentVersion(
+            document_id=document.id,
+            version_no=2,
+            category_id=category.id,
+            file_name="new.md",
+            file_type="md",
+            file_size=20,
+            storage_path="storage/uploads/new.md",
+            version_status="pending_review",
+            parse_status="success",
+            review_status="reviewing",
+            index_status="not_indexed",
+            is_current=False,
+            created_by=uploader.id,
+        )
+        db.add(version)
+        db.flush()
+        task = ReviewTask(
+            document_id=document.id,
+            version_id=version.id,
+            version_no=version.version_no,
+            review_status="reviewing",
+            review_comment="待审核",
+        )
+        db.add(task)
+        db.commit()
+
+        result = ReviewService(db).list_tasks()
+
+        assert len(result) == 1
+        item = result[0]
+        assert item.document_file_name == "new.md"
+        assert item.document_category_name == "工艺资料"
+        assert item.document_category_path == "工艺资料"
+        assert item.display_version_no == 2
+        assert item.uploader_id == uploader.id
+        assert item.uploader_name == "上传人"
+        assert item.uploader_username == "uploader"
+    finally:
+        db.close()
+
+
 def test_submit_review_lock_timeout_rolls_back_and_returns_business_error() -> None:
     """提交审核遇到 MySQL 锁等待超时时，应回滚本次状态变更并返回业务异常。"""
 

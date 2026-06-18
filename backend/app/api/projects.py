@@ -10,7 +10,7 @@ Projects API
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
@@ -28,7 +28,7 @@ def list_projects(keyword: str | None = None, current_user: User = Depends(get_c
 
 
 @router.post("", summary="创建项目")
-def create_project(payload: ProjectCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def create_project(payload: ProjectCreate, current_user: User = Depends(require_permission("project:create")), db: Session = Depends(get_db)) -> dict:
     """创建项目。"""
 
     return success(ProjectService(db).create_project(payload, current_user))
@@ -42,14 +42,19 @@ def get_project(project_id: int, current_user: User = Depends(get_current_user),
 
 
 @router.put("/{project_id}", summary="编辑项目")
-def update_project(project_id: int, payload: ProjectUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def update_project(
+    project_id: int,
+    payload: ProjectUpdate,
+    current_user: User = Depends(require_permission("project:edit")),
+    db: Session = Depends(get_db),
+) -> dict:
     """编辑项目。"""
 
     return success(ProjectService(db).update_project(project_id, payload, current_user))
 
 
 @router.delete("/{project_id}", summary="删除项目")
-def delete_project(project_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def delete_project(project_id: int, current_user: User = Depends(require_permission("project:delete")), db: Session = Depends(get_db)) -> dict:
     """删除项目。"""
 
     ProjectService(db).delete_project(project_id, current_user)
@@ -65,7 +70,12 @@ def list_members(project_id: int, current_user: User = Depends(get_current_user)
 
 
 @router.post("/{project_id}/members", summary="新增项目成员")
-def add_member(project_id: int, payload: ProjectMemberCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def add_member(
+    project_id: int,
+    payload: ProjectMemberCreate,
+    current_user: User = Depends(require_permission("project:edit")),
+    db: Session = Depends(get_db),
+) -> dict:
     """新增项目成员。"""
 
     member = ProjectService(db).add_member(project_id, payload, current_user)
@@ -73,7 +83,12 @@ def add_member(project_id: int, payload: ProjectMemberCreate, current_user: User
 
 
 @router.delete("/{project_id}/members/{user_id}", summary="删除项目成员")
-def delete_member(project_id: int, user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def delete_member(
+    project_id: int,
+    user_id: int,
+    current_user: User = Depends(require_permission("project:edit")),
+    db: Session = Depends(get_db),
+) -> dict:
     """删除项目成员。"""
 
     ProjectService(db).delete_member(project_id, user_id, current_user)

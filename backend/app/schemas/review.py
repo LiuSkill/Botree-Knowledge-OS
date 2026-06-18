@@ -25,6 +25,13 @@ class ReviewTaskOut(BaseModel):
 
     id: int
     document_id: int
+    document_file_name: str | None = None
+    document_category_name: str | None = None
+    document_category_path: str | None = None
+    display_version_no: int | None = None
+    uploader_id: int | None = None
+    uploader_name: str | None = None
+    uploader_username: str | None = None
     version_id: int | None = None
     version_no: int | None = None
     reviewer_id: int | None = None

@@ -10,7 +10,7 @@ Knowledge Bases API
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
@@ -35,7 +35,7 @@ def list_bases(
 
 
 @router.post("", summary="创建知识库")
-def create_base(payload: KnowledgeBaseCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def create_base(payload: KnowledgeBaseCreate, current_user: User = Depends(require_permission("knowledge:create")), db: Session = Depends(get_db)) -> dict:
     """创建知识库。"""
 
     kb = KnowledgeBaseService(db).create_base(payload, current_user)
@@ -57,7 +57,12 @@ def get_base(kb_id: int, current_user: User = Depends(get_current_user), db: Ses
 
 
 @router.put("/{kb_id}", summary="编辑知识库")
-def update_base(kb_id: int, payload: KnowledgeBaseUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def update_base(
+    kb_id: int,
+    payload: KnowledgeBaseUpdate,
+    current_user: User = Depends(require_permission("knowledge:edit")),
+    db: Session = Depends(get_db),
+) -> dict:
     """编辑知识库。"""
 
     kb = KnowledgeBaseService(db).update_base(kb_id, payload, current_user)
@@ -65,7 +70,7 @@ def update_base(kb_id: int, payload: KnowledgeBaseUpdate, current_user: User = D
 
 
 @router.delete("/{kb_id}", summary="删除知识库")
-def delete_base(kb_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def delete_base(kb_id: int, current_user: User = Depends(require_permission("knowledge:delete")), db: Session = Depends(get_db)) -> dict:
     """删除知识库。"""
 
     KnowledgeBaseService(db).delete_base(kb_id, current_user)
@@ -77,7 +82,7 @@ async def upload_document(
     kb_id: int,
     file: UploadFile = File(...),
     category_id: int = Form(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("knowledge:upload")),
     db: Session = Depends(get_db),
 ) -> dict:
     """上传资料到知识库。"""

@@ -2,254 +2,751 @@
   Permission Matrix Page
 
   负责：
-  1. 展示角色与权限点矩阵
-  2. 支持按关键字、模块和角色筛选权限边界
-  3. 权限编辑入口统一收敛到角色管理页
+  1. 在权限矩阵内统一维护角色创建、编辑、删除
+  2. 从后端真实菜单路由和按钮权限注册表加载权限点
+  3. 强制按钮权限挂靠页面权限，取消页面权限时同步取消按钮权限
 -->
 <script setup lang="ts">
-import { RefreshIcon } from 'tdesign-icons-vue-next';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { AddIcon, DeleteIcon, EditIcon, RefreshIcon, SaveIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
-import { getPermissionMatrix } from '@/api/roles';
-import type { PermissionInfo, RoleInfo } from '@/types/api';
+import { createRole, deleteRole, listRoles, updateRole } from '@/api/roles';
+import { getActionPermissions, getSystemMenus } from '@/api/system';
+import PermissionMenuTree from '@/components/PermissionMenuTree.vue';
+import { syncAuthorizedRoutes } from '@/router/dynamicRoutes';
+import { useAuthStore } from '@/stores/auth';
+import type { ActionPermissionGroup, ActionPermissionInfo, RoleInfo, SystemMenuNode } from '@/types/api';
 
+type RoleDialogMode = 'create' | 'edit';
+
+const DEFAULT_ROLE_PAGE_SIZE = 200;
+
+const authStore = useAuthStore();
+const router = useRouter();
 const roles = ref<RoleInfo[]>([]);
-const permissions = ref<PermissionInfo[]>([]);
-const filters = reactive({
-  keyword: '',
-  module: '',
-  role_id: null as number | null,
-});
-const appliedFilters = reactive({
-  keyword: '',
-  module: '',
-  role_id: null as number | null,
+const menus = ref<SystemMenuNode[]>([]);
+const actionGroups = ref<ActionPermissionGroup[]>([]);
+const selectedRoleId = ref<number | null>(null);
+const selectedPermissionIds = ref<number[]>([]);
+const loading = ref(false);
+const saving = ref(false);
+const roleDialogVisible = ref(false);
+const roleDialogMode = ref<RoleDialogMode>('create');
+const editingRoleId = ref<number | null>(null);
+const roleForm = reactive({
+  name: '',
+  code: '',
+  description: '',
+  enabled: true,
 });
 
-const moduleOptions = computed(() => Array.from(new Set(permissions.value.map((item) => item.module))));
-const filteredRoles = computed(() =>
-  appliedFilters.role_id ? roles.value.filter((role) => role.id === appliedFilters.role_id) : roles.value,
-);
-const filteredPermissions = computed(() => {
-  const keyword = appliedFilters.keyword.trim().toLowerCase();
-  return permissions.value.filter((permission) => {
-    const matchesModule = !appliedFilters.module || permission.module === appliedFilters.module;
-    const matchesKeyword =
-      !keyword ||
-      permission.module.toLowerCase().includes(keyword) ||
-      permission.code.toLowerCase().includes(keyword) ||
-      permission.action.toLowerCase().includes(keyword) ||
-      (permission.description || '').toLowerCase().includes(keyword);
-    return matchesModule && matchesKeyword;
+const selectedRole = computed(() => roles.value.find((role) => role.id === selectedRoleId.value) || null);
+const selectedIdSet = computed(() => new Set(selectedPermissionIds.value));
+const selectedMenuIds = computed(() => {
+  const menuIdMap = menuPermissionIdByCode.value;
+  return new Set(
+    Array.from(menuIdMap.entries())
+      .filter(([, permissionId]) => selectedIdSet.value.has(permissionId))
+      .map(([menuId]) => menuId),
+  );
+});
+const selectedIdsForTree = computed(() => selectedPermissionIds.value);
+const roleDialogTitle = computed(() => (roleDialogMode.value === 'create' ? '新建角色' : '编辑角色'));
+
+const menuPermissionIdByCode = computed(() => {
+  const result = new Map<string, number>();
+  walkMenus((node) => {
+    if (typeof node.permission_id === 'number') {
+      result.set(node.id, node.permission_id);
+    }
   });
+  return result;
 });
-const visibleModules = computed(() => Array.from(new Set(filteredPermissions.value.map((item) => item.module))));
 
-function roleHasPermission(role: RoleInfo, permission: PermissionInfo): boolean {
-  return Boolean(role.permissions?.some((item) => item.id === permission.id));
-}
+const menuNameByCode = computed(() => {
+  const result = new Map<string, string>();
+  walkMenus((node) => result.set(node.id, node.name));
+  return result;
+});
 
-function permissionsByModule(module: string): PermissionInfo[] {
-  return filteredPermissions.value.filter((item) => item.module === module);
-}
-
-function handleSearch(): void {
-  Object.assign(appliedFilters, {
-    keyword: filters.keyword,
-    module: filters.module,
-    role_id: filters.role_id,
+function walkMenus(visitor: (node: SystemMenuNode) => void, nodes = menus.value): void {
+  nodes.forEach((node) => {
+    visitor(node);
+    walkMenus(visitor, node.children);
   });
 }
 
-function clearFilters(): void {
-  const emptyFilters = { keyword: '', module: '', role_id: null };
-  Object.assign(filters, emptyFilters);
-  Object.assign(appliedFilters, emptyFilters);
+function collectMenuPermissionIds(node: SystemMenuNode): number[] {
+  const ids = typeof node.permission_id === 'number' ? [node.permission_id] : [];
+  return ids.concat(node.children.flatMap((child) => collectMenuPermissionIds(child)));
+}
+
+function collectMenuCodes(node: SystemMenuNode): string[] {
+  const ids = typeof node.permission_id === 'number' ? [node.id] : [];
+  return ids.concat(node.children.flatMap((child) => collectMenuCodes(child)));
+}
+
+function actionPermissionIds(group: ActionPermissionGroup): number[] {
+  return group.actions
+    .map((action) => action.permission_id)
+    .filter((permissionId): permissionId is number => typeof permissionId === 'number');
+}
+
+function isActionGroupEnabled(group: ActionPermissionGroup): boolean {
+  return group.menu_ids.some((menuId) => selectedMenuIds.value.has(menuId));
+}
+
+function isActionChecked(action: ActionPermissionInfo): boolean {
+  return typeof action.permission_id === 'number' && selectedIdSet.value.has(action.permission_id);
+}
+
+function isActionGroupAllChecked(group: ActionPermissionGroup): boolean {
+  const ids = actionPermissionIds(group);
+  return ids.length > 0 && ids.every((id) => selectedIdSet.value.has(id));
+}
+
+function isActionGroupPartialChecked(group: ActionPermissionGroup): boolean {
+  const ids = actionPermissionIds(group);
+  const checkedCount = ids.filter((id) => selectedIdSet.value.has(id)).length;
+  return checkedCount > 0 && checkedCount < ids.length;
+}
+
+function replaceSelection(nextSelection: Set<number>): void {
+  selectedPermissionIds.value = Array.from(nextSelection).sort((left, right) => left - right);
+}
+
+function pruneUnboundActions(selection: Set<number>): void {
+  const selectedMenuCodes = new Set(
+    Array.from(menuPermissionIdByCode.value.entries())
+      .filter(([, permissionId]) => selection.has(permissionId))
+      .map(([menuId]) => menuId),
+  );
+  actionGroups.value.forEach((group) => {
+    const groupEnabled = group.menu_ids.some((menuId) => selectedMenuCodes.has(menuId));
+    if (groupEnabled) return;
+    actionPermissionIds(group).forEach((permissionId) => selection.delete(permissionId));
+  });
+}
+
+function applySelectedRolePermissions(): void {
+  const role = selectedRole.value;
+  const nextSelection = new Set((role?.permissions || []).map((permission) => permission.id));
+  pruneUnboundActions(nextSelection);
+  replaceSelection(nextSelection);
+}
+
+function selectRole(role: RoleInfo): void {
+  selectedRoleId.value = role.id;
+  applySelectedRolePermissions();
+}
+
+function rolePermissionCount(role: RoleInfo): number {
+  return role.permissions?.length || 0;
+}
+
+function boundMenuLabel(group: ActionPermissionGroup): string {
+  return group.menu_ids.map((menuId) => menuNameByCode.value.get(menuId) || menuId).join(' / ');
+}
+
+function toggleMenu(node: SystemMenuNode, checked: boolean): void {
+  const nextSelection = new Set(selectedPermissionIds.value);
+  collectMenuPermissionIds(node).forEach((permissionId) => {
+    if (checked) {
+      nextSelection.add(permissionId);
+    } else {
+      nextSelection.delete(permissionId);
+    }
+  });
+  if (!checked) {
+    const affectedMenuIds = new Set(collectMenuCodes(node));
+    actionGroups.value.forEach((group) => {
+      if (!group.menu_ids.some((menuId) => affectedMenuIds.has(menuId))) return;
+      const stillHasPage = group.menu_ids.some((menuId) => {
+        const permissionId = menuPermissionIdByCode.value.get(menuId);
+        return typeof permissionId === 'number' && nextSelection.has(permissionId);
+      });
+      if (!stillHasPage) {
+        actionPermissionIds(group).forEach((permissionId) => nextSelection.delete(permissionId));
+      }
+    });
+  }
+  pruneUnboundActions(nextSelection);
+  replaceSelection(nextSelection);
+}
+
+function toggleAction(group: ActionPermissionGroup, action: ActionPermissionInfo, checked: boolean): void {
+  if (typeof action.permission_id !== 'number') return;
+  const nextSelection = new Set(selectedPermissionIds.value);
+  if (checked && isActionGroupEnabled(group)) {
+    nextSelection.add(action.permission_id);
+  } else {
+    nextSelection.delete(action.permission_id);
+  }
+  pruneUnboundActions(nextSelection);
+  replaceSelection(nextSelection);
+}
+
+function toggleActionGroup(group: ActionPermissionGroup, checked: boolean): void {
+  const nextSelection = new Set(selectedPermissionIds.value);
+  actionPermissionIds(group).forEach((permissionId) => {
+    if (checked && isActionGroupEnabled(group)) {
+      nextSelection.add(permissionId);
+    } else {
+      nextSelection.delete(permissionId);
+    }
+  });
+  pruneUnboundActions(nextSelection);
+  replaceSelection(nextSelection);
+}
+
+function resetRoleForm(): void {
+  Object.assign(roleForm, {
+    name: '',
+    code: '',
+    description: '',
+    enabled: true,
+  });
+  editingRoleId.value = null;
+}
+
+function openCreateRoleDialog(): void {
+  roleDialogMode.value = 'create';
+  resetRoleForm();
+  roleDialogVisible.value = true;
+}
+
+function openEditRoleDialog(role: RoleInfo): void {
+  roleDialogMode.value = 'edit';
+  editingRoleId.value = role.id;
+  Object.assign(roleForm, {
+    name: role.name,
+    code: role.code,
+    description: role.description || '',
+    enabled: role.enabled,
+  });
+  roleDialogVisible.value = true;
+}
+
+async function submitRole(): Promise<void> {
+  if (!roleForm.name.trim()) {
+    MessagePlugin.warning('请输入角色名称');
+    return;
+  }
+  if (roleDialogMode.value === 'create') {
+    if (!roleForm.code.trim()) {
+      MessagePlugin.warning('请输入角色编码');
+      return;
+    }
+    const role = await createRole({
+      name: roleForm.name.trim(),
+      code: roleForm.code.trim(),
+      description: roleForm.description.trim() || null,
+      permission_ids: [],
+    });
+    selectedRoleId.value = role.id;
+    MessagePlugin.success('角色已创建');
+  } else if (editingRoleId.value) {
+    await updateRole(editingRoleId.value, {
+      name: roleForm.name.trim(),
+      description: roleForm.description.trim() || null,
+      enabled: roleForm.enabled,
+    });
+    MessagePlugin.success('角色已更新');
+  }
+  roleDialogVisible.value = false;
+  await loadMatrix();
+}
+
+async function removeRole(role: RoleInfo): Promise<void> {
+  await deleteRole(role.id);
+  MessagePlugin.success('角色已删除');
+  if (selectedRoleId.value === role.id) {
+    selectedRoleId.value = null;
+  }
+  await loadMatrix();
+}
+
+async function savePermissions(): Promise<void> {
+  if (!selectedRole.value) return;
+  saving.value = true;
+  try {
+    const nextSelection = new Set(selectedPermissionIds.value);
+    pruneUnboundActions(nextSelection);
+    const role = await updateRole(selectedRole.value.id, {
+      permission_ids: Array.from(nextSelection),
+    });
+    const index = roles.value.findIndex((item) => item.id === role.id);
+    if (index >= 0) {
+      roles.value.splice(index, 1, role);
+    }
+    selectedRoleId.value = role.id;
+    await authStore.loadAccessContext();
+    syncAuthorizedRoutes(router, authStore.authorizedMenuTree);
+    if (!authStore.hasMenuPermission('system:permission') && authStore.firstAccessiblePath) {
+      await router.replace(authStore.firstAccessiblePath);
+    }
+    applySelectedRolePermissions();
+    MessagePlugin.success('权限配置已保存');
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function loadMatrix(): Promise<void> {
-  const result = await getPermissionMatrix();
-  roles.value = result.roles;
-  permissions.value = result.permissions;
+  loading.value = true;
+  try {
+    const [roleResult, menuResult, actionResult] = await Promise.all([
+      listRoles({ page: 1, page_size: DEFAULT_ROLE_PAGE_SIZE }),
+      getSystemMenus(),
+      getActionPermissions(),
+    ]);
+    roles.value = roleResult.items;
+    menus.value = menuResult;
+    actionGroups.value = actionResult;
+    if (!selectedRoleId.value || !roles.value.some((role) => role.id === selectedRoleId.value)) {
+      selectedRoleId.value = roles.value[0]?.id || null;
+    }
+    applySelectedRolePermissions();
+  } finally {
+    loading.value = false;
+  }
 }
 
 onMounted(loadMatrix);
 </script>
 
 <template>
-  <div class="system-card scroll-card">
-    <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item label="关键字">
-        <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="模块 / 权限编码 / 描述" @enter="handleSearch" />
-      </t-form-item>
-      <t-form-item label="模块">
-        <t-select v-model="filters.module" class="filter-select" clearable placeholder="全部模块">
-          <t-option v-for="module in moduleOptions" :key="module" :value="module" :label="module" />
-        </t-select>
-      </t-form-item>
-      <t-form-item label="角色">
-        <t-select v-model="filters.role_id" class="filter-select" clearable filterable placeholder="全部角色">
-          <t-option v-for="role in roles" :key="role.id" :value="role.id" :label="role.name" />
-        </t-select>
-      </t-form-item>
-      <t-form-item>
-        <t-space>
-          <t-button theme="primary" @click="handleSearch">查询</t-button>
-          <t-button @click="clearFilters">重置</t-button>
-        </t-space>
-      </t-form-item>
-    </t-form>
-
-    <div class="system-section-head">
-      <div class="system-section-title">
-        <h2>权限矩阵</h2>
-        <span>共 {{ filteredPermissions.length }} 个权限点</span>
-      </div>
-      <t-button theme="default" variant="outline" @click="loadMatrix">
-        <template #icon><RefreshIcon /></template>
-        刷新
-      </t-button>
-    </div>
-
-    <div class="matrix-content data-scroll">
-      <t-empty v-if="!visibleModules.length" description="暂无匹配权限" />
-      <div v-for="module in visibleModules" v-else :key="module" class="matrix-block">
-        <h3>{{ module }}</h3>
-        <div class="table-scroll">
-          <table class="plain-table">
-            <thead>
-              <tr>
-                <th>权限点</th>
-                <th v-for="role in filteredRoles" :key="role.id">{{ role.name }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="permission in permissionsByModule(module)" :key="permission.id">
-                <td>
-                  <strong>{{ permission.code }}</strong>
-                  <span>{{ permission.description || permission.action }}</span>
-                </td>
-                <td v-for="role in filteredRoles" :key="role.id">
-                  <t-tag size="small" :theme="roleHasPermission(role, permission) ? 'success' : 'default'" variant="light">
-                    {{ roleHasPermission(role, permission) ? '允许' : '未授权' }}
-                  </t-tag>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+  <div class="system-card permission-page">
+    <div class="permission-layout" v-loading="loading">
+      <aside class="role-panel">
+        <div class="role-panel-head">
+          <div>
+            <h2>角色列表</h2>
+            <span>{{ roles.length }} 个角色</span>
+          </div>
+          <t-button v-permission="'permission:create'" size="small" theme="primary" @click="openCreateRoleDialog">
+            <template #icon><AddIcon /></template>
+            新建
+          </t-button>
         </div>
-      </div>
+
+        <div class="role-list">
+          <div
+            v-for="role in roles"
+            :key="role.id"
+            class="role-card"
+            :class="{ active: selectedRoleId === role.id }"
+            role="button"
+            tabindex="0"
+            @click="selectRole(role)"
+            @keydown.enter="selectRole(role)"
+          >
+            <div class="role-main">
+              <strong>{{ role.name }}</strong>
+              <t-tag size="small" variant="light" :theme="role.enabled ? 'success' : 'danger'">
+                {{ role.enabled ? '启用' : '停用' }}
+              </t-tag>
+            </div>
+            <p>{{ role.description || '未填写角色说明' }}</p>
+            <div class="role-meta">
+              <span>{{ role.code }}</span>
+              <span>{{ rolePermissionCount(role) }} 个权限</span>
+            </div>
+            <div class="role-actions">
+              <t-button v-permission="'permission:edit'" size="small" variant="text" @click.stop="openEditRoleDialog(role)">
+                <template #icon><EditIcon /></template>
+              </t-button>
+              <t-popconfirm content="确认删除该角色？" @confirm="removeRole(role)">
+                <t-button v-permission="'permission:delete'" size="small" variant="text" theme="danger" @click.stop>
+                  <template #icon><DeleteIcon /></template>
+                </t-button>
+              </t-popconfirm>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="matrix-panel">
+        <div class="matrix-head">
+          <div>
+            <h2>{{ selectedRole?.name || '请选择角色' }}</h2>
+            <p>{{ selectedRole?.description || '配置该角色可访问的菜单和按钮操作' }}</p>
+          </div>
+          <t-button theme="default" variant="outline" @click="loadMatrix">
+            <template #icon><RefreshIcon /></template>
+            刷新
+          </t-button>
+        </div>
+
+        <t-empty v-if="!selectedRole" description="暂无角色，请先新建角色" />
+
+        <template v-else>
+          <div class="permission-grid">
+            <section class="permission-section menu-section">
+              <div class="section-head">
+                <div>
+                  <h3>菜单权限</h3>
+                  <span>控制路由访问和菜单显示</span>
+                </div>
+              </div>
+              <div class="section-body">
+                <PermissionMenuTree :nodes="menus" :selected-ids="selectedIdsForTree" @toggle-node="toggleMenu" />
+              </div>
+            </section>
+
+            <section class="permission-section action-section">
+              <div class="section-head">
+                <div>
+                  <h3>操作权限</h3>
+                  <span>按钮权限必须绑定已授权页面，未授权页面下操作会自动取消</span>
+                </div>
+              </div>
+              <div class="action-table-wrap">
+                <table class="action-table">
+                  <thead>
+                    <tr>
+                      <th>功能模块</th>
+                      <th>绑定页面</th>
+                      <th>操作权限</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="group in actionGroups" :key="group.module" :class="{ muted: !isActionGroupEnabled(group) }">
+                      <td>
+                        <strong>{{ group.module_name }}</strong>
+                        <small>{{ group.module }}</small>
+                      </td>
+                      <td>{{ boundMenuLabel(group) }}</td>
+                      <td>
+                        <t-checkbox
+                          class="check-item select-all"
+                          :model-value="isActionGroupAllChecked(group)"
+                          :indeterminate="isActionGroupPartialChecked(group)"
+                          :disabled="!isActionGroupEnabled(group)"
+                          @change="(checked) => toggleActionGroup(group, Boolean(checked))"
+                        >
+                          全选
+                        </t-checkbox>
+                        <t-checkbox
+                          v-for="action in group.actions"
+                          :key="action.code"
+                          class="check-item"
+                          :model-value="isActionChecked(action)"
+                          :disabled="!isActionGroupEnabled(group)"
+                          @change="(checked) => toggleAction(group, action, Boolean(checked))"
+                        >
+                          {{ action.name }}
+                        </t-checkbox>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <div class="matrix-footer">
+            <span>当前选择 {{ selectedPermissionIds.length }} 个权限点</span>
+            <t-button v-permission="'permission:save'" theme="primary" :loading="saving" @click="savePermissions">
+              <template #icon><SaveIcon /></template>
+              保存配置
+            </t-button>
+          </div>
+        </template>
+      </main>
     </div>
+
+    <t-dialog v-model:visible="roleDialogVisible" :header="roleDialogTitle" width="520px" @confirm="submitRole">
+      <t-form :data="roleForm" label-align="top">
+        <t-form-item label="角色名称"><t-input v-model="roleForm.name" /></t-form-item>
+        <t-form-item label="角色编码"><t-input v-model="roleForm.code" :disabled="roleDialogMode === 'edit'" /></t-form-item>
+        <t-form-item label="角色说明"><t-textarea v-model="roleForm.description" /></t-form-item>
+        <t-form-item v-if="roleDialogMode === 'edit'" label="状态"><t-switch v-model="roleForm.enabled" /></t-form-item>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
 <style scoped>
-.system-card {
-  display: flex;
-  flex: 1 1 0;
-  height: 100%;
-  min-height: 0;
+.permission-page {
   min-width: 0;
-  flex-direction: column;
-  margin-top: 0;
   overflow: hidden;
 }
 
-.system-filter-form {
-  display: flex;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 16px;
-  margin-bottom: 18px;
-  border-radius: 6px;
-  background: #f7f9fc;
-  padding: 14px 16px;
-}
-
-.system-filter-form :deep(.t-form__item) {
-  margin: 0;
-}
-
-.system-filter-form :deep(.t-form__label) {
-  width: auto !important;
-  padding-right: 8px;
-}
-
-.system-filter-form :deep(.t-form__controls) {
-  margin-left: 0 !important;
-}
-
-.filter-input {
-  width: 220px;
-}
-
-.filter-select {
-  width: 160px;
-}
-
-.system-section-head {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
+.permission-layout {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 16px;
-  margin-bottom: 10px;
 }
 
-.system-section-title {
-  display: flex;
-  align-items: baseline;
-  gap: 22px;
-}
-
-.system-section-title h2 {
-  margin: 0;
-  color: #0f172a;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.system-section-title span {
-  color: #64748b;
-  font-size: 13px;
-}
-
-.matrix-content {
-  flex: 1 1 0;
-  min-height: 240px;
+.role-panel,
+.matrix-panel,
+.permission-section {
+  min-height: 0;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   background: #fff;
+}
+
+.role-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.role-panel-head,
+.matrix-head,
+.section-head,
+.matrix-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.role-panel-head {
+  flex: 0 0 auto;
+  border-bottom: 1px solid #edf2f7;
+  padding: 14px;
+}
+
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h2 {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+h3 {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.role-panel-head span,
+.section-head span,
+.matrix-head p,
+.matrix-footer span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.role-list {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
   overflow: auto;
-  scrollbar-gutter: stable;
   padding: 12px;
 }
 
-.matrix-block + .matrix-block {
-  margin-top: 20px;
+.role-card {
+  position: relative;
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+  transition: border-color 0.16s ease, background 0.16s ease;
 }
 
-.matrix-block h3 {
-  margin: 0 0 10px;
-  color: #1f2937;
-  font-size: 16px;
+.role-card.active {
+  border-color: #2563eb;
+  background: #eff6ff;
 }
 
-.plain-table td:first-child {
-  min-width: 220px;
+.role-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 52px;
 }
 
-.plain-table td:first-child strong {
-  display: block;
-  color: #1f2937;
-  font-weight: 600;
+.role-main strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #111827;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.plain-table td:first-child span {
-  display: block;
-  margin-top: 4px;
+.role-card p {
+  margin-top: 6px;
+  min-height: 18px;
   color: #64748b;
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.role-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.role-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 2px;
+}
+
+.matrix-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+  padding: 14px;
+}
+
+.matrix-head {
+  flex: 0 0 auto;
+}
+
+.permission-grid {
+  display: grid;
+  flex: 1 1 0;
+  min-height: 0;
+  grid-template-columns: minmax(280px, 0.34fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.permission-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.menu-section {
+  min-width: 0;
+}
+
+.action-section {
+  min-width: 0;
+}
+
+.section-head {
+  flex: 0 0 auto;
+  border-bottom: 1px solid #edf2f7;
+  padding: 12px 14px;
+}
+
+.section-body,
+.action-table-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.action-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.action-table th,
+.action-table td {
+  border-bottom: 1px solid #edf2f7;
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.action-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+}
+
+.action-table td:first-child {
+  width: 160px;
+}
+
+.action-table td:nth-child(2) {
+  width: 180px;
+  color: #64748b;
+}
+
+.action-table strong,
+.action-table small {
+  display: block;
+}
+
+.action-table small {
+  margin-top: 4px;
+  color: #94a3b8;
+}
+
+.action-table tr.muted {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.check-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 86px;
+  margin: 0 14px 8px 0;
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.check-item input {
+  width: 14px;
+  height: 14px;
+  accent-color: #2563eb;
+}
+
+.check-item input:disabled + span,
+.action-table tr.muted .check-item {
+  color: #94a3b8;
+}
+
+.select-all {
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.matrix-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid #edf2f7;
+  padding-top: 12px;
+}
+
+@media (max-width: 1080px) {
+  .permission-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .permission-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .role-panel {
+    max-height: 280px;
+  }
 }
 </style>

@@ -3,23 +3,28 @@
 
   负责：
   1. 组织系统管理子页面导航
-  2. 承载用户、角色、权限矩阵、模型配置、操作日志和问答审计
+  2. 承载用户管理、权限矩阵、模型配置、操作日志和问答审计
   3. 保持后台管理区域的统一工作台样式
 -->
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router';
+import { computed } from 'vue';
+
+import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
 const route = useRoute();
+const authStore = useAuthStore();
 
-const tabs = [
-  { value: '/system/users', label: '用户管理' },
-  { value: '/system/roles', label: '角色管理' },
-  { value: '/system/permissions', label: '权限矩阵' },
-  { value: '/system/model-configs', label: '模型配置' },
-  { value: '/system/logs', label: '操作日志' },
-  { value: '/system/qa-audits', label: '问答审计' },
-];
+const visibleTabs = computed(() => {
+  /**
+   * 系统管理 Tab 来源于后端授权菜单树，不再维护前端静态 Tab。
+   */
+  const systemMenu = authStore.authorizedMenuTree.find((item) => item.id === 'system');
+  return (systemMenu?.children || [])
+    .filter((item) => item.path)
+    .map((item) => ({ value: item.path as string, label: item.name }));
+});
 </script>
 
 <template>
@@ -32,7 +37,7 @@ const tabs = [
         </div>
       </div>
       <t-tabs class="system-top-tabs" :value="route.path" @change="(value) => router.push(String(value))">
-        <t-tab-panel v-for="tab in tabs" :key="tab.value" :value="tab.value" :label="tab.label" />
+        <t-tab-panel v-for="tab in visibleTabs" :key="tab.value" :value="tab.value" :label="tab.label" />
       </t-tabs>
       <div class="system-content">
         <router-view />

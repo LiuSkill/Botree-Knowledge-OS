@@ -15,9 +15,10 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppException
+from app.core.rbac import ACTION_GROUPS, MENU_TREE, ActionGroup, MenuNode
 from app.models.chat import ChatCitation
 from app.models.operation_log import OperationLog
-from app.models.user import User
+from app.models.user import Permission, User
 from app.repositories.chat_repository import ChatRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
@@ -272,6 +273,29 @@ class SystemService:
             for trace in RetrievalTraceService(self.db).list_recent()
         ]
 
+    def list_menus(self) -> list[dict[str, Any]]:
+        """
+        查询系统真实菜单树。
+
+        说明：
+            菜单树由后端注册表维护，每个叶子节点绑定前端真实 path 和
+            permissions 表中的 permission_id，前端只负责渲染和勾选。
+        """
+
+        permission_by_code = self._permission_by_code()
+        return [self._menu_node_to_dict(node, permission_by_code) for node in MENU_TREE]
+
+    def list_action_permissions(self) -> list[dict[str, Any]]:
+        """
+        查询系统按钮级权限矩阵。
+
+        返回数据对应前端 v-permission 权限码，新增按钮权限时只需在后端
+        注册表和 Vue 按钮上使用同一 code。
+        """
+
+        permission_by_code = self._permission_by_code()
+        return [self._action_group_to_dict(group, permission_by_code) for group in ACTION_GROUPS]
+
     def _qa_audit_session_to_dict(self, item: dict[str, Any]) -> dict[str, Any]:
         """序列化会话维度的问答审计摘要。"""
 
@@ -300,6 +324,41 @@ class SystemService:
             "latest_qa_at": item["latest_qa_at"],
             "created_at": session.created_at,
             "updated_at": session.updated_at,
+        }
+
+    def _permission_by_code(self) -> dict[str, Permission]:
+        """按权限编码索引数据库权限记录。"""
+
+        return {item.code: item for item in self.db.query(Permission).all()}
+
+    def _menu_node_to_dict(self, node: MenuNode, permission_by_code: dict[str, Permission]) -> dict[str, Any]:
+        """序列化菜单节点，保留树形层级和路由路径。"""
+
+        permission = permission_by_code.get(node.id)
+        return {
+            "id": node.id,
+            "name": node.name,
+            "path": node.path,
+            "permission_id": permission.id if permission else None,
+            "children": [self._menu_node_to_dict(child, permission_by_code) for child in node.children],
+        }
+
+    def _action_group_to_dict(self, group: ActionGroup, permission_by_code: dict[str, Permission]) -> dict[str, Any]:
+        """序列化按钮权限分组。"""
+
+        return {
+            "module": group.module,
+            "module_name": group.module_name,
+            "menu_ids": list(group.menu_ids),
+            "actions": [
+                {
+                    "action": action.action,
+                    "name": action.name,
+                    "code": action.code,
+                    "permission_id": permission_by_code[action.code].id if action.code in permission_by_code else None,
+                }
+                for action in group.actions
+            ],
         }
 
     def _qa_audit_detail_to_dict(

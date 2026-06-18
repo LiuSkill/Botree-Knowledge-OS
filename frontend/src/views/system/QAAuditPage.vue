@@ -7,7 +7,7 @@
   3. 通过服务端分页控制审计数据加载规模
 -->
 <script setup lang="ts">
-import { RefreshIcon } from 'tdesign-icons-vue-next';
+import { FileSearchIcon, RefreshIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, ref } from 'vue';
 
 import { listProjects } from '@/api/projects';
@@ -17,6 +17,7 @@ import botreeLogo from '@/assets/botree-logo.png';
 import AgentTracePanel from '@/components/AgentTracePanel.vue';
 import ChatRichContent from '@/components/ChatRichContent.vue';
 import CitationList from '@/components/CitationList.vue';
+import TableActionButton from '@/components/TableActionButton.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import type {
   AgentTraceStep,
@@ -84,7 +85,7 @@ const detailColumns = [
   { colKey: 'session_title', title: '会话', width: 180, ellipsis: true },
   { colKey: 'retrievers', title: '检索器', width: 160 },
   { colKey: 'answered_at', title: '回答时间', width: 150 },
-  { colKey: 'operation', title: '操作', width: 110, fixed: 'right' },
+  { colKey: 'operation', title: '操作', width: 72, fixed: 'right' },
 ];
 
 const selectedDetailTrace = computed<AgentTraceStep[]>(() => parseAgentTrace(selectedDetail.value?.agent_trace_json));
@@ -470,7 +471,9 @@ onMounted(async () => {
             {{ retrieverLabel(row.retrievers) }}
           </template>
           <template #operation="{ row }">
-            <t-button size="small" variant="text" @click="openDetailDrawer(row)">查看详情</t-button>
+            <TableActionButton label="查看详情" @click="openDetailDrawer(row)">
+              <FileSearchIcon />
+            </TableActionButton>
           </template>
         </t-table>
       </div>

@@ -7,7 +7,7 @@
   3. 上传资料时强制选择分类，资料默认进入草稿审核流程
 -->
 <script setup lang="ts">
-import { AddIcon, ChevronDownSIcon, ChevronRightSIcon, SearchIcon } from 'tdesign-icons-vue-next';
+import { AddIcon, AssignmentCheckedIcon, ChevronDownSIcon, ChevronRightSIcon, SearchIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -16,6 +16,7 @@ import { submitDocumentReview } from '@/api/documents';
 import { createKnowledgeCategory, deleteKnowledgeCategory, listKnowledgeCategories, updateKnowledgeCategory } from '@/api/knowledgeCategories';
 import { listKnowledgeBaseDocuments, listKnowledgeBases, uploadKnowledgeDocument } from '@/api/knowledgeBases';
 import StatusTag from '@/components/StatusTag.vue';
+import TableActionButton from '@/components/TableActionButton.vue';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory } from '@/types/api';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
@@ -71,7 +72,8 @@ const fileTypeFilters: Array<{ label: string; value: FileTypeFilter }> = [
 ];
 
 const uploadTargetBase = computed(() => enterpriseBases.value[0] || null);
-const canManageCategories = computed(() => authStore.hasPermission('knowledge:update'));
+const canEditCategories = computed(() => authStore.hasActionPermission('knowledge:edit'));
+const canDeleteCategories = computed(() => authStore.hasActionPermission('knowledge:delete'));
 
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
 
@@ -379,7 +381,7 @@ onMounted(loadEnterpriseKnowledge);
     <aside class="knowledge-category-panel">
       <div class="category-title">
         <span>知识分类</span>
-        <t-button v-if="canManageCategories" size="small" variant="text" @click="openCreateCategoryDialog">新增</t-button>
+        <t-button v-permission="'knowledge:create'" size="small" variant="text" @click="openCreateCategoryDialog">新增</t-button>
       </div>
       <div class="category-list">
         <t-button class="category-row" :class="{ active: activeCategoryId === null }" block variant="text" @click="selectCategory(null)">
@@ -413,9 +415,9 @@ onMounted(loadEnterpriseKnowledge);
         </t-button>
       </div>
 
-      <div v-if="canManageCategories" class="category-tools">
-        <t-button size="small" variant="outline" @click="openEditCategoryDialog">编辑</t-button>
-        <t-button size="small" variant="outline" theme="danger" @click="removeActiveCategory">删除</t-button>
+      <div v-if="canEditCategories || canDeleteCategories" class="category-tools">
+        <t-button v-permission="'knowledge:edit'" size="small" variant="outline" @click="openEditCategoryDialog">编辑</t-button>
+        <t-button v-permission="'knowledge:delete'" size="small" variant="outline" theme="danger" @click="removeActiveCategory">删除</t-button>
       </div>
     </aside>
 
@@ -444,7 +446,7 @@ onMounted(loadEnterpriseKnowledge);
             <SearchIcon class="search-icon" />
             <input v-model="searchKeyword" type="search" placeholder="搜索文档..." />
           </label>
-          <t-button class="upload-button" theme="primary" :loading="uploading" @click="openUploadDialog">
+          <t-button v-permission="'knowledge:upload'" class="upload-button" theme="primary" :loading="uploading" @click="openUploadDialog">
             <template #icon><AddIcon /></template>
             上传文档
           </t-button>
@@ -483,7 +485,14 @@ onMounted(loadEnterpriseKnowledge);
                 <td><StatusTag type="index" :value="document.index_status" /></td>
                 <td>{{ formatDateTime(document.updated_at || document.created_at) }}</td>
                 <td>
-                  <t-button size="small" variant="text" :disabled="!canSubmitReview(document)" @click="submitReview(document)">提交审核</t-button>
+                  <TableActionButton
+                    label="提交审核"
+                    permission="knowledge:submit-review"
+                    :disabled="!canSubmitReview(document)"
+                    @click="submitReview(document)"
+                  >
+                    <AssignmentCheckedIcon />
+                  </TableActionButton>
                 </td>
               </tr>
             </tbody>

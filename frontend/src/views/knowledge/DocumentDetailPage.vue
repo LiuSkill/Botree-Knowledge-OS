@@ -9,6 +9,7 @@
 <script setup lang="ts">
 import MarkdownIt from 'markdown-it';
 import { MessagePlugin } from 'tdesign-vue-next';
+import { AssignmentCheckedIcon, DownloadIcon, FileSearchIcon } from 'tdesign-icons-vue-next';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { Directive } from 'vue';
@@ -30,6 +31,7 @@ import {
 } from '@/api/documents';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
+import TableActionButton from '@/components/TableActionButton.vue';
 import { useAuthStore } from '@/stores/auth';
 import type {
   DocumentAssetInfo,
@@ -205,9 +207,10 @@ const markdownRenderer = new MarkdownIt({
 });
 
 const documentId = computed(() => Number(route.params.id));
-const canUploadVersion = computed(() => authStore.hasPermission('knowledge:update'));
-const canDeleteDocument = computed(() => authStore.hasPermission('knowledge:delete'));
-const canReviewDocument = computed(() => authStore.hasPermission('review:review'));
+const canUploadVersion = computed(() => authStore.hasActionPermission('knowledge:upload'));
+const canDeleteDocument = computed(() => authStore.hasActionPermission('knowledge:delete'));
+const canReviewDocument = computed(() => authStore.hasActionPermission('review:review'));
+const canBuildDocumentIndex = computed(() => authStore.hasActionPermission('review:build-index'));
 const backPath = computed(() => {
   /**
    * 根据知识范围返回对应的上级页面，保证删除或返回时回到正确上下文。
@@ -245,13 +248,13 @@ const activeBuildTask = computed(() =>
   ) || null,
 );
 const canParseVersion = computed(() =>
-  canReviewDocument.value &&
+  canBuildDocumentIndex.value &&
   Boolean(documentInfo.value) &&
   viewedParseStatus.value !== 'parsing' &&
   !parsing.value,
 );
 const canBuildIndex = computed(() =>
-  canReviewDocument.value &&
+  canBuildDocumentIndex.value &&
   Boolean(documentInfo.value) &&
   viewedReviewStatus.value === 'approved' &&
   !activeBuildTask.value &&
@@ -1199,8 +1202,8 @@ onBeforeUnmount(() => {
         >
           返回
         </t-button>
-        <t-button v-if="canSubmitReview" theme="primary" @click="submitReview()">提交审核</t-button>
-        <t-button v-if="canDeleteDocument" theme="danger" variant="outline" :loading="deleting" @click="removeDocument">删除文档</t-button>
+        <t-button v-permission="'knowledge:submit-review'" v-if="canSubmitReview" theme="primary" @click="submitReview()">提交审核</t-button>
+        <t-button v-permission="'knowledge:delete'" v-if="canDeleteDocument" theme="danger" variant="outline" :loading="deleting" @click="removeDocument">删除文档</t-button>
       </t-space>
     </template>
 
@@ -1409,9 +1412,23 @@ onBeforeUnmount(() => {
                     <td>{{ version.change_summary || '-' }}</td>
                     <td>{{ formatDateTime(version.created_at) }}</td>
                     <td>
-                      <t-button v-if="canSubmitVersion(version)" size="small" variant="text" theme="primary" @click="submitReview(version.version_no)">提交审核</t-button>
-                      <t-button size="small" variant="text" @click="viewVersion(version)">查看</t-button>
-                      <t-button size="small" variant="text" @click="downloadVersion(version)">下载</t-button>
+                      <div class="row-actions">
+                        <TableActionButton
+                          v-if="canSubmitVersion(version)"
+                          label="提交审核"
+                          permission="knowledge:submit-review"
+                          theme="primary"
+                          @click="submitReview(version.version_no)"
+                        >
+                          <AssignmentCheckedIcon />
+                        </TableActionButton>
+                        <TableActionButton label="查看" @click="viewVersion(version)">
+                          <FileSearchIcon />
+                        </TableActionButton>
+                        <TableActionButton label="下载" @click="downloadVersion(version)">
+                          <DownloadIcon />
+                        </TableActionButton>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -1440,6 +1457,7 @@ onBeforeUnmount(() => {
             <div v-if="activeBuildTask" class="muted-text">当前版本已有构建任务 #{{ activeBuildTask.id }}，{{ taskStatusText(activeBuildTask) }}</div>
             <div class="tool-actions">
               <t-button
+                v-permission="'review:build-index'"
                 block
                 variant="outline"
                 :disabled="!canParseVersion"
@@ -1449,6 +1467,7 @@ onBeforeUnmount(() => {
                 {{ viewedParseStatus === 'success' ? '重新解析' : '执行解析' }}
               </t-button>
               <t-button
+                v-permission="'review:build-index'"
                 block
                 theme="primary"
                 :disabled="!canBuildIndex"
@@ -1475,7 +1494,7 @@ onBeforeUnmount(() => {
               <label>变更说明</label>
               <t-textarea v-model="versionForm.change_summary" :autosize="{ minRows: 3, maxRows: 5 }" />
             </div>
-            <t-button theme="primary" block :disabled="!canUploadVersion" :loading="versionUploading" @click="uploadNewVersion">
+            <t-button v-permission="'knowledge:upload'" theme="primary" block :disabled="!canUploadVersion" :loading="versionUploading" @click="uploadNewVersion">
               上传新版本
             </t-button>
           </section>

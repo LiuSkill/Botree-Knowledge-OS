@@ -7,7 +7,7 @@
   3. 项目资料页只负责提交审核，解析与索引统一进入审核中心构建流程。
 -->
 <script setup lang="ts">
-import { AddIcon, ChevronDownSIcon, ChevronRightSIcon } from 'tdesign-icons-vue-next';
+import { AddIcon, AssignmentCheckedIcon, ChevronDownSIcon, ChevronRightSIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -18,6 +18,7 @@ import { uploadKnowledgeDocument } from '@/api/knowledgeBases';
 import { getProject, listProjectMembers } from '@/api/projects';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
+import TableActionButton from '@/components/TableActionButton.vue';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeCategory, ProjectInfo } from '@/types/api';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
@@ -50,7 +51,8 @@ const editingCategoryId = ref<number | null>(null);
 
 const projectId = computed(() => Number(route.params.id));
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
-const canManageCategories = computed(() => authStore.hasPermission('knowledge:update'));
+const canEditCategories = computed(() => authStore.hasActionPermission('knowledge:edit'));
+const canDeleteCategories = computed(() => authStore.hasActionPermission('knowledge:delete'));
 
 const uploadForm = reactive({
   category_id: null as number | null,
@@ -292,7 +294,7 @@ onMounted(loadData);
     <template #actions>
       <t-space>
         <t-button variant="outline" @click="router.push('/projects')">返回项目中心</t-button>
-        <t-button theme="primary" :loading="uploading" @click="openUploadDialog">
+        <t-button v-permission="'knowledge:upload'" theme="primary" :loading="uploading" @click="openUploadDialog">
           <template #icon><AddIcon /></template>
           上传资料
         </t-button>
@@ -322,7 +324,7 @@ onMounted(loadData);
           <template #title>
             <div class="card-title-row">
               <span>项目资料分类</span>
-              <t-button v-if="canManageCategories" size="small" variant="text" @click="openCreateCategoryDialog">新增</t-button>
+              <t-button v-permission="'knowledge:create'" size="small" variant="text" @click="openCreateCategoryDialog">新增</t-button>
             </div>
           </template>
 
@@ -351,9 +353,9 @@ onMounted(loadData);
             <span class="category-count">{{ row.category.total_document_count }}</span>
           </t-button>
 
-          <div v-if="canManageCategories" class="category-tools">
-            <t-button size="small" variant="outline" @click="openEditCategoryDialog">编辑</t-button>
-            <t-button size="small" variant="outline" theme="danger" @click="removeActiveCategory">删除</t-button>
+          <div v-if="canEditCategories || canDeleteCategories" class="category-tools">
+            <t-button v-permission="'knowledge:edit'" size="small" variant="outline" @click="openEditCategoryDialog">编辑</t-button>
+            <t-button v-permission="'knowledge:delete'" size="small" variant="outline" theme="danger" @click="removeActiveCategory">删除</t-button>
           </div>
         </t-card>
 
@@ -383,7 +385,14 @@ onMounted(loadData);
                 <td><StatusTag type="index" :value="doc.index_status" /></td>
                 <td>{{ formatDateTime(doc.updated_at) }}</td>
                 <td>
-                  <t-button size="small" variant="text" :disabled="!canSubmitReview(doc)" @click="submitReview(doc)">提交审核</t-button>
+                  <TableActionButton
+                    label="提交审核"
+                    permission="knowledge:submit-review"
+                    :disabled="!canSubmitReview(doc)"
+                    @click="submitReview(doc)"
+                  >
+                    <AssignmentCheckedIcon />
+                  </TableActionButton>
                 </td>
               </tr>
             </tbody>

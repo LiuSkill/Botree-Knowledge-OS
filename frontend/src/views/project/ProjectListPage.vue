@@ -53,7 +53,7 @@ onMounted(loadProjects);
 <template>
   <PageContainer title="项目中心" subtitle="项目资料、项目成员和项目知识库的隔离管理">
     <template #actions>
-      <t-button theme="primary" @click="dialogVisible = true">新建项目</t-button>
+      <t-button v-permission="'project:create'" theme="primary" @click="dialogVisible = true">新建项目</t-button>
     </template>
 
     <div class="project-grid data-scroll">

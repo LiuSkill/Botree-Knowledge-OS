@@ -8,6 +8,7 @@
 -->
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
+import { AssignmentCheckedIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -16,6 +17,7 @@ import { listKnowledgeCategories } from '@/api/knowledgeCategories';
 import { getKnowledgeBase, listKnowledgeBaseDocuments, uploadKnowledgeDocument } from '@/api/knowledgeBases';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
+import TableActionButton from '@/components/TableActionButton.vue';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory } from '@/types/api';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
@@ -177,7 +179,7 @@ onMounted(loadData);
               <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
             </t-form-item>
           </div>
-          <t-button theme="primary" :loading="uploading" @click="handleUpload">上传资料</t-button>
+          <t-button v-permission="'knowledge:upload'" theme="primary" :loading="uploading" @click="handleUpload">上传资料</t-button>
         </t-form>
       </t-card>
 
@@ -213,7 +215,14 @@ onMounted(loadData);
               <td><StatusTag type="index" :value="doc.index_status" /></td>
               <td>{{ formatDateTime(doc.updated_at) }}</td>
               <td>
-                <t-button size="small" variant="text" :disabled="!canSubmitReview(doc)" @click="submitReview(doc)">提交审核</t-button>
+                <TableActionButton
+                  label="提交审核"
+                  permission="knowledge:submit-review"
+                  :disabled="!canSubmitReview(doc)"
+                  @click="submitReview(doc)"
+                >
+                  <AssignmentCheckedIcon />
+                </TableActionButton>
               </td>
             </tr>
           </tbody>

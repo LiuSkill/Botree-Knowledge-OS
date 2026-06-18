@@ -10,7 +10,7 @@ Model Config API
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
@@ -28,7 +28,7 @@ def list_configs(
     is_default: bool | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("system:model-config")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询模型配置列表。"""
@@ -50,7 +50,7 @@ def list_configs(
 
 
 @router.post("", summary="新增模型配置")
-def create_config(payload: ModelConfigCreate, current_user: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def create_config(payload: ModelConfigCreate, current_user: User = Depends(require_permission("model-config:create")), db: Session = Depends(get_db)) -> dict:
     """新增模型配置。"""
 
     config = ModelService(db).create_config(payload, current_user)
@@ -58,7 +58,12 @@ def create_config(payload: ModelConfigCreate, current_user: User = Depends(requi
 
 
 @router.put("/{config_id}", summary="编辑模型配置")
-def update_config(config_id: int, payload: ModelConfigUpdate, current_user: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def update_config(
+    config_id: int,
+    payload: ModelConfigUpdate,
+    current_user: User = Depends(require_permission("model-config:edit")),
+    db: Session = Depends(get_db),
+) -> dict:
     """编辑模型配置。"""
 
     config = ModelService(db).update_config(config_id, payload, current_user)
@@ -66,7 +71,7 @@ def update_config(config_id: int, payload: ModelConfigUpdate, current_user: User
 
 
 @router.delete("/{config_id}", summary="删除模型配置")
-def delete_config(config_id: int, current_user: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def delete_config(config_id: int, current_user: User = Depends(require_permission("model-config:delete")), db: Session = Depends(get_db)) -> dict:
     """删除模型配置。"""
 
     ModelService(db).delete_config(config_id, current_user)
@@ -74,14 +79,18 @@ def delete_config(config_id: int, current_user: User = Depends(require_admin), d
 
 
 @router.post("/{config_id}/test", summary="测试模型配置")
-def test_config(config_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def test_config(config_id: int, _: User = Depends(require_permission("model-config:test")), db: Session = Depends(get_db)) -> dict:
     """测试模型配置。"""
 
     return success(ModelService(db).test_config(config_id))
 
 
 @router.post("/{config_id}/set-default", summary="设为默认模型")
-def set_default(config_id: int, current_user: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def set_default(
+    config_id: int,
+    current_user: User = Depends(require_permission("model-config:set-default")),
+    db: Session = Depends(get_db),
+) -> dict:
     """设置默认模型。"""
 
     config = ModelService(db).set_default(config_id, current_user)

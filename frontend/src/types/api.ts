@@ -17,6 +17,7 @@ export interface RoleBrief {
   id: number;
   name: string;
   code: string;
+  enabled: boolean;
 }
 
 export interface UserInfo {
@@ -31,6 +32,7 @@ export interface UserInfo {
   avatar_updated_at?: string | null;
   roles: RoleBrief[];
   permission_codes?: string[];
+  permissions?: CurrentPermissions;
 }
 
 export interface RoleInfo extends RoleBrief {
@@ -279,6 +281,15 @@ export interface DocumentDeleteResult {
 export interface ReviewTask {
   id: number;
   document_id: number;
+  document_file_name?: string | null;
+  document_category_name?: string | null;
+  document_category_path?: string | null;
+  display_version_no?: number | null;
+  uploader_id?: number | null;
+  uploader_name?: string | null;
+  uploader_username?: string | null;
+  version_id?: number | null;
+  version_no?: number | null;
   reviewer_id?: number | null;
   review_status: string;
   review_comment?: string | null;
@@ -305,6 +316,33 @@ export interface ChatMessage {
   feedback_status?: 'like' | 'dislike' | null;
   citations?: Citation[];
   created_at: string;
+}
+
+export interface CurrentPermissions {
+  menus: string[];
+  actions: string[];
+}
+
+export interface SystemMenuNode {
+  id: string;
+  name: string;
+  path?: string | null;
+  permission_id?: number | null;
+  children: SystemMenuNode[];
+}
+
+export interface ActionPermissionInfo {
+  action: string;
+  name: string;
+  code: string;
+  permission_id?: number | null;
+}
+
+export interface ActionPermissionGroup {
+  module: string;
+  module_name: string;
+  menu_ids: string[];
+  actions: ActionPermissionInfo[];
 }
 
 export interface CitationAsset {

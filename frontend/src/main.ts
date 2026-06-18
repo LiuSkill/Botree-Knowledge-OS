@@ -14,7 +14,8 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 
 import App from '@/App.vue';
+import { permissionDirective } from '@/directives/permission';
 import router from '@/router';
 import '@/styles/global.css';
 
-createApp(App).use(createPinia()).use(router).use(TDesign).use(TDesignChat).mount('#app');
+createApp(App).use(createPinia()).use(router).use(TDesign).use(TDesignChat).directive('permission', permissionDirective).mount('#app');

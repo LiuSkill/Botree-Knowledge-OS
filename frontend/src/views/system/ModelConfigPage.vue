@@ -8,7 +8,7 @@
 -->
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
-import { RefreshIcon } from 'tdesign-icons-vue-next';
+import { CheckCircleIcon, DeleteIcon, EditIcon, PlayCircleIcon, PoweroffIcon, RefreshIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import {
@@ -20,6 +20,7 @@ import {
   updateModelConfig,
 } from '@/api/modelConfigs';
 import type { ModelConfigListParams } from '@/api/modelConfigs';
+import TableActionButton from '@/components/TableActionButton.vue';
 import type { ModelConfig, PageResult } from '@/types/api';
 
 interface PaginationInfo {
@@ -76,7 +77,7 @@ const columns = [
   { colKey: 'api_base', title: 'API Base', minWidth: 220 },
   { colKey: 'is_default', title: '默认', width: 90 },
   { colKey: 'enabled', title: '状态', width: 90 },
-  { colKey: 'operation', title: '操作', width: 300, fixed: 'right' },
+  { colKey: 'operation', title: '操作', width: 180, fixed: 'right' },
 ];
 
 function createEmptyPageResult<T>(): PageResult<T> {
@@ -276,7 +277,7 @@ onMounted(loadConfigs);
           <template #icon><RefreshIcon /></template>
           刷新
         </t-button>
-        <t-button theme="primary" @click="openCreateDialog">新增模型</t-button>
+        <t-button v-permission="'model-config:create'" theme="primary" @click="openCreateDialog">新增模型</t-button>
       </t-space>
     </div>
 
@@ -304,14 +305,24 @@ onMounted(loadConfigs);
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <t-button size="small" variant="text" @click="openEditDialog(row)">编辑</t-button>
-            <t-button size="small" variant="text" @click="toggleEnabled(row)">{{ row.enabled ? '停用' : '启用' }}</t-button>
-            <t-button size="small" variant="text" :disabled="row.is_default" @click="handleSetDefault(row)">设为默认</t-button>
+            <TableActionButton label="编辑" permission="model-config:edit" @click="openEditDialog(row)">
+              <EditIcon />
+            </TableActionButton>
+            <TableActionButton :label="row.enabled ? '停用' : '启用'" permission="model-config:edit" @click="toggleEnabled(row)">
+              <PoweroffIcon />
+            </TableActionButton>
+            <TableActionButton label="设为默认" permission="model-config:set-default" :disabled="row.is_default" @click="handleSetDefault(row)">
+              <CheckCircleIcon />
+            </TableActionButton>
             <t-popconfirm content="确认测试该模型配置？" @confirm="handleTest(row)">
-              <t-button size="small" variant="text">测试</t-button>
+              <TableActionButton label="测试" permission="model-config:test">
+                <PlayCircleIcon />
+              </TableActionButton>
             </t-popconfirm>
             <t-popconfirm content="确认删除该模型配置？" @confirm="handleDelete(row)">
-              <t-button size="small" variant="text" theme="danger">删除</t-button>
+              <TableActionButton label="删除" permission="model-config:delete" theme="danger">
+                <DeleteIcon />
+              </TableActionButton>
             </t-popconfirm>
           </t-space>
         </template>

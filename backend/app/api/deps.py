@@ -14,6 +14,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
+from app.core.rbac import action_page_bindings
 from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.core.security import decode_access_token
@@ -63,7 +64,7 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
         当前管理员用户。
     """
 
-    if not any(role.code == "admin" for role in current_user.roles):
+    if not any(role.code == "admin" and role.enabled for role in current_user.roles):
         raise AppException("需要管理员权限", status_code=403, code=403)
     return current_user
 
@@ -81,6 +82,8 @@ def user_permission_codes(user: User) -> set[str]:
 
     codes: set[str] = set()
     for role in user.roles:
+        if not role.enabled:
+            continue
         for permission in role.permissions:
             codes.add(permission.code)
     return codes
@@ -100,7 +103,13 @@ def has_permission(user: User, permission_code: str) -> bool:
 
     if is_admin(user):
         return True
-    return permission_code in user_permission_codes(user)
+    permission_codes = user_permission_codes(user)
+    if permission_code not in permission_codes:
+        return False
+    bound_menu_codes = action_page_bindings().get(permission_code)
+    if bound_menu_codes is None:
+        return True
+    return bool(bound_menu_codes & permission_codes)
 
 
 def require_permission(permission_code: str) -> Callable[[User], User]:
@@ -124,6 +133,25 @@ def require_permission(permission_code: str) -> Callable[[User], User]:
     return dependency
 
 
+def require_any_permission(*permission_codes: str) -> Callable[[User], User]:
+    """
+    生成任一权限校验依赖。
+
+    说明：
+        部分接口会被多个页面复用，例如用户管理需要读取角色选项，
+        权限矩阵也需要读取角色列表，此时满足任一页面权限即可访问。
+    """
+
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        """校验当前用户是否拥有任一指定权限。"""
+
+        if not any(has_permission(current_user, code) for code in permission_codes):
+            raise AppException("无权执行该操作", status_code=403, code=403)
+        return current_user
+
+    return dependency
+
+
 def is_admin(user: User) -> bool:
     """
     判断用户是否管理员
@@ -135,4 +163,4 @@ def is_admin(user: User) -> bool:
         是否拥有 admin 角色。
     """
 
-    return any(role.code == "admin" for role in user.roles)
+    return any(role.code == "admin" and role.enabled for role in user.roles)

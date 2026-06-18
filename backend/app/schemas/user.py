@@ -22,6 +22,7 @@ class RoleBrief(BaseModel):
     id: int = Field(..., description="角色ID")
     name: str = Field(..., description="角色名称")
     code: str = Field(..., description="角色编码")
+    enabled: bool = Field(..., description="角色是否启用")
 
 
 class UserCreate(BaseModel):

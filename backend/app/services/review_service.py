@@ -18,7 +18,9 @@ from app.models.review import ReviewLog, ReviewTask
 from app.models.user import User
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.review_repository import ReviewRepository
+from app.repositories.user_repository import UserRepository
 from app.services.document_service import DocumentService
+from app.services.knowledge_category_service import KnowledgeCategoryService
 from app.services.system_service import SystemService
 from app.utils.time_utils import now_utc
 
@@ -45,6 +47,8 @@ class ReviewService:
         self.db = db
         self.repository = ReviewRepository(db)
         self.document_repository = DocumentRepository(db)
+        self.category_service = KnowledgeCategoryService(db)
+        self.user_repository = UserRepository(db)
 
     def _resolve_submit_version(self, document: Document, version_no: int | None = None) -> DocumentVersion | None:
         """
@@ -141,7 +145,9 @@ class ReviewService:
     def list_tasks(self, status: str | None = None) -> list[ReviewTask]:
         """查询审核任务。"""
 
-        return self.repository.list_tasks(status)
+        tasks = self.repository.list_tasks(status)
+        self._attach_task_display_fields(tasks)
+        return tasks
 
     def get_task(self, task_id: int) -> ReviewTask:
         """查询审核任务详情。"""
@@ -149,7 +155,34 @@ class ReviewService:
         task = self.repository.get_task(task_id)
         if not task:
             raise AppException("审核任务不存在", status_code=404, code=404)
+        self._attach_task_display_fields([task])
         return task
+
+    def _attach_task_display_fields(self, tasks: list[ReviewTask]) -> None:
+        """
+        补齐审核任务列表展示字段。
+
+        审核任务本身只保存流程状态，列表展示需要结合文档、版本、分类和上传人信息。
+        这些字段仅用于接口序列化，不回写审核任务表。
+        """
+
+        for task in tasks:
+            document = self.document_repository.get(task.document_id)
+            version = self.document_repository.get_version_by_id(task.version_id) if task.version_id else None
+            if version is None and task.version_no:
+                version = self.document_repository.get_version(task.document_id, task.version_no)
+
+            category_id = version.category_id if version and version.category_id is not None else document.category_id if document else None
+            uploader_id = version.created_by if version and version.created_by is not None else document.created_by if document else None
+            uploader = self.user_repository.get_by_id(uploader_id) if uploader_id is not None else None
+
+            setattr(task, "document_file_name", version.file_name if version else document.file_name if document else None)
+            setattr(task, "document_category_name", self.category_service.category_name(category_id))
+            setattr(task, "document_category_path", self.category_service.category_path(category_id))
+            setattr(task, "display_version_no", task.version_no or (version.version_no if version else document.version_no if document else None))
+            setattr(task, "uploader_id", uploader_id)
+            setattr(task, "uploader_name", uploader.real_name if uploader else None)
+            setattr(task, "uploader_username", uploader.username if uploader else None)
 
     def approve(self, task_id: int, operator: User, comment: str | None = None) -> ReviewTask:
         """审核通过。"""
@@ -190,6 +223,7 @@ class ReviewService:
         )
         SystemService(self.db).record_operation(operator, "审核通过", "document", document.id, comment or "审核通过")
         self.db.commit()
+        self._attach_task_display_fields([task])
         logger.info(
             "审核通过: document_id=%s version_id=%s version_no=%s project_id=%s file_name=%s operation=%s status=%s error_message=%s timestamp=%s",
             document.id,
@@ -243,6 +277,7 @@ class ReviewService:
         )
         SystemService(self.db).record_operation(operator, "审核驳回", "document", document.id, comment or "审核驳回")
         self.db.commit()
+        self._attach_task_display_fields([task])
         logger.info(
             "审核驳回: document_id=%s version_id=%s version_no=%s project_id=%s file_name=%s operation=%s status=%s error_message=%s timestamp=%s",
             document.id,

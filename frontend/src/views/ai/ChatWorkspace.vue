@@ -72,7 +72,11 @@ const isExternalUser = computed(() =>
   Boolean(authStore.user?.roles.some((role) => role.code === 'external' || role.name.includes('外部'))),
 );
 const senderDisabled = computed(
-  () => streaming.value || (props.requireProject && !projectId.value) || (props.chatType === 'base_chat' && isExternalUser.value),
+  () =>
+    streaming.value ||
+    !authStore.hasActionPermission('ai:chat') ||
+    (props.requireProject && !projectId.value) ||
+    (props.chatType === 'base_chat' && isExternalUser.value),
 );
 const sessionEmptyDescription = computed(() =>
   props.chatType === 'project_chat' && !projectId.value ? '请先选择项目' : '暂无会话',
@@ -540,7 +544,7 @@ onMounted(loadBaseData);
       <aside class="agent-sidebar surface">
         <div class="sidebar-header">
           <div class="agent-title">{{ chatType === 'project_chat' ? '项目问答会话' : '基础问答会话' }}</div>
-          <t-button block theme="primary" variant="outline" :disabled="streaming" @click="startNewSession">新建对话</t-button>
+          <t-button v-permission="'ai:chat'" block theme="primary" variant="outline" :disabled="streaming" @click="startNewSession">新建对话</t-button>
         </div>
         <div class="session-list">
           <t-button
@@ -700,7 +704,7 @@ onMounted(loadBaseData);
           </div>
         </div>
 
-        <div ref="senderShellRef" class="sender-shell">
+        <div ref="senderShellRef" v-permission="'ai:chat'" class="sender-shell">
           <TChatSender
             v-model="question"
             :loading="streaming"

@@ -10,7 +10,7 @@ Knowledge Categories API
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permission
+from app.api.deps import require_any_permission, require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/knowledge-categories", tags=["知识分类"])
 def list_categories(
     scope_type: str,
     project_id: int | None = None,
-    current_user: User = Depends(require_permission("knowledge:view")),
+    current_user: User = Depends(require_any_permission("knowledge", "project", "review")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询企业或项目范围内的知识分类树。"""
@@ -36,7 +36,7 @@ def list_categories(
 @router.post("", summary="创建知识分类")
 def create_category(
     payload: KnowledgeCategoryCreate,
-    current_user: User = Depends(require_permission("knowledge:update")),
+    current_user: User = Depends(require_permission("knowledge:create")),
     db: Session = Depends(get_db),
 ) -> dict:
     """创建知识分类。"""
@@ -50,7 +50,7 @@ def create_category(
 def update_category(
     category_id: int,
     payload: KnowledgeCategoryUpdate,
-    current_user: User = Depends(require_permission("knowledge:update")),
+    current_user: User = Depends(require_permission("knowledge:edit")),
     db: Session = Depends(get_db),
 ) -> dict:
     """编辑知识分类。"""
@@ -61,7 +61,7 @@ def update_category(
 
 
 @router.delete("/{category_id}", summary="删除知识分类")
-def delete_category(category_id: int, current_user: User = Depends(require_permission("knowledge:update")), db: Session = Depends(get_db)) -> dict:
+def delete_category(category_id: int, current_user: User = Depends(require_permission("knowledge:delete")), db: Session = Depends(get_db)) -> dict:
     """删除知识分类。"""
 
     KnowledgeCategoryService(db).delete_category(category_id, current_user)

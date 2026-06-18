@@ -12,6 +12,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppException
+from app.core.rbac import filter_bound_action_codes, menu_permission_codes
 from app.core.security import create_access_token, verify_password
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
@@ -19,6 +20,8 @@ from app.services.system_service import SystemService
 from app.utils.user_avatar import avatar_url_for_user
 
 logger = logging.getLogger(__name__)
+
+MENU_PERMISSION_CODES = menu_permission_codes()
 
 
 class AuthService:
@@ -71,6 +74,7 @@ class AuthService:
             前端使用的当前用户字典。
         """
 
+        permission_codes = self._user_permission_codes(user)
         return {
             "id": user.id,
             "username": user.username,
@@ -78,8 +82,35 @@ class AuthService:
             "email": user.email,
             "phone": user.phone,
             "department": user.department,
+            "status": user.status,
             "avatar_url": avatar_url_for_user(user),
             "avatar_updated_at": user.avatar_updated_at.isoformat() if user.avatar_updated_at else None,
-            "roles": [{"id": role.id, "name": role.name, "code": role.code} for role in user.roles],
-            "permission_codes": sorted({permission.code for role in user.roles for permission in role.permissions}),
+            "roles": [
+                {"id": role.id, "name": role.name, "code": role.code, "enabled": role.enabled}
+                for role in user.roles
+            ],
+            "permission_codes": sorted(permission_codes),
+            "permissions": {
+                "menus": sorted(permission_codes & MENU_PERMISSION_CODES),
+                "actions": sorted(filter_bound_action_codes(permission_codes)),
+            },
+        }
+
+    def current_permissions(self, user: User) -> dict[str, list[str]]:
+        """返回当前用户菜单与按钮权限，供前端路由、菜单和 v-permission 使用。"""
+
+        permission_codes = self._user_permission_codes(user)
+        return {
+            "menus": sorted(permission_codes & MENU_PERMISSION_CODES),
+            "actions": sorted(filter_bound_action_codes(permission_codes)),
+        }
+
+    def _user_permission_codes(self, user: User) -> set[str]:
+        """仅汇总启用角色授予的权限码。"""
+
+        return {
+            permission.code
+            for role in user.roles
+            if role.enabled
+            for permission in role.permissions
         }

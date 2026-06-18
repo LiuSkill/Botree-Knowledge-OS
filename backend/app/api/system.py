@@ -12,7 +12,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import get_current_user, require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
@@ -30,6 +30,20 @@ def dashboard(current_user: User = Depends(get_current_user), db: Session = Depe
     return success(SystemService(db).dashboard(current_user))
 
 
+@router.get("/menus", summary="系统菜单权限树")
+def menus(_: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """查询后端注册的真实菜单路由树。"""
+
+    return success(SystemService(db).list_menus())
+
+
+@router.get("/permissions/actions", summary="按钮级权限清单")
+def action_permissions(_: User = Depends(require_permission("system:permission")), db: Session = Depends(get_db)) -> dict:
+    """查询当前系统所有按钮级权限。"""
+
+    return success(SystemService(db).list_action_permissions())
+
+
 @router.get("/operation-logs", summary="操作日志")
 def operation_logs(
     keyword: str | None = None,
@@ -39,7 +53,7 @@ def operation_logs(
     ended_at: datetime | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("system:operation-log")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询操作日志。"""
@@ -69,7 +83,7 @@ def qa_audit_sessions(
     ended_at: datetime | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("system:qa-audit")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询用户会话维度的问答审计。"""
@@ -95,7 +109,7 @@ def qa_audits(
     feedback_status: str | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("system:qa-audit")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询问答审计。"""
@@ -114,7 +128,7 @@ def qa_audits(
 
 
 @router.get("/retrieval-traces", summary="检索链路审计")
-def retrieval_traces(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def retrieval_traces(_: User = Depends(require_permission("system:qa-audit")), db: Session = Depends(get_db)) -> dict:
     """查询 LangGraph 检索链路审计记录。"""
 
     return success(SystemService(db).retrieval_traces())

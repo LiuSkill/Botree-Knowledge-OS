@@ -8,7 +8,7 @@
  */
 
 import { request } from '@/api/request';
-import type { UserInfo } from '@/types/api';
+import type { CurrentPermissions, UserInfo } from '@/types/api';
 
 export interface LoginResult {
   access_token: string;
@@ -22,6 +22,10 @@ export function loginApi(payload: { username: string; password: string }): Promi
 
 export function meApi(): Promise<UserInfo> {
   return request.get('/auth/me') as Promise<UserInfo>;
+}
+
+export function currentPermissionsApi(): Promise<CurrentPermissions> {
+  return request.get('/user/current-permissions') as Promise<CurrentPermissions>;
 }
 
 export function uploadMyAvatar(file: File): Promise<UserInfo> {

@@ -8,12 +8,13 @@
 -->
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
-import { RefreshIcon } from 'tdesign-icons-vue-next';
+import { DeleteIcon, EditIcon, RefreshIcon, UserCheckedIcon, UserLockedIcon, UserPasswordIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import { createUser, deleteUser, listUsers, resetUserPassword, updateUser } from '@/api/users';
 import type { UserListParams } from '@/api/users';
 import { listRoles } from '@/api/roles';
+import TableActionButton from '@/components/TableActionButton.vue';
 import type { PageResult, RoleInfo, UserInfo } from '@/types/api';
 
 interface PaginationInfo {
@@ -61,7 +62,7 @@ const columns = [
   { colKey: 'email', title: '邮箱', minWidth: 180 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'roles', title: '角色', minWidth: 180 },
-  { colKey: 'operation', title: '操作', width: 260, fixed: 'right' },
+  { colKey: 'operation', title: '操作', width: 160, fixed: 'right' },
 ];
 
 function createEmptyPageResult<T>(): PageResult<T> {
@@ -181,7 +182,6 @@ async function toggleStatus(user: UserInfo): Promise<void> {
   const nextStatus = user.status === 'disabled' ? 'enabled' : 'disabled';
   await updateUser(user.id, {
     status: nextStatus,
-    role_ids: user.roles.map((role) => role.id),
   });
   MessagePlugin.success(nextStatus === 'enabled' ? '用户已启用' : '用户已停用');
   await loadUsers();
@@ -275,7 +275,7 @@ onMounted(async () => {
           <template #icon><RefreshIcon /></template>
           刷新
         </t-button>
-        <t-button theme="primary" @click="openCreateDialog">新建用户</t-button>
+        <t-button v-permission="'user:create'" theme="primary" @click="openCreateDialog">新建用户</t-button>
       </t-space>
     </div>
 
@@ -303,15 +303,22 @@ onMounted(async () => {
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <t-button size="small" variant="text" @click="openEditDialog(row)">编辑</t-button>
-            <t-button size="small" variant="text" @click="toggleStatus(row)">
-              {{ row.status === 'disabled' ? '启用' : '停用' }}
-            </t-button>
+            <TableActionButton label="编辑" permission="user:edit" @click="openEditDialog(row)">
+              <EditIcon />
+            </TableActionButton>
+            <TableActionButton :label="row.status === 'disabled' ? '启用' : '停用'" permission="user:status" @click="toggleStatus(row)">
+              <UserCheckedIcon v-if="row.status === 'disabled'" />
+              <UserLockedIcon v-else />
+            </TableActionButton>
             <t-popconfirm content="确认重置该用户密码？" @confirm="handleResetPassword(row)">
-              <t-button size="small" variant="text">重置密码</t-button>
+              <TableActionButton label="重置密码" permission="user:reset-password">
+                <UserPasswordIcon />
+              </TableActionButton>
             </t-popconfirm>
             <t-popconfirm content="确认删除该用户？" @confirm="handleDelete(row)">
-              <t-button size="small" variant="text" theme="danger">删除</t-button>
+              <TableActionButton label="删除" permission="user:delete" theme="danger">
+                <DeleteIcon />
+              </TableActionButton>
             </t-popconfirm>
           </t-space>
         </template>

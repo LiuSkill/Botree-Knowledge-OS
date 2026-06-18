@@ -8,6 +8,7 @@
 -->
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
+import { CheckCircleIcon, CloseCircleIcon, FileSearchIcon, PlayCircleIcon } from 'tdesign-icons-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
@@ -17,6 +18,7 @@ import { listProjects } from '@/api/projects';
 import { approveReviewTask, listApprovedDocuments, listReviewTasks, rejectReviewTask } from '@/api/reviews';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
+import TableActionButton from '@/components/TableActionButton.vue';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, IndexTaskInfo, KnowledgeCategory, ProjectInfo, ReviewTask } from '@/types/api';
 import { buildCategoryOptions } from '@/utils/categories';
@@ -54,8 +56,8 @@ const approvedFilters = reactive({
 });
 
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
-const canBuildIndex = computed(() => authStore.hasPermission('review:review'));
-const canReviewTask = computed(() => authStore.hasPermission('review:review'));
+const canBuildIndex = computed(() => authStore.hasActionPermission('review:build-index'));
+const canReviewTask = computed(() => authStore.hasActionPermission('review:review'));
 
 const buildStatusOptions = computed(() => {
   /**
@@ -322,6 +324,26 @@ function canRunBuild(document: DocumentInfo): boolean {
   return canBuildIndex.value && document.review_status === 'approved' && !isBuilding(document.id) && !['parsing', 'indexing'].includes(document.index_status);
 }
 
+function taskFileName(task: ReviewTask): string {
+  /**
+   * 审核任务兼容历史数据，文档展示字段缺失时回退到文档ID。
+   */
+  return task.document_file_name || `文档 #${task.document_id}`;
+}
+
+function taskCategoryLabel(task: ReviewTask): string {
+  return task.document_category_path || task.document_category_name || '-';
+}
+
+function taskUploaderLabel(task: ReviewTask): string {
+  return task.uploader_name || task.uploader_username || (task.uploader_id ? `用户 #${task.uploader_id}` : '-');
+}
+
+function taskVersionLabel(task: ReviewTask): string {
+  const versionNo = task.display_version_no ?? task.version_no;
+  return versionNo ? `v${versionNo}` : '-';
+}
+
 function handleTabChange(value: unknown): void {
   /**
    * 切换审核中心页签并加载目标页签数据。
@@ -378,42 +400,48 @@ onBeforeUnmount(() => {
         <table class="plain-table">
           <thead>
             <tr>
-              <th>任务ID</th>
-              <th>文档ID</th>
-              <th>状态</th>
+              <th>文件名</th>
+              <th>文件分类</th>
+              <th>上传人员</th>
               <th>提交时间</th>
-              <th>意见</th>
+              <th>版本</th>
+              <th>状态</th>
+              <th>审核意见</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="task in tasks" :key="task.id">
-              <td>#{{ task.id }}</td>
-              <td><t-link theme="primary" @click="router.push(`/documents/${task.document_id}`)">文档 #{{ task.document_id }}</t-link></td>
-              <td><StatusTag type="review" :value="task.review_status" /></td>
+              <td><t-link theme="primary" @click="router.push(`/documents/${task.document_id}`)">{{ taskFileName(task) }}</t-link></td>
+              <td>{{ taskCategoryLabel(task) }}</td>
+              <td>{{ taskUploaderLabel(task) }}</td>
               <td>{{ formatDateTime(task.created_at) }}</td>
+              <td>{{ taskVersionLabel(task) }}</td>
+              <td><StatusTag type="review" :value="task.review_status" /></td>
               <td>{{ task.review_comment || '-' }}</td>
               <td>
                 <div class="row-actions">
-                  <t-button size="small" variant="text" @click="router.push(`/reviews/${task.id}`)">详情</t-button>
-                  <t-button
-                    size="small"
-                    variant="text"
+                  <TableActionButton label="详情" @click="router.push(`/reviews/${task.id}`)">
+                    <FileSearchIcon />
+                  </TableActionButton>
+                  <TableActionButton
+                    label="通过"
+                    permission="review:review"
                     theme="success"
                     :disabled="!canReviewTask || !isReviewTaskPending(task.review_status)"
                     @click="decide('approve', task)"
                   >
-                    通过
-                  </t-button>
-                  <t-button
-                    size="small"
-                    variant="text"
+                    <CheckCircleIcon />
+                  </TableActionButton>
+                  <TableActionButton
+                    label="驳回"
+                    permission="review:review"
                     theme="danger"
                     :disabled="!canReviewTask || !isReviewTaskPending(task.review_status)"
                     @click="decide('reject', task)"
                   >
-                    驳回
-                  </t-button>
+                    <CloseCircleIcon />
+                  </TableActionButton>
                 </div>
               </td>
             </tr>
@@ -480,16 +508,16 @@ onBeforeUnmount(() => {
               <td>{{ formatDateTime(document.build_finished_at) }}</td>
               <td class="error-cell">{{ document.build_error || '-' }}</td>
               <td>
-                <t-button
-                  size="small"
-                  variant="text"
+                <TableActionButton
+                  :label="isBuilding(document.id) || document.index_status === 'indexing' ? '索引构建中' : document.index_status === 'indexed' ? '重新构建' : '解析并构建索引'"
+                  permission="review:build-index"
                   theme="primary"
                   :loading="isBuilding(document.id)"
                   :disabled="!canRunBuild(document)"
                   @click="runBuild(document)"
                 >
-                  {{ isBuilding(document.id) || document.index_status === 'indexing' ? '索引构建中' : document.index_status === 'indexed' ? '重新构建' : '解析并构建索引' }}
-                </t-button>
+                  <PlayCircleIcon />
+                </TableActionButton>
               </td>
             </tr>
           </tbody>

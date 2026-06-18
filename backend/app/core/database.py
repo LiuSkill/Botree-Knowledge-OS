@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+from app.core.rbac import permission_catalog
 from app.core.security import hash_password
 from app.models import Base
 from app.models.knowledge_base import KnowledgeBase
@@ -541,14 +542,10 @@ def seed_permissions(db: Session) -> None:
         db: 数据库会话
     """
 
-    modules = ["dashboard", "knowledge", "project", "authorization", "ai", "review", "system"]
-    actions = ["view", "create", "update", "delete", "review", "auth"]
     existing_codes = {item.code for item in db.scalars(select(Permission)).all()}
-    for module in modules:
-        for action in actions:
-            code = f"{module}:{action}"
-            if code not in existing_codes:
-                db.add(Permission(module=module, action=action, code=code, description=f"{module}模块{action}权限"))
+    for item in permission_catalog():
+        if item["code"] not in existing_codes:
+            db.add(Permission(**item))
 
 
 def seed_roles(db: Session) -> Role:

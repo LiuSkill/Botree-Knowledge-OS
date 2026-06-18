@@ -8,10 +8,28 @@
  */
 
 import { request } from '@/api/request';
-import type { DashboardStats, ListQueryParams, OperationLog, PageResult, QAAuditDetail, QAAuditFilters, QAAuditSession } from '@/types/api';
+import type {
+  ActionPermissionGroup,
+  DashboardStats,
+  ListQueryParams,
+  OperationLog,
+  PageResult,
+  QAAuditDetail,
+  QAAuditFilters,
+  QAAuditSession,
+  SystemMenuNode,
+} from '@/types/api';
 
 export function getDashboardStats(): Promise<DashboardStats> {
   return request.get('/system/dashboard') as Promise<DashboardStats>;
+}
+
+export function getSystemMenus(): Promise<SystemMenuNode[]> {
+  return request.get('/system/menus') as Promise<SystemMenuNode[]>;
+}
+
+export function getActionPermissions(): Promise<ActionPermissionGroup[]> {
+  return request.get('/system/permissions/actions') as Promise<ActionPermissionGroup[]>;
 }
 
 export interface OperationLogFilters extends ListQueryParams {

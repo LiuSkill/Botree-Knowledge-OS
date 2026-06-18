@@ -215,7 +215,7 @@ def correct_page(
     document_id: int,
     page_no: int,
     payload: PageCorrectionRequest,
-    current_user: User = Depends(require_permission("review:review")),
+    current_user: User = Depends(require_permission("review:build-index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """人工修正文档页级文本、图纸号和页标题。"""
@@ -235,7 +235,7 @@ def correct_page(
 def quality_check(
     document_id: int,
     payload: QualityCheckRequest | None = None,
-    current_user: User = Depends(require_permission("review:review")),
+    current_user: User = Depends(require_permission("review:build-index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """确认页级解析质量，通过后才允许进入索引构建。"""
@@ -249,7 +249,7 @@ def submit_review(
     document_id: int,
     version_no: int | None = None,
     payload: ReviewSubmitRequest | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("knowledge:submit-review")),
     db: Session = Depends(get_db),
 ) -> dict:
     """提交文档审核。"""
@@ -269,7 +269,7 @@ def submit_review(
 def parse_document(
     document_id: int,
     version_no: int | None = None,
-    current_user: User = Depends(require_permission("review:review")),
+    current_user: User = Depends(require_permission("review:build-index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """解析文档并生成 Chunk。"""
@@ -280,7 +280,7 @@ def parse_document(
 
 
 @router.post("/{document_id}/index", summary="构建索引")
-def index_document(document_id: int, current_user: User = Depends(require_permission("review:review")), db: Session = Depends(get_db)) -> dict:
+def index_document(document_id: int, current_user: User = Depends(require_permission("review:build-index")), db: Session = Depends(get_db)) -> dict:
     """构建文档索引。"""
 
     return success(DocumentService(db).index_document(document_id, current_user))
@@ -290,7 +290,7 @@ def index_document(document_id: int, current_user: User = Depends(require_permis
 def build_document_index(
     document_id: int,
     version_no: int | None = None,
-    current_user: User = Depends(require_permission("review:review")),
+    current_user: User = Depends(require_permission("review:build-index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """同步执行文档解析和索引构建。"""
@@ -320,7 +320,7 @@ def document_indexes(document_id: int, current_user: User = Depends(get_current_
 def create_index_build_task(
     document_id: int,
     version_no: int | None = None,
-    current_user: User = Depends(require_permission("review:review")),
+    current_user: User = Depends(require_permission("review:build-index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """创建 RQ 异步索引构建任务。"""
@@ -332,7 +332,7 @@ def create_index_build_task(
 @router.post("/{document_id}/indexes/publish", summary="创建索引发布任务")
 def create_index_publish_task(
     document_id: int,
-    current_user: User = Depends(require_permission("review:review")),
+    current_user: User = Depends(require_permission("review:build-index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """发布当前文档版本的 staging 索引。"""
@@ -355,7 +355,7 @@ async def create_version(
     file: UploadFile = File(...),
     change_summary: str | None = Form(default=None),
     category_id: int | None = Form(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("knowledge:upload")),
     db: Session = Depends(get_db),
 ) -> dict:
     """上传文档新版本。"""
