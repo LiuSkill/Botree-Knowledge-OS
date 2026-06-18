@@ -13,8 +13,6 @@ import ChatWorkspace from '@/views/ai/ChatWorkspace.vue';
 <template>
   <ChatWorkspace
     chat-type="project_chat"
-    title="项目问答"
-    subtitle="围绕具体项目进行资料追溯式问答"
     notice="当前问答仅基于所选项目资料生成回答，不跨项目查询。"
     require-project
   />

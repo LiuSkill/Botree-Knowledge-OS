@@ -37,7 +37,7 @@ class FakeLLMService:
     def __init__(self, _: Any) -> None:
         self.db = None
 
-    def chat(self, _: list[dict[str, str]]) -> str:
+    def chat(self, _: list[dict[str, str]], model_type: str = "llm") -> str:  # noqa: ARG002
         """
         返回非 JSON 内容，触发 Qwen Planner 回退。
 
@@ -46,6 +46,9 @@ class FakeLLMService:
         """
 
         return "not json"
+
+    def model_route(self, task: str, reason: str) -> dict[str, Any]:
+        return {"task": task, "model_type": "planner", "source": "database", "reason": reason}
 
 
 class FakeTablePlannerLLMService:
@@ -60,10 +63,31 @@ class FakeTablePlannerLLMService:
     def __init__(self, _: Any) -> None:
         self.db = None
 
-    def chat(self, _: list[dict[str, str]]) -> str:
+    def chat(self, _: list[dict[str, str]], model_type: str = "llm") -> str:  # noqa: ARG002
         """返回合法 Planner JSON。"""
 
         return '{"selected_retrievers": ["milvus", "ripgrep"], "reason": "model plan", "confidence": 0.9}'
+
+    def model_route(self, task: str, reason: str) -> dict[str, Any]:
+        return {"task": task, "model_type": "planner", "source": "database", "reason": reason}
+
+
+class FakeNewPlannerLLMService:
+    """模拟新版 Planner JSON，包含未知 retriever 用于验证过滤。"""
+
+    def __init__(self, _: Any) -> None:
+        self.db = None
+
+    def chat(self, _: list[dict[str, str]], model_type: str = "llm") -> str:  # noqa: ARG002
+        return (
+            '{"selected_retrievers":["milvus","unknown","ripgrep"],'
+            '"retriever_reasons":{"milvus":"semantic","unknown":"bad","ripgrep":"exact"},'
+            '"priority":["unknown","ripgrep","milvus"],'
+            '"query_rewrite":["A vs B"],"reason":"model plan","confidence":0.82}'
+        )
+
+    def model_route(self, task: str, reason: str) -> dict[str, Any]:
+        return {"task": task, "model_type": "planner", "source": "database", "reason": reason}
 
 
 class FakeRetriever:
@@ -141,14 +165,24 @@ def build_router(*retrievers: FakeRetriever) -> RetrievalRouter:
     router = object.__new__(RetrievalRouter)
     router.retrievers = list(retrievers)
     router.retriever_map = {retriever.name: retriever for retriever in retrievers}
-    router._prepare_scope = lambda mode, project_id, chat_type, user: mode  # type: ignore[method-assign]
     router._scope_text = lambda mode: mode  # type: ignore[method-assign]
+
+    def prepare_scope(
+        mode: str,
+        project_id: int | None,
+        chat_type: str | None,
+        user: Any,
+        knowledge_scope: str | None = None,
+    ) -> str:
+        return mode
+
+    router._prepare_scope = prepare_scope  # type: ignore[method-assign]
     return router
 
 
 def test_rule_planner_exact_lookup() -> None:
     """
-    exact_lookup 必须优先选择 ripgrep 和 page_index。
+    exact_lookup 必须优先选择 ripgrep 和 milvus。
     """
 
     plan = RetrievalPlannerService(None).plan(
@@ -160,10 +194,64 @@ def test_rule_planner_exact_lookup() -> None:
         project_id=1,
         available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag"],
     )
-    assert plan.selected_retrievers == ["ripgrep", "page_index"]
+    assert plan.selected_retrievers == ["ripgrep", "milvus"]
     assert plan.fallback_retrievers == ["keyword"]
-    assert plan.fallback_ladder == [["ripgrep"], ["page_index"], ["keyword"]]
+    assert plan.fallback_ladder == [["ripgrep", "milvus"], ["keyword"]]
     assert plan.qwen_used is False
+
+
+def test_rule_planner_page_location_uses_page_index_and_ripgrep() -> None:
+    """page_location 问题必须选择 page_index + ripgrep。"""
+
+    plan = RetrievalPlannerService(None).plan(
+        query="10-PS-0101-3002-003 在哪页、哪张图？",
+        sub_queries=["10-PS-0101-3002-003"],
+        intent="page_location",
+        chat_type="project_chat",
+        mode="project_chat",
+        project_id=1,
+        available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={"query_type": "page_location", "need_page_location": True},
+    )
+    assert plan.selected_retrievers == ["page_index", "ripgrep"]
+    assert plan.fallback_ladder == [["page_index", "ripgrep"], ["keyword"]]
+
+
+def test_rule_planner_process_flow_uses_page_ripgrep_milvus_and_graph_when_needed() -> None:
+    """流程问题优先 page_index + ripgrep + milvus，必要时加入 graphrag。"""
+
+    plan = RetrievalPlannerService(None).plan(
+        query="Raw Material & Chemical Feeding 全流程和上下游设备连接是什么？",
+        sub_queries=["Raw Material & Chemical Feeding 全流程"],
+        intent="project_qa",
+        chat_type="project_chat",
+        mode="project_chat",
+        project_id=1,
+        available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={
+            "query_type": "process_flow",
+            "need_graph_reasoning": True,
+            "keywords": ["Raw Material & Chemical Feeding"],
+        },
+    )
+    assert plan.selected_retrievers == ["page_index", "ripgrep", "milvus", "graphrag"]
+    assert plan.fallback_ladder == [["page_index", "ripgrep", "milvus", "graphrag"], ["keyword"]]
+
+
+def test_rule_planner_graph_reasoning_uses_graph_milvus_ripgrep() -> None:
+    """graph_reasoning 问题优先 graphrag + milvus + ripgrep。"""
+
+    plan = RetrievalPlannerService(None).plan(
+        query="A 和 B 的上下游关系是什么？",
+        sub_queries=["A 和 B 的上下游关系"],
+        intent="graph_reasoning",
+        chat_type="project_chat",
+        mode="project_chat",
+        project_id=1,
+        available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={"query_type": "graph_reasoning", "need_graph_reasoning": True},
+    )
+    assert plan.selected_retrievers == ["graphrag", "milvus", "ripgrep"]
 
 
 def test_rule_planner_filters_disabled_milvus() -> None:
@@ -199,7 +287,7 @@ def test_qwen_invalid_output_falls_back_to_rules() -> None:
             project_id=1,
             available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag"],
         )
-    assert plan.selected_retrievers == ["graphrag", "milvus"]
+    assert plan.selected_retrievers == ["graphrag", "milvus", "ripgrep"]
     assert plan.qwen_used is True
     assert plan.strategy == "hybrid_fallback"
 
@@ -220,6 +308,57 @@ def test_knowledge_qa_natural_language_prefers_milvus_only() -> None:
     )
     assert plan.selected_retrievers == ["milvus"]
     assert plan.fallback_ladder == [["milvus"], ["keyword"]]
+    assert "page_index" in plan.skipped_retrievers
+
+
+def test_industry_knowledge_scope_uses_base_retrievers_only() -> None:
+    """行业基础知识问答只规划行业基础知识库检索器。"""
+
+    plan = RetrievalPlannerService(None).plan(
+        query="酸浸原理是什么",
+        sub_queries=["酸浸原理"],
+        intent="industry_knowledge_qa",
+        chat_type="base_chat",
+        mode="base_chat",
+        project_id=None,
+        available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={
+            "query_type": "industry_knowledge_qa",
+            "knowledge_scope": "industry",
+            "is_industry_domain": True,
+            "industry_domains": ["hydrometallurgy"],
+        },
+    )
+
+    assert plan.selected_retrievers == ["milvus"]
+    assert plan.fallback_retrievers == ["keyword"]
+    assert plan.fallback_ladder == [["milvus"], ["keyword"]]
+    assert plan.query_features["knowledge_scope"] == "industry"
+    assert plan.metadata["knowledge_scope"] == "industry"
+
+
+def test_industry_comparison_scope_still_uses_base_retrievers_only() -> None:
+    """行业对比题也不能因为 comparison 画像选入项目型检索器。"""
+
+    plan = RetrievalPlannerService(None).plan(
+        query="压滤机和过滤器有什么区别",
+        sub_queries=["压滤机", "过滤器"],
+        intent="industry_knowledge_qa",
+        chat_type="base_chat",
+        mode="base_chat",
+        project_id=None,
+        available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={
+            "query_type": "comparison",
+            "knowledge_scope": "industry",
+            "is_industry_domain": True,
+            "industry_domains": ["equipment"],
+        },
+    )
+
+    assert plan.selected_retrievers == ["milvus"]
+    assert plan.fallback_ladder == [["milvus"], ["keyword"]]
+    assert "graphrag" in plan.skipped_retrievers
     assert "page_index" in plan.skipped_retrievers
 
 
@@ -263,6 +402,28 @@ def test_qwen_table_value_lookup_keeps_required_page_index() -> None:
     assert plan.selected_retrievers[:3] == ["page_index", "milvus", "ripgrep"]
     assert plan.fallback_ladder[0] == ["page_index", "milvus", "ripgrep"]
     assert "page_index" not in plan.skipped_retrievers
+
+
+def test_qwen_new_payload_filters_unknown_retriever_and_keeps_new_fields() -> None:
+    """新版 Planner JSON 需要过滤未知 retriever，并保留新字段。"""
+
+    with patch("app.services.retrieval_planner_service.LLMService", FakeNewPlannerLLMService):
+        plan = RetrievalPlannerService(object()).plan(
+            query="请对比 A 和 B 的方案差异",
+            sub_queries=["A", "B"],
+            intent="project_qa",
+            chat_type="project_chat",
+            mode="project_chat",
+            project_id=1,
+            available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag", "unknown"],
+            query_profile={"query_type": "comparison", "answer_shape": "comparison_table"},
+        )
+
+    plan_dict = plan.to_dict()
+    assert "unknown" not in plan.selected_retrievers
+    assert "unknown" not in plan_dict["priority"]
+    assert plan_dict["retriever_reasons"] == {"milvus": "semantic", "ripgrep": "exact"}
+    assert plan_dict["query_rewrite"] == ["A vs B"]
 
 
 def test_router_executes_only_planned_retrievers_when_quality_is_enough() -> None:
@@ -348,11 +509,17 @@ def main() -> None:
     """
 
     test_rule_planner_exact_lookup()
+    test_rule_planner_page_location_uses_page_index_and_ripgrep()
+    test_rule_planner_process_flow_uses_page_ripgrep_milvus_and_graph_when_needed()
+    test_rule_planner_graph_reasoning_uses_graph_milvus_ripgrep()
     test_rule_planner_filters_disabled_milvus()
     test_qwen_invalid_output_falls_back_to_rules()
     test_knowledge_qa_natural_language_prefers_milvus_only()
+    test_industry_knowledge_scope_uses_base_retrievers_only()
+    test_industry_comparison_scope_still_uses_base_retrievers_only()
     test_rule_planner_table_value_lookup_uses_page_index()
     test_qwen_table_value_lookup_keeps_required_page_index()
+    test_qwen_new_payload_filters_unknown_retriever_and_keeps_new_fields()
     test_router_executes_only_planned_retrievers_when_quality_is_enough()
     test_router_keyword_fallback_when_planned_empty()
     test_router_low_quality_milvus_triggers_keyword_fallback()

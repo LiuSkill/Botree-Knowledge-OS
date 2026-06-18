@@ -8,7 +8,7 @@ Chat Schemas
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -49,6 +49,7 @@ class ChatMessageOut(BaseModel):
     content: str
     query_scope: str | None = None
     agent_trace_json: str | None = None
+    feedback_status: Literal["like", "dislike"] | None = None
     citations: list["CitationOut"] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -63,6 +64,12 @@ class ChatCompletionRequest(BaseModel):
     session_id: int | None = Field(default=None, description="会话ID")
     message: str = Field(..., description="用户问题")
     agent_enabled: bool = Field(default=True, description="是否启用 Agent 执行过程")
+
+
+class ChatMessageFeedbackUpdate(BaseModel):
+    """问答反馈更新请求。"""
+
+    feedback_status: Literal["like", "dislike"] | None = Field(default=None, description="回答反馈状态")
 
 
 class CitationAssetOut(BaseModel):
@@ -124,4 +131,5 @@ class ChatCompletionResponse(BaseModel):
     agent_trace: list[AgentTraceStep]
     trace_steps: list[AgentTraceStep] = Field(default_factory=list, description="前端展示用执行步骤")
     citations: list[CitationOut]
+    feedback_status: Literal["like", "dislike"] | None = None
     raw: dict[str, Any] = Field(default_factory=dict, description="扩展调试信息")

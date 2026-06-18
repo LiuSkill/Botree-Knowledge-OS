@@ -29,6 +29,8 @@ export interface AskKnowledgeAgentPayload {
   agent_enabled: boolean;
 }
 
+export type ChatFeedbackStatus = 'like' | 'dislike' | null;
+
 interface StreamEventHandlers {
   signal?: AbortSignal;
   onMeta?: (payload: ChatStreamMeta) => void;
@@ -97,7 +99,10 @@ function parseEventBlock(
   return { done: false };
 }
 
-export function listChatSessions(params?: { chat_type?: 'project_chat' | 'base_chat' }): Promise<ChatSession[]> {
+export function listChatSessions(params?: {
+  chat_type?: 'project_chat' | 'base_chat';
+  project_id?: number | null;
+}): Promise<ChatSession[]> {
   return request.get('/chat/sessions', { params }) as Promise<ChatSession[]>;
 }
 
@@ -116,6 +121,16 @@ export function listChatMessages(sessionId: number): Promise<ChatMessage[]> {
 
 export function askKnowledgeAgent(payload: AskKnowledgeAgentPayload): Promise<ChatCompletionResult> {
   return request.post('/chat/completions', payload) as Promise<ChatCompletionResult>;
+}
+
+export function updateMessageFeedback(
+  messageId: number,
+  feedbackStatus: ChatFeedbackStatus,
+): Promise<{ message_id: number; feedback_status: ChatFeedbackStatus }> {
+  return request.patch(`/chat/messages/${messageId}/feedback`, { feedback_status: feedbackStatus }) as Promise<{
+    message_id: number;
+    feedback_status: ChatFeedbackStatus;
+  }>;
 }
 
 export async function streamKnowledgeAgent(payload: AskKnowledgeAgentPayload, handlers: StreamEventHandlers): Promise<void> {

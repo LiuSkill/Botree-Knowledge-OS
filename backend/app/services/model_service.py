@@ -79,7 +79,18 @@ class ModelService:
         config = self.repository.get(config_id)
         if not config:
             raise AppException("模型配置不存在", status_code=404, code=404)
-        if config.model_type in {"llm", "vision_llm", "reranker", "intent", "evidence_judge", "graph_extractor"}:
+        if config.model_type in {
+            "llm",
+            "vision_llm",
+            "reranker",
+            "intent",
+            "planner",
+            "evidence_judge_fast",
+            "evidence_judge",
+            "answer_llm",
+            "analysis_llm",
+            "graph_extractor",
+        }:
             return LLMService(self.db).test_chat_completion(config)
         if config.model_type == "embedding":
             return EmbeddingService(self.db).test_embedding(config)

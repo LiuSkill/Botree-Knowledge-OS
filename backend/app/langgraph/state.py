@@ -28,7 +28,11 @@ class RetrievalGraphState(TypedDict, total=False):
     project_id: int | None
     user: Any
     intent: str
+    direct_answer: bool
+    direct_answer_type: str | None
+    route_decision: dict[str, Any]
     sub_queries: list[str]
+    query_profile: dict[str, Any]
     retrieval_plan: dict[str, Any]
     query_features: dict[str, Any]
     query_scope: str
@@ -47,6 +51,7 @@ class RetrievalGraphState(TypedDict, total=False):
     evidences: list[Evidence]
     visual_asset_count: int
     evidence_judgement: dict[str, Any]
+    model_routes: dict[str, dict[str, Any]]
     answer: str
     trace: list[dict[str, Any]]
     raw: dict[str, Any]

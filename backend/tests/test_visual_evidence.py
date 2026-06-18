@@ -184,6 +184,7 @@ def test_llm_service_builds_multimodal_payload(tmp_path: Path, monkeypatch) -> N
                 model_name="qwen3.5-plus",
                 api_base="https://example.test/v1",
                 api_key="secret",
+                model_type=model_type,
             )
 
         class FakeResponse:
@@ -233,6 +234,7 @@ def test_llm_service_streams_chunks(monkeypatch) -> None:
                 model_name="qwen3.5-plus",
                 api_base="https://example.test/v1",
                 api_key="secret",
+                model_type=model_type,
             )
 
         class FakeStreamResponse:

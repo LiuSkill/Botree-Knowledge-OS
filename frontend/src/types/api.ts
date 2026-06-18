@@ -298,6 +298,7 @@ export interface ChatMessage {
   content: string;
   query_scope?: string | null;
   agent_trace_json?: string | null;
+  feedback_status?: 'like' | 'dislike' | null;
   citations?: Citation[];
   created_at: string;
 }
@@ -353,6 +354,7 @@ export interface ChatCompletionResult {
   agent_trace: AgentTraceStep[];
   trace_steps?: AgentTraceStep[];
   citations: Citation[];
+  feedback_status?: 'like' | 'dislike' | null;
   raw?: Record<string, unknown>;
 }
 

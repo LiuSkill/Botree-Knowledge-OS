@@ -13,8 +13,6 @@ import ChatWorkspace from '@/views/ai/ChatWorkspace.vue';
 <template>
   <ChatWorkspace
     chat-type="base_chat"
-    title="基础问答"
-    subtitle="查询当前用户有权限访问的基础知识库资料"
     notice="当前问答仅基于你有权限访问的基础知识库中已审核、已索引资料生成回答。"
     :require-project="false"
   />

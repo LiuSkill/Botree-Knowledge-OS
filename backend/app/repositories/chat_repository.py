@@ -26,12 +26,19 @@ class ChatRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list_sessions(self, user_id: int, chat_type: str | None = None) -> list[ChatSession]:
+    def list_sessions(
+        self,
+        user_id: int,
+        chat_type: str | None = None,
+        project_id: int | None = None,
+    ) -> list[ChatSession]:
         """查询用户会话。"""
 
         stmt = select(ChatSession).where(ChatSession.user_id == user_id).order_by(ChatSession.id.desc())
         if chat_type:
             stmt = stmt.where(ChatSession.chat_type == chat_type)
+        if project_id is not None:
+            stmt = stmt.where(ChatSession.project_id == project_id)
         return list(self.db.scalars(stmt).all())
 
     def get_session(self, session_id: int) -> ChatSession | None:
@@ -63,6 +70,13 @@ class ChatRepository:
         """按 ID 查询消息。"""
 
         return self.db.get(ChatMessage, message_id)
+
+    def update_message_feedback(self, message: ChatMessage, feedback_status: str | None) -> ChatMessage:
+        """更新助手回答的反馈状态。"""
+
+        message.feedback_status = feedback_status
+        self.db.flush()
+        return message
 
     def list_messages(self, session_id: int) -> list[ChatMessage]:
         """查询会话消息。"""

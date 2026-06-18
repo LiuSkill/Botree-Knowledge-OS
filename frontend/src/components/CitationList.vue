@@ -91,9 +91,9 @@ onBeforeUnmount(resetAssetUrls);
         <span>{{ item.file_name }}</span>
         <t-tag size="small" variant="light">{{ sourceLabel(item.source_type, chatType) }}</t-tag>
       </div>
-      <p class="citation-meta">
-        document_id={{ item.document_id }} · chunk_id={{ item.chunk_id }}
-        <span v-if="item.page_number"> · 第 {{ item.page_number }} 页</span>
+      <p v-if="item.drawing_no || item.page_number" class="citation-meta">
+        <span v-if="item.drawing_no">图号：{{ item.drawing_no }}</span>
+        <span v-if="item.page_number">第 {{ item.page_number }} 页</span>
       </p>
       <div v-if="item.assets?.length" class="citation-assets">
         <t-button
@@ -142,7 +142,17 @@ onBeforeUnmount(resetAssetUrls);
   color: #111827;
 }
 
+.citation-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .citation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin: 6px 0;
   color: #6b7280;
   font-size: 12px;

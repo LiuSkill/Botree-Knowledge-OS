@@ -19,7 +19,10 @@ class ModelConfigCreate(BaseModel):
     model_name: str = Field(..., description="模型名称")
     api_base: str | None = Field(default=None, description="API Base")
     api_key: str | None = Field(default=None, description="API Key")
-    model_type: str = Field(default="llm", description="模型类型：llm/embedding/reranker/intent/evidence_judge/graph_extractor")
+    model_type: str = Field(
+        default="llm",
+        description="模型类型：llm/embedding/reranker/intent/planner/evidence_judge_fast/evidence_judge/answer_llm/vision_llm/analysis_llm/graph_extractor",
+    )
     is_default: bool = Field(default=False, description="是否默认模型")
     enabled: bool = Field(default=True, description="是否启用")
 

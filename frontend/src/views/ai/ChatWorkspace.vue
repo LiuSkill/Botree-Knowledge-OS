@@ -8,18 +8,20 @@
 -->
 <script setup lang="ts">
 import { ChatContent as TChatContent, ChatMessage as TChatMessage, ChatSender as TChatSender, ChatThinking as TChatThinking } from '@tdesign-vue-next/chat';
+import { CloseIcon, QuoteIcon, TaskIcon, ThumbDownIcon, ThumbUpIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, nextTick, onMounted, provide, ref } from 'vue';
 
-import { listChatMessages, listChatSessions, streamKnowledgeAgent } from '@/api/chat';
+import { listChatMessages, listChatSessions, streamKnowledgeAgent, updateMessageFeedback, type ChatFeedbackStatus } from '@/api/chat';
 import { listProjects } from '@/api/projects';
 import AgentTracePanel from '@/components/AgentTracePanel.vue';
+import ChatRichContent from '@/components/ChatRichContent.vue';
 import CitationList from '@/components/CitationList.vue';
-import PageContainer from '@/components/PageContainer.vue';
 import { useAuthStore } from '@/stores/auth';
 import type {
   AgentTraceStep,
   ChatMessage,
+  ChatSession,
   ChatStreamDoneEvent,
   ChatTraceDeltaEvent,
   Citation,
@@ -35,22 +37,16 @@ interface UiChatMessage extends Omit<ChatMessage, 'id' | 'citations'> {
   streaming?: boolean;
 }
 
+type DetailMode = 'citations' | 'trace';
+
 const props = defineProps<{
   chatType: 'project_chat' | 'base_chat';
-  title: string;
-  subtitle: string;
   notice: string;
   requireProject: boolean;
 }>();
 
-const assistantContentProps = {
-  markdownProps: {
-    engine: 'marked' as const,
-  },
-};
-
 const authStore = useAuthStore();
-const sessions = ref<Array<{ id: number; title: string; project_id?: number | null; created_at: string }>>([]);
+const sessions = ref<ChatSession[]>([]);
 const messages = ref<UiChatMessage[]>([]);
 const projects = ref<ProjectInfo[]>([]);
 const activeSessionId = ref<number | null>(null);
@@ -61,17 +57,34 @@ const citations = ref<Citation[]>([]);
 const trace = ref<AgentTraceStep[]>([]);
 const queryScope = ref('');
 const chatHistoryRef = ref<HTMLElement | null>(null);
+const senderShellRef = ref<HTMLElement | null>(null);
 const streamAbortController = ref<AbortController | null>(null);
+const thinkingCollapsedMap = ref<Record<string, boolean>>({});
+const activeDetailMode = ref<DetailMode | null>(null);
+const activeDetailMessageId = ref<number | string | null>(null);
+const feedbackUpdatingMap = ref<Record<number, boolean>>({});
+// 正文通过插槽渲染，外层 TChatMessage 保持空状态，避免底层加载态替换插槽内容。
+const chatMessageStatus = '';
 
-const currentSession = computed(() => sessions.value.find((item) => item.id === activeSessionId.value) || null);
-const selectedProject = computed(() => projects.value.find((item) => item.id === projectId.value) || null);
 const isExternalUser = computed(() =>
   Boolean(authStore.user?.roles.some((role) => role.code === 'external' || role.name.includes('外部'))),
 );
-const hitKnowledgeBases = computed(() => Array.from(new Set(citations.value.map((item) => `KB-${item.knowledge_base_id}`))));
 const senderDisabled = computed(
   () => streaming.value || (props.requireProject && !projectId.value) || (props.chatType === 'base_chat' && isExternalUser.value),
 );
+const sessionEmptyDescription = computed(() =>
+  props.chatType === 'project_chat' && !projectId.value ? '请先选择项目' : '暂无会话',
+);
+const userAvatarLabel = computed(() => authStore.user?.real_name || authStore.user?.username || 'User');
+const userAvatarText = computed(() => userAvatarLabel.value.trim().slice(0, 1).toUpperCase() || 'U');
+const activeDetailMessage = computed(
+  () => messages.value.find((item) => item.role === 'assistant' && item.id === activeDetailMessageId.value) || null,
+);
+const isDetailOpen = computed(() => Boolean(activeDetailMode.value && activeDetailMessage.value));
+const detailPanelTitle = computed(() => (activeDetailMode.value === 'citations' ? '引用来源' : '执行过程'));
+const activeDetailCitations = computed(() => activeDetailMessage.value?.citations || []);
+const activeDetailTrace = computed(() => activeDetailMessage.value?.agentTrace || []);
+const activeDetailQuestion = computed(() => (activeDetailMessage.value ? questionForAssistant(activeDetailMessage.value) : ''));
 
 provide('role', computed(() => 'assistant'));
 
@@ -104,12 +117,57 @@ function createStreamingAssistantMessage(): UiChatMessage {
     content: '',
     query_scope: '',
     agent_trace_json: null,
+    feedback_status: null,
     citations: [],
     agentTrace: [],
     created_at: new Date().toISOString(),
     status: 'streaming',
     streaming: true,
   };
+}
+
+function normalizeMarkdownDisplay(content: string): string {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const normalized: string[] = [];
+  let blankCount = 0;
+  let inCodeFence = false;
+  let codeFence = '';
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    const fenceMatch = trimmedLine.match(/^(```|~~~)/);
+
+    if (fenceMatch) {
+      normalized.push(line);
+      blankCount = 0;
+      if (!inCodeFence) {
+        inCodeFence = true;
+        codeFence = fenceMatch[1];
+      } else if (trimmedLine.startsWith(codeFence)) {
+        inCodeFence = false;
+        codeFence = '';
+      }
+      continue;
+    }
+
+    if (inCodeFence) {
+      normalized.push(line);
+      continue;
+    }
+
+    if (!trimmedLine) {
+      blankCount += 1;
+      if (blankCount <= 1) {
+        normalized.push('');
+      }
+      continue;
+    }
+
+    blankCount = 0;
+    normalized.push(line.replace(/[ \t]+$/u, ''));
+  }
+
+  return normalized.join('\n').trim();
 }
 
 function renderTraceSummary(step: AgentTraceStep): string {
@@ -146,11 +204,110 @@ function applyTraceDelta(assistantId: number | string, payload: ChatTraceDeltaEv
   currentAssistant.agentTrace = mergeTraceStep(currentAssistant.agentTrace, payload);
 }
 
-function thinkingStatus(message: UiChatMessage): 'streaming' | 'complete' | 'stop' | 'error' {
+function thinkingStatus(message: UiChatMessage): 'pending' | 'complete' | 'stop' | 'error' {
   if (message.status === 'error') return 'error';
   if (message.status === 'stop') return 'stop';
-  if (message.streaming) return 'streaming';
+  if (message.streaming) return 'pending';
   return 'complete';
+}
+
+function chatContentStatus(message: UiChatMessage): '' | 'error' {
+  return message.status === 'error' ? 'error' : '';
+}
+
+function thinkingContent(message: UiChatMessage): { title: string } {
+  return {
+    title: message.streaming && !message.content.trim() ? '正在处理...' : '执行过程',
+  };
+}
+
+function shouldShowThinking(message: UiChatMessage): boolean {
+  return !message.content.trim() && (message.streaming || message.agentTrace.length > 0);
+}
+
+function shouldShowAssistantActions(message: UiChatMessage): boolean {
+  return message.role === 'assistant' && typeof message.id === 'number' && !message.streaming && Boolean(message.content.trim());
+}
+
+function questionForAssistant(message: UiChatMessage): string {
+  const messageIndex = messages.value.findIndex((item) => item.id === message.id);
+  if (messageIndex <= 0) return '';
+  for (let index = messageIndex - 1; index >= 0; index -= 1) {
+    const candidate = messages.value[index];
+    if (candidate.role === 'user') return candidate.content;
+  }
+  return '';
+}
+
+function closeDetailPanel(): void {
+  activeDetailMode.value = null;
+  activeDetailMessageId.value = null;
+}
+
+function closeDetailPanelAndFocus(): void {
+  closeDetailPanel();
+  void focusQuestionInput();
+}
+
+function toggleDetailPanel(message: UiChatMessage, mode: DetailMode): void {
+  if (!shouldShowAssistantActions(message)) {
+    void focusQuestionInput();
+    return;
+  }
+  const isSamePanel = activeDetailMessageId.value === message.id && activeDetailMode.value === mode;
+  if (isSamePanel) {
+    closeDetailPanel();
+    void focusQuestionInput();
+    return;
+  }
+  activeDetailMessageId.value = message.id;
+  activeDetailMode.value = mode;
+  void focusQuestionInput();
+}
+
+function isDetailButtonActive(message: UiChatMessage, mode: DetailMode): boolean {
+  return activeDetailMessageId.value === message.id && activeDetailMode.value === mode;
+}
+
+function isFeedbackUpdating(message: UiChatMessage): boolean {
+  return typeof message.id === 'number' && Boolean(feedbackUpdatingMap.value[message.id]);
+}
+
+async function handleFeedbackClick(message: UiChatMessage, feedbackStatus: Exclude<ChatFeedbackStatus, null>): Promise<void> {
+  if (!shouldShowAssistantActions(message) || typeof message.id !== 'number' || isFeedbackUpdating(message)) return;
+  const nextStatus: ChatFeedbackStatus = message.feedback_status === feedbackStatus ? null : feedbackStatus;
+  const previousStatus = message.feedback_status || null;
+  feedbackUpdatingMap.value = { ...feedbackUpdatingMap.value, [message.id]: true };
+  message.feedback_status = nextStatus;
+  try {
+    const result = await updateMessageFeedback(message.id, nextStatus);
+    message.feedback_status = result.feedback_status;
+  } catch (error) {
+    message.feedback_status = previousStatus;
+    MessagePlugin.error(error instanceof Error ? error.message : '反馈保存失败');
+  } finally {
+    const { [message.id]: _removed, ...remaining } = feedbackUpdatingMap.value;
+    feedbackUpdatingMap.value = remaining;
+    await focusQuestionInput();
+  }
+}
+
+function shouldCollapseThinking(message: UiChatMessage): boolean {
+  const messageKey = String(message.id);
+  if (thinkingCollapsedMap.value[messageKey] !== undefined) {
+    return thinkingCollapsedMap.value[messageKey];
+  }
+  if (message.content.trim()) return true;
+  return !message.streaming;
+}
+
+function onThinkingCollapsedChange(message: UiChatMessage, value: boolean | CustomEvent<boolean | boolean[]>): void {
+  const eventDetail = typeof value === 'boolean' ? value : value.detail;
+  const collapsed = Array.isArray(eventDetail) ? Boolean(eventDetail[0]) : Boolean(eventDetail);
+  thinkingCollapsedMap.value = {
+    ...thinkingCollapsedMap.value,
+    [String(message.id)]: collapsed,
+  };
 }
 
 function traceStatusText(step: AgentTraceStep): string {
@@ -166,6 +323,15 @@ async function scrollToBottom(): Promise<void> {
   container.scrollTop = container.scrollHeight;
 }
 
+async function focusQuestionInput(): Promise<void> {
+  await nextTick();
+  if (senderDisabled.value) return;
+  const textarea = senderShellRef.value?.querySelector<HTMLTextAreaElement>('textarea');
+  if (!textarea || textarea.disabled) return;
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+}
+
 function syncAssistantContext(items: UiChatMessage[]): void {
   const latestAssistant = [...items].reverse().find((item) => item.role === 'assistant');
   citations.value = latestAssistant?.citations || [];
@@ -173,38 +339,57 @@ function syncAssistantContext(items: UiChatMessage[]): void {
   trace.value = latestAssistant?.agentTrace || [];
 }
 
-async function loadBaseData(): Promise<void> {
-  const [sessionData, projectData] = await Promise.all([listChatSessions({ chat_type: props.chatType }), listProjects()]);
-  sessions.value = sessionData;
-  projects.value = projectData;
-  if (!activeSessionId.value && sessions.value.length) {
-    await selectSession(sessions.value[0]);
+async function loadSessionsForCurrentProject(): Promise<void> {
+  if (props.chatType === 'project_chat' && projectId.value === null) {
+    sessions.value = [];
+    return;
   }
+
+  const params: { chat_type: 'project_chat' | 'base_chat'; project_id?: number } = { chat_type: props.chatType };
+  if (props.chatType === 'project_chat' && projectId.value !== null) {
+    params.project_id = projectId.value;
+  }
+  sessions.value = await listChatSessions(params);
 }
 
-async function selectSession(session: { id: number; project_id?: number | null }): Promise<void> {
+async function loadBaseData(): Promise<void> {
+  projects.value = props.requireProject ? await listProjects() : [];
+  await loadSessionsForCurrentProject();
+  if (props.chatType === 'base_chat' && !activeSessionId.value && sessions.value.length) {
+    await selectSession(sessions.value[0]);
+  }
+  await focusQuestionInput();
+}
+
+async function selectSession(session: ChatSession): Promise<void> {
+  closeDetailPanel();
   activeSessionId.value = session.id;
   projectId.value = session.project_id || null;
   const fetchedMessages = await listChatMessages(session.id);
   messages.value = fetchedMessages.map(toUiMessage);
   syncAssistantContext(messages.value);
   await scrollToBottom();
+  await focusQuestionInput();
 }
 
 function startNewSession(): void {
   if (streaming.value) return;
+  closeDetailPanel();
   activeSessionId.value = null;
   messages.value = [];
   citations.value = [];
   trace.value = [];
   queryScope.value = '';
+  void focusQuestionInput();
 }
 
-function onProjectChange(value: number | string | Array<number | string> | undefined): void {
+async function onProjectChange(value: number | string | Array<number | string> | undefined): Promise<void> {
   if (Array.isArray(value)) return;
-  projectId.value = typeof value === 'number' ? value : value ? Number(value) : null;
+  const nextProjectId = typeof value === 'number' ? value : value ? Number(value) : null;
+  projectId.value = nextProjectId !== null && Number.isFinite(nextProjectId) ? nextProjectId : null;
   if (props.chatType !== 'project_chat') return;
   startNewSession();
+  await loadSessionsForCurrentProject();
 }
 
 function stopStreaming(): void {
@@ -212,11 +397,9 @@ function stopStreaming(): void {
 }
 
 async function refreshSessionState(sessionId: number): Promise<void> {
-  const [sessionData, fetchedMessages] = await Promise.all([
-    listChatSessions({ chat_type: props.chatType }),
-    listChatMessages(sessionId),
-  ]);
-  sessions.value = sessionData;
+  closeDetailPanel();
+  await loadSessionsForCurrentProject();
+  const fetchedMessages = await listChatMessages(sessionId);
   messages.value = fetchedMessages.map(toUiMessage);
   activeSessionId.value = sessionId;
   syncAssistantContext(messages.value);
@@ -340,6 +523,7 @@ async function submitQuestion(): Promise<void> {
     }
     streamAbortController.value = null;
     await scrollToBottom();
+    await focusQuestionInput();
   }
 }
 
@@ -347,11 +531,11 @@ onMounted(loadBaseData);
 </script>
 
 <template>
-  <PageContainer class="chat-workspace-page" :title="title" :subtitle="subtitle">
+  <section class="chat-workspace-page">
     <div v-if="chatType === 'base_chat' && isExternalUser" class="surface no-access">
       外部用户默认不能访问基础问答，请从项目问答入口进入已授权项目。
     </div>
-    <div v-else class="agent-layout">
+    <div v-else class="agent-layout" :class="{ 'with-detail': isDetailOpen }">
       <aside class="agent-sidebar surface">
         <div class="sidebar-header">
           <div class="agent-title">{{ chatType === 'project_chat' ? '项目问答会话' : '基础问答会话' }}</div>
@@ -370,7 +554,7 @@ onMounted(loadBaseData);
             <span class="truncate">{{ session.title }}</span>
             <small>{{ formatDateTime(session.created_at) }}</small>
           </t-button>
-          <t-empty v-if="!sessions.length" size="small" description="暂无会话" />
+          <t-empty v-if="!sessions.length" size="small" :description="sessionEmptyDescription" />
         </div>
       </aside>
 
@@ -382,126 +566,199 @@ onMounted(loadBaseData);
             clearable
             placeholder="请选择项目"
             class="project-select"
+            :disabled="streaming"
             @change="onProjectChange"
           >
             <t-option v-for="project in projects" :key="project.id" :value="project.id" :label="project.name" />
           </t-select>
-          <t-tag v-else variant="light" theme="primary">基础知识库范围</t-tag>
-          <span class="notice">{{ notice }}</span>
-          <t-tag v-if="currentSession" variant="light" theme="default">会话 #{{ currentSession.id }}</t-tag>
+  
         </div>
 
         <div ref="chatHistoryRef" class="chat-history">
           <t-empty v-if="!messages.length" description="当前入口只会基于有权限、已审核、已索引资料回答" />
           <div v-for="message in messages" :key="message.id" class="chat-item-row" :class="message.role">
+            <div v-if="message.role === 'assistant'" class="assistant-chat-row">
+              <span class="chat-avatar assistant" aria-label="Botree AI" role="img">AI</span>
+              <div class="assistant-chat-stack">
+                <TChatThinking
+                  v-if="shouldShowThinking(message)"
+                  class="message-thinking"
+                  layout="border"
+                  :status="thinkingStatus(message)"
+                  :content="thinkingContent(message)"
+                  :collapsed="shouldCollapseThinking(message)"
+                  @collapsed-change="onThinkingCollapsedChange(message, $event)"
+                >
+                  <div class="thinking-list">
+                    <div
+                      v-for="step in message.agentTrace"
+                      :key="traceStepKey(message, step)"
+                      class="thinking-step"
+                      :class="step.status || 'success'"
+                    >
+                      <span class="thinking-dot"></span>
+                      <div class="thinking-step-body">
+                        <div class="thinking-step-header">
+                          <strong>{{ step.step }}</strong>
+                          <span>{{ traceStatusText(step) }}</span>
+                        </div>
+                        <p>{{ renderTraceSummary(step) }}</p>
+                      </div>
+                    </div>
+                  </div>
+                </TChatThinking>
+
+                <TChatMessage
+                  v-if="message.content"
+                  :role="message.role"
+                  placement="left"
+                  :status="chatMessageStatus"
+                  variant="outline"
+                  class="chat-message assistant-chat-message"
+                >
+                  <ChatRichContent :content="normalizeMarkdownDisplay(message.content)" />
+                  <div v-if="shouldShowAssistantActions(message)" class="message-action-bar">
+                    <t-tooltip content="点赞">
+                      <t-button
+                        class="message-action-button"
+                        :class="{ active: message.feedback_status === 'like' }"
+                        variant="text"
+                        shape="square"
+                        :disabled="isFeedbackUpdating(message)"
+                        @click="handleFeedbackClick(message, 'like')"
+                      >
+                        <ThumbUpIcon />
+                      </t-button>
+                    </t-tooltip>
+                    <t-tooltip content="点踩">
+                      <t-button
+                        class="message-action-button"
+                        :class="{ active: message.feedback_status === 'dislike' }"
+                        variant="text"
+                        shape="square"
+                        :disabled="isFeedbackUpdating(message)"
+                        @click="handleFeedbackClick(message, 'dislike')"
+                      >
+                        <ThumbDownIcon />
+                      </t-button>
+                    </t-tooltip>
+                    <t-tooltip content="引用来源">
+                      <t-button
+                        class="message-action-button"
+                        :class="{ active: isDetailButtonActive(message, 'citations') }"
+                        variant="text"
+                        shape="square"
+                        @click="toggleDetailPanel(message, 'citations')"
+                      >
+                        <QuoteIcon />
+                      </t-button>
+                    </t-tooltip>
+                    <t-tooltip content="执行过程">
+                      <t-button
+                        class="message-action-button"
+                        :class="{ active: isDetailButtonActive(message, 'trace') }"
+                        variant="text"
+                        shape="square"
+                        @click="toggleDetailPanel(message, 'trace')"
+                      >
+                        <TaskIcon />
+                      </t-button>
+                    </t-tooltip>
+                  </div>
+                </TChatMessage>
+              </div>
+            </div>
+
             <TChatMessage
+              v-else
               :role="message.role"
-              :name="message.role === 'user' ? '我' : 'Botree Agent'"
-              :placement="message.role === 'user' ? 'right' : 'left'"
-              :datetime="formatDateTime(message.created_at)"
-              :status="message.status"
+              placement="right"
+              :status="chatMessageStatus"
               variant="outline"
               class="chat-message"
             >
+              <template #avatar>
+                <span
+                  class="chat-avatar"
+                  :class="message.role"
+                  :aria-label="message.role === 'user' ? userAvatarLabel : 'Botree AI'"
+                  role="img"
+                >
+                  {{ message.role === 'user' ? userAvatarText : 'AI' }}
+                </span>
+              </template>
               <TChatContent
                 :role="message.role"
-                :status="message.status"
-                :content="message.role === 'assistant' ? { type: 'markdown', data: message.content } : message.content"
-                :markdown-props="assistantContentProps.markdownProps"
+                :status="chatContentStatus(message)"
+                :content="message.content"
               />
             </TChatMessage>
-
-            <div v-if="message.role === 'assistant' && message.citations.length" class="inline-citations">
-              <t-tag
-                v-for="citation in message.citations.slice(0, 3)"
-                :key="`${message.id}-${citation.document_id}-${citation.chunk_id}`"
-                size="small"
-                variant="light"
-                theme="primary"
-              >
-                {{ citation.file_name }}
-                <template v-if="citation.page_number"> P{{ citation.page_number }}</template>
-              </t-tag>
-            </div>
-
-            <TChatThinking
-              v-if="message.role === 'assistant' && (message.streaming || message.agentTrace.length)"
-              class="message-thinking"
-              layout="border"
-              :status="thinkingStatus(message)"
-              :collapsed="!message.streaming"
-              max-height="260px"
-            >
-              <div class="thinking-list">
-                <div
-                  v-for="step in message.agentTrace"
-                  :key="traceStepKey(message, step)"
-                  class="thinking-step"
-                  :class="step.status || 'success'"
-                >
-                  <span class="thinking-dot"></span>
-                  <div class="thinking-step-body">
-                    <div class="thinking-step-header">
-                      <strong>{{ step.step }}</strong>
-                      <span>{{ traceStatusText(step) }}</span>
-                    </div>
-                    <p>{{ renderTraceSummary(step) }}</p>
-                  </div>
-                </div>
-              </div>
-            </TChatThinking>
           </div>
         </div>
 
-        <div class="sender-shell">
+        <div ref="senderShellRef" class="sender-shell">
           <TChatSender
             v-model="question"
             :loading="streaming"
             :disabled="senderDisabled"
             :stop-disabled="false"
             :send-btn-disabled="senderDisabled"
-            placeholder="输入问题"
-            :textarea-props="{ autosize: { minRows: 3, maxRows: 6 } }"
+            :textarea-props="{ autosize: { minRows: 1, maxRows: 2 }, placeholder: '有问题，尽管问' }"
             @send="submitQuestion"
             @stop="stopStreaming"
           />
         </div>
       </main>
 
-      <aside class="agent-right surface">
-        <t-tabs default-value="citations">
-          <t-tab-panel value="citations" label="引用来源">
-            <CitationList :citations="citations" :chat-type="chatType" />
-          </t-tab-panel>
-          <t-tab-panel value="trace" label="执行过程">
-            <AgentTracePanel :steps="trace" />
-          </t-tab-panel>
-          <t-tab-panel value="scope" :label="chatType === 'project_chat' ? '当前知识范围' : '命中的知识库'">
-            <div class="scope-panel">
-              <div class="scope-title">{{ queryScope || (chatType === 'project_chat' ? '所选项目资料' : '基础知识库资料') }}</div>
-              <p v-if="selectedProject">当前项目：{{ selectedProject.name }}（project_id={{ selectedProject.id }}）</p>
-              <p v-if="chatType === 'project_chat'">仅检索当前项目资料，不跨项目查询。</p>
-              <p v-else>命中知识库：{{ hitKnowledgeBases.join('、') || '暂无命中' }}</p>
-            </div>
-          </t-tab-panel>
-        </t-tabs>
+      <aside v-if="isDetailOpen" class="agent-right surface">
+        <div class="detail-panel-header">
+          <div class="detail-panel-heading">
+            <span class="detail-panel-label">{{ detailPanelTitle }}</span>
+            <p class="detail-panel-question"><span>原始问题：</span>{{ activeDetailQuestion || '未找到原始问题' }}</p>
+          </div>
+          <t-button variant="text" shape="square" aria-label="关闭详情" @click="closeDetailPanelAndFocus">
+            <CloseIcon />
+          </t-button>
+        </div>
+        <div class="detail-panel-body">
+          <CitationList v-if="activeDetailMode === 'citations'" :citations="activeDetailCitations" :chat-type="chatType" />
+          <AgentTracePanel v-else-if="activeDetailMode === 'trace'" :steps="activeDetailTrace" />
+        </div>
       </aside>
     </div>
-  </PageContainer>
+  </section>
 </template>
 
 <style scoped>
+.chat-workspace-page {
+  display: flex;
+  height: calc(100vh - 64px);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 24px;
+}
+
 .agent-layout {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 360px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  flex: 1;
   gap: 16px;
-  min-height: calc(100vh - 160px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-layout.with-detail {
+  grid-template-columns: 280px minmax(0, 1fr) 360px;
 }
 
 .agent-sidebar,
 .agent-right,
 .chat-panel,
 .no-access {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   padding: 16px;
 }
 
@@ -509,6 +766,13 @@ onMounted(loadBaseData);
 .chat-panel,
 .agent-right,
 .no-access {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.no-access {
+  flex: 1;
   min-height: 0;
 }
 
@@ -526,9 +790,10 @@ onMounted(loadBaseData);
 
 .session-list {
   display: flex;
-  max-height: calc(100vh - 280px);
+  flex: 1;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -561,12 +826,12 @@ onMounted(loadBaseData);
 
 .chat-panel {
   display: flex;
-  min-height: 0;
   flex-direction: column;
 }
 
 .chat-toolbar {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 12px;
   padding-bottom: 12px;
@@ -583,8 +848,9 @@ onMounted(loadBaseData);
 
 .chat-history {
   flex: 1;
+  min-height: 0;
   overflow: auto;
-  padding: 8px 4px 16px;
+  padding: 8px 10px 16px;
 }
 
 .chat-item-row {
@@ -597,79 +863,402 @@ onMounted(loadBaseData);
   align-items: flex-end;
 }
 
+.assistant-chat-row {
+  display: flex;
+  width: calc(100% - 10em);
+  max-width: 100%;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.assistant-chat-row > .chat-avatar {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.assistant-chat-stack {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
 .chat-message {
   width: min(100%, 780px);
+  --td-chat-item-left-avatar-margin: 0 12px 0 0;
+  --td-chat-item-right-avatar-margin: 0 0 0 12px;
+  --td-chat-item-avatar-padding: 2px 0 0;
+  --td-chat-item-avatar-has-header-padding: 2px 0 0;
+}
+
+.assistant-chat-message {
+  width: 100%;
+  max-width: none;
+  --td-chat-item-left-avatar-margin: 0;
+  --td-chat-item-avatar-padding: 0;
+  --td-chat-item-avatar-has-header-padding: 0;
+}
+
+.assistant-chat-message::part(t-chat__item__avatar) {
+  display: none;
+}
+
+.chat-avatar {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 8px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+
+.chat-avatar.assistant {
+  background: linear-gradient(135deg, #1d4ed8 0%, #0f172a 100%);
+}
+
+.chat-avatar.user {
+  background: #10b981;
 }
 
 .chat-message :deep(.t-chat__text) {
-  line-height: 1.8;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.72;
+  white-space: normal;
+}
+
+.assistant-chat-message :deep(.t-chat__text) {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 1.62;
+}
+
+.assistant-chat-message :deep(.t-chat__text__assistant),
+.assistant-chat-message :deep(.t-chat__text__content),
+.assistant-chat-message :deep(.t-chat__text p),
+.assistant-chat-message :deep(.t-chat__text ul),
+.assistant-chat-message :deep(.t-chat__text ol),
+.assistant-chat-message :deep(.t-chat__text li) {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.62;
+}
+
+.chat-item-row.user .chat-message :deep(.t-chat__text) {
+  font-size: 13px;
+  line-height: 1.62;
   white-space: pre-wrap;
 }
 
-.inline-citations,
-.message-reasoning {
-  width: min(100%, 780px);
+.chat-item-row.user .chat-message :deep(.t-chat__text pre),
+.chat-item-row.user .chat-message :deep(.t-chat__text__content) {
+  font-size: 13px;
+  line-height: 1.62;
 }
 
-.inline-citations {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
+.chat-message :deep(.t-chat__text p) {
+  margin: 0 0 10px;
 }
 
-.message-reasoning {
-  margin-top: 10px;
+.chat-message :deep(.t-chat__text p:last-child) {
+  margin-bottom: 0;
 }
 
-.reasoning-list {
+.chat-message :deep(.t-chat__text h1),
+.chat-message :deep(.t-chat__text h2),
+.chat-message :deep(.t-chat__text h3),
+.chat-message :deep(.t-chat__text h4) {
+  margin: 18px 0 10px;
+  line-height: 1.35;
+}
+
+.assistant-chat-message :deep(.t-chat__text h1),
+.assistant-chat-message :deep(.t-chat__text h2),
+.assistant-chat-message :deep(.t-chat__text h3),
+.assistant-chat-message :deep(.t-chat__text h4),
+.assistant-chat-message :deep(.t-chat__text h5),
+.assistant-chat-message :deep(.t-chat__text h6) {
+  margin: 10px 0 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.chat-message :deep(.t-chat__text ul),
+.chat-message :deep(.t-chat__text ol) {
+  margin: 8px 0 10px;
+  padding-left: 24px;
+}
+
+.chat-message :deep(.t-chat__text li) {
+  margin: 4px 0;
+}
+
+.chat-message :deep(.t-chat__text pre) {
+  white-space: pre-wrap;
+}
+
+.message-thinking {
+  width: 100%;
+}
+
+.message-thinking {
+  color: #7a8699;
+  font-size: 12px;
+  line-height: 1.55;
+  margin-bottom: 8px;
+}
+
+.message-thinking :deep(.t-collapse-panel__header) {
+  cursor: pointer;
+}
+
+.message-thinking :deep(.t-chat__item__think__header__content) {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.message-thinking :deep(.t-chat__item__think__inner) {
+  color: #7a8699;
+  font-size: 12px;
+  line-height: 1.55;
+  max-height: none;
+  overflow: visible;
+}
+
+.message-thinking :deep(*) {
+  scrollbar-width: none;
+}
+
+.message-thinking :deep(*::-webkit-scrollbar) {
+  display: none;
+}
+
+.thinking-list {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+.thinking-step {
+  display: flex;
   gap: 10px;
+  color: #7a8699;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
-.reasoning-step {
-  border: 1px solid #eef2f7;
-  border-radius: 8px;
-  background: #fafcff;
-  padding: 12px;
+.thinking-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: #a3b1c6;
 }
 
-.reasoning-step-header {
+.thinking-step.running .thinking-dot {
+  background: #2f6fed;
+}
+
+.thinking-step.success .thinking-dot {
+  background: #00a870;
+}
+
+.thinking-step.failed .thinking-dot {
+  background: #d54941;
+}
+
+.thinking-step-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.thinking-step-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
-  color: #111827;
-  font-size: 13px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
 }
 
-.reasoning-step pre {
-  margin: 0;
-  overflow: auto;
-  color: #4b5563;
-  font-family: inherit;
+.thinking-step-header strong {
   font-size: 12px;
-  line-height: 1.6;
+  font-weight: 600;
+}
+
+.thinking-step-header span {
+  color: #8a94a6;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.thinking-step p {
+  margin: 4px 0 0;
+  color: #7a8699;
+  font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+.message-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eef2f7;
+}
+
+.message-action-button {
+  width: 28px;
+  height: 28px;
+  color: #64748b;
+}
+
+.message-action-button :deep(.t-icon) {
+  font-size: 16px;
+}
+
+.message-action-button:hover,
+.message-action-button.active {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
 .sender-shell {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: center;
   border-top: 1px solid #edf0f5;
-  padding-top: 16px;
+  box-sizing: border-box;
+  padding: 6px 10px 0;
 }
 
-.scope-panel {
-  color: #4b5563;
+.sender-shell :deep(.t-chat-sender) {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+}
+
+.sender-shell :deep(.t-chat-sender__textarea) {
+  min-height: 54px;
+  border-radius: 8px;
+  padding: 9px 46px 9px 12px;
+}
+
+.sender-shell :deep(.t-chat-sender .t-textarea .t-textarea__inner) {
+  color: #475569;
   font-size: 13px;
-  line-height: 1.7;
+  line-height: 1.62;
 }
 
-.scope-title {
-  margin-bottom: 10px;
+.sender-shell :deep(.t-chat-sender .t-textarea .t-textarea__inner::placeholder) {
+  font-size: 13px;
+}
+
+.sender-shell :deep(.t-chat-sender__header),
+.sender-shell :deep(.t-chat-sender__inner-header) {
+  min-height: 0;
+}
+
+.sender-shell :deep(.t-chat-sender__textarea__wrapper) {
+  margin-bottom: 0;
+  padding-top: 0;
+}
+
+.sender-shell :deep(.t-chat-sender__footer) {
+  position: absolute;
+  right: 8px;
+  bottom: 13px;
+  min-height: 0;
+  padding-top: 0;
+  pointer-events: none;
+}
+
+.sender-shell :deep(.t-chat-sender__button) {
+  pointer-events: auto;
+}
+
+.sender-shell :deep(.t-chat-sender__button .t-chat-sender__button__default) {
+  width: 28px;
+  height: 28px;
+}
+
+@media (max-width: 1180px) {
+  .assistant-chat-row {
+    width: 100%;
+  }
+
+  .sender-shell :deep(.t-chat-sender) {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+.detail-panel-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #edf0f5;
+  padding-bottom: 12px;
+}
+
+.detail-panel-heading {
+  min-width: 0;
+}
+
+.detail-panel-label {
+  display: block;
+  margin-bottom: 6px;
   color: #111827;
+  font-size: 14px;
   font-weight: 700;
 }
+
+.detail-panel-question {
+  display: -webkit-box;
+  max-height: 66px;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.65;
+  text-overflow: ellipsis;
+  word-break: break-word;
+}
+
+.detail-panel-question span {
+  color: #334155;
+  font-weight: 600;
+}
+
+.detail-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 12px;
+}
+
 </style>

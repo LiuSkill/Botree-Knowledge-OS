@@ -27,3 +27,12 @@ def test_project_chat_only_allows_selected_project_knowledge() -> None:
     assert retriever._scope_allowed("project", 10, 2, "project_chat", 10, user) is True
     assert retriever._scope_allowed("project", 20, 3, "project_chat", 10, user) is False
     assert retriever._scope_allowed("base", None, 1, "project_chat", 10, user) is False
+
+
+def test_project_with_industry_allows_project_and_authorized_base_only() -> None:
+    retriever = KeywordRetriever(cast(Any, None))
+    user = make_admin_user()
+
+    assert retriever._scope_allowed("project", 10, 2, "project_with_industry", 10, user) is True
+    assert retriever._scope_allowed("base", None, 1, "project_with_industry", 10, user) is True
+    assert retriever._scope_allowed("project", 20, 3, "project_with_industry", 10, user) is False

@@ -15,7 +15,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
-from app.schemas.chat import ChatCompletionRequest, ChatSessionCreate, ChatSessionOut
+from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate, ChatSessionOut
 from app.services.chat_service import ChatService
 
 router = APIRouter(prefix="/chat", tags=["AI中心"])
@@ -24,12 +24,13 @@ router = APIRouter(prefix="/chat", tags=["AI中心"])
 @router.get("/sessions", summary="会话列表")
 def list_sessions(
     chat_type: str | None = None,
+    project_id: int | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询当前用户会话列表。"""
 
-    sessions = ChatService(db).list_sessions(current_user, chat_type)
+    sessions = ChatService(db).list_sessions(current_user, chat_type, project_id)
     return success([ChatSessionOut.model_validate(item).model_dump(mode="json") for item in sessions])
 
 
@@ -54,6 +55,18 @@ def message_trace(message_id: int, current_user: User = Depends(get_current_user
     """查询指定助手消息对应的 LangGraph 检索执行轨迹。"""
 
     return success(ChatService(db).message_trace(message_id, current_user))
+
+
+@router.patch("/messages/{message_id}/feedback", summary="更新回答反馈")
+def update_message_feedback(
+    message_id: int,
+    payload: ChatMessageFeedbackUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """更新指定助手回答的点赞/点踩反馈。"""
+
+    return success(ChatService(db).update_message_feedback(message_id, payload, current_user))
 
 
 @router.delete("/sessions/{session_id}", summary="删除会话")

@@ -90,6 +90,10 @@ class KeywordRetriever(BaseRetriever):
             return knowledge_type == "base" and self._base_knowledge_allowed(knowledge_base_id, project_id, user, strict_external=False)
         if effective_mode == "project_only":
             return knowledge_type == "project" and doc_project_id == project_id
+        if effective_mode == "project_with_industry":
+            return (knowledge_type == "project" and doc_project_id == project_id) or (
+                knowledge_type == "base" and self._base_knowledge_allowed(knowledge_base_id, project_id, user, strict_external=True)
+            )
         if effective_mode == "hybrid":
             return (
                 knowledge_type == "base" and self._base_knowledge_allowed(knowledge_base_id, project_id, user, strict_external=False)
@@ -108,7 +112,7 @@ class KeywordRetriever(BaseRetriever):
             前端展示使用的来源类型。
         """
 
-        if mode == "project_chat" and knowledge_type == "base":
+        if mode in {"project_chat", "project_with_industry"} and knowledge_type == "base":
             return "authorized_internal"
         return knowledge_type
 

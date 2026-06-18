@@ -8,6 +8,7 @@ Chat Models
 """
 
 from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -51,7 +52,16 @@ class ChatMessage(TimestampMixin, Base):
     role: Mapped[str] = mapped_column(String(30), nullable=False, comment="消息角色：user/assistant")
     content: Mapped[str] = mapped_column(Text, nullable=False, comment="消息内容")
     query_scope: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="查询范围说明")
-    agent_trace_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="Agent执行过程JSON")
+    agent_trace_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(LONGTEXT(), "mysql"),
+        nullable=True,
+        comment="Agent执行过程JSON",
+    )
+    feedback_status: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="回答反馈状态：like/dislike",
+    )
 
 
 class ChatCitation(TimestampMixin, Base):

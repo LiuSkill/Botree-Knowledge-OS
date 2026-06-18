@@ -45,6 +45,14 @@ export function getDocumentPreview(id: number, versionNo?: number | null): Promi
   return request.get(`/documents/${id}/preview`, { params: versionNo ? { version_no: versionNo } : undefined }) as Promise<DocumentPreview>;
 }
 
+export function downloadDocumentPdfPreview(id: number, versionNo?: number | null): Promise<Blob> {
+  return request.get(`/documents/${id}/preview-pdf`, {
+    params: versionNo ? { version_no: versionNo } : undefined,
+    responseType: 'blob',
+    timeout: 120000,
+  }) as Promise<Blob>;
+}
+
 export function submitDocumentReview(
   id: number,
   comment = '提交审核',

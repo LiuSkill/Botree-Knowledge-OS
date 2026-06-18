@@ -24,7 +24,7 @@ from app.langgraph import RetrievalGraph
 from app.models.chat import ChatCitation, ChatMessage, ChatSession
 from app.models.user import User
 from app.repositories.chat_repository import ChatRepository
-from app.schemas.chat import ChatCompletionRequest, ChatSessionCreate
+from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate
 from app.services.retrieval_trace_service import RetrievalTraceService
 from app.services.system_service import SystemService
 
@@ -38,12 +38,23 @@ class ChatService:
         self.db = db
         self.repository = ChatRepository(db)
 
-    def list_sessions(self, user: User, chat_type: str | None = None) -> list[ChatSession]:
+    def list_sessions(
+        self,
+        user: User,
+        chat_type: str | None = None,
+        project_id: int | None = None,
+    ) -> list[ChatSession]:
         """查询当前用户会话列表。"""
 
         if chat_type is not None:
             self._validate_chat_type(chat_type)
-        return self.repository.list_sessions(user.id, chat_type)
+        if chat_type == "project_chat" and project_id is None:
+            return []
+        if project_id is not None:
+            from app.services.project_service import ProjectService
+
+            ProjectService(self.db).ensure_project_access(project_id, user)
+        return self.repository.list_sessions(user.id, chat_type, project_id)
 
     def create_session(self, payload: ChatSessionCreate, user: User) -> ChatSession:
         """创建问答会话。"""
@@ -99,6 +110,26 @@ class ChatService:
             "elapsed_ms": trace.elapsed_ms,
             "created_at": trace.created_at,
         }
+
+    def update_message_feedback(self, message_id: int, payload: ChatMessageFeedbackUpdate, user: User) -> dict[str, Any]:
+        """更新当前用户可访问助手回答的点赞/点踩反馈。"""
+
+        message = self.repository.get_message(message_id)
+        if not message:
+            raise AppException("消息不存在", status_code=404, code=404)
+        self._ensure_session_owner(message.session_id, user)
+        if message.role != "assistant":
+            raise AppException("只能反馈助手回答", status_code=400, code=400)
+
+        self.repository.update_message_feedback(message, payload.feedback_status)
+        self.db.commit()
+        logger.info(
+            "问答反馈已更新: message_id=%s user_id=%s feedback_status=%s",
+            message_id,
+            user.id,
+            payload.feedback_status or "none",
+        )
+        return {"message_id": message.id, "feedback_status": message.feedback_status}
 
     def delete_session(self, session_id: int, user: User) -> None:
         """删除会话。"""
@@ -172,13 +203,27 @@ class ChatService:
                 }
                 yield self._encode_sse("meta", meta_payload)
 
+                if prepared_state.get("direct_answer"):
+                    answer = str(prepared_state.get("answer") or "").strip()
+                    if not answer:
+                        raise AppException("直答生成失败", status_code=502, code=502)
+                    yield self._encode_sse("delta", {"content": answer})
+                    agent_result = retrieval_graph.to_agent_result(prepared_state)
+                    result = self._persist_agent_result(payload, user, session, agent_result)
+                    yield self._encode_sse("done", result)
+                    return
+
                 answer_sequence = retrieval_graph.next_trace_sequence(prepared_state)
                 yield self._encode_sse(
                     "trace_delta",
                     retrieval_graph.answer_running_trace_delta(prepared_state, answer_sequence),
                 )
                 answer_started_at = time.perf_counter()
-                for delta in retrieval_graph.answer_generator.stream_generate(payload.message, prepared_state.get("evidences", [])):
+                for delta in retrieval_graph.answer_generator.stream_generate(
+                    payload.message,
+                    prepared_state.get("evidences", []),
+                    query_profile=prepared_state.get("query_profile", {}),
+                ):
                     if not delta:
                         continue
                     answer_chunks.append(delta)
@@ -187,6 +232,9 @@ class ChatService:
                 answer = "".join(answer_chunks).strip()
                 if not answer:
                     raise AppException("LLM未返回有效内容", status_code=502, code=502)
+
+                if retrieval_graph.answer_generator.last_model_route:
+                    prepared_state.setdefault("model_routes", {})["answer"] = retrieval_graph.answer_generator.last_model_route
 
                 agent_result = retrieval_graph.finalize_answer(
                     prepared_state,
@@ -262,6 +310,7 @@ class ChatService:
             "agent_trace": agent_result["agent_trace"],
             "trace_steps": agent_result.get("trace_steps", agent_result["agent_trace"]),
             "citations": [self._citation_to_dict(item) for item in citations],
+            "feedback_status": assistant_message.feedback_status,
             "raw": {"message_id": assistant_message.id, **agent_result.get("raw", {})},
         }
 
@@ -276,6 +325,7 @@ class ChatService:
             "content": message.content,
             "query_scope": message.query_scope,
             "agent_trace_json": message.agent_trace_json,
+            "feedback_status": message.feedback_status,
             "citations": [self._citation_to_dict(citation) for citation in citations],
             "created_at": message.created_at.isoformat() if message.created_at else None,
             "updated_at": message.updated_at.isoformat() if message.updated_at else None,

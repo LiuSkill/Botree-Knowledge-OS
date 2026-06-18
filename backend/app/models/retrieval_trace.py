@@ -8,6 +8,7 @@ Retrieval Trace Model
 """
 
 from sqlalchemy import ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -43,9 +44,29 @@ class RetrievalTrace(TimestampMixin, Base):
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, comment="项目ID，关联projects.id")
     question: Mapped[str] = mapped_column(Text, nullable=False, comment="用户问题")
     intent: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="Qwen识别的问题意图")
-    sub_queries_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="查询拆解JSON")
-    retriever_hits_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="各检索器命中数量JSON")
-    rerank_result_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="重排结果JSON")
-    citations_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="最终引用JSON")
-    trace_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="LangGraph执行轨迹JSON")
+    sub_queries_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(LONGTEXT(), "mysql"),
+        nullable=True,
+        comment="查询拆解JSON",
+    )
+    retriever_hits_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(LONGTEXT(), "mysql"),
+        nullable=True,
+        comment="各检索器命中数量JSON",
+    )
+    rerank_result_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(LONGTEXT(), "mysql"),
+        nullable=True,
+        comment="重排结果JSON",
+    )
+    citations_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(LONGTEXT(), "mysql"),
+        nullable=True,
+        comment="最终引用JSON",
+    )
+    trace_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(LONGTEXT(), "mysql"),
+        nullable=True,
+        comment="LangGraph执行轨迹JSON",
+    )
     elapsed_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="总耗时毫秒")

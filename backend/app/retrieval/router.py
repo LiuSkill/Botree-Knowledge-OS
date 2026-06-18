@@ -210,6 +210,7 @@ class RetrievalRouter:
         intent: str | None = None,
         sub_query_index: int | None = None,
         sub_query_total: int | None = None,
+        knowledge_scope: str | None = None,
     ) -> dict[str, Any]:
         """
         按 Planner 结果分阶段执行检索。
@@ -235,7 +236,7 @@ class RetrievalRouter:
             未重排的检索结果和执行明细
         """
 
-        effective_mode = self._prepare_scope(mode, project_id, chat_type, user)
+        effective_mode = self._prepare_scope(mode, project_id, chat_type, user, knowledge_scope=knowledge_scope)
         planned_retrievers = self._filter_retriever_names(retriever_names)
         fallback_names = self._filter_retriever_names(fallback_retrievers or [])
         normalized_ladder = self._normalize_execution_ladder(planned_retrievers, fallback_names, fallback_ladder)
@@ -556,7 +557,14 @@ class RetrievalRouter:
                 result.append(name)
         return result
 
-    def _prepare_scope(self, mode: str, project_id: int | None, chat_type: str | None, user: User) -> str:
+    def _prepare_scope(
+        self,
+        mode: str,
+        project_id: int | None,
+        chat_type: str | None,
+        user: User,
+        knowledge_scope: str | None = None,
+    ) -> str:
         """
         计算并校验检索范围。
 
@@ -570,8 +578,8 @@ class RetrievalRouter:
             生效检索模式
         """
 
-        effective_mode = self._effective_mode(mode, project_id, chat_type)
-        if effective_mode in {"project_only", "hybrid", "project_chat"}:
+        effective_mode = self._effective_mode(mode, project_id, chat_type, knowledge_scope=knowledge_scope)
+        if effective_mode in {"project_only", "hybrid", "project_chat", "project_with_industry"}:
             if project_id is None:
                 raise AppException("项目知识问答必须选择项目")
             ProjectService(self.db).ensure_project_access(project_id, user)
@@ -579,7 +587,13 @@ class RetrievalRouter:
             raise AppException("外部用户默认不能访问基础问答", status_code=403, code=403)
         return effective_mode
 
-    def _effective_mode(self, mode: str, project_id: int | None, chat_type: str | None = None) -> str:
+    def _effective_mode(
+        self,
+        mode: str,
+        project_id: int | None,
+        chat_type: str | None = None,
+        knowledge_scope: str | None = None,
+    ) -> str:
         """
         计算实际检索模式。
 
@@ -592,13 +606,19 @@ class RetrievalRouter:
             生效检索模式
         """
 
+        if knowledge_scope == "industry":
+            return "base_chat" if chat_type == "base_chat" else "base_only"
+        if knowledge_scope == "project_with_industry":
+            return "project_with_industry"
+        if knowledge_scope == "project":
+            return "project_chat" if chat_type == "project_chat" else "project_only"
         if chat_type == "project_chat":
             return "project_chat"
         if chat_type == "base_chat":
             return "base_chat"
         if mode == "auto":
             return "hybrid" if project_id is not None else "base_only"
-        if mode not in {"base_only", "project_only", "hybrid", "project_chat", "base_chat"}:
+        if mode not in {"base_only", "project_only", "hybrid", "project_chat", "base_chat", "project_with_industry"}:
             raise AppException("不支持的问答模式")
         return mode
 
@@ -617,6 +637,7 @@ class RetrievalRouter:
             "base_only": "基础知识",
             "project_only": "项目知识",
             "hybrid": "基础知识 + 项目知识",
+            "project_with_industry": "所选项目资料 + 授权行业基础知识",
             "project_chat": "所选项目资料",
             "base_chat": "当前用户有权限访问的基础知识库资料",
         }.get(mode, "自动判断")

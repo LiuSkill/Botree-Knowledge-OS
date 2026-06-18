@@ -9,7 +9,6 @@ Documents API
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Iterator
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -58,6 +57,35 @@ def _stream_minio_object(object_key: str) -> Iterator[bytes]:
         response.release_conn()
 
 
+def _inline_file_response(
+    file_name: str,
+    media_type: str,
+    storage_path: str | None = None,
+    object_key: str | None = None,
+    not_found_message: str = "文件不存在",
+) -> FileResponse | StreamingResponse:
+    """统一返回可在浏览器内联预览的本地或 MinIO 文件。"""
+
+    settings = get_settings()
+    file_path = settings.resolve_local_path(storage_path) if storage_path else None
+    if file_path and file_path.is_file():
+        return FileResponse(
+            path=file_path,
+            filename=file_name,
+            media_type=media_type,
+            content_disposition_type="inline",
+        )
+
+    if object_key:
+        return StreamingResponse(
+            _stream_minio_object(object_key),
+            media_type=media_type,
+            headers={"Content-Disposition": f'inline; filename="{file_name}"'},
+        )
+
+    raise AppException(not_found_message, status_code=404, code=404)
+
+
 @router.get("", summary="文档列表")
 def list_documents(
     project_id: int | None = None,
@@ -88,27 +116,13 @@ def get_document_asset(asset_id: int, current_user: User = Depends(get_current_u
     """按权限受控返回派生资产文件。"""
 
     asset = DocumentService(db).get_document_asset(asset_id, current_user)
-    settings = get_settings()
-    if asset.storage_path:
-        asset_path = settings.resolve_local_path(asset.storage_path)
-    else:
-        asset_path = None
-    if asset_path and asset_path.is_file():
-        return FileResponse(
-            path=asset_path,
-            filename=asset.file_name,
-            media_type=asset.mime_type or "application/octet-stream",
-            content_disposition_type="inline",
-        )
-
-    if asset.object_key:
-        return StreamingResponse(
-            _stream_minio_object(asset.object_key),
-            media_type=asset.mime_type or "application/octet-stream",
-            headers={"Content-Disposition": f'inline; filename="{asset.file_name}"'},
-        )
-
-    raise AppException("派生资产文件不存在", status_code=404, code=404)
+    return _inline_file_response(
+        file_name=asset.file_name,
+        media_type=asset.mime_type or "application/octet-stream",
+        storage_path=asset.storage_path,
+        object_key=asset.object_key,
+        not_found_message="派生资产文件不存在",
+    )
 
 
 @router.get("/{document_id}", summary="文档详情")
@@ -175,6 +189,25 @@ def preview_document(
 
     preview = DocumentService(db).preview_document(document_id, current_user, version_no)
     return success(DocumentPreviewOut.model_validate(preview).model_dump(mode="json"))
+
+
+@router.get("/{document_id}/preview-pdf", summary="文档 PDF 预览", response_model=None)
+def preview_document_pdf(
+    document_id: int,
+    version_no: int | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse | StreamingResponse:
+    """按文档类型返回原始 PDF 或转换后的 PDF。"""
+
+    preview_source = DocumentService(db).get_document_pdf_preview(document_id, current_user, version_no)
+    return _inline_file_response(
+        file_name=preview_source.file_name,
+        media_type=preview_source.media_type,
+        storage_path=preview_source.storage_path,
+        object_key=preview_source.object_key,
+        not_found_message="PDF 预览文件不存在",
+    )
 
 
 @router.put("/{document_id}/pages/{page_no}/correction", summary="人工修正文档页")

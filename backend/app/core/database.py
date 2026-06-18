@@ -27,6 +27,15 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 database_url = settings.effective_database_url
 connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+TASK_MODEL_DEFAULTS = (
+    ("intent", "intent_llm_model", "llm"),
+    ("planner", "planner_llm_model", "llm"),
+    ("evidence_judge_fast", "evidence_judge_fast_model", "llm"),
+    ("evidence_judge", "evidence_judge_model", "llm"),
+    ("answer_llm", "answer_llm_model", "llm"),
+    ("vision_llm", "vision_llm_model", "vision"),
+    ("analysis_llm", "analysis_llm_model", "llm"),
+)
 
 
 def ensure_mysql_database_exists() -> None:
@@ -303,6 +312,40 @@ def migrate_database() -> None:
                 "VARCHAR(100)",
             )
 
+        if "chat_messages" in table_names:
+            message_columns = {column["name"] for column in inspector.get_columns("chat_messages")}
+            _add_column_if_missing(
+                connection,
+                message_columns,
+                "chat_messages",
+                "feedback_status",
+                "VARCHAR(20) COMMENT '回答反馈状态：like/dislike'",
+                "VARCHAR(20)",
+            )
+            _modify_mysql_column_if_needed(
+                connection,
+                inspector,
+                "chat_messages",
+                "agent_trace_json",
+                "LONGTEXT COMMENT 'Agent执行过程JSON'",
+            )
+
+        if "retrieval_traces" in table_names:
+            for column_name, comment in (
+                ("sub_queries_json", "查询拆解JSON"),
+                ("retriever_hits_json", "各检索器命中数量JSON"),
+                ("rerank_result_json", "重排结果JSON"),
+                ("citations_json", "最终引用JSON"),
+                ("trace_json", "LangGraph执行轨迹JSON"),
+            ):
+                _modify_mysql_column_if_needed(
+                    connection,
+                    inspector,
+                    "retrieval_traces",
+                    column_name,
+                    f"LONGTEXT COMMENT '{comment}'",
+                )
+
         if "graph_entities" in table_names:
             entity_columns = {column["name"] for column in inspector.get_columns("graph_entities")}
             _add_column_if_missing(
@@ -408,6 +451,31 @@ def _add_column_if_missing(
     connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"))
     existing_columns.add(column_name)
     logger.info("数据库迁移完成: %s.%s", table_name, column_name)
+
+
+def _modify_mysql_column_if_needed(
+    connection,
+    inspector,
+    table_name: str,
+    column_name: str,
+    mysql_definition: str,
+) -> None:
+    """
+    按需调整 MySQL 字段类型。
+
+    说明:
+        create_all 不会修改已存在字段；问答 Trace 可能超过 TEXT 的 64KB 字节限制，
+        因此旧库需要自动扩展为 LONGTEXT。
+    """
+
+    if not database_url.startswith("mysql"):
+        return
+    columns = {column["name"]: column for column in inspector.get_columns(table_name)}
+    column = columns.get(column_name)
+    if column is None or "LONGTEXT" in str(column["type"]).upper():
+        return
+    connection.execute(text(f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} {mysql_definition}"))
+    logger.info("数据库迁移完成: %s.%s -> LONGTEXT", table_name, column_name)
 
 
 def _create_index_if_missing(connection, inspector, table_name: str, index_name: str, column_name: str) -> None:
@@ -655,6 +723,9 @@ def seed_model_config(db: Session) -> None:
             )
         )
 
+    for model_type, model_attr, provider_group in TASK_MODEL_DEFAULTS:
+        _seed_task_model_config(db, model_type, model_attr, provider_group, disabled_providers)
+
     embedding_exists = db.scalar(select(ModelConfig).where(ModelConfig.model_type == "embedding", ModelConfig.is_default.is_(True)))
     embedding_base = settings.openai_compatible_base_url or settings.llm_base_url
     if embedding_exists:
@@ -689,3 +760,46 @@ def seed_model_config(db: Session) -> None:
                 enabled=True,
             )
         )
+
+
+def _seed_task_model_config(
+    db: Session,
+    model_type: str,
+    model_attr: str,
+    provider_group: str,
+    disabled_providers: set[str],
+) -> None:
+    """初始化项目问答任务模型默认配置；已有同类型默认模型时不覆盖管理员配置。"""
+
+    current_settings = get_settings()
+    exists = db.scalar(select(ModelConfig).where(ModelConfig.model_type == model_type, ModelConfig.is_default.is_(True)))
+    if exists:
+        logger.info("默认任务模型配置已存在，跳过初始化: model_type=%s", model_type)
+        return
+
+    if provider_group == "vision":
+        provider = current_settings.vision_llm_provider
+        api_base = current_settings.vision_llm_base_url or current_settings.llm_base_url or current_settings.openai_compatible_base_url
+    else:
+        provider = current_settings.llm_provider
+        api_base = current_settings.llm_base_url or current_settings.openai_compatible_base_url
+    model_name = str(getattr(current_settings, model_attr, "") or "").strip()
+
+    if provider.lower() in disabled_providers:
+        logger.warning("任务模型供应商为禁用占位配置，跳过初始化: model_type=%s provider=%s", model_type, provider)
+        return
+    if not model_name:
+        logger.warning("任务模型名称为空，跳过初始化: model_type=%s", model_type)
+        return
+
+    db.add(
+        ModelConfig(
+            provider=provider,
+            model_name=model_name,
+            api_base=api_base,
+            api_key=None,
+            model_type=model_type,
+            is_default=True,
+            enabled=True,
+        )
+    )

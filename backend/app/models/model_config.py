@@ -31,6 +31,10 @@ class ModelConfig(TimestampMixin, Base):
     model_name: Mapped[str] = mapped_column(String(150), nullable=False, comment="模型名称")
     api_base: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="API Base地址")
     api_key: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="API Key，从.env或安全配置读取后写入")
-    model_type: Mapped[str] = mapped_column(String(30), nullable=False, comment="模型类型：llm/embedding/reranker")
+    model_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        comment="模型类型：llm/embedding/reranker/intent/planner/evidence_judge_fast/evidence_judge/answer_llm/vision_llm/analysis_llm",
+    )
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否默认模型")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="是否启用")

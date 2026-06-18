@@ -9,6 +9,7 @@ Document Service
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import logging
 from pathlib import Path
@@ -33,6 +34,7 @@ from app.models.document import Document, DocumentChunk, DocumentVersion
 from app.models.index_task import IndexTask
 from app.models.page_index import DocumentPage, DocumentPageBlock
 from app.services.document_asset_service import DocumentAssetService
+from app.services.libreoffice_conversion_service import LibreOfficeConversionService
 from app.models.user import User
 from app.repositories.chat_repository import ChatRepository
 from app.repositories.document_repository import DocumentRepository
@@ -98,6 +100,7 @@ ASSET_TYPE_PAGE_PREVIEW = "page_preview"
 ASSET_TYPE_BLOCK_IMAGE = "block_image"
 ASSET_STATUS_READY = "ready"
 ASSET_STATUS_OBSOLETE = "obsolete"
+PDF_FILE_TYPE = "pdf"
 MARKDOWN_FIELD_CANDIDATES = ("md_content", "markdown", "md", "text", "content", "cleaned_markdown", "botree_cleaned_markdown")
 PREVIEW_MARKDOWN_SOURCE_MINERU = "mineru_result"
 PREVIEW_MARKDOWN_SOURCE_PAGE_TEXT = "page_text_fallback"
@@ -113,6 +116,17 @@ ACTION_BUILD_DOCUMENT_INDEX = "解析并构建索引"
 ACTION_BUILD_DOCUMENT_INDEX_FAILED = "解析并构建索引失败"
 ACTION_ROLLBACK_DOCUMENT = "版本回滚"
 ACTION_ARCHIVE_DOCUMENT = "归档文档"
+
+
+@dataclass(slots=True)
+class DocumentPdfPreviewSource:
+    """文档 PDF 预览源，统一描述原始 PDF 和转换 PDF 的读取位置。"""
+
+    file_name: str
+    media_type: str = "application/pdf"
+    storage_path: str | None = None
+    object_key: str | None = None
+    source_kind: str = "original_pdf"
 
 
 class DocumentService:
@@ -459,6 +473,61 @@ class DocumentService:
             "storage_path": document.storage_path,
             "url": f"/api/documents/{document.id}/download-url",
         }
+
+    def get_document_pdf_preview(
+        self,
+        document_id: int,
+        user: User,
+        version_no: int | None = None,
+    ) -> DocumentPdfPreviewSource:
+        """
+        获取文档详情页使用的 PDF 预览源。
+
+        业务规则：
+            - 原文件为 PDF 时直接预览该版本原始文件。
+            - Office 类非 PDF 文件预览同版本 LibreOffice 转换后的 PDF，并按需生成缓存资产。
+            - 暂不支持转换的非 PDF 文件返回业务提示，避免前端展示错误格式。
+        """
+
+        document = self.get_document(document_id, user)
+        target_version_no = version_no if version_no is not None else document.version_no
+        version = self.repository.get_version(document.id, target_version_no)
+        if version_no is not None and version is None:
+            raise AppException("目标版本不存在", status_code=404, code=404)
+
+        active_version_no = version.version_no if version else document.version_no
+        file_name_for_preview = version.file_name if version else document.file_name
+        file_type_for_preview = (version.file_type or file_type(version.file_name)) if version else document.file_type
+        storage_path_for_preview = version.storage_path if version else document.storage_path
+
+        if self._is_pdf_file(file_name_for_preview, file_type_for_preview):
+            self._ensure_storage_file_exists(storage_path_for_preview, document.id, active_version_no)
+            return DocumentPdfPreviewSource(
+                file_name=file_name_for_preview,
+                storage_path=storage_path_for_preview,
+                source_kind="original_pdf",
+            )
+
+        asset_service = DocumentAssetService(self.db)
+        converted_asset = self._get_ready_converted_pdf_asset(asset_service, document.id, active_version_no)
+        if converted_asset is None or not self._asset_has_available_source(converted_asset):
+            converted_asset = self._create_converted_pdf_preview_asset(
+                document=document,
+                version=version,
+                storage_path=storage_path_for_preview,
+                active_version_no=active_version_no,
+                operator_id=user.id,
+            )
+
+        if not self._asset_has_available_source(converted_asset):
+            raise AppException("转换 PDF 文件不存在，请重新解析或联系管理员", status_code=404, code=404)
+
+        return DocumentPdfPreviewSource(
+            file_name=converted_asset.file_name,
+            storage_path=converted_asset.storage_path,
+            object_key=converted_asset.object_key,
+            source_kind="converted_pdf",
+        )
 
     def list_chunks(self, document_id: int, user: User, version_no: int | None = None) -> list[DocumentChunk]:
         """
@@ -1168,6 +1237,85 @@ class DocumentService:
             created_by=version.created_by or document.created_by,
             built_by=operator_id or document.built_by,
         )
+
+    def _is_pdf_file(self, file_name: str, raw_file_type: str | None) -> bool:
+        """同时依据文件类型字段和文件扩展名判断是否为 PDF。"""
+
+        normalized_type = str(raw_file_type or "").lower().lstrip(".")
+        return normalized_type == PDF_FILE_TYPE or Path(file_name).suffix.lower() == ".pdf"
+
+    def _ensure_storage_file_exists(self, storage_path: str, document_id: int, version_no: int) -> None:
+        """校验原始文件仍可读取，避免 FileResponse 暴露内部路径异常。"""
+
+        resolved_path = self.settings.resolve_local_path(storage_path)
+        if not resolved_path.is_file():
+            logger.warning(
+                "文档预览源文件缺失: document_id=%s version_no=%s path=%s",
+                document_id,
+                version_no,
+                storage_path,
+            )
+            raise AppException("文档源文件不存在，无法预览", status_code=404, code=404)
+
+    def _get_ready_converted_pdf_asset(
+        self,
+        asset_service: DocumentAssetService,
+        document_id: int,
+        version_no: int,
+    ) -> DocumentAsset | None:
+        """查询同版本最新可用的转换 PDF 资产。"""
+
+        converted_assets = [
+            asset
+            for asset in asset_service.list_version_assets(document_id, version_no)
+            if asset.asset_type == ASSET_TYPE_CONVERTED_PDF and asset.status == ASSET_STATUS_READY
+        ]
+        return converted_assets[-1] if converted_assets else None
+
+    def _asset_has_available_source(self, asset: DocumentAsset) -> bool:
+        """判断资产是否仍有本地文件或对象存储副本可用于预览。"""
+
+        if asset.storage_path and self.settings.resolve_local_path(asset.storage_path).is_file():
+            return True
+        return bool(asset.object_key)
+
+    def _create_converted_pdf_preview_asset(
+        self,
+        document: Document,
+        version: DocumentVersion | None,
+        storage_path: str,
+        active_version_no: int,
+        operator_id: int | None,
+    ) -> DocumentAsset:
+        """
+        按需生成非 PDF 文件的预览 PDF 资产。
+
+        说明：
+            只沿用现有 LibreOffice 转换能力，不在预览接口中扩展新的转换格式。
+        """
+
+        conversion_service = LibreOfficeConversionService()
+        if not conversion_service.should_convert(storage_path):
+            raise AppException("当前文件类型暂不支持 PDF 预览，请下载原文件查看", status_code=400, code=400)
+
+        self._ensure_storage_file_exists(storage_path, document.id, active_version_no)
+        conversion = conversion_service.convert(storage_path, document.id, active_version_no)
+        version_context = self._build_version_context(document, version, operator_id) if version else document
+        asset = DocumentAssetService(self.db).get_or_create_converted_pdf(
+            document=version_context,
+            pdf_path=conversion.pdf_path,
+            created_by=operator_id,
+        )
+        self.db.commit()
+        logger.info(
+            "文档预览 PDF 已生成: document_id=%s version_no=%s source_file=%s pdf_asset_id=%s reused=%s",
+            document.id,
+            active_version_no,
+            Path(storage_path).name,
+            asset.id,
+            conversion.reused,
+        )
+        return asset
 
     def _parse_to_chunks(self, document: Document) -> list[DocumentChunk]:
         """

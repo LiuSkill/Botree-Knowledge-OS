@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     llm_api_key: str | None = Field(default=None, alias="LLM_API_KEY")
     llm_model: str = Field(default="qwen3.7-max", alias="LLM_MODEL")
     llm_timeout_seconds: int = Field(default=60, alias="LLM_TIMEOUT_SECONDS")
+    intent_llm_model: str = Field(default="qwen3.5-flash", alias="INTENT_LLM_MODEL")
+    planner_llm_model: str = Field(default="qwen3.5-flash", alias="PLANNER_LLM_MODEL")
+    evidence_judge_fast_model: str = Field(default="qwen3.5-flash", alias="EVIDENCE_JUDGE_FAST_MODEL")
+    evidence_judge_model: str = Field(default="qwen3.5-plus", alias="EVIDENCE_JUDGE_MODEL")
+    evidence_judge_timeout_seconds: int = Field(default=15, alias="EVIDENCE_JUDGE_TIMEOUT_SECONDS")
+    answer_llm_model: str = Field(default="qwen3.5-plus", alias="ANSWER_LLM_MODEL")
+    analysis_llm_model: str = Field(default="qwen3.7-max", alias="ANALYSIS_LLM_MODEL")
     vision_llm_provider: str = Field(default="qwen_api", alias="VISION_LLM_PROVIDER")
     vision_llm_base_url: str | None = Field(default=None, alias="VISION_LLM_BASE_URL")
     vision_llm_api_key: str | None = Field(default=None, alias="VISION_LLM_API_KEY")
@@ -97,6 +104,10 @@ class Settings(BaseSettings):
     page_index_dir: str = Field(default="storage/page_index", alias="PAGE_INDEX_DIR")
     ripgrep_binary: str = Field(default="rg", alias="RIPGREP_BINARY")
     retrieval_trace_enabled: bool = Field(default=True, alias="RETRIEVAL_TRACE_ENABLED")
+    project_chat_include_industry_knowledge: bool = Field(
+        default=False,
+        alias="PROJECT_CHAT_INCLUDE_INDUSTRY_KNOWLEDGE",
+    )
     default_admin_username: str = Field(default="admin", alias="DEFAULT_ADMIN_USERNAME")
     default_admin_password: str | None = Field(default=None, alias="DEFAULT_ADMIN_PASSWORD")
     default_admin_real_name: str = Field(default="系统管理员", alias="DEFAULT_ADMIN_REAL_NAME")

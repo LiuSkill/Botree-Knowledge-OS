@@ -17,6 +17,7 @@ import {
   createDocumentVersion,
   deleteDocument,
   downloadDocumentAsset,
+  downloadDocumentPdfPreview,
   downloadDocumentVersion,
   getDocument,
   getDocumentPreview,
@@ -168,6 +169,11 @@ const previewLoading = ref(false);
 const parsing = ref(false);
 const buildingIndex = ref(false);
 const deleting = ref(false);
+const pdfPreviewVisible = ref(false);
+const pdfPreviewLoading = ref(false);
+const pdfPreviewUrl = ref('');
+const pdfPreviewTitle = ref('PDF 预览');
+const pdfPreviewError = ref('');
 
 const documentInfo = ref<DocumentInfo | null>(null);
 const previewData = ref<DocumentPreview | null>(null);
@@ -210,6 +216,11 @@ const viewedVersion = computed(() => {
   const versionNo = viewedVersionNo.value;
   return versionNo ? versions.value.find((version) => version.version_no === versionNo) || null : null;
 });
+const viewedFileName = computed(() => viewedVersion.value?.file_name || documentInfo.value?.file_name || '-');
+const viewedFileType = computed(() => viewedVersion.value?.file_type || documentInfo.value?.file_type || '');
+const viewedFileSize = computed(() => viewedVersion.value?.file_size ?? documentInfo.value?.file_size ?? 0);
+const isViewedPdfFile = computed(() => isPdfFile(viewedFileName.value, viewedFileType.value));
+const pdfPreviewButtonLabel = computed(() => (isViewedPdfFile.value ? '预览原始 PDF' : '预览转换 PDF'));
 const viewedReviewStatus = computed(() => viewedVersion.value?.review_status || documentInfo.value?.review_status || 'draft');
 const viewedParseStatus = computed(() => viewedVersion.value?.parse_status || documentInfo.value?.parse_status || 'unparsed');
 const viewedIndexStatus = computed(() => viewedVersion.value?.index_status || documentInfo.value?.index_status || 'not_indexed');
@@ -274,6 +285,12 @@ function resetAssetUrls(): void {
     delete assetUrlMap[Number(key)];
   }
   assetPromiseMap.clear();
+}
+
+function revokePdfPreviewUrl(): void {
+  if (!pdfPreviewUrl.value) return;
+  URL.revokeObjectURL(pdfPreviewUrl.value);
+  pdfPreviewUrl.value = '';
 }
 
 function triggerBlobDownload(blob: Blob, fileName: string): void {
@@ -384,6 +401,11 @@ function basenameFromPath(value: string): string {
    */
   const normalized = normalizeAssetKey(value);
   return normalized.split('/').filter(Boolean).pop() || normalized;
+}
+
+function isPdfFile(fileName: string, fileType?: string | null): boolean {
+  const normalizedType = (fileType || '').toLowerCase().replace(/^\./, '');
+  return normalizedType === 'pdf' || fileName.toLowerCase().endsWith('.pdf');
 }
 
 function parseAssetMetadata(asset: DocumentAssetInfo): Record<string, unknown> {
@@ -753,16 +775,44 @@ function assetBlobUrl(asset: DocumentAssetInfo | null | undefined): string {
   return assetUrlMap[asset.id] || '';
 }
 
-async function openAsset(asset: DocumentAssetInfo | null | undefined): Promise<void> {
+async function openDocumentPdfPreview(version?: DocumentVersionInfo): Promise<void> {
   /**
-   * 打开转换 PDF 或图片资产，用于人工核对解析前后的内容。
+   * 在弹窗中预览当前版本 PDF：PDF 原文件直接展示，非 PDF 展示后端转换后的 PDF。
    */
-  if (!asset || asset.status !== 'ready') {
-    MessagePlugin.warning('当前资产不可用');
-    return;
+  if (!documentInfo.value || pdfPreviewLoading.value) return;
+
+  const versionNo = version?.version_no ?? viewedVersionNo.value;
+  const fileName = version?.file_name || viewedFileName.value;
+  const fileType = version?.file_type || viewedFileType.value;
+  const sourceText = isPdfFile(fileName, fileType) ? '原始 PDF' : '转换 PDF';
+
+  revokePdfPreviewUrl();
+  pdfPreviewError.value = '';
+  pdfPreviewTitle.value = `${fileName} · ${sourceText}`;
+  pdfPreviewVisible.value = true;
+  pdfPreviewLoading.value = true;
+
+  try {
+    const blob = await downloadDocumentPdfPreview(documentInfo.value.id, versionNo);
+    const previewUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+    if (pdfPreviewVisible.value) {
+      pdfPreviewUrl.value = previewUrl;
+    } else {
+      URL.revokeObjectURL(previewUrl);
+    }
+  } catch (error) {
+    if (pdfPreviewVisible.value) {
+      pdfPreviewError.value = error instanceof Error ? error.message : 'PDF 预览加载失败';
+    }
+  } finally {
+    pdfPreviewLoading.value = false;
   }
-  const url = await ensureAssetUrl(asset);
-  window.open(url, '_blank', 'noopener');
+}
+
+function closePdfPreview(): void {
+  pdfPreviewVisible.value = false;
+  pdfPreviewError.value = '';
+  revokePdfPreviewUrl();
 }
 
 async function loadPreview(): Promise<void> {
@@ -992,12 +1042,20 @@ watch(activeTab, () => {
   void refreshActiveTab();
 });
 
+watch(pdfPreviewVisible, (visible) => {
+  if (!visible) {
+    pdfPreviewError.value = '';
+    revokePdfPreviewUrl();
+  }
+});
+
 onMounted(() => {
   void loadData();
 });
 
 onBeforeUnmount(() => {
   resetAssetUrls();
+  revokePdfPreviewUrl();
 });
 </script>
 
@@ -1021,16 +1079,18 @@ onBeforeUnmount(() => {
       <section class="summary-band">
         <div class="summary-grid">
           <div class="summary-item">
-            <div class="summary-label">知识范围</div>
-            <div class="summary-value">{{ documentInfo?.knowledge_type === 'project' ? `项目 #${documentInfo?.project_id}` : '企业知识' }}</div>
+            <div class="summary-label">文件名</div>
+            <div class="summary-value file-name-value">
+              <t-link theme="primary" :disabled="!documentInfo" @click="openDocumentPdfPreview()">{{ viewedFileName }}</t-link>
+            </div>
           </div>
           <div class="summary-item">
-            <div class="summary-label">当前版本</div>
-            <div class="summary-value">v{{ documentInfo?.version_no || 0 }}</div>
+            <div class="summary-label">查看版本</div>
+            <div class="summary-value">{{ viewedVersionLabel }}</div>
           </div>
           <div class="summary-item">
             <div class="summary-label">文件大小</div>
-            <div class="summary-value">{{ formatFileSize(documentInfo?.file_size || 0) }}</div>
+            <div class="summary-value">{{ formatFileSize(viewedFileSize) }}</div>
           </div>
           <div class="summary-item">
             <div class="summary-label">审核状态</div>
@@ -1047,6 +1107,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="summary-aside">
+          <div class="summary-line">知识范围：{{ documentInfo?.knowledge_type === 'project' ? `项目 #${documentInfo?.project_id}` : '企业知识' }}</div>
           <div class="summary-line">分类：{{ documentInfo?.category_path || documentInfo?.category_name || '-' }}</div>
           <div class="summary-line">更新时间：{{ formatDateTime(documentInfo?.updated_at) }}</div>
           <div v-if="documentInfo?.build_error" class="error-text">构建错误：{{ documentInfo.build_error }}</div>
@@ -1074,12 +1135,13 @@ onBeforeUnmount(() => {
                 回到当前版本
               </t-button>
               <t-button
-                v-if="previewData?.converted_pdf_asset"
+                v-if="documentInfo"
                 size="small"
                 variant="outline"
-                @click="openAsset(previewData?.converted_pdf_asset)"
+                :loading="pdfPreviewLoading"
+                @click="openDocumentPdfPreview()"
               >
-                查看转换 PDF
+                {{ pdfPreviewButtonLabel }}
               </t-button>
               <span class="muted-text">页数 {{ previewData?.page_count || 0 }}</span>
             </div>
@@ -1201,7 +1263,7 @@ onBeforeUnmount(() => {
               <tbody>
                 <tr v-for="version in versions" :key="version.id">
                   <td>v{{ version.version_no }}</td>
-                  <td>{{ version.file_name }}</td>
+                  <td><t-link theme="primary" @click="openDocumentPdfPreview(version)">{{ version.file_name }}</t-link></td>
                   <td>{{ version.version_status || (version.is_current ? 'current' : '-') }}</td>
                   <td>{{ version.parse_status || '-' }}</td>
                   <td>
@@ -1302,6 +1364,27 @@ onBeforeUnmount(() => {
           </section>
         </aside>
       </section>
+
+      <t-dialog
+        v-model:visible="pdfPreviewVisible"
+        :header="pdfPreviewTitle"
+        width="min(1120px, 96vw)"
+        :footer="false"
+        destroy-on-close
+        @close="closePdfPreview"
+      >
+        <div class="pdf-preview-dialog-body">
+          <div v-if="pdfPreviewLoading" class="empty-panel">正在加载 PDF 预览...</div>
+          <div v-else-if="pdfPreviewError" class="empty-panel pdf-preview-error">{{ pdfPreviewError }}</div>
+          <iframe
+            v-else-if="pdfPreviewUrl"
+            class="pdf-preview-frame"
+            :src="pdfPreviewUrl"
+            :title="pdfPreviewTitle"
+          />
+          <div v-else class="empty-panel">暂无可预览 PDF。</div>
+        </div>
+      </t-dialog>
     </div>
   </PageContainer>
 </template>
@@ -1358,6 +1441,11 @@ onBeforeUnmount(() => {
   color: #0f172a;
   font-size: 14px;
   font-weight: 600;
+}
+
+.file-name-value {
+  min-width: 0;
+  word-break: break-word;
 }
 
 .summary-aside {
@@ -1651,6 +1739,23 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   color: #64748b;
   font-size: 14px;
+}
+
+.pdf-preview-dialog-body {
+  min-height: min(74vh, 780px);
+}
+
+.pdf-preview-frame {
+  display: block;
+  width: 100%;
+  height: min(74vh, 780px);
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.pdf-preview-error {
+  color: #dc2626;
 }
 
 .chunk-table .content-cell {

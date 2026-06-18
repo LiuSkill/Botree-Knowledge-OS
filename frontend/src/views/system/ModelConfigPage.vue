@@ -16,6 +16,17 @@ import type { ModelConfig } from '@/types/api';
 const configs = ref<ModelConfig[]>([]);
 const dialogVisible = ref(false);
 const form = reactive({ provider: '', model_name: '', api_base: '', api_key: '', model_type: 'llm', enabled: true });
+const modelTypeOptions = [
+  { value: 'llm', label: 'LLM' },
+  { value: 'intent', label: '意图识别' },
+  { value: 'planner', label: '检索规划' },
+  { value: 'evidence_judge_fast', label: '证据判断 Flash' },
+  { value: 'evidence_judge', label: '证据判断 Plus' },
+  { value: 'answer_llm', label: '普通回答' },
+  { value: 'vision_llm', label: '视觉回答' },
+  { value: 'analysis_llm', label: '复杂分析' },
+  { value: 'embedding', label: 'Embedding' },
+];
 
 async function loadConfigs(): Promise<void> {
   /**
@@ -83,9 +94,7 @@ onMounted(loadConfigs);
         <t-form-item label="模型名称"><t-input v-model="form.model_name" /></t-form-item>
         <t-form-item label="模型类型">
           <t-select v-model="form.model_type">
-            <t-option value="llm" label="LLM" />
-            <t-option value="vision_llm" label="Vision LLM" />
-            <t-option value="embedding" label="Embedding" />
+            <t-option v-for="option in modelTypeOptions" :key="option.value" :value="option.value" :label="option.label" />
           </t-select>
         </t-form-item>
         <t-form-item label="API Base"><t-input v-model="form.api_base" /></t-form-item>

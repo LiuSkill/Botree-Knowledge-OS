@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -56,6 +57,118 @@ def make_operator() -> User:
     """创建不需要落库的测试操作人。"""
 
     return User(id=1, username="tester", password_hash="x", real_name="Tester")
+
+
+def test_pdf_preview_uses_original_pdf_file() -> None:
+    """PDF 文档预览应直接返回当前版本原始文件。"""
+
+    db = make_session()
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = Path(temp_dir) / "origin.pdf"
+            source_path.write_bytes(b"%PDF-1.5 origin")
+            document = Document(
+                knowledge_base_id=1,
+                knowledge_type="base",
+                file_name="origin.pdf",
+                file_type="pdf",
+                file_size=source_path.stat().st_size,
+                storage_path=str(source_path),
+                review_status="draft",
+                index_status="not_indexed",
+                version_no=1,
+                current_version=False,
+            )
+            db.add(document)
+            db.flush()
+            db.add(
+                DocumentVersion(
+                    document_id=document.id,
+                    version_no=1,
+                    file_name="origin.pdf",
+                    file_type="pdf",
+                    file_size=source_path.stat().st_size,
+                    storage_path=str(source_path),
+                    version_status="draft",
+                    review_status="draft",
+                    index_status="not_indexed",
+                    is_current=False,
+                )
+            )
+            db.commit()
+
+            preview_source = DocumentService(db).get_document_pdf_preview(document.id, make_operator())
+
+        assert preview_source.source_kind == "original_pdf"
+        assert preview_source.file_name == "origin.pdf"
+        assert preview_source.storage_path == str(source_path)
+        assert preview_source.object_key is None
+    finally:
+        db.close()
+
+
+def test_pdf_preview_creates_converted_pdf_asset_for_office_file() -> None:
+    """Office 类非 PDF 文档预览应复用转换链路生成转换 PDF 资产。"""
+
+    db = make_session()
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = Path(temp_dir) / "proposal.docx"
+            converted_pdf = Path(temp_dir) / "proposal.pdf"
+            source_path.write_bytes(b"fake-docx")
+            converted_pdf.write_bytes(b"%PDF-1.5 converted")
+            document = Document(
+                knowledge_base_id=1,
+                knowledge_type="base",
+                file_name="proposal.docx",
+                file_type="docx",
+                file_size=source_path.stat().st_size,
+                storage_path=str(source_path),
+                review_status="draft",
+                index_status="not_indexed",
+                version_no=1,
+                current_version=False,
+                created_by=1,
+            )
+            db.add(document)
+            db.flush()
+            db.add(
+                DocumentVersion(
+                    document_id=document.id,
+                    version_no=1,
+                    file_name="proposal.docx",
+                    file_type="docx",
+                    file_size=source_path.stat().st_size,
+                    storage_path=str(source_path),
+                    version_status="draft",
+                    review_status="draft",
+                    index_status="not_indexed",
+                    is_current=False,
+                    created_by=1,
+                )
+            )
+            db.commit()
+
+            with (
+                patch("app.services.document_service.LibreOfficeConversionService") as conversion_service_type,
+                patch("app.services.document_asset_service.get_minio_client", return_value=None),
+            ):
+                conversion_service = conversion_service_type.return_value
+                conversion_service.should_convert.return_value = True
+                conversion_service.convert.return_value = SimpleNamespace(pdf_path=str(converted_pdf), reused=False)
+                preview_source = DocumentService(db).get_document_pdf_preview(document.id, make_operator())
+
+            assets = db.scalars(select(DocumentAsset).where(DocumentAsset.document_id == document.id)).all()
+
+        assert preview_source.source_kind == "converted_pdf"
+        assert preview_source.file_name == "proposal.pdf"
+        assert preview_source.storage_path
+        assert len(assets) == 1
+        assert assets[0].asset_type == "converted_pdf"
+        assert assets[0].version_no == 1
+        conversion_service.convert.assert_called_once_with(str(source_path), document.id, 1)
+    finally:
+        db.close()
 
 
 def test_deactivate_document_index_artifacts_keeps_db_state_when_vector_delete_fails() -> None:
