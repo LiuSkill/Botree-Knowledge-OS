@@ -28,13 +28,22 @@ class UserRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list(self, keyword: str | None = None) -> list[User]:
+    def list(self, keyword: str | None = None, status: str | None = None, role_id: int | None = None) -> list[User]:
         """查询用户列表。"""
 
         stmt = select(User).options(selectinload(User.roles).selectinload(Role.permissions)).order_by(User.id.desc())
         if keyword:
             like = f"%{keyword}%"
-            stmt = stmt.where((User.username.like(like)) | (User.real_name.like(like)) | (User.email.like(like)))
+            stmt = stmt.where(
+                (User.username.like(like))
+                | (User.real_name.like(like))
+                | (User.email.like(like))
+                | (User.department.like(like))
+            )
+        if status:
+            stmt = stmt.where(User.status == status)
+        if role_id:
+            stmt = stmt.where(User.roles.any(Role.id == role_id))
         return list(self.db.scalars(stmt).all())
 
     def get_by_id(self, user_id: int) -> User | None:
@@ -73,10 +82,16 @@ class RoleRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list(self) -> list[Role]:
+    def list(self, keyword: str | None = None, enabled: bool | None = None) -> list[Role]:
         """查询角色列表。"""
 
-        return list(self.db.scalars(select(Role).options(selectinload(Role.permissions)).order_by(Role.id)).all())
+        stmt = select(Role).options(selectinload(Role.permissions)).order_by(Role.id)
+        if keyword:
+            like = f"%{keyword}%"
+            stmt = stmt.where((Role.name.like(like)) | (Role.code.like(like)) | (Role.description.like(like)))
+        if enabled is not None:
+            stmt = stmt.where(Role.enabled.is_(enabled))
+        return list(self.db.scalars(stmt).all())
 
     def get_by_id(self, role_id: int) -> Role | None:
         """按 ID 查询角色。"""

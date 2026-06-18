@@ -7,6 +7,8 @@ System API
 3. 问答审计和健康检查
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -29,18 +31,86 @@ def dashboard(current_user: User = Depends(get_current_user), db: Session = Depe
 
 
 @router.get("/operation-logs", summary="操作日志")
-def operation_logs(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def operation_logs(
+    keyword: str | None = None,
+    result: str | None = None,
+    target_type: str | None = None,
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
     """查询操作日志。"""
 
-    logs = SystemService(db).list_logs()
-    return success([OperationLogOut.model_validate(item).model_dump(mode="json") for item in logs])
+    logs = SystemService(db).list_logs(
+        keyword=keyword,
+        result=result,
+        target_type=target_type,
+        started_at=started_at,
+        ended_at=ended_at,
+        page=page,
+        page_size=page_size,
+    )
+    return success(
+        {
+            **logs,
+            "items": [OperationLogOut.model_validate(item).model_dump(mode="json") for item in logs["items"]],
+        }
+    )
+
+
+@router.get("/qa-audit-sessions", summary="问答会话审计")
+def qa_audit_sessions(
+    user_id: int | None = None,
+    project_id: int | None = None,
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """查询用户会话维度的问答审计。"""
+
+    return success(
+        SystemService(db).qa_audit_sessions(
+            user_id=user_id,
+            project_id=project_id,
+            started_at=started_at,
+            ended_at=ended_at,
+            page=page,
+            page_size=page_size,
+        )
+    )
 
 
 @router.get("/qa-audits", summary="问答审计")
-def qa_audits(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def qa_audits(
+    user_id: int | None = None,
+    project_id: int | None = None,
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
+    feedback_status: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
     """查询问答审计。"""
 
-    return success(SystemService(db).qa_audits())
+    return success(
+        SystemService(db).qa_audits(
+            user_id=user_id,
+            project_id=project_id,
+            started_at=started_at,
+            ended_at=ended_at,
+            feedback_status=feedback_status,
+            page=page,
+            page_size=page_size,
+        )
+    )
 
 
 @router.get("/retrieval-traces", summary="检索链路审计")

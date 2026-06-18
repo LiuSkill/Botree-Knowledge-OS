@@ -275,7 +275,7 @@ def main() -> None:
         assert project_base_answer["citations"] == [], "project chat must not cite base knowledge documents"
 
         audits = assert_ok(client.get("/api/system/qa-audits", headers=headers), "问答审计")
-        assert len(audits) >= 4, "问答审计应记录问答历史"
+        assert audits["total"] >= 4, "问答审计应记录问答历史"
 
         with SessionLocal() as db:
             citation_message_ids = list(

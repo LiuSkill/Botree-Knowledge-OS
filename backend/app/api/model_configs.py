@@ -21,11 +21,32 @@ router = APIRouter(prefix="/model-configs", tags=["模型配置"])
 
 
 @router.get("", summary="模型配置列表")
-def list_configs(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def list_configs(
+    keyword: str | None = None,
+    model_type: str | None = None,
+    enabled: bool | None = None,
+    is_default: bool | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
     """查询模型配置列表。"""
 
-    configs = ModelService(db).list_configs()
-    return success([ModelConfigOut.model_validate(item).model_dump(mode="json") for item in configs])
+    result = ModelService(db).list_config_page(
+        keyword=keyword,
+        model_type=model_type,
+        enabled=enabled,
+        is_default=is_default,
+        page=page,
+        page_size=page_size,
+    )
+    return success(
+        {
+            **result,
+            "items": [ModelConfigOut.model_validate(item).model_dump(mode="json") for item in result["items"]],
+        }
+    )
 
 
 @router.post("", summary="新增模型配置")

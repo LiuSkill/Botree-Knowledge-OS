@@ -21,11 +21,23 @@ router = APIRouter(prefix="/roles", tags=["角色管理"])
 
 
 @router.get("", summary="角色列表")
-def list_roles(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def list_roles(
+    keyword: str | None = None,
+    enabled: bool | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
     """查询角色列表。"""
 
-    roles = RoleService(db).list_roles()
-    return success([RoleOut.model_validate(item).model_dump(mode="json") for item in roles])
+    result = RoleService(db).list_role_page(keyword=keyword, enabled=enabled, page=page, page_size=page_size)
+    return success(
+        {
+            **result,
+            "items": [RoleOut.model_validate(item).model_dump(mode="json") for item in result["items"]],
+        }
+    )
 
 
 @router.post("", summary="新增角色")

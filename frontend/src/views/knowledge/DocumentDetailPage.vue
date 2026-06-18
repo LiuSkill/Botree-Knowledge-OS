@@ -9,8 +9,9 @@
 <script setup lang="ts">
 import MarkdownIt from 'markdown-it';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import type { Directive } from 'vue';
 
 import {
   createDocumentIndexBuildTask,
@@ -46,6 +47,8 @@ type DetailTab = 'preview' | 'cleaning' | 'chunks' | 'versions';
 
 const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 const VERSION_UPLOAD_ACCEPT = '.txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf';
+const IMAGE_PLACEHOLDER_SRC = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+const LAZY_ASSET_ROOT_MARGIN = '360px 0px';
 const HTML_IMAGE_SRC_PATTERN = /<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^>\s]+))/gi;
 const MARKDOWN_ASSET_METADATA_KEYS = [
   'original_candidate_value',
@@ -189,6 +192,12 @@ const versionForm = reactive({
 
 const assetUrlMap = reactive<Record<number, string>>({});
 const assetPromiseMap = new Map<number, Promise<string>>();
+const previewCache = new Map<string, DocumentPreview>();
+const chunkCache = new Map<string, DocumentChunk[]>();
+const previewPromiseCache = new Map<string, Promise<DocumentPreview>>();
+const chunkPromiseCache = new Map<string, Promise<DocumentChunk[]>>();
+const observedAssetImages = new Set<HTMLImageElement>();
+let assetImageObserver: IntersectionObserver | null = null;
 const markdownRenderer = new MarkdownIt({
   html: true,
   linkify: true,
@@ -206,7 +215,7 @@ const backPath = computed(() => {
   if (documentInfo.value?.knowledge_type === 'project' && documentInfo.value.project_id) {
     return `/projects/${documentInfo.value.project_id}`;
   }
-  return documentInfo.value ? `/knowledge/bases/${documentInfo.value.knowledge_base_id}` : '/knowledge';
+  return '/knowledge';
 });
 const markdownContent = computed(() => previewData.value?.markdown_content?.trim() || '');
 const renderedMarkdownHtml = computed(() => renderMarkdown(markdownContent.value));
@@ -261,13 +270,12 @@ markdownRenderer.renderer.rules.image = (tokens, idx) => {
   const rawSrc = token.attrGet('src') || '';
   const alt = token.content || token.attrGet('alt') || '';
   const title = token.attrGet('title') || '';
-  const url = resolveMarkdownImageUrl(rawSrc);
-  if (!url) {
+  if (!rawSrc.trim()) {
     return escapeHtml(alt || basenameFromPath(rawSrc));
   }
   return [
-    '<img class="markdown-image"',
-    ` src="${escapeHtml(url)}"`,
+    '<img',
+    ` src="${escapeHtml(rawSrc.trim())}"`,
     ` alt="${escapeHtml(alt)}"`,
     title ? ` title="${escapeHtml(title)}"` : '',
     ' loading="lazy" decoding="async" />',
@@ -278,6 +286,7 @@ function resetAssetUrls(): void {
   /**
    * 释放当前页面已创建的 Blob URL，避免页面停留过久导致浏览器内存上涨。
    */
+  resetAssetImageObservers();
   for (const url of Object.values(assetUrlMap)) {
     URL.revokeObjectURL(url);
   }
@@ -286,6 +295,142 @@ function resetAssetUrls(): void {
   }
   assetPromiseMap.clear();
 }
+
+function resetAssetImageObservers(): void {
+  assetImageObserver?.disconnect();
+  assetImageObserver = null;
+  observedAssetImages.clear();
+}
+
+function cacheKeyForVersion(versionNo: number | null = selectedVersionNo.value): string {
+  return `${documentId.value}:${versionNo || 'current'}`;
+}
+
+function invalidateDetailCache(): void {
+  previewCache.clear();
+  chunkCache.clear();
+  previewPromiseCache.clear();
+  chunkPromiseCache.clear();
+  resetAssetUrls();
+}
+
+function collectPreviewAssets(): DocumentAssetInfo[] {
+  const preview = previewData.value;
+  if (!preview) return [];
+  const assets: DocumentAssetInfo[] = [...preview.markdown_image_assets];
+  for (const page of preview.pages) {
+    if (page.page_preview_asset) assets.push(page.page_preview_asset);
+    for (const block of page.blocks) {
+      if (block.image_asset) assets.push(block.image_asset);
+    }
+  }
+  return Array.from(new Map(assets.map((asset) => [asset.id, asset])).values());
+}
+
+function findPreviewAssetById(assetId: number): DocumentAssetInfo | null {
+  return collectPreviewAssets().find((asset) => asset.id === assetId) || null;
+}
+
+function unobserveAssetImage(element: HTMLImageElement): void {
+  assetImageObserver?.unobserve(element);
+  observedAssetImages.delete(element);
+}
+
+function getAssetImageObserver(): IntersectionObserver | null {
+  if (typeof window === 'undefined' || !('IntersectionObserver' in window)) return null;
+  if (!assetImageObserver) {
+    assetImageObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const element = entry.target as HTMLImageElement;
+          const assetId = Number(element.dataset.documentAssetId);
+          const asset = Number.isFinite(assetId) ? findPreviewAssetById(assetId) : null;
+          unobserveAssetImage(element);
+          if (asset) {
+            void loadAssetImageElement(element, asset);
+          }
+        }
+      },
+      { rootMargin: LAZY_ASSET_ROOT_MARGIN },
+    );
+  }
+  return assetImageObserver;
+}
+
+async function loadAssetImageElement(element: HTMLImageElement, asset: DocumentAssetInfo): Promise<void> {
+  if (element.dataset.documentAssetLoading === String(asset.id)) return;
+  const cachedUrl = assetUrlMap[asset.id];
+  if (cachedUrl) {
+    element.src = cachedUrl;
+    element.classList.remove('asset-image-loading');
+    return;
+  }
+
+  element.dataset.documentAssetLoading = String(asset.id);
+  element.classList.add('asset-image-loading');
+  try {
+    const url = await ensureAssetUrl(asset);
+    if (url && element.dataset.documentAssetId === String(asset.id)) {
+      element.src = url;
+      element.classList.remove('asset-image-loading');
+    }
+  } catch (error) {
+    MessagePlugin.warning(error instanceof Error ? error.message : `资产 #${asset.id} 预览加载失败`);
+  } finally {
+    if (element.dataset.documentAssetLoading === String(asset.id)) {
+      delete element.dataset.documentAssetLoading;
+    }
+  }
+}
+
+function bindAssetImageElement(element: HTMLImageElement, asset: DocumentAssetInfo | null | undefined): void {
+  unobserveAssetImage(element);
+  if (!asset || asset.status !== 'ready') return;
+
+  element.dataset.documentAssetId = String(asset.id);
+  const cachedUrl = assetUrlMap[asset.id];
+  if (cachedUrl) {
+    element.src = cachedUrl;
+    element.classList.remove('asset-image-loading');
+    return;
+  }
+
+  element.src = IMAGE_PLACEHOLDER_SRC;
+  element.classList.add('asset-image-loading');
+  const observer = getAssetImageObserver();
+  if (!observer) {
+    void loadAssetImageElement(element, asset);
+    return;
+  }
+  observer.observe(element);
+  observedAssetImages.add(element);
+}
+
+function bindLazyMarkdownImages(): void {
+  const elements = window.document.querySelectorAll<HTMLImageElement>('img[data-document-asset-id]');
+  for (const element of Array.from(elements)) {
+    const assetId = Number(element.dataset.documentAssetId);
+    const asset = Number.isFinite(assetId) ? findPreviewAssetById(assetId) : null;
+    bindAssetImageElement(element, asset);
+  }
+}
+
+const vAssetLazy: Directive<HTMLImageElement, DocumentAssetInfo | null | undefined> = {
+  mounted(element, binding) {
+    bindAssetImageElement(element, binding.value);
+  },
+  updated(element, binding) {
+    if (binding.value?.id !== binding.oldValue?.id) {
+      bindAssetImageElement(element, binding.value);
+    } else if (binding.value) {
+      bindAssetImageElement(element, binding.value);
+    }
+  },
+  unmounted(element) {
+    unobserveAssetImage(element);
+  },
+};
 
 function revokePdfPreviewUrl(): void {
   if (!pdfPreviewUrl.value) return;
@@ -455,16 +600,11 @@ function findMarkdownImageAsset(src: string): DocumentAssetInfo | null {
   );
 }
 
-function resolveMarkdownImageUrl(src: string): string {
+function isExternalImageSource(src: string): boolean {
   /**
-   * 将 Markdown 中的图片引用解析为 Blob URL；外部 URL 保持原值。
+   * 判断 Markdown 图片是否可以直接交给浏览器加载；受控派生资产需要走带鉴权的懒加载下载。
    */
-  const normalizedSrc = normalizeAssetKey(src);
-  if (/^(https?:|data:|blob:)/i.test(normalizedSrc)) {
-    return src.trim();
-  }
-  const asset = findMarkdownImageAsset(src);
-  return asset ? assetUrlMap[asset.id] || '' : '';
+  return /^(https?:|data:|blob:)/i.test(src.trim());
 }
 
 function decodeAllowedHtmlEntities(value: string): string {
@@ -597,16 +737,20 @@ function sanitizeElementAttributes(element: HTMLElement, tagName: string): void 
 
 function rewriteImageElement(element: HTMLElement): void {
   const rawSrc = element.getAttribute('src') || '';
-  const resolvedUrl = resolveMarkdownImageUrl(rawSrc);
-  if (!resolvedUrl) {
+  const externalUrl = isExternalImageSource(rawSrc) ? rawSrc.trim() : '';
+  const asset = externalUrl ? null : findMarkdownImageAsset(rawSrc);
+  if (!externalUrl && !asset) {
     element.replaceWith(window.document.createTextNode(element.getAttribute('alt') || basenameFromPath(rawSrc)));
     return;
   }
 
-  element.setAttribute('src', resolvedUrl);
+  element.setAttribute('src', externalUrl || IMAGE_PLACEHOLDER_SRC);
+  if (asset) {
+    element.setAttribute('data-document-asset-id', String(asset.id));
+  }
   element.setAttribute('loading', 'lazy');
   element.setAttribute('decoding', 'async');
-  element.className = 'markdown-image';
+  element.className = `markdown-image${asset ? ' asset-image-loading' : ''}`;
 }
 
 function sanitizeNode(node: Node): void {
@@ -718,56 +862,9 @@ async function ensureAssetUrl(asset: DocumentAssetInfo | null | undefined): Prom
   return promise;
 }
 
-async function ensureMarkdownImageAssets(markdown: string): Promise<void> {
-  /**
-   * 加载完整 Markdown 中实际引用的图片资产；当正文没有图片引用时，用页/块图片做原文视觉兜底。
-   */
-  const references = collectMarkdownImageSources(markdown);
-  const markdownAssets = references
-    .map((src) => findMarkdownImageAsset(src))
-    .filter((asset): asset is DocumentAssetInfo => Boolean(asset));
-  const structuredAssets = references.length ? [] : collectStructuredPreviewImageAssets();
-  const uniqueAssets = Array.from(new Map([...markdownAssets, ...structuredAssets].map((asset) => [asset.id, asset])).values());
-
-  for (const asset of uniqueAssets) {
-    try {
-      await ensureAssetUrl(asset);
-    } catch (error) {
-      MessagePlugin.warning(error instanceof Error ? error.message : `资产 #${asset.id} 预览加载失败`);
-    }
-  }
-}
-
-function collectStructuredPreviewImageAssets(): DocumentAssetInfo[] {
-  const collected: DocumentAssetInfo[] = [];
-  for (const page of previewData.value?.pages || []) {
-    if (page.page_preview_asset?.status === 'ready') {
-      collected.push(page.page_preview_asset);
-    }
-    for (const block of page.blocks) {
-      if (block.image_asset?.status === 'ready') {
-        collected.push(block.image_asset);
-      }
-    }
-  }
-  return collected;
-}
-
-async function ensureChunkMarkdownAssets(chunkItems: DocumentChunk[]): Promise<void> {
-  if (!previewData.value) return;
-  const references = chunkItems.flatMap((chunk) => collectMarkdownImageSources(chunk.content || ''));
-  const assets = references
-    .map((src) => findMarkdownImageAsset(src))
-    .filter((asset): asset is DocumentAssetInfo => Boolean(asset));
-  const uniqueAssets = Array.from(new Map(assets.map((asset) => [asset.id, asset])).values());
-
-  for (const asset of uniqueAssets) {
-    try {
-      await ensureAssetUrl(asset);
-    } catch (error) {
-      MessagePlugin.warning(error instanceof Error ? error.message : `资产 #${asset.id} 预览加载失败`);
-    }
-  }
+async function bindRenderedAssetImages(): Promise<void> {
+  await nextTick();
+  bindLazyMarkdownImages();
 }
 
 function assetBlobUrl(asset: DocumentAssetInfo | null | undefined): string {
@@ -817,38 +914,73 @@ function closePdfPreview(): void {
 
 async function loadPreview(): Promise<void> {
   /**
-   * 加载当前版本完整 Markdown 预览，并预取 Markdown 正文引用的图片资产。
+   * 加载当前版本完整 Markdown 预览；图片资产只在进入可视区域时下载。
    */
   previewLoading.value = true;
+  let loaded = false;
   try {
-    resetAssetUrls();
-    previewData.value = await getDocumentPreview(documentId.value, selectedVersionNo.value);
-    await ensureMarkdownImageAssets(previewData.value.markdown_content || '');
+    const cacheKey = cacheKeyForVersion();
+    let preview = previewCache.get(cacheKey);
+    if (!preview) {
+      let previewPromise = previewPromiseCache.get(cacheKey);
+      if (!previewPromise) {
+        previewPromise = getDocumentPreview(documentId.value, selectedVersionNo.value).finally(() => {
+          previewPromiseCache.delete(cacheKey);
+        });
+        previewPromiseCache.set(cacheKey, previewPromise);
+      }
+      preview = await previewPromise;
+      previewCache.set(cacheKey, preview);
+    }
+    previewData.value = preview;
+    loaded = true;
   } finally {
     previewLoading.value = false;
   }
+  if (loaded) {
+    await bindRenderedAssetImages();
+  }
 }
 
-async function loadData(): Promise<void> {
+async function loadChunks(): Promise<void> {
+  const cacheKey = cacheKeyForVersion();
+  let chunkItems = chunkCache.get(cacheKey);
+  if (!chunkItems) {
+    let chunkPromise = chunkPromiseCache.get(cacheKey);
+    if (!chunkPromise) {
+      chunkPromise = listDocumentChunks(documentId.value, selectedVersionNo.value).finally(() => {
+        chunkPromiseCache.delete(cacheKey);
+      });
+      chunkPromiseCache.set(cacheKey, chunkPromise);
+    }
+    chunkItems = await chunkPromise;
+    chunkCache.set(cacheKey, chunkItems);
+  }
+  chunks.value = chunkItems;
+  await bindRenderedAssetImages();
+}
+
+async function loadData(force = false): Promise<void> {
   /**
    * 统一加载文档详情页所需的基础数据，避免多处刷新时出现字段不同步。
    */
   loading.value = true;
   try {
-    const [documentResult, chunkResult, versionResult, taskResult] = await Promise.all([
+    if (force) {
+      invalidateDetailCache();
+    }
+    const [documentResult, versionResult, taskResult] = await Promise.all([
       getDocument(documentId.value),
-      listDocumentChunks(documentId.value, selectedVersionNo.value),
       listDocumentVersions(documentId.value),
       listDocumentIndexTasks(documentId.value),
     ]);
     documentInfo.value = documentResult;
-    chunks.value = chunkResult;
     versions.value = versionResult;
     indexTasks.value = taskResult;
     if (activeTab.value === 'preview' || activeTab.value === 'cleaning') {
       await loadPreview();
     } else if (activeTab.value === 'chunks') {
-      await ensureChunkMarkdownAssets(chunkResult);
+      await loadChunks();
     }
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '文档详情加载失败');
@@ -866,11 +998,12 @@ async function refreshActiveTab(): Promise<void> {
     return;
   }
   if (activeTab.value === 'chunks') {
-    chunks.value = await listDocumentChunks(documentId.value, selectedVersionNo.value);
-    await ensureChunkMarkdownAssets(chunks.value);
+    await loadChunks();
     return;
   }
-  versions.value = await listDocumentVersions(documentId.value);
+  if (!versions.value.length) {
+    versions.value = await listDocumentVersions(documentId.value);
+  }
 }
 
 function handleTabChange(value: unknown): void {
@@ -899,7 +1032,7 @@ async function submitReview(versionNo: number | null = viewedVersionNo.value): P
   if (!documentInfo.value) return;
   await submitDocumentReview(documentInfo.value.id, '提交审核', versionNo);
   MessagePlugin.success('已提交审核');
-  await loadData();
+  await loadData(true);
 }
 
 async function runParse(versionNo: number | null = viewedVersionNo.value): Promise<void> {
@@ -912,7 +1045,7 @@ async function runParse(versionNo: number | null = viewedVersionNo.value): Promi
     await parseDocument(documentInfo.value.id, versionNo);
     MessagePlugin.success('解析完成');
     activeTab.value = 'preview';
-    await loadData();
+    await loadData(true);
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '解析失败');
   } finally {
@@ -930,7 +1063,7 @@ async function createIndexBuild(versionNo: number | null = viewedVersionNo.value
     const task = await createDocumentIndexBuildTask(documentInfo.value.id, versionNo);
     indexTasks.value = [task, ...indexTasks.value.filter((item) => item.id !== task.id)];
     MessagePlugin.success('解析与索引构建任务已创建');
-    await loadData();
+    await loadData(true);
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '索引任务创建失败');
   } finally {
@@ -958,7 +1091,7 @@ async function uploadNewVersion(): Promise<void> {
     activeTab.value = 'preview';
     selectedVersionFile.value = null;
     versionForm.change_summary = '';
-    await loadData();
+    await loadData(true);
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '新版本上传失败');
   } finally {
@@ -977,12 +1110,8 @@ async function downloadVersion(version: DocumentVersionInfo): Promise<void> {
 async function viewVersion(version: DocumentVersionInfo): Promise<void> {
   selectedVersionNo.value = version.version_no;
   activeTab.value = 'preview';
-  const [, items] = await Promise.all([
-    loadPreview(),
-    listDocumentChunks(documentId.value, version.version_no),
-  ]);
-  chunks.value = items;
-  await ensureChunkMarkdownAssets(items);
+  chunks.value = [];
+  await loadPreview();
 }
 
 async function viewCurrentVersion(): Promise<void> {
@@ -1154,19 +1283,21 @@ onBeforeUnmount(() => {
                 <article v-for="page in structuredPreviewPages" :key="page.id" class="page-preview-card">
                   <div class="page-preview-title">Page {{ page.page_no }}</div>
                   <img
-                    v-if="assetBlobUrl(page.page_preview_asset)"
+                    v-if="page.page_preview_asset?.status === 'ready'"
+                    v-asset-lazy="page.page_preview_asset"
                     class="page-preview-image"
-                    :src="assetBlobUrl(page.page_preview_asset)"
+                    :src="assetBlobUrl(page.page_preview_asset) || IMAGE_PLACEHOLDER_SRC"
                     :alt="`Page ${page.page_no}`"
                     loading="lazy"
                     decoding="async"
                   />
-                  <div v-if="page.blocks.some((block) => block.image_asset)" class="block-image-grid">
+                  <div v-if="page.blocks.some((block) => block.image_asset?.status === 'ready')" class="block-image-grid">
                     <img
-                      v-for="block in page.blocks.filter((item) => item.image_asset && assetBlobUrl(item.image_asset))"
+                      v-for="block in page.blocks.filter((item) => item.image_asset?.status === 'ready')"
                       :key="block.id"
+                      v-asset-lazy="block.image_asset"
                       class="block-preview-image"
-                      :src="assetBlobUrl(block.image_asset)"
+                      :src="assetBlobUrl(block.image_asset) || IMAGE_PLACEHOLDER_SRC"
                       :alt="block.text || `Block ${block.block_index}`"
                       loading="lazy"
                       decoding="async"
@@ -1223,65 +1354,69 @@ onBeforeUnmount(() => {
               <t-button v-if="selectedVersionNo" size="small" variant="text" @click="viewCurrentVersion">回到当前版本</t-button>
             </div>
             <div v-if="!chunks.length" class="empty-panel">当前版本还没有知识分块。</div>
-            <table v-else class="plain-table chunk-table">
-              <thead>
-                <tr>
-                  <th>序号</th>
-                  <th>页码</th>
-                  <th>章节</th>
-                  <th>内容</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="chunk in chunks" :key="chunk.id">
-                  <td>{{ chunk.chunk_index }}</td>
-                  <td>{{ chunk.page_number || '-' }}</td>
-                  <td>{{ chunk.section_title || '-' }}</td>
-                  <td class="content-cell">
-                    <div class="chunk-markdown" v-html="renderMarkdown(chunk.content)" />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div v-else class="table-scroll">
+              <table class="plain-table chunk-table">
+                <thead>
+                  <tr>
+                    <th>序号</th>
+                    <th>页码</th>
+                    <th>章节</th>
+                    <th>内容</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="chunk in chunks" :key="chunk.id">
+                    <td>{{ chunk.chunk_index }}</td>
+                    <td>{{ chunk.page_number || '-' }}</td>
+                    <td>{{ chunk.section_title || '-' }}</td>
+                    <td class="content-cell">
+                      <div class="chunk-markdown" v-html="renderMarkdown(chunk.content)" />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </section>
 
           <section v-else class="tab-panel">
             <div v-if="!versions.length" class="empty-panel">当前文档还没有版本记录。</div>
-            <table v-else class="plain-table version-table">
-              <thead>
-                <tr>
-                  <th>版本</th>
-                  <th>文件名</th>
-                  <th>版本状态</th>
-                  <th>解析状态</th>
-                  <th>状态</th>
-                  <th>变更说明</th>
-                  <th>创建时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="version in versions" :key="version.id">
-                  <td>v{{ version.version_no }}</td>
-                  <td><t-link theme="primary" @click="openDocumentPdfPreview(version)">{{ version.file_name }}</t-link></td>
-                  <td>{{ version.version_status || (version.is_current ? 'current' : '-') }}</td>
-                  <td>{{ version.parse_status || '-' }}</td>
-                  <td>
-                    <div class="status-inline">
-                      <StatusTag type="review" :value="version.review_status" />
-                      <StatusTag type="index" :value="version.index_status" />
-                    </div>
-                  </td>
-                  <td>{{ version.change_summary || '-' }}</td>
-                  <td>{{ formatDateTime(version.created_at) }}</td>
-                  <td>
-                    <t-button v-if="canSubmitVersion(version)" size="small" variant="text" theme="primary" @click="submitReview(version.version_no)">提交审核</t-button>
-                    <t-button size="small" variant="text" @click="viewVersion(version)">查看</t-button>
-                    <t-button size="small" variant="text" @click="downloadVersion(version)">下载</t-button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div v-else class="table-scroll">
+              <table class="plain-table version-table">
+                <thead>
+                  <tr>
+                    <th>版本</th>
+                    <th>文件名</th>
+                    <th>版本状态</th>
+                    <th>解析状态</th>
+                    <th>状态</th>
+                    <th>变更说明</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="version in versions" :key="version.id">
+                    <td>v{{ version.version_no }}</td>
+                    <td><t-link theme="primary" @click="openDocumentPdfPreview(version)">{{ version.file_name }}</t-link></td>
+                    <td>{{ version.version_status || (version.is_current ? 'current' : '-') }}</td>
+                    <td>{{ version.parse_status || '-' }}</td>
+                    <td>
+                      <div class="status-inline">
+                        <StatusTag type="review" :value="version.review_status" />
+                        <StatusTag type="index" :value="version.index_status" />
+                      </div>
+                    </td>
+                    <td>{{ version.change_summary || '-' }}</td>
+                    <td>{{ formatDateTime(version.created_at) }}</td>
+                    <td>
+                      <t-button v-if="canSubmitVersion(version)" size="small" variant="text" theme="primary" @click="submitReview(version.version_no)">提交审核</t-button>
+                      <t-button size="small" variant="text" @click="viewVersion(version)">查看</t-button>
+                      <t-button size="small" variant="text" @click="downloadVersion(version)">下载</t-button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </section>
         </div>
 
@@ -1322,7 +1457,7 @@ onBeforeUnmount(() => {
               >
                 解析并构建索引
               </t-button>
-              <t-button block variant="text" @click="loadData">刷新状态</t-button>
+              <t-button block variant="text" @click="loadData(true)">刷新状态</t-button>
             </div>
             <div v-if="viewedReviewStatus !== 'approved'" class="muted-text">
               索引构建需审核通过后才能发起，解析结果可先用于审核查看。
@@ -1392,12 +1527,16 @@ onBeforeUnmount(() => {
 <style scoped>
 .detail-page {
   display: flex;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
   gap: 16px;
+  overflow: hidden;
 }
 
 .summary-band {
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
 }
@@ -1470,17 +1609,31 @@ onBeforeUnmount(() => {
 
 .workspace-grid {
   display: grid;
+  flex: 1;
+  min-height: 0;
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
+  overflow: hidden;
 }
 
 .main-panel {
+  display: flex;
+  min-height: 0;
   min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
   padding: 16px;
 }
 
 .tab-panel {
+  flex: 1;
+  min-height: 0;
   margin-top: 16px;
+  overflow: auto;
+}
+
+.main-panel :deep(.t-tabs) {
+  flex: 0 0 auto;
 }
 
 .preview-toolbar {
@@ -1603,6 +1756,13 @@ onBeforeUnmount(() => {
   background: #fff;
 }
 
+.markdown-preview :deep(.markdown-image.asset-image-loading) {
+  width: 100%;
+  min-height: 180px;
+  object-fit: contain;
+  background: #f8fafc;
+}
+
 .structured-preview {
   display: flex;
   flex-direction: column;
@@ -1633,6 +1793,20 @@ onBeforeUnmount(() => {
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   background: #fff;
+}
+
+.page-preview-image.asset-image-loading {
+  width: 100%;
+  min-height: 360px;
+  object-fit: contain;
+  background: #f8fafc;
+}
+
+.block-preview-image.asset-image-loading {
+  width: 100%;
+  min-height: 160px;
+  object-fit: contain;
+  background: #f8fafc;
 }
 
 .block-image-grid {
@@ -1849,8 +2023,10 @@ onBeforeUnmount(() => {
 
 .side-panel {
   display: flex;
+  min-height: 0;
   flex-direction: column;
   gap: 16px;
+  overflow: auto;
 }
 
 .tool-panel {

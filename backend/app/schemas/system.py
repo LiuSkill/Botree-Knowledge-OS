@@ -8,8 +8,11 @@ System Schemas
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.chat import CitationOut
 
 
 class DashboardStats(BaseModel):
@@ -48,12 +51,65 @@ class OperationLogOut(BaseModel):
 
 
 class QAAuditOut(BaseModel):
-    """问答审计响应。"""
+    """问答明细审计响应。"""
 
     id: int
+    message_id: int
     session_id: int
+    session_title: str
+    user_id: int
+    username: str
+    real_name: str
+    avatar_url: str | None = None
+    avatar_updated_at: datetime | None = None
+    chat_type: str
+    mode: str
+    project_id: int | None = None
+    project_name: str | None = None
+    project_code: str | None = None
+    question: str | None = None
     answer: str
     query_scope: str | None = None
     agent_trace_json: str | None = None
     citation_count: int
+    citations: list[CitationOut] = Field(default_factory=list)
+    retrievers: list[str] = Field(default_factory=list)
+    intent: str | None = None
+    elapsed_ms: int | None = None
+    feedback_status: Literal["like", "dislike"] | None = None
+    answered_at: datetime
     created_at: datetime
+
+
+class QAAuditSessionOut(BaseModel):
+    """问答会话审计响应。"""
+
+    id: int
+    session_id: int
+    title: str
+    user_id: int
+    username: str
+    real_name: str
+    avatar_url: str | None = None
+    avatar_updated_at: datetime | None = None
+    chat_type: str
+    mode: str
+    project_id: int | None = None
+    project_name: str | None = None
+    project_code: str | None = None
+    question_count: int
+    answer_count: int
+    citation_count: int
+    latest_question: str | None = None
+    latest_answer: str | None = None
+    latest_qa_at: datetime
+    created_at: datetime
+
+
+class PageResult(BaseModel):
+    """统一分页响应。"""
+
+    items: list[dict]
+    total: int
+    page: int
+    page_size: int

@@ -13,9 +13,10 @@ import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -32,6 +33,7 @@ from app.models import (  # noqa: E402
     IndexTask,
     KnowledgeBase,
     KnowledgeCategory,
+    ReviewLog,
     ReviewTask,
 )
 from app.models.user import User  # noqa: E402
@@ -48,6 +50,24 @@ def make_session() -> Session:
     """
 
     engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    return session_factory()
+
+
+def make_fk_session() -> Session:
+    """
+    创建启用外键校验的内存数据库会话，用于复现 MySQL 约束行为。
+    返回：
+        用于单测的 SQLAlchemy Session。
+    """
+
+    engine = create_engine("sqlite:///:memory:", future=True)
+
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection: Any, _connection_record: Any) -> None:
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(bind=engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
     return session_factory()
@@ -149,13 +169,26 @@ def test_pdf_preview_creates_converted_pdf_asset_for_office_file() -> None:
             )
             db.commit()
 
+            rollback_count = 0
+            original_rollback = db.rollback
+
+            def spy_rollback() -> None:
+                nonlocal rollback_count
+                rollback_count += 1
+                original_rollback()
+
+            def convert_after_transaction_released(source: str, document_id: int, version_no: int) -> SimpleNamespace:
+                assert rollback_count >= 1
+                return SimpleNamespace(pdf_path=str(converted_pdf), reused=False)
+
             with (
                 patch("app.services.document_service.LibreOfficeConversionService") as conversion_service_type,
                 patch("app.services.document_asset_service.get_minio_client", return_value=None),
+                patch.object(db, "rollback", side_effect=spy_rollback),
             ):
                 conversion_service = conversion_service_type.return_value
                 conversion_service.should_convert.return_value = True
-                conversion_service.convert.return_value = SimpleNamespace(pdf_path=str(converted_pdf), reused=False)
+                conversion_service.convert.side_effect = convert_after_transaction_released
                 preview_source = DocumentService(db).get_document_pdf_preview(document.id, make_operator())
 
             assets = db.scalars(select(DocumentAsset).where(DocumentAsset.document_id == document.id)).all()
@@ -167,6 +200,7 @@ def test_pdf_preview_creates_converted_pdf_asset_for_office_file() -> None:
         assert assets[0].asset_type == "converted_pdf"
         assert assets[0].version_no == 1
         conversion_service.convert.assert_called_once_with(str(source_path), document.id, 1)
+        assert rollback_count >= 1
     finally:
         db.close()
 
@@ -1141,6 +1175,101 @@ def test_delete_document_queues_external_cleanup_without_waiting_for_milvus() ->
         assert result["pending_file_count"] == 2
         assert result["pending_asset_object_count"] == 1
         sync_delete.assert_not_called()
+        schedule_cleanup.assert_called_once()
+    finally:
+        db.close()
+
+
+def test_delete_document_clears_version_fk_dependents_before_versions() -> None:
+    """删除文档时应先清理引用版本的任务和审核记录，避免外键阻塞版本删除。"""
+
+    db = make_fk_session()
+    try:
+        operator = make_operator()
+        db.add(operator)
+        db.flush()
+        knowledge_base = KnowledgeBase(
+            name="Base Knowledge",
+            code="base-knowledge-delete-fk",
+            type="base",
+            created_by=operator.id,
+        )
+        db.add(knowledge_base)
+        db.flush()
+        document = Document(
+            knowledge_base_id=knowledge_base.id,
+            knowledge_type="base",
+            file_name="demo.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/demo.md",
+            review_status="approved",
+            index_status="indexed",
+            version_no=1,
+            current_version=True,
+            created_by=operator.id,
+        )
+        db.add(document)
+        db.flush()
+        version = DocumentVersion(
+            document_id=document.id,
+            version_no=1,
+            file_name="demo.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/demo.md",
+            version_status="current",
+            parse_status="success",
+            review_status="approved",
+            index_status="indexed",
+            is_current=True,
+            created_by=operator.id,
+        )
+        db.add(version)
+        db.flush()
+        db.add(
+            IndexTask(
+                document_id=document.id,
+                version_id=version.id,
+                version_no=1,
+                task_type="full_build",
+                status="pending",
+                created_by=operator.id,
+            )
+        )
+        db.add(
+            ReviewTask(
+                document_id=document.id,
+                version_id=version.id,
+                version_no=1,
+                reviewer_id=operator.id,
+                review_status="reviewing",
+            )
+        )
+        db.add(
+            ReviewLog(
+                document_id=document.id,
+                version_id=version.id,
+                version_no=1,
+                action="submit",
+                operator_id=operator.id,
+            )
+        )
+        document_id = document.id
+        db.commit()
+
+        with patch.object(DocumentService, "_schedule_document_external_cleanup") as schedule_cleanup:
+            result = DocumentService(db).delete_document(document_id, operator)
+
+        assert result["deleted"] is True
+        assert result["index_tasks"] == 1
+        assert result["review_tasks"] == 1
+        assert result["review_logs"] == 1
+        assert result["document_versions"] == 1
+        assert not list(db.scalars(select(IndexTask).where(IndexTask.document_id == document_id)).all())
+        assert not list(db.scalars(select(ReviewTask).where(ReviewTask.document_id == document_id)).all())
+        assert not list(db.scalars(select(ReviewLog).where(ReviewLog.document_id == document_id)).all())
+        assert not list(db.scalars(select(DocumentVersion).where(DocumentVersion.document_id == document_id)).all())
         schedule_cleanup.assert_called_once()
     finally:
         db.close()

@@ -120,10 +120,46 @@ def migrate_database() -> None:
 
     inspector = inspect(engine)
     table_names = inspector.get_table_names()
-    if "chat_sessions" not in table_names:
-        return
 
     with engine.begin() as connection:
+        if "users" in table_names:
+            user_columns = {column["name"] for column in inspector.get_columns("users")}
+            _add_column_if_missing(
+                connection,
+                user_columns,
+                "users",
+                "avatar_object_key",
+                "VARCHAR(500) COMMENT '头像MinIO对象Key'",
+                "VARCHAR(500)",
+            )
+            _add_column_if_missing(
+                connection,
+                user_columns,
+                "users",
+                "avatar_file_name",
+                "VARCHAR(255) COMMENT '头像原始文件名'",
+                "VARCHAR(255)",
+            )
+            _add_column_if_missing(
+                connection,
+                user_columns,
+                "users",
+                "avatar_content_type",
+                "VARCHAR(100) COMMENT '头像文件MIME类型'",
+                "VARCHAR(100)",
+            )
+            _add_column_if_missing(
+                connection,
+                user_columns,
+                "users",
+                "avatar_updated_at",
+                "DATETIME COMMENT '头像更新时间'",
+                "DATETIME",
+            )
+
+        if "chat_sessions" not in table_names:
+            return
+
         chat_columns = {column["name"] for column in inspector.get_columns("chat_sessions")}
         if "chat_type" not in chat_columns:
             alter_sql = (

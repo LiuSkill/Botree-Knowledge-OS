@@ -18,10 +18,11 @@ from threading import Thread
 from types import SimpleNamespace
 
 from fastapi import UploadFile
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, is_database_lock_error
 from app.core.minio import get_minio_client
 from app.knowledge.chunking.chunk_builder import ChunkBuilder
 from app.knowledge.indexing.milvus_indexer import MilvusIndexer
@@ -480,6 +481,30 @@ class DocumentService:
         user: User,
         version_no: int | None = None,
     ) -> DocumentPdfPreviewSource:
+        """获取 PDF 预览源，并将并发删除/处理中导致的锁等待转换为业务提示。"""
+
+        try:
+            return self._get_document_pdf_preview(document_id, user, version_no)
+        except OperationalError as exc:
+            self.db.rollback()
+            if is_database_lock_error(exc):
+                logger.warning(
+                    "文档 PDF 预览锁等待失败: document_id=%s version_no=%s operator_id=%s operation=%s status=%s",
+                    document_id,
+                    version_no,
+                    user.id,
+                    "preview_pdf",
+                    "lock_wait_timeout",
+                )
+                raise AppException("当前文档正在被删除或处理，请稍后重试", status_code=409, code=409) from exc
+            raise
+
+    def _get_document_pdf_preview(
+        self,
+        document_id: int,
+        user: User,
+        version_no: int | None = None,
+    ) -> DocumentPdfPreviewSource:
         """
         获取文档详情页使用的 PDF 预览源。
 
@@ -499,9 +524,15 @@ class DocumentService:
         file_name_for_preview = version.file_name if version else document.file_name
         file_type_for_preview = (version.file_type or file_type(version.file_name)) if version else document.file_type
         storage_path_for_preview = version.storage_path if version else document.storage_path
+        asset_context = SimpleNamespace(
+            id=document.id,
+            version_no=active_version_no,
+            file_name=file_name_for_preview,
+        )
 
         if self._is_pdf_file(file_name_for_preview, file_type_for_preview):
-            self._ensure_storage_file_exists(storage_path_for_preview, document.id, active_version_no)
+            self.db.rollback()
+            self._ensure_storage_file_exists(storage_path_for_preview, asset_context.id, active_version_no)
             return DocumentPdfPreviewSource(
                 file_name=file_name_for_preview,
                 storage_path=storage_path_for_preview,
@@ -509,11 +540,12 @@ class DocumentService:
             )
 
         asset_service = DocumentAssetService(self.db)
-        converted_asset = self._get_ready_converted_pdf_asset(asset_service, document.id, active_version_no)
+        converted_asset = self._get_ready_converted_pdf_asset(asset_service, asset_context.id, active_version_no)
         if converted_asset is None or not self._asset_has_available_source(converted_asset):
-            converted_asset = self._create_converted_pdf_preview_asset(
-                document=document,
-                version=version,
+            self.db.rollback()
+            return self._create_converted_pdf_preview_asset(
+                document=asset_context,
+                version=None,
                 storage_path=storage_path_for_preview,
                 active_version_no=active_version_no,
                 operator_id=user.id,
@@ -522,12 +554,14 @@ class DocumentService:
         if not self._asset_has_available_source(converted_asset):
             raise AppException("转换 PDF 文件不存在，请重新解析或联系管理员", status_code=404, code=404)
 
-        return DocumentPdfPreviewSource(
+        preview_source = DocumentPdfPreviewSource(
             file_name=converted_asset.file_name,
             storage_path=converted_asset.storage_path,
             object_key=converted_asset.object_key,
             source_kind="converted_pdf",
         )
+        self.db.rollback()
+        return preview_source
 
     def list_chunks(self, document_id: int, user: User, version_no: int | None = None) -> list[DocumentChunk]:
         """
@@ -1281,12 +1315,12 @@ class DocumentService:
 
     def _create_converted_pdf_preview_asset(
         self,
-        document: Document,
+        document: Document | SimpleNamespace,
         version: DocumentVersion | None,
         storage_path: str,
         active_version_no: int,
         operator_id: int | None,
-    ) -> DocumentAsset:
+    ) -> DocumentPdfPreviewSource:
         """
         按需生成非 PDF 文件的预览 PDF 资产。
 
@@ -1306,16 +1340,23 @@ class DocumentService:
             pdf_path=conversion.pdf_path,
             created_by=operator_id,
         )
+        preview_source = DocumentPdfPreviewSource(
+            file_name=asset.file_name,
+            storage_path=asset.storage_path,
+            object_key=asset.object_key,
+            source_kind="converted_pdf",
+        )
+        asset_id = asset.id
         self.db.commit()
         logger.info(
             "文档预览 PDF 已生成: document_id=%s version_no=%s source_file=%s pdf_asset_id=%s reused=%s",
             document.id,
             active_version_no,
             Path(storage_path).name,
-            asset.id,
+            asset_id,
             conversion.reused,
         )
-        return asset
+        return preview_source
 
     def _parse_to_chunks(self, document: Document) -> list[DocumentChunk]:
         """
@@ -1788,9 +1829,10 @@ class DocumentService:
         deleted_asset_count = DocumentAssetService(self.db).delete_document_asset_records(document.id)
         deleted_page_count = page_index_repository.clear_all_document_pages(document.id)
         deleted_chunk_count = self.repository.clear_chunks(document.id)
-        deleted_version_count = self.repository.clear_versions(document.id)
-        review_cleanup_summary = self.review_repository.clear_document_records(document.id)
+        # 任务和审核记录都可能持有 version_id 外键，必须先于版本记录清理。
         deleted_task_count = self.index_task_repository.clear_by_document(document.id)
+        review_cleanup_summary = self.review_repository.clear_document_records(document.id)
+        deleted_version_count = self.repository.clear_versions(document.id)
 
         return {
             "vector_count": len(vector_ids),

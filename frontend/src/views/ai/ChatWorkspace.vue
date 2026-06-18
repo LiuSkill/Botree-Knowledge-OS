@@ -14,9 +14,11 @@ import { computed, nextTick, onMounted, provide, ref } from 'vue';
 
 import { listChatMessages, listChatSessions, streamKnowledgeAgent, updateMessageFeedback, type ChatFeedbackStatus } from '@/api/chat';
 import { listProjects } from '@/api/projects';
+import botreeLogo from '@/assets/botree-logo.png';
 import AgentTracePanel from '@/components/AgentTracePanel.vue';
 import ChatRichContent from '@/components/ChatRichContent.vue';
 import CitationList from '@/components/CitationList.vue';
+import UserAvatar from '@/components/UserAvatar.vue';
 import { useAuthStore } from '@/stores/auth';
 import type {
   AgentTraceStep,
@@ -76,7 +78,6 @@ const sessionEmptyDescription = computed(() =>
   props.chatType === 'project_chat' && !projectId.value ? '请先选择项目' : '暂无会话',
 );
 const userAvatarLabel = computed(() => authStore.user?.real_name || authStore.user?.username || 'User');
-const userAvatarText = computed(() => userAvatarLabel.value.trim().slice(0, 1).toUpperCase() || 'U');
 const activeDetailMessage = computed(
   () => messages.value.find((item) => item.role === 'assistant' && item.id === activeDetailMessageId.value) || null,
 );
@@ -578,7 +579,9 @@ onMounted(loadBaseData);
           <t-empty v-if="!messages.length" description="当前入口只会基于有权限、已审核、已索引资料回答" />
           <div v-for="message in messages" :key="message.id" class="chat-item-row" :class="message.role">
             <div v-if="message.role === 'assistant'" class="assistant-chat-row">
-              <span class="chat-avatar assistant" aria-label="Botree AI" role="img">AI</span>
+              <span class="chat-avatar assistant" aria-label="Botree AI" role="img">
+                <img :src="botreeLogo" alt="" />
+              </span>
               <div class="assistant-chat-stack">
                 <TChatThinking
                   v-if="shouldShowThinking(message)"
@@ -678,14 +681,15 @@ onMounted(loadBaseData);
               class="chat-message"
             >
               <template #avatar>
-                <span
-                  class="chat-avatar"
-                  :class="message.role"
-                  :aria-label="message.role === 'user' ? userAvatarLabel : 'Botree AI'"
-                  role="img"
-                >
-                  {{ message.role === 'user' ? userAvatarText : 'AI' }}
-                </span>
+                <UserAvatar
+                  class="chat-avatar user"
+                  :user-id="authStore.user?.id"
+                  :avatar-url="authStore.user?.avatar_url"
+                  :avatar-updated-at="authStore.user?.avatar_updated_at"
+                  :name="userAvatarLabel"
+                  size="32px"
+                  shape="circle"
+                />
               </template>
               <TChatContent
                 :role="message.role"
@@ -732,7 +736,7 @@ onMounted(loadBaseData);
 <style scoped>
 .chat-workspace-page {
   display: flex;
-  height: calc(100vh - 64px);
+  height: 100%;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
@@ -922,11 +926,22 @@ onMounted(loadBaseData);
 }
 
 .chat-avatar.assistant {
-  background: linear-gradient(135deg, #1d4ed8 0%, #0f172a 100%);
+  overflow: hidden;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.chat-avatar.assistant img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
 .chat-avatar.user {
-  background: #10b981;
+  border-radius: 999px;
+  background: #2563eb;
 }
 
 .chat-message :deep(.t-chat__text) {

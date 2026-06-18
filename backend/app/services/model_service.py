@@ -17,6 +17,7 @@ from app.schemas.model_config import ModelConfigCreate, ModelConfigUpdate
 from app.services.embedding_service import EmbeddingService
 from app.services.llm_service import LLMService
 from app.services.system_service import SystemService
+from app.utils.pagination import paginate
 
 
 class ModelService:
@@ -36,6 +37,23 @@ class ModelService:
         """查询模型配置列表。"""
 
         return self.repository.list()
+
+    def list_config_page(
+        self,
+        keyword: str | None = None,
+        model_type: str | None = None,
+        enabled: bool | None = None,
+        is_default: bool | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict:
+        """按筛选条件分页查询模型配置。"""
+
+        return paginate(
+            self.repository.list(keyword=keyword, model_type=model_type, enabled=enabled, is_default=is_default),
+            page,
+            page_size,
+        )
 
     def create_config(self, payload: ModelConfigCreate, operator: User) -> ModelConfig:
         """创建模型配置。"""

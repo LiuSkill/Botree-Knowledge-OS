@@ -7,6 +7,8 @@ System Repository
 3. 系统配置查询扩展
 """
 
+from datetime import datetime
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -38,10 +40,35 @@ class SystemRepository:
         self.db.flush()
         return log
 
-    def list_logs(self) -> list[OperationLog]:
+    def list_logs(
+        self,
+        keyword: str | None = None,
+        result: str | None = None,
+        target_type: str | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+    ) -> list[OperationLog]:
         """查询操作日志列表。"""
 
-        return list(self.db.scalars(select(OperationLog).order_by(OperationLog.id.desc()).limit(200)).all())
+        stmt = select(OperationLog).order_by(OperationLog.id.desc())
+        if keyword:
+            like = f"%{keyword}%"
+            stmt = stmt.where(
+                (OperationLog.username.like(like))
+                | (OperationLog.action.like(like))
+                | (OperationLog.target_type.like(like))
+                | (OperationLog.target_id.like(like))
+                | (OperationLog.detail.like(like))
+            )
+        if result:
+            stmt = stmt.where(OperationLog.result == result)
+        if target_type:
+            stmt = stmt.where(OperationLog.target_type == target_type)
+        if started_at:
+            stmt = stmt.where(OperationLog.created_at >= started_at)
+        if ended_at:
+            stmt = stmt.where(OperationLog.created_at <= ended_at)
+        return list(self.db.scalars(stmt).all())
 
     def dashboard_counts(self) -> dict[str, int]:
         """查询工作台统计数量。"""

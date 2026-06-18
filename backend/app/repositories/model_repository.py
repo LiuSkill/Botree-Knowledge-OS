@@ -27,10 +27,30 @@ class ModelConfigRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list(self) -> list[ModelConfig]:
+    def list(
+        self,
+        keyword: str | None = None,
+        model_type: str | None = None,
+        enabled: bool | None = None,
+        is_default: bool | None = None,
+    ) -> list[ModelConfig]:
         """查询模型配置列表。"""
 
-        return list(self.db.scalars(select(ModelConfig).order_by(ModelConfig.id.desc())).all())
+        stmt = select(ModelConfig).order_by(ModelConfig.id.desc())
+        if keyword:
+            like = f"%{keyword}%"
+            stmt = stmt.where(
+                (ModelConfig.provider.like(like))
+                | (ModelConfig.model_name.like(like))
+                | (ModelConfig.api_base.like(like))
+            )
+        if model_type:
+            stmt = stmt.where(ModelConfig.model_type == model_type)
+        if enabled is not None:
+            stmt = stmt.where(ModelConfig.enabled.is_(enabled))
+        if is_default is not None:
+            stmt = stmt.where(ModelConfig.is_default.is_(is_default))
+        return list(self.db.scalars(stmt).all())
 
     def get(self, config_id: int) -> ModelConfig | None:
         """按 ID 查询模型配置。"""

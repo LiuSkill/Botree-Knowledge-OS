@@ -8,10 +8,25 @@ Chat Repository
 4. 提供文档删除时的引用清理入口
 """
 
-from sqlalchemy import delete, select
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.chat import ChatCitation, ChatMessage, ChatSession
+from app.models.project import Project
+from app.models.retrieval_trace import RetrievalTrace
+from app.models.user import User
+
+
+def _normalize_page(page: int, page_size: int) -> tuple[int, int, int]:
+    """统一分页边界，避免审计接口一次拉取过多数据。"""
+
+    safe_page = max(page, 1)
+    safe_size = max(min(page_size, 100), 1)
+    offset = (safe_page - 1) * safe_size
+    return safe_page, safe_size, offset
 
 
 class ChatRepository:
@@ -117,6 +132,195 @@ class ChatRepository:
         """查询助手消息，用于问答审计。"""
 
         return list(self.db.scalars(select(ChatMessage).where(ChatMessage.role == "assistant").order_by(ChatMessage.id.desc())).all())
+
+    def list_qa_audit_details(
+        self,
+        user_id: int | None = None,
+        project_id: int | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+        feedback_status: str | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict[str, Any]:
+        """按助手回答分页查询问答审计明细。"""
+
+        safe_page, safe_size, offset = _normalize_page(page, page_size)
+        citation_count_subquery = (
+            select(ChatCitation.message_id, func.count(ChatCitation.id).label("citation_count"))
+            .group_by(ChatCitation.message_id)
+            .subquery()
+        )
+        latest_trace_subquery = (
+            select(RetrievalTrace.message_id, func.max(RetrievalTrace.id).label("trace_id"))
+            .where(RetrievalTrace.message_id.is_not(None))
+            .group_by(RetrievalTrace.message_id)
+            .subquery()
+        )
+        stmt = (
+            select(
+                ChatMessage,
+                ChatSession,
+                User,
+                Project,
+                RetrievalTrace,
+                func.coalesce(citation_count_subquery.c.citation_count, 0).label("citation_count"),
+            )
+            .join(ChatSession, ChatSession.id == ChatMessage.session_id)
+            .join(User, User.id == ChatSession.user_id)
+            .outerjoin(Project, Project.id == ChatSession.project_id)
+            .outerjoin(citation_count_subquery, citation_count_subquery.c.message_id == ChatMessage.id)
+            .outerjoin(latest_trace_subquery, latest_trace_subquery.c.message_id == ChatMessage.id)
+            .outerjoin(RetrievalTrace, RetrievalTrace.id == latest_trace_subquery.c.trace_id)
+            .where(ChatMessage.role == "assistant")
+        )
+        if user_id is not None:
+            stmt = stmt.where(ChatSession.user_id == user_id)
+        if project_id is not None:
+            stmt = stmt.where(ChatSession.project_id == project_id)
+        if started_at is not None:
+            stmt = stmt.where(ChatMessage.created_at >= started_at)
+        if ended_at is not None:
+            stmt = stmt.where(ChatMessage.created_at <= ended_at)
+        if feedback_status == "none":
+            stmt = stmt.where(ChatMessage.feedback_status.is_(None))
+        elif feedback_status:
+            stmt = stmt.where(ChatMessage.feedback_status == feedback_status)
+
+        total = int(self.db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0)
+        rows = list(
+            self.db.execute(
+                stmt.order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc()).offset(offset).limit(safe_size)
+            ).all()
+        )
+        return {"items": rows, "total": total, "page": safe_page, "page_size": safe_size}
+
+    def list_qa_audit_sessions(
+        self,
+        user_id: int | None = None,
+        project_id: int | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict[str, Any]:
+        """按会话聚合查询问答审计记录。"""
+
+        safe_page, safe_size, offset = _normalize_page(page, page_size)
+        stmt = (
+            select(ChatSession, User, Project)
+            .join(User, User.id == ChatSession.user_id)
+            .outerjoin(Project, Project.id == ChatSession.project_id)
+        )
+        if user_id is not None:
+            stmt = stmt.where(ChatSession.user_id == user_id)
+        if project_id is not None:
+            stmt = stmt.where(ChatSession.project_id == project_id)
+
+        session_rows = list(self.db.execute(stmt).all())
+        session_ids = [row[0].id for row in session_rows]
+        citation_counts = self._list_session_citation_counts(session_ids)
+        messages_by_session = self._list_messages_by_session(session_ids)
+
+        items: list[dict[str, Any]] = []
+        for session, user, project in session_rows:
+            summary = self._build_session_audit_summary(session, messages_by_session.get(session.id, []), citation_counts)
+            audit_time = summary["latest_qa_at"] or session.created_at
+            if started_at is not None and audit_time < started_at:
+                continue
+            if ended_at is not None and audit_time > ended_at:
+                continue
+            items.append(
+                {
+                    "session": session,
+                    "user": user,
+                    "project": project,
+                    **summary,
+                    "latest_qa_at": audit_time,
+                }
+            )
+
+        items.sort(key=lambda item: (item["latest_qa_at"], item["session"].id), reverse=True)
+        total = len(items)
+        return {"items": items[offset : offset + safe_size], "total": total, "page": safe_page, "page_size": safe_size}
+
+    def get_previous_user_question(self, session_id: int, before_message_id: int) -> str | None:
+        """查询指定助手消息之前最近的一条用户问题。"""
+
+        stmt = (
+            select(ChatMessage.content)
+            .where(
+                ChatMessage.session_id == session_id,
+                ChatMessage.role == "user",
+                ChatMessage.id < before_message_id,
+            )
+            .order_by(ChatMessage.id.desc())
+            .limit(1)
+        )
+        return self.db.scalar(stmt)
+
+    def _list_session_citation_counts(self, session_ids: list[int]) -> dict[int, int]:
+        """统计每个会话下的引用数量。"""
+
+        if not session_ids:
+            return {}
+        stmt = (
+            select(ChatMessage.session_id, func.count(ChatCitation.id))
+            .join(ChatCitation, ChatCitation.message_id == ChatMessage.id)
+            .where(ChatMessage.session_id.in_(session_ids), ChatMessage.role == "assistant")
+            .group_by(ChatMessage.session_id)
+        )
+        return {int(session_id): int(count) for session_id, count in self.db.execute(stmt).all()}
+
+    def _list_messages_by_session(self, session_ids: list[int]) -> dict[int, list[ChatMessage]]:
+        """批量查询会话消息并按会话归组。"""
+
+        messages_by_session: dict[int, list[ChatMessage]] = {}
+        if not session_ids:
+            return messages_by_session
+        stmt = (
+            select(ChatMessage)
+            .where(ChatMessage.session_id.in_(session_ids))
+            .order_by(ChatMessage.session_id, ChatMessage.id)
+        )
+        for message in self.db.scalars(stmt).all():
+            messages_by_session.setdefault(message.session_id, []).append(message)
+        return messages_by_session
+
+    def _build_session_audit_summary(
+        self,
+        session: ChatSession,
+        messages: list[ChatMessage],
+        citation_counts: dict[int, int],
+    ) -> dict[str, Any]:
+        """根据会话消息构建会话审计摘要。"""
+
+        question_count = 0
+        answer_count = 0
+        latest_question: str | None = None
+        latest_answer: str | None = None
+        latest_qa_at: datetime | None = None
+        pending_question: str | None = None
+        for message in messages:
+            if message.role == "user":
+                question_count += 1
+                pending_question = message.content
+                continue
+            if message.role != "assistant":
+                continue
+            answer_count += 1
+            if latest_qa_at is None or message.created_at >= latest_qa_at:
+                latest_qa_at = message.created_at
+                latest_answer = message.content
+                latest_question = pending_question
+        return {
+            "question_count": question_count,
+            "answer_count": answer_count,
+            "citation_count": citation_counts.get(session.id, 0),
+            "latest_question": latest_question,
+            "latest_answer": latest_answer,
+            "latest_qa_at": latest_qa_at,
+        }
 
     def list_citation_message_ids_by_document(self, document_id: int) -> list[int]:
         """

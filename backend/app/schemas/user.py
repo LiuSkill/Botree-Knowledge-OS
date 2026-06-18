@@ -9,7 +9,9 @@ User Schemas
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+from app.utils.user_avatar import avatar_url_for_user
 
 
 class RoleBrief(BaseModel):
@@ -57,6 +59,15 @@ class UserOut(BaseModel):
     phone: str | None = None
     department: str | None = None
     status: str
+    avatar_object_key: str | None = Field(default=None, exclude=True)
+    avatar_updated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     roles: list[RoleBrief] = Field(default_factory=list, description="角色列表")
+
+    @computed_field
+    @property
+    def avatar_url(self) -> str | None:
+        """头像访问地址。"""
+
+        return avatar_url_for_user(self)  # type: ignore[arg-type]

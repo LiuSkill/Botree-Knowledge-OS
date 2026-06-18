@@ -57,6 +57,10 @@ class User(TimestampMixin, Base):
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="手机号")
     department: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="所属部门")
     status: Mapped[str] = mapped_column(String(30), default="enabled", nullable=False, comment="状态：enabled/disabled")
+    avatar_object_key: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="头像MinIO对象Key")
+    avatar_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="头像原始文件名")
+    avatar_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="头像文件MIME类型")
+    avatar_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="头像更新时间")
 
     roles: Mapped[list["Role"]] = relationship("Role", secondary=user_roles, back_populates="users")
 

@@ -35,3 +35,10 @@ class TokenResponse(BaseModel):
     access_token: str = Field(..., description="访问令牌")
     token_type: str = Field(default="bearer", description="Token 类型")
     user: dict = Field(..., description="当前用户信息")
+
+
+class ChangePasswordRequest(BaseModel):
+    """当前用户修改密码请求。"""
+
+    current_password: str = Field(..., description="当前密码")
+    new_password: str = Field(..., min_length=8, description="新密码")

@@ -8,9 +8,10 @@ Users API
 """
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import get_current_user, require_admin
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
@@ -21,11 +22,24 @@ router = APIRouter(prefix="/users", tags=["用户管理"])
 
 
 @router.get("", summary="用户列表")
-def list_users(keyword: str | None = None, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def list_users(
+    keyword: str | None = None,
+    status: str | None = None,
+    role_id: int | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
     """查询用户列表。"""
 
-    users = UserService(db).list_users(keyword)
-    return success([UserOut.model_validate(item).model_dump(mode="json") for item in users])
+    result = UserService(db).list_users(keyword=keyword, status=status, role_id=role_id, page=page, page_size=page_size)
+    return success(
+        {
+            **result,
+            "items": [UserOut.model_validate(item).model_dump(mode="json") for item in result["items"]],
+        }
+    )
 
 
 @router.post("", summary="新增用户")
@@ -42,6 +56,18 @@ def get_user(user_id: int, _: User = Depends(require_admin), db: Session = Depen
 
     user = UserService(db).user_repository.get_by_id(user_id)
     return success(UserOut.model_validate(user).model_dump(mode="json") if user else None)
+
+
+@router.get("/{user_id}/avatar", summary="读取用户头像")
+def get_user_avatar(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """按权限读取用户头像。"""
+
+    avatar = UserService(db).open_avatar_stream(user_id, current_user)
+    return StreamingResponse(avatar["content"], media_type=avatar["content_type"])
 
 
 @router.put("/{user_id}", summary="编辑用户")

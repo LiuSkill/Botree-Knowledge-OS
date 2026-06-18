@@ -16,6 +16,7 @@ from app.core.security import create_access_token, verify_password
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.system_service import SystemService
+from app.utils.user_avatar import avatar_url_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,10 @@ class AuthService:
             "username": user.username,
             "real_name": user.real_name,
             "email": user.email,
+            "phone": user.phone,
             "department": user.department,
+            "avatar_url": avatar_url_for_user(user),
+            "avatar_updated_at": user.avatar_updated_at.isoformat() if user.avatar_updated_at else None,
             "roles": [{"id": role.id, "name": role.name, "code": role.code} for role in user.roles],
             "permission_codes": sorted({permission.code for role in user.roles for permission in role.permissions}),
         }

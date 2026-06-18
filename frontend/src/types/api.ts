@@ -24,9 +24,13 @@ export interface UserInfo {
   username: string;
   real_name: string;
   email?: string | null;
+  phone?: string | null;
   department?: string | null;
+  status: 'enabled' | 'disabled' | string;
+  avatar_url?: string | null;
+  avatar_updated_at?: string | null;
   roles: RoleBrief[];
-  permission_codes: string[];
+  permission_codes?: string[];
 }
 
 export interface RoleInfo extends RoleBrief {
@@ -428,6 +432,11 @@ export interface ModelConfig {
   enabled: boolean;
 }
 
+export interface ListQueryParams {
+  page?: number;
+  page_size?: number;
+}
+
 export interface OperationLog {
   id: number;
   username?: string | null;
@@ -436,5 +445,76 @@ export interface OperationLog {
   target_id?: string | null;
   detail?: string | null;
   result: string;
+  created_at: string;
+}
+
+export interface PageResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export type QAAuditFeedbackFilter = 'like' | 'dislike' | 'none';
+
+export interface QAAuditFilters {
+  user_id?: number;
+  project_id?: number;
+  started_at?: string;
+  ended_at?: string;
+  feedback_status?: QAAuditFeedbackFilter;
+  page?: number;
+  page_size?: number;
+}
+
+export interface QAAuditSession {
+  id: number;
+  session_id: number;
+  title: string;
+  user_id: number;
+  username: string;
+  real_name: string;
+  avatar_url?: string | null;
+  avatar_updated_at?: string | null;
+  chat_type: 'project_chat' | 'base_chat';
+  mode: string;
+  project_id?: number | null;
+  project_name?: string | null;
+  project_code?: string | null;
+  question_count: number;
+  answer_count: number;
+  citation_count: number;
+  latest_question?: string | null;
+  latest_answer?: string | null;
+  latest_qa_at: string;
+  created_at: string;
+}
+
+export interface QAAuditDetail {
+  id: number;
+  message_id: number;
+  session_id: number;
+  session_title: string;
+  user_id: number;
+  username: string;
+  real_name: string;
+  avatar_url?: string | null;
+  avatar_updated_at?: string | null;
+  chat_type: 'project_chat' | 'base_chat';
+  mode: string;
+  project_id?: number | null;
+  project_name?: string | null;
+  project_code?: string | null;
+  question?: string | null;
+  answer: string;
+  query_scope?: string | null;
+  agent_trace_json?: string | null;
+  citation_count: number;
+  citations: Citation[];
+  retrievers: string[];
+  intent?: string | null;
+  elapsed_ms?: number | null;
+  feedback_status?: 'like' | 'dislike' | null;
+  answered_at: string;
   created_at: string;
 }
