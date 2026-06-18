@@ -24,6 +24,20 @@ export function meApi(): Promise<UserInfo> {
   return request.get('/auth/me') as Promise<UserInfo>;
 }
 
+export function uploadMyAvatar(file: File): Promise<UserInfo> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return request.post('/auth/me/avatar', formData) as Promise<UserInfo>;
+}
+
+export function deleteMyAvatar(): Promise<UserInfo> {
+  return request.delete('/auth/me/avatar') as Promise<UserInfo>;
+}
+
+export function changeMyPassword(payload: { current_password: string; new_password: string }): Promise<{ changed: boolean }> {
+  return request.post('/auth/me/change-password', payload) as Promise<{ changed: boolean }>;
+}
+
 export function logoutApi(): Promise<{ logged_out: boolean }> {
   return request.post('/auth/logout') as Promise<{ logged_out: boolean }>;
 }

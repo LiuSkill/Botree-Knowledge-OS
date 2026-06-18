@@ -357,12 +357,13 @@ onBeforeUnmount(() => {
 
 <template>
   <PageContainer title="审核中心" subtitle="审核通过后，资料进入构建进度页，由审核人员统一发起异步解析与索引构建任务">
-    <t-tabs :value="activeTab" @change="handleTabChange">
-      <t-tab-panel value="tasks" label="审核任务" />
-      <t-tab-panel value="approved" label="审核通过资料 / 构建进度" />
-    </t-tabs>
+    <div class="review-page">
+      <t-tabs :value="activeTab" @change="handleTabChange">
+        <t-tab-panel value="tasks" label="审核任务" />
+        <t-tab-panel value="approved" label="审核通过资料 / 构建进度" />
+      </t-tabs>
 
-    <t-card v-if="activeTab === 'tasks'" class="review-card">
+      <t-card v-if="activeTab === 'tasks'" class="review-card scroll-card">
       <template #title>审核任务</template>
       <template #actions>
         <t-select v-model="taskStatus" clearable placeholder="审核状态" style="width: 180px" @change="loadTasks">
@@ -373,53 +374,55 @@ onBeforeUnmount(() => {
       </template>
 
       <t-empty v-if="!tasks.length" description="暂无审核任务" />
-      <table v-else class="plain-table">
-        <thead>
-          <tr>
-            <th>任务ID</th>
-            <th>文档ID</th>
-            <th>状态</th>
-            <th>提交时间</th>
-            <th>意见</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="task in tasks" :key="task.id">
-            <td>#{{ task.id }}</td>
-            <td><t-link theme="primary" @click="router.push(`/documents/${task.document_id}`)">文档 #{{ task.document_id }}</t-link></td>
-            <td><StatusTag type="review" :value="task.review_status" /></td>
-            <td>{{ formatDateTime(task.created_at) }}</td>
-            <td>{{ task.review_comment || '-' }}</td>
-            <td>
-              <div class="row-actions">
-                <t-button size="small" variant="text" @click="router.push(`/reviews/${task.id}`)">详情</t-button>
-                <t-button
-                  size="small"
-                  variant="text"
-                  theme="success"
-                  :disabled="!canReviewTask || !isReviewTaskPending(task.review_status)"
-                  @click="decide('approve', task)"
-                >
-                  通过
-                </t-button>
-                <t-button
-                  size="small"
-                  variant="text"
-                  theme="danger"
-                  :disabled="!canReviewTask || !isReviewTaskPending(task.review_status)"
-                  @click="decide('reject', task)"
-                >
-                  驳回
-                </t-button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </t-card>
+      <div v-else class="table-scroll">
+        <table class="plain-table">
+          <thead>
+            <tr>
+              <th>任务ID</th>
+              <th>文档ID</th>
+              <th>状态</th>
+              <th>提交时间</th>
+              <th>意见</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="task in tasks" :key="task.id">
+              <td>#{{ task.id }}</td>
+              <td><t-link theme="primary" @click="router.push(`/documents/${task.document_id}`)">文档 #{{ task.document_id }}</t-link></td>
+              <td><StatusTag type="review" :value="task.review_status" /></td>
+              <td>{{ formatDateTime(task.created_at) }}</td>
+              <td>{{ task.review_comment || '-' }}</td>
+              <td>
+                <div class="row-actions">
+                  <t-button size="small" variant="text" @click="router.push(`/reviews/${task.id}`)">详情</t-button>
+                  <t-button
+                    size="small"
+                    variant="text"
+                    theme="success"
+                    :disabled="!canReviewTask || !isReviewTaskPending(task.review_status)"
+                    @click="decide('approve', task)"
+                  >
+                    通过
+                  </t-button>
+                  <t-button
+                    size="small"
+                    variant="text"
+                    theme="danger"
+                    :disabled="!canReviewTask || !isReviewTaskPending(task.review_status)"
+                    @click="decide('reject', task)"
+                  >
+                    驳回
+                  </t-button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      </t-card>
 
-    <t-card v-else class="review-card" title="审核通过资料 / 构建进度">
+      <t-card v-else class="review-card scroll-card" title="审核通过资料 / 构建进度">
       <div class="filter-bar">
         <t-select v-model="approvedFilters.scope_type" style="width: 140px" @change="loadApprovedDocuments">
           <t-option value="base" label="企业知识" />
@@ -446,61 +449,78 @@ onBeforeUnmount(() => {
       </div>
 
       <t-empty v-if="!approvedDocuments.length" description="暂无审核通过资料" />
-      <table v-else class="plain-table">
-        <thead>
-          <tr>
-            <th>文档</th>
-            <th>范围</th>
-            <th>分类</th>
-            <th>版本</th>
-            <th>构建状态</th>
-            <th>开始时间</th>
-            <th>完成时间</th>
-            <th>错误</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="document in approvedDocuments" :key="document.id">
-            <td><t-link theme="primary" @click="router.push(`/documents/${document.id}`)">{{ document.file_name }}</t-link></td>
-            <td>{{ document.knowledge_type === 'project' ? `项目 #${document.project_id}` : '企业知识' }}</td>
-            <td>{{ document.category_path || document.category_name || '-' }}</td>
-            <td>v{{ document.version_no }}</td>
-            <td>
-              <div class="status-stack">
-                <StatusTag type="index" :value="document.index_status" />
-                <span v-if="getLatestBuildTask(document.id)" class="task-status-text">任务：{{ getTaskStatusText(document.id) }}</span>
-              </div>
-            </td>
-            <td>{{ formatDateTime(document.build_started_at) }}</td>
-            <td>{{ formatDateTime(document.build_finished_at) }}</td>
-            <td class="error-cell">{{ document.build_error || '-' }}</td>
-            <td>
-              <t-button
-                size="small"
-                variant="text"
-                theme="primary"
-                :loading="isBuilding(document.id)"
-                :disabled="!canRunBuild(document)"
-                @click="runBuild(document)"
-              >
-                {{ isBuilding(document.id) || document.index_status === 'indexing' ? '索引构建中' : document.index_status === 'indexed' ? '重新构建' : '解析并构建索引' }}
-              </t-button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </t-card>
+      <div v-else class="table-scroll">
+        <table class="plain-table">
+          <thead>
+            <tr>
+              <th>文档</th>
+              <th>范围</th>
+              <th>分类</th>
+              <th>版本</th>
+              <th>构建状态</th>
+              <th>开始时间</th>
+              <th>完成时间</th>
+              <th>错误</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="document in approvedDocuments" :key="document.id">
+              <td><t-link theme="primary" @click="router.push(`/documents/${document.id}`)">{{ document.file_name }}</t-link></td>
+              <td>{{ document.knowledge_type === 'project' ? `项目 #${document.project_id}` : '企业知识' }}</td>
+              <td>{{ document.category_path || document.category_name || '-' }}</td>
+              <td>v{{ document.version_no }}</td>
+              <td>
+                <div class="status-stack">
+                  <StatusTag type="index" :value="document.index_status" />
+                  <span v-if="getLatestBuildTask(document.id)" class="task-status-text">任务：{{ getTaskStatusText(document.id) }}</span>
+                </div>
+              </td>
+              <td>{{ formatDateTime(document.build_started_at) }}</td>
+              <td>{{ formatDateTime(document.build_finished_at) }}</td>
+              <td class="error-cell">{{ document.build_error || '-' }}</td>
+              <td>
+                <t-button
+                  size="small"
+                  variant="text"
+                  theme="primary"
+                  :loading="isBuilding(document.id)"
+                  :disabled="!canRunBuild(document)"
+                  @click="runBuild(document)"
+                >
+                  {{ isBuilding(document.id) || document.index_status === 'indexing' ? '索引构建中' : document.index_status === 'indexed' ? '重新构建' : '解析并构建索引' }}
+                </t-button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      </t-card>
+    </div>
   </PageContainer>
 </template>
 
 <style scoped>
+.review-page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.review-page :deep(.t-tabs) {
+  flex: 0 0 auto;
+}
+
 .review-card {
+  flex: 1;
   margin-top: 16px;
 }
 
 .filter-bar {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;

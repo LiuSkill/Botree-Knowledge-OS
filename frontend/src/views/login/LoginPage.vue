@@ -42,7 +42,7 @@ async function submit(): Promise<void> {
     <div class="login-panel">
       <div class="logo">B</div>
       <h1>Botree Knowledge OS</h1>
-      <p>企业知识管理与智能体应用平台</p>
+      <p>博萃循环知识管理与智能体应用平台</p>
       <t-form class="login-form" :data="form" label-align="top" @submit.prevent="submit">
         <t-form-item label="用户名">
           <t-input v-model="form.username" placeholder="请输入用户名" />
@@ -60,11 +60,14 @@ async function submit(): Promise<void> {
 <style scoped>
 .login-page {
   display: grid;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
   place-items: center;
   background:
     linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(14, 165, 233, 0.06)),
     #f5f7fb;
+  padding: 24px;
 }
 
 .login-panel {

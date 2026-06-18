@@ -9,7 +9,7 @@
 
 import { defineStore } from 'pinia';
 
-import { loginApi, logoutApi, meApi } from '@/api/auth';
+import { changeMyPassword, deleteMyAvatar, loginApi, logoutApi, meApi, uploadMyAvatar } from '@/api/auth';
 import type { UserInfo } from '@/types/api';
 import { clearToken, getToken, setToken } from '@/utils/auth';
 
@@ -48,6 +48,24 @@ export const useAuthStore = defineStore('auth', {
       if (!this.token) return;
       this.user = await meApi();
       this.loaded = true;
+    },
+    async uploadAvatar(file: File) {
+      /**
+       * 上传当前用户头像并刷新用户资料。
+       */
+      this.user = await uploadMyAvatar(file);
+    },
+    async deleteAvatar() {
+      /**
+       * 删除当前用户头像并刷新用户资料。
+       */
+      this.user = await deleteMyAvatar();
+    },
+    async changePassword(currentPassword: string, newPassword: string) {
+      /**
+       * 修改当前用户密码。
+       */
+      await changeMyPassword({ current_password: currentPassword, new_password: newPassword });
     },
     async logout() {
       /**

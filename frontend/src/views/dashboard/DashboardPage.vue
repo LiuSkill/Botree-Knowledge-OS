@@ -280,138 +280,150 @@ onMounted(loadData);
       </div>
     </header>
 
-    <div class="metric-grid" aria-label="工作台核心指标">
-      <article v-for="item in metricCards" :key="item.key" class="metric-card">
-        <div class="metric-top">
-          <span class="metric-icon" :class="`tone-${item.tone}`">
-            <component :is="item.icon" />
+    <div class="dashboard-scroll data-scroll">
+      <div class="metric-grid" aria-label="工作台核心指标">
+        <article v-for="item in metricCards" :key="item.key" class="metric-card">
+          <div class="metric-top">
+            <span class="metric-icon" :class="`tone-${item.tone}`">
+              <component :is="item.icon" />
+            </span>
+          </div>
+          <strong>{{ formatMetricValue(item.value) }}</strong>
+          <span>{{ item.title }}</span>
+        </article>
+      </div>
+
+      <div class="quick-action-grid" aria-label="常用工作入口">
+        <t-button
+          v-for="action in quickActions"
+          :key="action.key"
+          class="quick-action-card"
+          :class="{ highlighted: action.key === 'project' }"
+          block
+          variant="outline"
+          @click="navigateTo(action.route)"
+        >
+          <span class="action-icon" :class="`tone-${action.tone}`">
+            <component :is="action.icon" />
           </span>
-        </div>
-        <strong>{{ formatMetricValue(item.value) }}</strong>
-        <span>{{ item.title }}</span>
-      </article>
-    </div>
+          <span class="action-copy">
+            <strong>{{ action.title }}</strong>
+            <small>{{ action.subtitle }}</small>
+          </span>
+        </t-button>
+      </div>
 
-    <div class="quick-action-grid" aria-label="常用工作入口">
-      <t-button
-        v-for="action in quickActions"
-        :key="action.key"
-        class="quick-action-card"
-        :class="{ highlighted: action.key === 'project' }"
-        block
-        variant="outline"
-        @click="navigateTo(action.route)"
-      >
-        <span class="action-icon" :class="`tone-${action.tone}`">
-          <component :is="action.icon" />
-        </span>
-        <span class="action-copy">
-          <strong>{{ action.title }}</strong>
-          <small>{{ action.subtitle }}</small>
-        </span>
-      </t-button>
-    </div>
-
-    <div class="content-grid">
-      <section class="dashboard-panel recent-documents-panel">
-        <header class="panel-header">
-          <h2>最近上传文档</h2>
-          <t-button size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
-        </header>
-        <div v-if="recentDocuments.length" class="document-list">
-          <t-button
-            v-for="document in recentDocuments"
-            :key="`${document.name}-${document.time}`"
-            class="document-row"
-            block
-            variant="text"
-            @click="openDocument(document.id)"
-          >
-            <span class="document-icon" :class="`tone-${document.tone}`">
-              <component :is="document.icon" />
-            </span>
-            <span class="document-copy">
-              <strong>{{ document.name }}</strong>
-              <small>{{ document.time }}</small>
-            </span>
-          </t-button>
-        </div>
-        <div v-else class="empty-state">暂无上传文档</div>
-      </section>
-
-      <section class="dashboard-panel recent-questions-panel">
-        <header class="panel-header">
-          <h2>最近 AI 问答</h2>
-          <t-button size="small" variant="text" @click="navigateTo(ROUTE_PATHS.aiBaseChat)">查看全部</t-button>
-        </header>
-        <div v-if="recentQuestions.length" class="question-list">
-          <t-button
-            v-for="question in recentQuestions"
-            :key="`${question.id}-${question.question}`"
-            class="question-card"
-            block
-            variant="outline"
-            @click="openQuestion(question)"
-          >
-            <strong><span>问：</span>{{ question.question }}</strong>
-            <small>{{ formatDateTime(question.created_at) }}</small>
-          </t-button>
-        </div>
-        <div v-else class="empty-state">暂无 AI 问答记录</div>
-      </section>
-
-      <section class="dashboard-panel category-panel">
-        <header class="panel-header">
-          <h2>知识分类统计</h2>
-          <t-button size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
-        </header>
-        <div v-if="categoryStats.length" class="category-body">
-          <svg class="donut-chart" viewBox="0 0 144 144" role="img" aria-label="知识分类统计环图">
-            <circle
-              class="donut-track"
-              :cx="DONUT_CENTER"
-              :cy="DONUT_CENTER"
-              :r="DONUT_RADIUS"
-              :stroke-width="DONUT_STROKE_WIDTH"
-            />
-            <circle
-              v-for="segment in donutSegments"
-              :key="segment.key"
-              class="donut-segment"
-              :cx="DONUT_CENTER"
-              :cy="DONUT_CENTER"
-              :r="DONUT_RADIUS"
-              :stroke="segment.color"
-              :stroke-width="DONUT_STROKE_WIDTH"
-              :stroke-dasharray="segment.dasharray"
-              :stroke-dashoffset="segment.dashoffset"
-            />
-          </svg>
-          <div class="category-legend">
-            <div v-for="item in categoryStats" :key="item.name" class="legend-row">
-              <span class="legend-name">
-                <i :style="{ backgroundColor: item.color }"></i>
-                {{ item.name }}
+      <div class="content-grid">
+        <section class="dashboard-panel recent-documents-panel">
+          <header class="panel-header">
+            <h2>最近上传文档</h2>
+            <t-button size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
+          </header>
+          <div v-if="recentDocuments.length" class="document-list">
+            <t-button
+              v-for="document in recentDocuments"
+              :key="`${document.name}-${document.time}`"
+              class="document-row"
+              block
+              variant="text"
+              @click="openDocument(document.id)"
+            >
+              <span class="document-icon" :class="`tone-${document.tone}`">
+                <component :is="document.icon" />
               </span>
-              <strong>{{ item.percent }}%</strong>
+              <span class="document-copy">
+                <strong>{{ document.name }}</strong>
+                <small>{{ document.time }}</small>
+              </span>
+            </t-button>
+          </div>
+          <div v-else class="empty-state">暂无上传文档</div>
+        </section>
+
+        <section class="dashboard-panel recent-questions-panel">
+          <header class="panel-header">
+            <h2>最近 AI 问答</h2>
+            <t-button size="small" variant="text" @click="navigateTo(ROUTE_PATHS.aiBaseChat)">查看全部</t-button>
+          </header>
+          <div v-if="recentQuestions.length" class="question-list">
+            <t-button
+              v-for="question in recentQuestions"
+              :key="`${question.id}-${question.question}`"
+              class="question-card"
+              block
+              variant="outline"
+              @click="openQuestion(question)"
+            >
+              <strong><span>问：</span>{{ question.question }}</strong>
+              <small>{{ formatDateTime(question.created_at) }}</small>
+            </t-button>
+          </div>
+          <div v-else class="empty-state">暂无 AI 问答记录</div>
+        </section>
+
+        <section class="dashboard-panel category-panel">
+          <header class="panel-header">
+            <h2>知识分类统计</h2>
+            <t-button size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
+          </header>
+          <div v-if="categoryStats.length" class="category-body">
+            <svg class="donut-chart" viewBox="0 0 144 144" role="img" aria-label="知识分类统计环图">
+              <circle
+                class="donut-track"
+                :cx="DONUT_CENTER"
+                :cy="DONUT_CENTER"
+                :r="DONUT_RADIUS"
+                :stroke-width="DONUT_STROKE_WIDTH"
+              />
+              <circle
+                v-for="segment in donutSegments"
+                :key="segment.key"
+                class="donut-segment"
+                :cx="DONUT_CENTER"
+                :cy="DONUT_CENTER"
+                :r="DONUT_RADIUS"
+                :stroke="segment.color"
+                :stroke-width="DONUT_STROKE_WIDTH"
+                :stroke-dasharray="segment.dasharray"
+                :stroke-dashoffset="segment.dashoffset"
+              />
+            </svg>
+            <div class="category-legend">
+              <div v-for="item in categoryStats" :key="item.name" class="legend-row">
+                <span class="legend-name">
+                  <i :style="{ backgroundColor: item.color }"></i>
+                  {{ item.name }}
+                </span>
+                <strong>{{ item.percent }}%</strong>
+              </div>
             </div>
           </div>
-        </div>
-        <div v-else class="empty-state category-empty">暂无知识分类数据</div>
-      </section>
+          <div v-else class="empty-state category-empty">暂无知识分类数据</div>
+        </section>
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
 .dashboard-workbench {
-  min-height: calc(100vh - 64px);
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
   padding: 28px;
   background: #f7f8fb;
 }
 
+.dashboard-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
 .welcome-banner {
   display: flex;
+  flex: 0 0 auto;
   min-height: 132px;
   align-items: center;
   justify-content: space-between;

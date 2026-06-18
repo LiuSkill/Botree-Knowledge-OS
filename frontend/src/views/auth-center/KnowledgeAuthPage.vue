@@ -30,8 +30,8 @@ onMounted(loadSummary);
 <template>
   <PageContainer title="知识授权中心" subtitle="查看基础知识、项目知识和外部授权预留能力">
     <div class="auth-layout">
-      <t-card title="知识库授权概览">
-        <div class="auth-grid">
+      <t-card title="知识库授权概览" class="scroll-card">
+        <div class="auth-grid data-scroll">
           <div v-for="base in bases" :key="base.id" class="auth-card">
             <div class="auth-title">
               <span>{{ base.name }}</span>
@@ -47,8 +47,9 @@ onMounted(loadSummary);
         </div>
       </t-card>
 
-      <t-card title="权限边界">
-        <table class="plain-table">
+      <t-card title="权限边界" class="scroll-card">
+        <div class="table-scroll">
+          <table class="plain-table">
           <thead>
             <tr>
               <th>权限对象</th>
@@ -66,7 +67,8 @@ onMounted(loadSummary);
               <td colspan="3" class="muted">MVP 阶段展示当前用户可见知识库，外部用户授权能力已预留数据结构。</td>
             </tr>
           </tbody>
-        </table>
+          </table>
+        </div>
       </t-card>
     </div>
   </PageContainer>
@@ -75,13 +77,18 @@ onMounted(loadSummary);
 <style scoped>
 .auth-layout {
   display: grid;
+  height: 100%;
+  min-height: 0;
   grid-template-columns: minmax(0, 1fr) 420px;
   gap: 16px;
+  overflow: hidden;
 }
 
 .auth-grid {
   display: grid;
+  flex: 1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
   gap: 12px;
 }
 

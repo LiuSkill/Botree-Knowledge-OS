@@ -7,8 +7,18 @@
   3. 还原原型后台导航结构
 -->
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, type Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import {
+  BookIcon,
+  ChatBubbleIcon,
+  ChatIcon,
+  CheckCircleIcon,
+  FolderIcon,
+  HomeIcon,
+  LockOnIcon,
+  SettingIcon,
+} from 'tdesign-icons-vue-next';
 
 import { useAuthStore } from '@/stores/auth';
 
@@ -16,15 +26,22 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
-const menuItems = [
-  { path: '/dashboard', label: '首页', icon: 'H', permission: 'dashboard:view' },
-  { path: '/knowledge', label: '知识中心', icon: 'K', permission: 'knowledge:view' },
-  { path: '/projects', label: '项目中心', icon: 'P', permission: 'project:view' },
-  { path: '/authorization', label: '知识授权中心', icon: 'A', permission: 'authorization:view' },
-  { path: '/reviews', label: '审核中心', icon: 'R', permission: 'review:view' },
-  { path: '/ai/project-chat', label: '项目问答', icon: 'PQ', permission: 'ai:view' },
-  { path: '/ai/base-chat', label: '基础问答', icon: 'BQ', permission: 'ai:view' },
-  { path: '/system', label: '系统管理', icon: 'S', permission: 'system:view' },
+type MenuItem = {
+  path: string;
+  label: string;
+  icon: Component;
+  permission: string;
+};
+
+const menuItems: MenuItem[] = [
+  { path: '/dashboard', label: '首页', icon: HomeIcon, permission: 'dashboard:view' },
+  { path: '/knowledge', label: '知识中心', icon: BookIcon, permission: 'knowledge:view' },
+  { path: '/projects', label: '项目中心', icon: FolderIcon, permission: 'project:view' },
+  { path: '/authorization', label: '知识授权中心', icon: LockOnIcon, permission: 'authorization:view' },
+  { path: '/reviews', label: '审核中心', icon: CheckCircleIcon, permission: 'review:view' },
+  { path: '/ai/project-chat', label: '项目问答', icon: ChatBubbleIcon, permission: 'ai:view' },
+  { path: '/ai/base-chat', label: '基础问答', icon: ChatIcon, permission: 'ai:view' },
+  { path: '/system', label: '系统管理', icon: SettingIcon, permission: 'system:view' },
 ];
 
 const visibleMenuItems = computed(() => {
@@ -62,14 +79,12 @@ function navigate(path: string): void {
         variant="text"
         @click="navigate(item.path)"
       >
-        <span class="menu-icon">{{ item.icon }}</span>
+        <span class="menu-icon">
+          <component :is="item.icon" />
+        </span>
         <span>{{ item.label }}</span>
       </t-button>
     </nav>
-    <div class="sidebar-bottom">
-      <span class="status-dot"></span>
-      <span>知识检索服务可用</span>
-    </div>
   </aside>
 </template>
 
@@ -91,8 +106,10 @@ function navigate(path: string): void {
 
 .menu {
   display: flex;
+  min-height: 0;
   flex-direction: column;
   gap: 6px;
+  overflow: auto;
 }
 
 .menu-item {
@@ -123,15 +140,24 @@ function navigate(path: string): void {
 
 .menu-icon {
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
   place-items: center;
   border-radius: 6px;
   background: #eef2ff;
   color: #2563eb;
-  font-size: 11px;
-  font-weight: 700;
-  text-align: center;
+  font-size: 16px;
+}
+
+.menu-icon :deep(svg) {
+  width: 16px;
+  height: 16px;
+}
+
+.menu-item.active .menu-icon {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
 .sidebar-bottom {

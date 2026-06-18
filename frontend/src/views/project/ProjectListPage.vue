@@ -56,7 +56,7 @@ onMounted(loadProjects);
       <t-button theme="primary" @click="dialogVisible = true">新建项目</t-button>
     </template>
 
-    <div class="project-grid">
+    <div class="project-grid data-scroll">
       <t-card v-for="project in projects" :key="project.id" class="project-card" hover-shadow @click="router.push(`/projects/${project.id}`)">
         <div class="project-header">
           <div>
@@ -94,7 +94,10 @@ onMounted(loadProjects);
 <style scoped>
 .project-grid {
   display: grid;
+  height: 100%;
+  min-height: 0;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
   gap: 16px;
 }
 

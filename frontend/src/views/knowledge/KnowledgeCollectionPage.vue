@@ -143,7 +143,7 @@ onMounted(loadData);
       <t-button variant="outline" @click="router.push('/knowledge')">返回知识中心</t-button>
     </template>
 
-    <div class="panel-stack" v-loading="loading">
+    <div class="panel-stack knowledge-detail-stack data-scroll" v-loading="loading">
       <t-card>
         <div class="detail-grid">
           <div class="detail-item">
@@ -189,7 +189,8 @@ onMounted(loadData);
         </template>
 
         <t-empty v-if="!filteredDocuments.length" description="暂无资料" />
-        <table v-else class="plain-table">
+        <div v-else class="table-scroll">
+          <table class="plain-table">
           <thead>
             <tr>
               <th>文件名</th>
@@ -216,13 +217,18 @@ onMounted(loadData);
               </td>
             </tr>
           </tbody>
-        </table>
+          </table>
+        </div>
       </t-card>
     </div>
   </PageContainer>
 </template>
 
 <style scoped>
+.knowledge-detail-stack {
+  height: 100%;
+}
+
 .upload-grid {
   display: grid;
   grid-template-columns: 180px minmax(220px, 320px) minmax(260px, 1fr);

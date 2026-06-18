@@ -56,7 +56,8 @@ onMounted(loadTask);
       <t-button theme="danger" :disabled="!canReviewTask || !isReviewTaskPending(task?.review_status)" @click="decide('reject')">审核驳回</t-button>
     </template>
 
-    <t-card v-if="task">
+    <div v-if="task" class="review-detail-scroll data-scroll">
+      <t-card>
       <div class="detail-grid">
         <div class="detail-item">
           <div class="detail-label">审核任务</div>
@@ -73,6 +74,13 @@ onMounted(loadTask);
       </div>
       <p class="muted">创建时间：{{ formatDateTime(task.created_at) }}</p>
       <p>审核意见：{{ task.review_comment || '暂无意见' }}</p>
-    </t-card>
+      </t-card>
+    </div>
   </PageContainer>
 </template>
+
+<style scoped>
+.review-detail-scroll {
+  height: 100%;
+}
+</style>

@@ -455,7 +455,8 @@ onMounted(loadEnterpriseKnowledge);
         <div v-if="loading" class="empty-document-card">正在加载知识文档...</div>
         <div v-else-if="!pagedDocuments.length" class="empty-document-card">没有找到匹配文档</div>
         <div v-else class="document-table-card">
-          <table class="plain-table enterprise-document-table">
+          <div class="table-scroll">
+            <table class="plain-table enterprise-document-table">
             <thead>
               <tr>
                 <th>文档名称</th>
@@ -486,7 +487,8 @@ onMounted(loadEnterpriseKnowledge);
                 </td>
               </tr>
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
 
         <footer class="document-pagination">
@@ -542,15 +544,19 @@ onMounted(loadEnterpriseKnowledge);
 <style scoped>
 .knowledge-center-shell {
   display: grid;
-  min-height: calc(100vh - 64px);
+  height: 100%;
+  min-height: 0;
   grid-template-columns: 256px minmax(0, 1fr);
   background: #f4f7fb;
+  overflow: hidden;
 }
 
 .knowledge-category-panel {
   display: flex;
-  max-height: calc(100vh - 64px);
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
+  overflow: hidden;
   border-right: 1px solid #e5e7eb;
   background: #fff;
 }
@@ -638,11 +644,16 @@ onMounted(loadEnterpriseKnowledge);
 }
 
 .knowledge-document-panel {
+  display: flex;
+  min-height: 0;
   min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .document-header {
   display: grid;
+  flex: 0 0 auto;
   min-height: 68px;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -725,18 +736,31 @@ onMounted(loadEnterpriseKnowledge);
 }
 
 .document-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
   padding: 24px;
 }
 
 .empty-document-card,
 .document-table-card {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   border: 1px solid #e8edf4;
   border-radius: 8px;
   background: #fff;
 }
 
+.document-table-card .table-scroll {
+  height: 100%;
+}
+
 .empty-document-card {
   display: grid;
+  flex: 1;
   min-height: 102px;
   place-items: center;
   color: #475569;
@@ -750,6 +774,7 @@ onMounted(loadEnterpriseKnowledge);
 
 .document-pagination {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   margin-top: 18px;

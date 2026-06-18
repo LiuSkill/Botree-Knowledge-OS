@@ -20,10 +20,20 @@
   box-sizing: border-box;
 }
 
+html,
 body {
+  width: 100%;
+  height: 100%;
   margin: 0;
-  min-width: 1280px;
-  min-height: 100vh;
+  overflow: hidden;
+  background: #f5f7fb;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   background: #f5f7fb;
 }
 
@@ -33,6 +43,11 @@ a {
 }
 
 .page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
   padding: 24px;
 }
 
@@ -57,10 +72,74 @@ a {
 
 .toolbar {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.page-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.data-scroll,
+.table-scroll {
+  min-height: 0;
+  overflow: auto;
+}
+
+.table-scroll {
+  width: 100%;
+}
+
+.scroll-card .data-scroll,
+.scroll-card .table-scroll {
+  flex: 1 1 auto;
+}
+
+.scroll-card {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.scroll-card > .t-loading__parent {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.scroll-card .t-card__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drawer-scroll .t-drawer__content-wrapper {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drawer-scroll .t-drawer__header,
+.drawer-scroll .t-drawer__footer {
+  flex: 0 0 auto;
+}
+
+.drawer-scroll .t-drawer__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 .grid-cards {
@@ -91,6 +170,7 @@ a {
 
 .plain-table {
   width: 100%;
+  min-width: 100%;
   border-collapse: collapse;
 }
 
@@ -141,6 +221,7 @@ a {
 
 .panel-stack {
   display: flex;
+  min-height: 0;
   flex-direction: column;
   gap: 16px;
 }

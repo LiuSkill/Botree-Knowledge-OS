@@ -8,16 +8,28 @@
  */
 
 import { request } from '@/api/request';
-import type { DashboardStats, OperationLog } from '@/types/api';
+import type { DashboardStats, ListQueryParams, OperationLog, PageResult, QAAuditDetail, QAAuditFilters, QAAuditSession } from '@/types/api';
 
 export function getDashboardStats(): Promise<DashboardStats> {
   return request.get('/system/dashboard') as Promise<DashboardStats>;
 }
 
-export function listOperationLogs(): Promise<OperationLog[]> {
-  return request.get('/system/operation-logs') as Promise<OperationLog[]>;
+export interface OperationLogFilters extends ListQueryParams {
+  keyword?: string;
+  result?: string;
+  target_type?: string;
+  started_at?: string;
+  ended_at?: string;
 }
 
-export function listQAAudits(): Promise<Array<Record<string, unknown>>> {
-  return request.get('/system/qa-audits') as Promise<Array<Record<string, unknown>>>;
+export function listOperationLogs(params?: OperationLogFilters): Promise<PageResult<OperationLog>> {
+  return request.get('/system/operation-logs', { params }) as Promise<PageResult<OperationLog>>;
+}
+
+export function listQAAuditSessions(params?: QAAuditFilters): Promise<PageResult<QAAuditSession>> {
+  return request.get('/system/qa-audit-sessions', { params }) as Promise<PageResult<QAAuditSession>>;
+}
+
+export function listQAAudits(params?: QAAuditFilters): Promise<PageResult<QAAuditDetail>> {
+  return request.get('/system/qa-audits', { params }) as Promise<PageResult<QAAuditDetail>>;
 }

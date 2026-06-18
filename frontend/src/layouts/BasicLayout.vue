@@ -22,10 +22,23 @@ import AppSidebar from '@/components/AppSidebar.vue';
 </script>
 
 <style scoped>
+.basic-layout {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #f5f7fb;
+}
+
 .main-content {
-  min-height: 100vh;
-  margin-left: 240px;
-  padding-top: 64px;
+  position: fixed;
+  top: 64px;
+  right: 0;
+  bottom: 0;
+  left: 240px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: #f5f7fb;
 }
 </style>

@@ -299,7 +299,7 @@ onMounted(loadData);
       </t-space>
     </template>
 
-    <div class="panel-stack">
+    <div class="panel-stack project-detail-stack data-scroll">
       <t-card>
         <div class="detail-grid">
           <div class="detail-item">
@@ -357,9 +357,10 @@ onMounted(loadData);
           </div>
         </t-card>
 
-        <t-card title="项目资料">
+        <t-card title="项目资料" class="scroll-card">
           <t-empty v-if="!filteredDocuments.length" description="暂无项目资料" />
-          <table v-else class="plain-table">
+          <div v-else class="table-scroll">
+            <table class="plain-table">
             <thead>
               <tr>
                 <th>文件名</th>
@@ -386,7 +387,8 @@ onMounted(loadData);
                 </td>
               </tr>
             </tbody>
-          </table>
+            </table>
+          </div>
         </t-card>
 
         <t-card title="项目成员">
@@ -442,6 +444,10 @@ onMounted(loadData);
 </template>
 
 <style scoped>
+.project-detail-stack {
+  height: 100%;
+}
+
 .project-workspace {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr) 320px;
