@@ -37,3 +37,16 @@ def test_project_profile_priority_over_industry_terms() -> None:
     assert profile["knowledge_scope"] == "project"
     assert profile["is_industry_domain"] is True
     assert "hydrometallurgy" in profile["industry_domains"]
+
+
+def test_project_name_does_not_force_exact_lookup() -> None:
+    profile = QueryProfileService().build_profile(
+        "Introduce 2 x 2000 TPA Battery Black Mass Recycling Project",
+        intent="project_overview",
+    )
+
+    assert profile["query_type"] == "project_overview"
+    assert profile["answer_shape"] == "project_summary"
+    assert profile["has_project_name"] is True
+    assert profile["need_exact_term"] is False
+    assert profile["need_page_location"] is False

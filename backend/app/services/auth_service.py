@@ -12,7 +12,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppException
-from app.core.rbac import filter_bound_action_codes, menu_permission_codes
+from app.core.rbac import filter_bound_action_codes, menu_permission_codes, sync_menu_action_permission_codes
 from app.core.security import create_access_token, verify_password
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
@@ -74,7 +74,7 @@ class AuthService:
             前端使用的当前用户字典。
         """
 
-        permission_codes = self._user_permission_codes(user)
+        permission_codes = sync_menu_action_permission_codes(self._user_permission_codes(user))
         return {
             "id": user.id,
             "username": user.username,
@@ -99,7 +99,7 @@ class AuthService:
     def current_permissions(self, user: User) -> dict[str, list[str]]:
         """返回当前用户菜单与按钮权限，供前端路由、菜单和 v-permission 使用。"""
 
-        permission_codes = self._user_permission_codes(user)
+        permission_codes = sync_menu_action_permission_codes(self._user_permission_codes(user))
         return {
             "menus": sorted(permission_codes & MENU_PERMISSION_CODES),
             "actions": sorted(filter_bound_action_codes(permission_codes)),

@@ -11,15 +11,16 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
-from app.models import Base, ChatSession  # noqa: E402
+from app.models import Base, ChatCitation, ChatMessage, ChatSession, RetrievalTrace  # noqa: E402
 from app.models.user import Role, User  # noqa: E402
 from app.repositories.chat_repository import ChatRepository  # noqa: E402
+from app.schemas.chat import ChatSessionUpdate  # noqa: E402
 from app.services.chat_service import ChatService  # noqa: E402
 
 
@@ -93,5 +94,87 @@ def test_chat_service_lists_only_selected_project_sessions() -> None:
         sessions = ChatService(db).list_sessions(make_admin_user(), chat_type="project_chat", project_id=20)
 
         assert [session.title for session in sessions] == ["项目20会话"]
+    finally:
+        db.close()
+
+
+def test_chat_service_updates_session_display_state_and_orders_pinned_first() -> None:
+    """会话置顶、收藏和重命名应持久化，列表展示时置顶优先。"""
+
+    db = make_session()
+    try:
+        first_session = ChatSession(user_id=1, title="first", chat_type="base_chat", mode="auto")
+        second_session = ChatSession(user_id=1, title="second", chat_type="base_chat", mode="auto")
+        db.add_all([first_session, second_session])
+        db.commit()
+
+        updated = ChatService(db).update_session(
+            first_session.id,
+            ChatSessionUpdate(title="renamed", is_pinned=True, is_favorite=True),
+            make_admin_user(),
+        )
+        sessions = ChatRepository(db).list_sessions(user_id=1, chat_type="base_chat")
+
+        assert updated.title == "renamed"
+        assert updated.is_pinned is True
+        assert updated.is_favorite is True
+        assert sessions[0].id == first_session.id
+    finally:
+        db.close()
+
+
+def test_chat_service_delete_session_clears_messages_citations_and_traces() -> None:
+    """删除会话时应先清理消息、引用和检索审计，避免外键约束阻塞。"""
+
+    db = make_session()
+    try:
+        chat_session = ChatSession(user_id=1, title="待删除会话", chat_type="base_chat", mode="auto")
+        db.add(chat_session)
+        db.flush()
+
+        user_message = ChatMessage(session_id=chat_session.id, user_id=1, role="user", content="问题")
+        assistant_message = ChatMessage(session_id=chat_session.id, role="assistant", content="回答")
+        db.add_all([user_message, assistant_message])
+        db.flush()
+
+        db.add(
+            ChatCitation(
+                message_id=assistant_message.id,
+                source_type="base",
+                knowledge_base_id=1,
+                document_id=1,
+                chunk_id=1,
+                file_name="source.pdf",
+                content="引用内容",
+            )
+        )
+        db.add_all(
+            [
+                RetrievalTrace(
+                    user_id=1,
+                    session_id=chat_session.id,
+                    message_id=assistant_message.id,
+                    chat_type="base_chat",
+                    mode="auto",
+                    question="问题",
+                ),
+                RetrievalTrace(
+                    user_id=1,
+                    session_id=chat_session.id,
+                    message_id=None,
+                    chat_type="base_chat",
+                    mode="auto",
+                    question="未绑定消息的轨迹",
+                ),
+            ]
+        )
+        db.commit()
+
+        ChatService(db).delete_session(chat_session.id, make_admin_user())
+
+        assert db.get(ChatSession, chat_session.id) is None
+        assert db.scalar(select(func.count()).select_from(ChatMessage)) == 0
+        assert db.scalar(select(func.count()).select_from(ChatCitation)) == 0
+        assert db.scalar(select(func.count()).select_from(RetrievalTrace)) == 0
     finally:
         db.close()

@@ -294,7 +294,11 @@ class SystemService:
         """
 
         permission_by_code = self._permission_by_code()
-        return [self._action_group_to_dict(group, permission_by_code) for group in ACTION_GROUPS]
+        return [
+            self._action_group_to_dict(group, permission_by_code, menu_id)
+            for group in ACTION_GROUPS
+            for menu_id in group.menu_ids
+        ]
 
     def _qa_audit_session_to_dict(self, item: dict[str, Any]) -> dict[str, Any]:
         """序列化会话维度的问答审计摘要。"""
@@ -343,13 +347,13 @@ class SystemService:
             "children": [self._menu_node_to_dict(child, permission_by_code) for child in node.children],
         }
 
-    def _action_group_to_dict(self, group: ActionGroup, permission_by_code: dict[str, Permission]) -> dict[str, Any]:
+    def _action_group_to_dict(self, group: ActionGroup, permission_by_code: dict[str, Permission], menu_id: str) -> dict[str, Any]:
         """序列化按钮权限分组。"""
 
         return {
-            "module": group.module,
+            "module": group.module if len(group.menu_ids) == 1 else f"{group.module}@{menu_id}",
             "module_name": group.module_name,
-            "menu_ids": list(group.menu_ids),
+            "menu_ids": [menu_id],
             "actions": [
                 {
                     "action": action.action,

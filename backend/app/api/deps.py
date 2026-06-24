@@ -104,12 +104,10 @@ def has_permission(user: User, permission_code: str) -> bool:
     if is_admin(user):
         return True
     permission_codes = user_permission_codes(user)
-    if permission_code not in permission_codes:
-        return False
     bound_menu_codes = action_page_bindings().get(permission_code)
-    if bound_menu_codes is None:
-        return True
-    return bool(bound_menu_codes & permission_codes)
+    if bound_menu_codes is not None:
+        return bool(bound_menu_codes & permission_codes)
+    return permission_code in permission_codes
 
 
 def require_permission(permission_code: str) -> Callable[[User], User]:

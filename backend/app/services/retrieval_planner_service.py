@@ -24,18 +24,32 @@ from app.services.rag_prompt_templates import PLANNER_SYSTEM_PROMPT
 logger = logging.getLogger(__name__)
 
 RETRIEVER_PAGE_INDEX = "page_index"
+RETRIEVER_PROJECT_METADATA = "project_metadata"
 RETRIEVER_MILVUS = "milvus"
 RETRIEVER_RIPGREP = "ripgrep"
 RETRIEVER_KEYWORD = "keyword"
 RETRIEVER_GRAPHRAG = "graphrag"
 
 ALL_RETRIEVERS = [
+    RETRIEVER_PROJECT_METADATA,
     RETRIEVER_PAGE_INDEX,
     RETRIEVER_MILVUS,
     RETRIEVER_RIPGREP,
     RETRIEVER_KEYWORD,
     RETRIEVER_GRAPHRAG,
 ]
+FAST_PATH_INTENTS = {"industry_knowledge_qa", "knowledge_qa", "project_overview"}
+FAST_PATH_QUERY_TYPES = {
+    "industry_knowledge_qa",
+    "knowledge_qa",
+    "comparison",
+    "definition",
+    "summary",
+    "how_to",
+    "pure_general_qa",
+    "unknown",
+}
+FAST_PATH_ANSWER_SHAPES = {"comparison_table", "direct_answer", "general"}
 
 PAGE_HINT_PATTERNS = (
     "页",
@@ -128,6 +142,54 @@ EXACT_TOKEN_PATTERN = re.compile(
 
 
 @dataclass(frozen=True)
+class RetrievalPolicy:
+    """检索策略矩阵中的单条任务策略。"""
+
+    selected_retrievers: tuple[str, ...]
+    skipped_retrievers: tuple[str, ...] = ()
+    visual_evidence: bool = False
+    ripgrep: bool = True
+    graphrag: str = "disabled"
+
+
+class RetrievalPolicyMatrix:
+    """按 resolved_task_type 维护稳定检索器选择矩阵。"""
+
+    _MATRIX: dict[str, RetrievalPolicy] = {
+        "project_overview": RetrievalPolicy(
+            selected_retrievers=(RETRIEVER_PROJECT_METADATA, RETRIEVER_MILVUS, RETRIEVER_KEYWORD),
+            skipped_retrievers=(RETRIEVER_PAGE_INDEX, RETRIEVER_RIPGREP, RETRIEVER_GRAPHRAG),
+        ),
+        "process_flow": RetrievalPolicy(
+            selected_retrievers=(RETRIEVER_MILVUS, RETRIEVER_KEYWORD, RETRIEVER_PAGE_INDEX),
+            visual_evidence=True,
+            ripgrep=False,
+            graphrag="optional",
+        ),
+        "equipment_lookup": RetrievalPolicy(
+            selected_retrievers=(RETRIEVER_MILVUS, RETRIEVER_KEYWORD, RETRIEVER_PAGE_INDEX),
+            graphrag="optional",
+        ),
+        "parameter_lookup": RetrievalPolicy(
+            selected_retrievers=(RETRIEVER_MILVUS, RETRIEVER_KEYWORD, RETRIEVER_PAGE_INDEX, RETRIEVER_RIPGREP),
+        ),
+        "document_location": RetrievalPolicy(
+            selected_retrievers=(RETRIEVER_KEYWORD, RETRIEVER_PAGE_INDEX, RETRIEVER_RIPGREP),
+        ),
+        "comparison": RetrievalPolicy(
+            selected_retrievers=(RETRIEVER_MILVUS, RETRIEVER_KEYWORD),
+        ),
+        "definition": RetrievalPolicy(
+            selected_retrievers=(RETRIEVER_MILVUS, RETRIEVER_KEYWORD),
+        ),
+        "casual": RetrievalPolicy(selected_retrievers=()),
+    }
+
+    def get(self, task_type: str) -> RetrievalPolicy | None:
+        return self._MATRIX.get(str(task_type or "").strip())
+
+
+@dataclass(frozen=True)
 class RetrievalPlan:
     """
     检索计划
@@ -175,7 +237,10 @@ class RetrievalPlan:
             "retriever_reasons": self.retriever_reasons,
             "priority": self.priority or self.selected_retrievers,
             "query_rewrite": self.query_rewrite,
+            "query_rewrites": self.query_rewrite,
             "query_profile": self.query_profile,
+            "resolved_task_type": self.query_features.get("resolved_task_type") or self.metadata.get("resolved_task_type"),
+            "retrieval_needs": self.query_features.get("retrieval_needs") or self.metadata.get("retrieval_needs", {}),
             "qwen_used": self.qwen_used,
             "strategy": self.strategy,
             "rule_id": self.rule_id,
@@ -195,6 +260,7 @@ class RetrievalPlannerService:
 
     def __init__(self, db: Session | None) -> None:
         self.db = db
+        self.policy_matrix = RetrievalPolicyMatrix()
 
     def plan(
         self,
@@ -206,6 +272,9 @@ class RetrievalPlannerService:
         project_id: int | None,
         available_retrievers: list[str],
         query_profile: dict[str, Any] | None = None,
+        retrieval_mode: str = "full",
+        policy_resolution: dict[str, Any] | None = None,
+        question_understanding: dict[str, Any] | None = None,
     ) -> RetrievalPlan:
         """
         生成检索计划。
@@ -227,15 +296,55 @@ class RetrievalPlannerService:
         available = self._dedupe_retrievers(available_retrievers)
         query_features = self._build_query_features(query, chat_type, project_id)
         profile = dict(query_profile or {})
+        policy = dict(policy_resolution or {})
+        understanding = dict(question_understanding or {})
+        resolved_task_type = str(policy.get("resolved_task_type") or "").strip()
+        retrieval_needs = dict(understanding.get("retrieval_needs") or {})
+        query_rewrites = list(understanding.get("query_rewrites") or [])
         if profile:
             query_features["query_profile"] = profile
-        knowledge_scope = str(profile.get("knowledge_scope") or "").strip()
+        if policy:
+            query_features["policy_resolution"] = policy
+        if understanding:
+            query_features["question_understanding"] = understanding
+        if resolved_task_type:
+            query_features["resolved_task_type"] = resolved_task_type
+        if retrieval_needs:
+            query_features["retrieval_needs"] = retrieval_needs
+        if query_rewrites:
+            query_features["query_rewrites"] = query_rewrites
+        if policy.get("answer_policy"):
+            query_features["answer_policy"] = policy.get("answer_policy")
+        knowledge_scope = str(policy.get("knowledge_scope") or profile.get("knowledge_scope") or "").strip()
         if not knowledge_scope and intent in {"project_qa", "project_overview", "exact_lookup", "page_location", "graph_reasoning"}:
             knowledge_scope = "project"
         if not knowledge_scope and intent == "industry_knowledge_qa":
             knowledge_scope = "industry"
         if knowledge_scope:
             query_features["knowledge_scope"] = knowledge_scope
+        if resolved_task_type:
+            matrix_plan = self._build_policy_matrix_plan(
+                query=query,
+                sub_queries=sub_queries,
+                intent=intent,
+                resolved_task_type=resolved_task_type,
+                available_retrievers=available,
+                query_features=query_features,
+                query_profile=profile,
+                policy_resolution=policy,
+                question_understanding=understanding,
+            )
+            if matrix_plan is not None:
+                logger.info(
+                    "Retrieval Planner policy matrix: resolved_task_type=%s selected_retrievers=%s skipped_retrievers=%s skip_reasons=%s query_rewrites=%s retrieval_needs=%s",
+                    resolved_task_type,
+                    matrix_plan.selected_retrievers,
+                    matrix_plan.skipped_retrievers,
+                    matrix_plan.skip_reasons,
+                    matrix_plan.query_rewrite,
+                    retrieval_needs,
+                )
+                return matrix_plan
         rule_plan = self._build_rule_plan(
             query=query,
             sub_queries=sub_queries,
@@ -244,6 +353,27 @@ class RetrievalPlannerService:
             query_features=query_features,
             query_profile=profile,
         )
+        if self._should_use_rules_fast_path(intent, query_features, profile):
+            fast_path_plan = self._build_rules_fast_path_plan(rule_plan, available)
+            logger.info(
+                "Retrieval Planner fast path: intent=%s query_type=%s selected_retrievers=%s skipped_retrievers=%s qwen_used=false",
+                intent,
+                self._effective_query_type(intent, profile),
+                fast_path_plan.selected_retrievers,
+                fast_path_plan.skipped_retrievers,
+            )
+            return fast_path_plan
+
+        normalized_retrieval_mode = str(retrieval_mode or "full").strip().lower()
+        if normalized_retrieval_mode in {"fast", "smart"}:
+            logger.info(
+                "Retrieval Planner跳过LLM规划: retrieval_mode=%s intent=%s rule_id=%s selected_retrievers=%s",
+                normalized_retrieval_mode,
+                intent,
+                rule_plan.rule_id,
+                rule_plan.selected_retrievers,
+            )
+            return rule_plan
 
         if not self._should_use_qwen_planner(rule_plan, intent, query_features):
             logger.info(
@@ -449,6 +579,314 @@ class RetrievalPlannerService:
             },
         )
 
+    def _build_policy_matrix_plan(
+        self,
+        *,
+        query: str,
+        sub_queries: list[str],
+        intent: str,
+        resolved_task_type: str,
+        available_retrievers: list[str],
+        query_features: dict[str, Any],
+        query_profile: dict[str, Any],
+        policy_resolution: dict[str, Any],
+        question_understanding: dict[str, Any],
+    ) -> RetrievalPlan | None:
+        """基于 RetrievalPolicyMatrix 生成检索计划。"""
+
+        policy = self.policy_matrix.get(resolved_task_type)
+        if policy is None:
+            return None
+
+        available_set = set(available_retrievers)
+        retrieval_needs = dict(query_features.get("retrieval_needs") or {})
+        selected = [name for name in policy.selected_retrievers if name in available_set]
+        selected = self._apply_policy_optional_retrievers(
+            selected=selected,
+            policy=policy,
+            resolved_task_type=resolved_task_type,
+            available_set=available_set,
+            query_features=query_features,
+            retrieval_needs=retrieval_needs,
+        )
+        selected = self._dedupe_retrievers(selected)
+        fallback_retrievers: list[str] = []
+        fallback_ladder = [selected] if selected else []
+        skipped_retrievers = [name for name in available_retrievers if name not in set(selected)]
+        skip_reasons = self._build_policy_skip_reasons(
+            skipped_retrievers=skipped_retrievers,
+            policy=policy,
+            resolved_task_type=resolved_task_type,
+            query_features=query_features,
+        )
+        query_rewrites = self._policy_query_rewrites(query, sub_queries, query_profile, question_understanding)
+        retriever_reasons = self._policy_retriever_reasons(selected, resolved_task_type, retrieval_needs)
+        reason = (
+            f"resolved_task_type={resolved_task_type} 命中 RetrievalPolicyMatrix；"
+            f"answer_policy={policy_resolution.get('answer_policy')}; "
+            f"knowledge_scope={policy_resolution.get('knowledge_scope') or query_features.get('knowledge_scope')}"
+        )
+
+        return RetrievalPlan(
+            selected_retrievers=selected,
+            fallback_retrievers=fallback_retrievers,
+            fallback_ladder=fallback_ladder,
+            skipped_retrievers=skipped_retrievers,
+            skip_reasons=skip_reasons,
+            query_features=query_features,
+            reason=reason,
+            confidence=0.94,
+            qwen_used=False,
+            strategy="policy_matrix",
+            rule_id=f"policy_matrix:{resolved_task_type}",
+            retriever_reasons=retriever_reasons,
+            priority=selected,
+            query_rewrite=query_rewrites,
+            query_profile=query_profile,
+            metadata={
+                "query": query,
+                "sub_query_count": len(sub_queries),
+                "query_profile": query_profile,
+                "question_understanding": question_understanding,
+                "policy_resolution": policy_resolution,
+                "resolved_task_type": resolved_task_type,
+                "answer_policy": policy_resolution.get("answer_policy") or query_features.get("answer_policy"),
+                "knowledge_scope": policy_resolution.get("knowledge_scope") or query_features.get("knowledge_scope"),
+                "retrieval_needs": retrieval_needs,
+                "query_rewrites": query_rewrites,
+                "policy_matrix_used": True,
+                "model_route": {
+                    "task": "planner",
+                    "source": "retrieval_policy_matrix",
+                    "qwen_used": False,
+                    "reason": "基于 PolicyResolver resolved_task_type 和 QuestionUnderstanding retrieval_needs 选择检索器",
+                },
+            },
+        )
+
+    def _apply_policy_optional_retrievers(
+        self,
+        *,
+        selected: list[str],
+        policy: RetrievalPolicy,
+        resolved_task_type: str,
+        available_set: set[str],
+        query_features: dict[str, Any],
+        retrieval_needs: dict[str, Any],
+    ) -> list[str]:
+        """根据矩阵 optional 标记补充必要检索器。"""
+
+        has_location_signal = bool(
+            query_features.get("has_page_hint")
+            or query_features.get("has_doc_code")
+            or query_features.get("has_section_hint")
+            or (query_features.get("query_profile") or {}).get("need_page_location")
+        )
+        needs_exact = bool(
+            retrieval_needs.get("exact_text_search")
+            or resolved_task_type in {"document_location", "parameter_lookup"}
+            or has_location_signal
+        )
+        if policy.ripgrep is False:
+            if needs_exact and RETRIEVER_RIPGREP in available_set:
+                selected.append(RETRIEVER_RIPGREP)
+        elif needs_exact and RETRIEVER_RIPGREP in available_set and RETRIEVER_RIPGREP not in selected:
+            selected.append(RETRIEVER_RIPGREP)
+
+        graph_requested = bool(query_features.get("has_graph_relation") or (query_features.get("query_profile") or {}).get("need_graph_reasoning"))
+        if policy.graphrag == "optional" and graph_requested and RETRIEVER_GRAPHRAG in available_set:
+            selected.append(RETRIEVER_GRAPHRAG)
+        return selected
+
+    def _build_policy_skip_reasons(
+        self,
+        *,
+        skipped_retrievers: list[str],
+        policy: RetrievalPolicy,
+        resolved_task_type: str,
+        query_features: dict[str, Any],
+    ) -> dict[str, str]:
+        """为矩阵未选中的 retriever 生成 skip reason。"""
+
+        skip_reasons: dict[str, str] = {}
+        retrieval_needs = dict(query_features.get("retrieval_needs") or {})
+        for name in skipped_retrievers:
+            if name == RETRIEVER_PAGE_INDEX and resolved_task_type == "project_overview":
+                skip_reasons[name] = "policy_matrix: project_overview 无页码/图号/原文定位需求，跳过 page_index"
+            elif name == RETRIEVER_RIPGREP and not (
+                retrieval_needs.get("exact_text_search")
+                or resolved_task_type in {"document_location", "parameter_lookup"}
+                or query_features.get("has_exact_token")
+                or query_features.get("has_doc_code")
+                or query_features.get("has_page_hint")
+                or query_features.get("has_section_hint")
+            ):
+                skip_reasons[name] = "policy_matrix: 无 exact_text_search/定位/参数信号，跳过 ripgrep"
+            elif name == RETRIEVER_GRAPHRAG and policy.graphrag == "optional":
+                skip_reasons[name] = "policy_matrix: graphrag 为 optional，当前无显式关系推理信号"
+            else:
+                skip_reasons[name] = f"policy_matrix: resolved_task_type={resolved_task_type} 未选择该检索器"
+        return skip_reasons
+
+    def _policy_query_rewrites(
+        self,
+        query: str,
+        sub_queries: list[str],
+        query_profile: dict[str, Any],
+        question_understanding: dict[str, Any],
+    ) -> list[str]:
+        """合并 QuestionUnderstanding 与旧规则改写结果。"""
+
+        candidates: list[str] = []
+        candidates.extend(str(item) for item in question_understanding.get("query_rewrites") or [])
+        candidates.extend(self._rule_query_rewrite(query, sub_queries, query_profile))
+        return self._dedupe_texts(candidates)[:16]
+
+    def _policy_retriever_reasons(
+        self,
+        selected_retrievers: list[str],
+        resolved_task_type: str,
+        retrieval_needs: dict[str, Any],
+    ) -> dict[str, str]:
+        """生成矩阵计划中各检索器的选择原因。"""
+
+        reasons: dict[str, str] = {}
+        for name in selected_retrievers:
+            if name == RETRIEVER_PROJECT_METADATA:
+                reasons[name] = "policy_matrix: project_overview 优先读取项目元数据"
+            elif name == RETRIEVER_MILVUS:
+                reasons[name] = "policy_matrix: 语义召回支撑概念、流程或对比回答"
+            elif name == RETRIEVER_KEYWORD:
+                reasons[name] = "policy_matrix: 关键词召回补充术语和标题命中"
+            elif name == RETRIEVER_PAGE_INDEX:
+                reasons[name] = "policy_matrix: 页级文本/图纸文本支持流程、参数或定位"
+            elif name == RETRIEVER_RIPGREP:
+                reasons[name] = "policy_matrix: exact_text_search 或定位/参数类问题需要原文精确搜索"
+            elif name == RETRIEVER_GRAPHRAG:
+                reasons[name] = "policy_matrix: optional graph retrieval 命中关系推理信号"
+            else:
+                reasons[name] = f"policy_matrix: resolved_task_type={resolved_task_type}"
+        if retrieval_needs:
+            for name in reasons:
+                reasons[name] = f"{reasons[name]}；retrieval_needs={retrieval_needs}"
+        return reasons
+
+    def _has_structured_retrieval_signal(self, query_features: dict[str, Any]) -> bool:
+        """Signals that require precise or graph-oriented retrieval instead of the fast path."""
+
+        return bool(
+            query_features.get("has_page_hint")
+            or query_features.get("has_doc_code")
+            or query_features.get("has_exact_token")
+            or query_features.get("has_section_hint")
+            or query_features.get("has_table_hint")
+            or query_features.get("has_value_hint")
+            or query_features.get("has_table_value_lookup")
+            or query_features.get("has_element_symbol")
+            or query_features.get("has_graph_relation")
+        )
+
+    def _should_use_rules_fast_path(
+        self,
+        intent: str,
+        query_features: dict[str, Any],
+        query_profile: dict[str, Any],
+    ) -> bool:
+        """Return True for cheap natural-language base knowledge retrieval."""
+
+        if intent not in FAST_PATH_INTENTS:
+            return False
+        knowledge_scope = str(query_profile.get("knowledge_scope") or query_features.get("knowledge_scope") or "").strip()
+        query_type = self._effective_query_type(intent, query_profile)
+        answer_shape = str(query_profile.get("answer_shape") or "").strip()
+        if (
+            intent == "project_overview"
+            and query_features.get("chat_type") == "project_chat"
+            and query_type == "project_overview"
+            and answer_shape == "project_summary"
+        ):
+            return not (
+                query_profile.get("need_page_location")
+                or query_profile.get("need_exact_term")
+                or query_profile.get("need_graph_reasoning")
+                or query_profile.get("need_visual_asset")
+                or query_features.get("has_page_hint")
+                or query_features.get("has_doc_code")
+                or query_features.get("has_section_hint")
+                or query_features.get("has_table_value_lookup")
+                or query_features.get("has_graph_relation")
+            )
+        if knowledge_scope not in {"", "industry"}:
+            return False
+        if query_type not in FAST_PATH_QUERY_TYPES and answer_shape not in FAST_PATH_ANSWER_SHAPES:
+            return False
+        if query_profile.get("need_page_location") or query_profile.get("need_exact_term"):
+            return False
+        if query_profile.get("need_graph_reasoning") or query_profile.get("need_visual_asset"):
+            return False
+        return not self._has_structured_retrieval_signal(query_features)
+
+    def _build_rules_fast_path_plan(
+        self,
+        rule_plan: RetrievalPlan,
+        available_retrievers: list[str],
+    ) -> RetrievalPlan:
+        """Build the no-LLM plan used by common base/industry QA."""
+
+        available_set = set(available_retrievers)
+        if rule_plan.rule_id == "project_overview":
+            selected = [
+                name
+                for name in [RETRIEVER_PROJECT_METADATA, RETRIEVER_MILVUS, RETRIEVER_KEYWORD]
+                if name in available_set
+            ]
+        else:
+            selected = [name for name in [RETRIEVER_MILVUS, RETRIEVER_KEYWORD] if name in available_set]
+        fallback = []
+        skipped = [name for name in available_retrievers if name not in selected]
+        skip_reasons = dict(rule_plan.skip_reasons)
+        for name in skipped:
+            if name == RETRIEVER_RIPGREP:
+                skip_reasons[name] = "rules_fast_path: no exact/doc/page/section/table/value signal, skip ripgrep"
+            elif name == RETRIEVER_GRAPHRAG:
+                skip_reasons[name] = "rules_fast_path: no graph reasoning signal, skip graphrag"
+            elif name == RETRIEVER_PAGE_INDEX:
+                skip_reasons[name] = "rules_fast_path: no page/table location signal, skip page_index"
+            else:
+                skip_reasons.setdefault(name, "rules_fast_path skipped")
+
+        return RetrievalPlan(
+            selected_retrievers=selected,
+            fallback_retrievers=fallback,
+            fallback_ladder=[selected] if selected else [],
+            skipped_retrievers=skipped,
+            skip_reasons=skip_reasons,
+            query_features=rule_plan.query_features,
+            reason=f"{rule_plan.reason}; rules_fast_path",
+            confidence=max(rule_plan.confidence, 0.92),
+            qwen_used=False,
+            strategy="rules_fast_path",
+            rule_id=rule_plan.rule_id,
+            retriever_reasons={
+                RETRIEVER_PROJECT_METADATA: "rules_fast_path: lightweight project metadata for overview guardrails",
+                RETRIEVER_MILVUS: "rules_fast_path: semantic recall for natural-language base knowledge QA",
+                RETRIEVER_KEYWORD: "rules_fast_path: cheap keyword companion recall",
+            },
+            priority=selected,
+            query_rewrite=rule_plan.query_rewrite,
+            query_profile=rule_plan.query_profile,
+            metadata={
+                **rule_plan.metadata,
+                "qwen_used": False,
+                "model_route": {
+                    "task": "planner",
+                    "source": "rules_fast_path",
+                    "qwen_used": False,
+                    "reason": "Natural-language base/industry QA without structured lookup signals.",
+                },
+            },
+        )
+
     def _rule_stages(
         self,
         intent: str,
@@ -496,8 +934,7 @@ class RetrievalPlannerService:
         stages: list[list[str]]
         if knowledge_scope == "industry":
             stages = [
-                keep([RETRIEVER_MILVUS]),
-                keep([RETRIEVER_KEYWORD]),
+                keep([RETRIEVER_MILVUS, RETRIEVER_KEYWORD]),
             ]
         elif query_type == "page_location":
             stages = [
@@ -526,17 +963,20 @@ class RetrievalPlannerService:
                 keep([RETRIEVER_KEYWORD]),
             ]
         elif query_type == "project_overview":
-            overview_stage = [RETRIEVER_MILVUS, RETRIEVER_PAGE_INDEX]
+            overview_stage = [RETRIEVER_PROJECT_METADATA, RETRIEVER_MILVUS, RETRIEVER_KEYWORD]
             if need_graph_reasoning:
                 overview_stage.append(RETRIEVER_GRAPHRAG)
             stages = [
                 keep(overview_stage),
-                keep([RETRIEVER_KEYWORD]),
             ]
         elif query_type == "comparison":
+            comparison_stage = [RETRIEVER_MILVUS, RETRIEVER_KEYWORD]
+            if has_exact_signal or has_location_signal:
+                comparison_stage.append(RETRIEVER_RIPGREP)
+            if need_graph_reasoning:
+                comparison_stage.append(RETRIEVER_GRAPHRAG)
             stages = [
-                keep([RETRIEVER_MILVUS, RETRIEVER_RIPGREP, RETRIEVER_GRAPHRAG]),
-                keep([RETRIEVER_KEYWORD]),
+                keep(comparison_stage),
             ]
         elif has_table_value_lookup:
             stages = [
@@ -646,19 +1086,23 @@ class RetrievalPlannerService:
             or query_features.get("has_table_value_lookup")
             or query_profile.get("need_page_location")
             or query_profile.get("need_visual_asset")
-            or query_type in {"page_location", "exact_lookup", "process_flow", "project_overview"}
+            or query_type in {"page_location", "exact_lookup", "process_flow"}
         ):
             return "当前问题缺少页码/章节/结构化定位信号，优先跳过page_index"
         if retriever_name == RETRIEVER_RIPGREP and not (
             query_features.get("has_exact_token")
             or query_features.get("has_doc_code")
+            or query_features.get("has_page_hint")
+            or query_features.get("has_section_hint")
+            or query_features.get("has_table_hint")
+            or query_features.get("has_value_hint")
             or query_features.get("has_table_value_lookup")
             or query_profile.get("need_exact_term")
-            or query_type in {"page_location", "exact_lookup", "process_flow", "graph_reasoning", "comparison", "project_overview"}
+            or query_profile.get("need_page_location")
         ):
             return "当前问题缺少精确词项或文号信号，优先跳过ripgrep"
         if retriever_name == RETRIEVER_GRAPHRAG and not (
-            query_profile.get("need_graph_reasoning") or query_type in {"graph_reasoning", "comparison"}
+            query_profile.get("need_graph_reasoning") or query_type == "graph_reasoning"
         ):
             return "当前问题不是关系推理类问题，优先跳过graphrag"
         if retriever_name == RETRIEVER_KEYWORD:
@@ -813,10 +1257,12 @@ class RetrievalPlannerService:
             True 表示应尝试 Qwen 细化计划
         """
 
-        if intent in {"graph_reasoning", "project_overview"}:
+        if intent == "graph_reasoning":
             return True
         if query_features.get("has_comparison"):
-            return True
+            return self._has_structured_retrieval_signal(query_features)
+        if intent in FAST_PATH_INTENTS and not self._has_structured_retrieval_signal(query_features):
+            return False
         if query_features.get("query_length", 0) >= 56:
             return True
         return rule_plan.confidence < 0.75
@@ -1078,8 +1524,8 @@ class RetrievalPlannerService:
             "page_location": [RETRIEVER_PAGE_INDEX, RETRIEVER_RIPGREP],
             "process_flow": [RETRIEVER_PAGE_INDEX, RETRIEVER_RIPGREP, RETRIEVER_MILVUS],
             "graph_reasoning": [RETRIEVER_GRAPHRAG, RETRIEVER_MILVUS, RETRIEVER_RIPGREP],
-            "comparison": [RETRIEVER_MILVUS, RETRIEVER_RIPGREP, RETRIEVER_GRAPHRAG],
-            "project_overview": [RETRIEVER_MILVUS, RETRIEVER_PAGE_INDEX],
+            "comparison": [RETRIEVER_MILVUS],
+            "project_overview": [RETRIEVER_PROJECT_METADATA, RETRIEVER_MILVUS, RETRIEVER_KEYWORD],
         }
         if query_type == "exact_lookup":
             required = [RETRIEVER_RIPGREP, RETRIEVER_MILVUS]
@@ -1177,6 +1623,22 @@ class RetrievalPlannerService:
                 continue
             if not normalized or normalized in result:
                 continue
+            result.append(normalized)
+        return result
+
+    def _dedupe_texts(self, values: list[str]) -> list[str]:
+        """去重并保留非 retriever 文本顺序。"""
+
+        seen: set[str] = set()
+        result: list[str] = []
+        for value in values:
+            normalized = str(value or "").strip()
+            if not normalized:
+                continue
+            key = normalized.lower()
+            if key in seen:
+                continue
+            seen.add(key)
             result.append(normalized)
         return result
 

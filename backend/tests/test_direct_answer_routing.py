@@ -57,6 +57,17 @@ def test_simple_math_uses_general_qa_without_retrieval() -> None:
     assert_direct_result(result, "pure_general_qa", "direct_general_qa")
 
 
+def test_project_chat_simple_math_requires_project_rag() -> None:
+    decision = QwenOrchestrationService(db=None).detect_route_decision("1+1=几", "project_chat", "auto")  # type: ignore[arg-type]
+
+    assert decision["intent"] == "project_qa"
+    assert decision["route"] == "project_rag"
+    assert decision["skip_retrieval"] is False
+    assert decision["direct_answer"] is False
+    assert decision["answer_policy"] == "STRICT_KB"
+    assert decision["knowledge_scope"] == "project"
+
+
 def test_common_knowledge_uses_general_qa_without_retrieval() -> None:
     result = run_direct_question("水的沸点是多少")
 

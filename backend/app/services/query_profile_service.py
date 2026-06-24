@@ -150,8 +150,12 @@ class QueryProfileService:
         is_industry_domain = bool(industry_domains) or intent == "industry_knowledge_qa"
         knowledge_scope = self._knowledge_scope(intent, is_industry_domain)
 
+        has_doc_code = bool(DOC_CODE_PATTERN.search(normalized))
+        has_tag = bool(TAG_PATTERN.search(normalized))
+        project_name_candidates = self._english_phrases(normalized)
+        has_project_name = bool(project_name_candidates)
         need_page_location = self._contains_any(lowered, PAGE_LOCATION_HINTS)
-        need_exact_term = self._contains_any(lowered, EXACT_LOOKUP_HINTS) or bool(DOC_CODE_PATTERN.search(normalized))
+        need_exact_term = self._contains_any(lowered, EXACT_LOOKUP_HINTS) or has_doc_code or has_tag
         need_visual_asset = need_page_location or any(token in lowered for token in ("图纸", "drawing"))
         need_graph_reasoning = self._contains_any(lowered, GRAPH_REASONING_HINTS)
 
@@ -203,14 +207,13 @@ class QueryProfileService:
 
         entities = self._extract_entities(normalized)
         keywords = self._extract_keywords(normalized, sub_queries or [])
-        if entities:
-            need_exact_term = True
 
         profile = {
             "query_type": self._safe_value(query_type, QUERY_TYPES, "unknown"),
             "answer_shape": self._safe_value(answer_shape, ANSWER_SHAPES, "general"),
             "need_page_location": need_page_location,
             "need_exact_term": need_exact_term,
+            "has_project_name": has_project_name,
             "need_visual_asset": need_visual_asset,
             "need_graph_reasoning": need_graph_reasoning,
             "knowledge_scope": knowledge_scope,
@@ -218,6 +221,7 @@ class QueryProfileService:
             "industry_domains": industry_domains,
             "entities": entities,
             "keywords": keywords,
+            "project_name_candidates": project_name_candidates[:4],
             "reason": "；".join(reasons),
         }
         logger.info(

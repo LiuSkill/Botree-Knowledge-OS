@@ -4,6 +4,8 @@ from typing import Any, cast
 
 from app.models.user import Role, User
 from app.retrieval.retrievers.keyword_retriever import KeywordRetriever
+from app.retrieval.router import RetrievalRouter
+from app.services.qwen_orchestration_service import QwenOrchestrationService
 
 
 def make_admin_user() -> User:
@@ -36,3 +38,22 @@ def test_project_with_industry_allows_project_and_authorized_base_only() -> None
     assert retriever._scope_allowed("project", 10, 2, "project_with_industry", 10, user) is True
     assert retriever._scope_allowed("base", None, 1, "project_with_industry", 10, user) is True
     assert retriever._scope_allowed("project", 20, 3, "project_with_industry", 10, user) is False
+
+
+def test_chat_type_forces_independent_retrieval_library() -> None:
+    router = object.__new__(RetrievalRouter)
+
+    assert router._effective_mode("hybrid", 10, "base_chat", knowledge_scope="project") == "base_chat"
+    assert router._effective_mode("base_only", 10, "project_chat", knowledge_scope="industry") == "project_chat"
+    assert (
+        router._effective_mode("project_with_industry", 10, "project_chat", knowledge_scope="project_with_industry")
+        == "project_chat"
+    )
+
+
+def test_project_intent_scope_does_not_append_base_library() -> None:
+    service = QwenOrchestrationService(cast(Any, None))
+
+    assert service._knowledge_scope_for_intent("project_qa") == "project"
+    assert service._knowledge_scope_for_intent("exact_lookup") == "project"
+    assert service._knowledge_scope_for_intent("industry_knowledge_qa") == "industry"

@@ -59,7 +59,8 @@ class MilvusHybridRetriever(BaseRetriever):
         """
 
         query_vector = self.embedding_service.embed_texts([query])[0]
-        hits = self.milvus_indexer.search(query_vector, limit * 3)
+        milvus_expr, access_debug = self._build_milvus_expr(mode, project_id, user)
+        hits = self.milvus_indexer.search(query_vector, limit * 3, expr=milvus_expr)
         evidences: list[Evidence] = []
         project_service = ProjectService(self.db)
         filter_stats = {
@@ -123,8 +124,73 @@ class MilvusHybridRetriever(BaseRetriever):
             mode,
             project_id,
         )
+        logger.info(
+            "Milvus access prefilter: allowed_scopes=%s allowed_project_ids=%s allowed_knowledge_base_ids=%s user_security_level=%s milvus_expr=%s pre_filter_hits=%s post_filter_hits=%s",
+            access_debug["allowed_scopes"],
+            access_debug["allowed_project_ids"],
+            access_debug["allowed_knowledge_base_ids"],
+            "n/a",
+            milvus_expr,
+            len(hits),
+            len(evidences),
+        )
         if hits and not evidences:
             logger.warning("Milvus命中已被二次校验全部过滤: filter_stats=%s", filter_stats)
         if not hits:
             logger.warning("Milvus向量召回为空: limit=%s query_preview=%s", limit * 3, query[:120])
         return evidences
+
+    def _build_milvus_expr(self, mode: str, project_id: int | None, user: User) -> tuple[str | None, dict[str, object]]:
+        """Build a Milvus metadata pre-filter from the existing scope policy."""
+
+        effective_mode = "hybrid" if mode == "auto" and project_id is not None else ("base_only" if mode == "auto" else mode)
+        allowed_base_kb_ids: list[int] = []
+        allowed_project_ids: list[int] = []
+        clauses: list[str] = []
+
+        def build_base_clause(strict_external: bool) -> str:
+            allowed_base_kb_ids.clear()
+            allowed_base_kb_ids.extend(
+                self.keyword_policy.accessible_base_knowledge_base_ids(project_id, user, strict_external=strict_external)
+            )
+            if not allowed_base_kb_ids:
+                return "knowledge_base_id in [-1]"
+            return f"project_id == 0 and knowledge_base_id in {self._milvus_int_list(allowed_base_kb_ids)}"
+
+        if effective_mode in {"base_chat", "base_only"}:
+            clauses.append(build_base_clause(strict_external=False))
+        elif effective_mode in {"project_chat", "project_only"}:
+            if project_id is not None:
+                allowed_project_ids.append(int(project_id))
+                clauses.append(f"project_id == {int(project_id)}")
+        elif effective_mode == "project_with_industry":
+            if project_id is not None:
+                allowed_project_ids.append(int(project_id))
+                clauses.append(f"project_id == {int(project_id)}")
+            clauses.append(build_base_clause(strict_external=True))
+        elif effective_mode == "hybrid":
+            if project_id is not None:
+                allowed_project_ids.append(int(project_id))
+                clauses.append(f"project_id == {int(project_id)}")
+            clauses.append(build_base_clause(strict_external=False))
+
+        expr = " or ".join(f"({clause})" for clause in clauses if clause)
+        return (
+            expr or None,
+            {
+                "allowed_scopes": self._allowed_scope_names(effective_mode, bool(allowed_base_kb_ids), bool(allowed_project_ids)),
+                "allowed_project_ids": allowed_project_ids,
+                "allowed_knowledge_base_ids": list(allowed_base_kb_ids),
+            },
+        )
+
+    def _milvus_int_list(self, values: list[int]) -> str:
+        return "[" + ", ".join(str(int(value)) for value in values) + "]"
+
+    def _allowed_scope_names(self, mode: str, has_base: bool, has_project: bool) -> list[str]:
+        scopes: list[str] = []
+        if has_base or mode in {"base_chat", "base_only"}:
+            scopes.append("base")
+        if has_project or mode in {"project_chat", "project_only", "project_with_industry", "hybrid"}:
+            scopes.append("project")
+        return scopes

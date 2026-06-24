@@ -19,3 +19,4 @@ redis>=5.0.0
 rq>=1.16.0
 langgraph>=0.2.0
 alembic>=1.13.0
+beir>=2.0.0

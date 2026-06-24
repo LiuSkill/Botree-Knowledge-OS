@@ -39,12 +39,29 @@ export const INDEX_STATUS_TEXT: Record<string, string> = {
   failed: '失败',
 };
 
+export const PARSE_STATUS_TEXT: Record<string, string> = {
+  unparsed: '未解析',
+  parsing: '解析中',
+  success: '已解析',
+  failed: '解析失败',
+};
+
 export const INDEX_TASK_STATUS_TEXT: Record<string, string> = {
   pending: '排队中',
   running: '执行中',
   success: '已完成',
   failed: '失败',
   canceled: '已取消',
+};
+
+export const INDEX_TASK_TYPE_TEXT: Record<string, string> = {
+  mineru_parse: '文档解析',
+  pageindex_build: '页面索引构建',
+  milvus_build: '向量索引构建',
+  ripgrep_build: '全文检索索引构建',
+  graphrag_build: '知识图谱索引构建',
+  index_publish: '索引发布',
+  full_build: '解析并构建索引',
 };
 
 export const MODE_OPTIONS = [

@@ -165,6 +165,17 @@ class KeywordRetriever(BaseRetriever):
                 return True
         return False
 
+    def accessible_base_knowledge_base_ids(self, project_id: int | None, user: User, strict_external: bool) -> list[int]:
+        """Return base knowledge base ids allowed by the existing scope policy."""
+
+        stmt = select(KnowledgeBase.id).where(KnowledgeBase.type == "base", KnowledgeBase.enabled.is_(True))
+        kb_ids = list(self.db.scalars(stmt).all())
+        return [
+            int(kb_id)
+            for kb_id in kb_ids
+            if self._base_knowledge_allowed(int(kb_id), project_id, user, strict_external=strict_external)
+        ]
+
     def _is_admin(self, user: User) -> bool:
         """判断是否平台管理员。"""
 

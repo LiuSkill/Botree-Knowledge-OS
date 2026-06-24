@@ -17,7 +17,6 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-from sentence_transformers import SentenceTransformer
 from transformers import AutoModel, AutoTokenizer
 
 logger = logging.getLogger(__name__)
@@ -52,7 +51,7 @@ class LocalQwenEmbedding:
         self.batch_size = max(1, batch_size)
         self.dimension = dimension
         self.device = self._resolve_device(device)
-        self.sentence_model: SentenceTransformer | None = None
+        self.sentence_model: Any | None = None
         self.tokenizer: Any = None
         self.auto_model: Any = None
 
@@ -66,9 +65,16 @@ class LocalQwenEmbedding:
             self.dimension,
         )
         try:
+            from sentence_transformers import SentenceTransformer
+
             self.sentence_model = SentenceTransformer(str(self.model_path), device=self.device, trust_remote_code=True)
-        except Exception:
-            logger.exception("sentence-transformers加载失败，回退到transformers: path=%s", self.model_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "sentence-transformers不可用，回退到transformers: path=%s error=%s",
+                self.model_path,
+                exc,
+                exc_info=True,
+            )
             self._load_transformers_model_with_fallback()
         logger.info(
             "本地Embedding模型加载完成: loaded=%s path=%s backend=%s device=%s dimension=%s elapsed_ms=%s",

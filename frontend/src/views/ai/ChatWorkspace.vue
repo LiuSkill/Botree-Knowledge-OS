@@ -483,6 +483,7 @@ async function submitQuestion(): Promise<void> {
           void scrollToBottom();
         },
         onDelta: (delta) => {
+          if (!delta) return;
           const currentAssistant = messages.value.find((item) => item.id === assistantId);
           if (!currentAssistant) return;
           currentAssistant.content += delta;

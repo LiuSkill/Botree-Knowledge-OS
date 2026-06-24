@@ -57,7 +57,7 @@ class MilvusIndexer:
         logger.info("Milvus向量写入完成: collection=%s count=%s", self.settings.milvus_collection, len(records))
         return {"status": "indexed", "vector_count": len(records), "collection": self.settings.milvus_collection}
 
-    def search(self, query_vector: list[float], limit: int) -> list[dict[str, Any]]:
+    def search(self, query_vector: list[float], limit: int, expr: str | None = None) -> list[dict[str, Any]]:
         """
         执行向量检索。
 
@@ -75,7 +75,8 @@ class MilvusIndexer:
             anns_field="embedding",
             param={"metric_type": "COSINE", "params": {}},
             limit=limit,
-            output_fields=["document_id", "chunk_id"],
+            expr=expr,
+            output_fields=["knowledge_base_id", "project_id", "document_id", "chunk_id", "version_no"],
         )
         hits: list[dict[str, Any]] = []
         for hit in results[0]:
@@ -83,8 +84,11 @@ class MilvusIndexer:
                 {
                     "vector_id": hit.id,
                     "score": float(hit.score),
+                    "knowledge_base_id": int(hit.entity.get("knowledge_base_id")),
+                    "project_id": int(hit.entity.get("project_id")),
                     "document_id": int(hit.entity.get("document_id")),
                     "chunk_id": int(hit.entity.get("chunk_id")),
+                    "version_no": int(hit.entity.get("version_no")),
                 }
             )
         return hits

@@ -11,7 +11,7 @@ Chat Repository
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.chat import ChatCitation, ChatMessage, ChatSession
@@ -49,7 +49,11 @@ class ChatRepository:
     ) -> list[ChatSession]:
         """查询用户会话。"""
 
-        stmt = select(ChatSession).where(ChatSession.user_id == user_id).order_by(ChatSession.id.desc())
+        stmt = (
+            select(ChatSession)
+            .where(ChatSession.user_id == user_id)
+            .order_by(ChatSession.is_pinned.desc(), ChatSession.updated_at.desc(), ChatSession.id.desc())
+        )
         if chat_type:
             stmt = stmt.where(ChatSession.chat_type == chat_type)
         if project_id is not None:
@@ -68,11 +72,46 @@ class ChatRepository:
         self.db.flush()
         return session
 
-    def delete_session(self, session: ChatSession) -> None:
-        """删除会话。"""
+    def update_session(self, session: ChatSession) -> ChatSession:
+        """保存会话展示属性变更。"""
 
+        self.db.add(session)
+        self.db.flush()
+        return session
+
+    def delete_session(self, session: ChatSession) -> dict[str, int]:
+        """
+        删除会话及其问答明细。
+
+        chat_messages、chat_citations 和 retrieval_traces 都通过外键依赖会话或消息，
+        因此必须按子表到父表的顺序显式清理，避免 MySQL 外键约束阻止删除。
+        """
+
+        message_ids = list(
+            self.db.scalars(select(ChatMessage.id).where(ChatMessage.session_id == session.id)).all()
+        )
+        deleted_citations = 0
+        if message_ids:
+            citation_result = self.db.execute(
+                delete(ChatCitation).where(ChatCitation.message_id.in_(message_ids))
+            )
+            deleted_citations = int(citation_result.rowcount or 0)
+
+        trace_condition = RetrievalTrace.session_id == session.id
+        if message_ids:
+            trace_condition = or_(trace_condition, RetrievalTrace.message_id.in_(message_ids))
+        trace_result = self.db.execute(delete(RetrievalTrace).where(trace_condition))
+
+        message_result = self.db.execute(
+            delete(ChatMessage).where(ChatMessage.session_id == session.id)
+        )
         self.db.delete(session)
         self.db.flush()
+        return {
+            "messages": int(message_result.rowcount or 0),
+            "citations": deleted_citations,
+            "retrieval_traces": int(trace_result.rowcount or 0),
+        }
 
     def add_message(self, message: ChatMessage) -> ChatMessage:
         """新增消息。"""

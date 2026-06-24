@@ -68,10 +68,18 @@ class RipgrepRetriever(BaseRetriever):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=10,
+                timeout=max(int(self.settings.ripgrep_timeout_ms), 1) / 1000,
             )
         except FileNotFoundError:
             logger.warning("ripgrep未安装或不可执行: binary=%s", self.settings.ripgrep_binary)
+            return []
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "ripgrep timed out: timeout_ms=%s file_count=%s query_preview=%s",
+                self.settings.ripgrep_timeout_ms,
+                len(path_map),
+                query[:120],
+            )
             return []
         except subprocess.SubprocessError as exc:
             logger.warning("ripgrep检索失败: %s", exc)

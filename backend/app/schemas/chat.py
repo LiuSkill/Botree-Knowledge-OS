@@ -22,6 +22,14 @@ class ChatSessionCreate(BaseModel):
     project_id: int | None = Field(default=None, description="项目ID")
 
 
+class ChatSessionUpdate(BaseModel):
+    """更新会话展示属性请求。"""
+
+    title: str | None = Field(default=None, min_length=1, max_length=255, description="会话标题")
+    is_pinned: bool | None = Field(default=None, description="是否置顶")
+    is_favorite: bool | None = Field(default=None, description="是否收藏")
+
+
 class ChatSessionOut(BaseModel):
     """会话响应。"""
 
@@ -33,6 +41,13 @@ class ChatSessionOut(BaseModel):
     chat_type: str = "base_chat"
     mode: str
     project_id: int | None = None
+    is_pinned: bool = False
+    is_favorite: bool = False
+    conversation_state: str | None = None
+    pending_chat_type: str | None = None
+    pending_answer_policy: str | None = None
+    pending_evidence_status: str | None = None
+    pending_created_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

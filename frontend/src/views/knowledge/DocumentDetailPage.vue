@@ -9,7 +9,7 @@
 <script setup lang="ts">
 import MarkdownIt from 'markdown-it';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { AssignmentCheckedIcon, DownloadIcon, FileSearchIcon } from 'tdesign-icons-vue-next';
+import { AssignmentCheckedIcon, DownloadIcon, FileSearchIcon, PlayCircleIcon, RefreshIcon, UploadIcon } from 'tdesign-icons-vue-next';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { Directive } from 'vue';
@@ -42,13 +42,18 @@ import type {
   DocumentVersionInfo,
   IndexTaskInfo,
 } from '@/types/api';
-import { INDEX_TASK_STATUS_TEXT } from '@/utils/constants';
+import {
+  INDEX_TASK_STATUS_TEXT,
+  INDEX_TASK_TYPE_TEXT,
+  PARSE_STATUS_TEXT,
+} from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 
 type DetailTab = 'preview' | 'cleaning' | 'chunks' | 'versions';
 
 const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 const VERSION_UPLOAD_ACCEPT = '.txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf';
+const VERSION_UPLOAD_INPUT_ID = 'document-version-upload-input';
 const IMAGE_PLACEHOLDER_SRC = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 const LAZY_ASSET_ROOT_MARGIN = '360px 0px';
 const HTML_IMAGE_SRC_PATTERN = /<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^>\s]+))/gi;
@@ -1130,6 +1135,17 @@ function taskStatusText(task: IndexTaskInfo | null): string {
   return INDEX_TASK_STATUS_TEXT[task.status] || task.status;
 }
 
+function taskTypeText(taskType: string): string {
+  /**
+   * 将后端任务类型转换为业务人员可理解的中文描述。
+   */
+  return INDEX_TASK_TYPE_TEXT[taskType] || taskType;
+}
+
+function parseStatusText(status: string): string {
+  return PARSE_STATUS_TEXT[status] || status;
+}
+
 function buildDeleteMessage(result: DocumentDeleteResult): string {
   /**
    * 组织删除完成反馈，让用户知道哪些检索数据已经被清理。
@@ -1447,7 +1463,7 @@ onBeforeUnmount(() => {
               </div>
               <div>
                 <span class="muted-text">解析状态</span>
-                <strong>{{ viewedParseStatus }}</strong>
+                <strong>{{ parseStatusText(viewedParseStatus) }}</strong>
               </div>
               <div>
                 <span class="muted-text">索引状态</span>
@@ -1458,25 +1474,32 @@ onBeforeUnmount(() => {
             <div class="tool-actions">
               <t-button
                 v-permission="'review:build-index'"
+                class="tool-action-button secondary"
                 block
                 variant="outline"
                 :disabled="!canParseVersion"
                 :loading="parsing"
                 @click="runParse()"
               >
+                <template #icon><FileSearchIcon /></template>
                 {{ viewedParseStatus === 'success' ? '重新解析' : '执行解析' }}
               </t-button>
               <t-button
                 v-permission="'review:build-index'"
+                class="tool-action-button primary"
                 block
                 theme="primary"
                 :disabled="!canBuildIndex"
                 :loading="buildingIndex"
                 @click="createIndexBuild()"
               >
+                <template #icon><PlayCircleIcon /></template>
                 解析并构建索引
               </t-button>
-              <t-button block variant="text" @click="loadData(true)">刷新状态</t-button>
+              <t-button class="tool-action-button ghost" block variant="text" @click="loadData(true)">
+                <template #icon><RefreshIcon /></template>
+                刷新状态
+              </t-button>
             </div>
             <div v-if="viewedReviewStatus !== 'approved'" class="muted-text">
               索引构建需审核通过后才能发起，解析结果可先用于审核查看。
@@ -1487,14 +1510,29 @@ onBeforeUnmount(() => {
             <div class="tool-title">版本操作</div>
             <div class="tool-field">
               <label>上传新版本</label>
-              <input type="file" :accept="VERSION_UPLOAD_ACCEPT" @change="handleVersionFileChange" />
-              <div v-if="selectedVersionFile" class="selected-file">{{ selectedVersionFile.name }}</div>
+              <div class="file-picker-row">
+                <input :id="VERSION_UPLOAD_INPUT_ID" class="file-input" type="file" :accept="VERSION_UPLOAD_ACCEPT" @change="handleVersionFileChange" />
+                <label class="file-select-button" :for="VERSION_UPLOAD_INPUT_ID">
+                  <UploadIcon />
+                  <span>选择文件</span>
+                </label>
+                <span class="file-name" :class="{ empty: !selectedVersionFile }">{{ selectedVersionFile?.name || '未选择文件' }}</span>
+              </div>
             </div>
             <div class="tool-field">
               <label>变更说明</label>
               <t-textarea v-model="versionForm.change_summary" :autosize="{ minRows: 3, maxRows: 5 }" />
             </div>
-            <t-button v-permission="'knowledge:upload'" theme="primary" block :disabled="!canUploadVersion" :loading="versionUploading" @click="uploadNewVersion">
+            <t-button
+              v-permission="'knowledge:upload'"
+              class="tool-action-button primary"
+              theme="primary"
+              block
+              :disabled="!canUploadVersion"
+              :loading="versionUploading"
+              @click="uploadNewVersion"
+            >
+              <template #icon><UploadIcon /></template>
               上传新版本
             </t-button>
           </section>
@@ -1504,13 +1542,15 @@ onBeforeUnmount(() => {
             <div v-if="!indexTasks.length" class="muted-text">暂无索引任务</div>
             <div v-else class="task-list">
               <article v-for="task in indexTasks.slice(0, 5)" :key="task.id" class="task-item">
-                <div class="task-row">
-                  <span>#{{ task.id }} · {{ task.task_type }}</span>
-                  <span>{{ taskStatusText(task) }}</span>
+                <div class="task-header">
+                  <div class="task-title">
+                    <strong>{{ taskTypeText(task.task_type) }}</strong>
+                  </div>
+                  <span class="task-status">{{ taskStatusText(task) }}</span>
                 </div>
-                <div class="task-row muted-text">
+                <div class="task-meta">
                   <span>进度 {{ task.progress }}%</span>
-                  <span>{{ formatDateTime(task.updated_at) }}</span>
+                  <span>更新时间 {{ formatDateTime(task.updated_at) }}</span>
                 </div>
                 <div v-if="task.error_message" class="error-text">{{ task.error_message }}</div>
               </article>
@@ -1917,13 +1957,6 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.task-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .empty-panel {
   display: grid;
   min-height: 96px;
@@ -1949,6 +1982,14 @@ onBeforeUnmount(() => {
 
 .pdf-preview-error {
   color: #dc2626;
+}
+
+.dialog-readonly-line {
+  min-height: 32px;
+  color: #334155;
+  font-size: 13px;
+  line-height: 32px;
+  word-break: break-word;
 }
 
 .chunk-table .content-cell {
@@ -2080,9 +2121,97 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.selected-file {
+.tool-action-button {
+  height: 34px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.tool-action-button.secondary {
+  border-color: #d8e3f0;
+  background: #fff;
+  color: #334155;
+}
+
+.tool-action-button.secondary:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.tool-action-button.primary {
+  box-shadow: none;
+}
+
+.tool-action-button.ghost {
+  color: #334155;
+}
+
+.tool-action-button.ghost:hover {
+  background: #f1f5f9;
+  color: #1d4ed8;
+}
+
+.tool-action-button:disabled {
+  border-color: #e5e7eb;
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.file-picker-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-select-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #d8e3f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.file-select-button:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.file-select-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.file-name {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
   color: #475569;
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-name.empty {
+  color: #94a3b8;
 }
 
 .task-list {
@@ -2096,7 +2225,51 @@ onBeforeUnmount(() => {
   padding: 12px;
   border: 1px solid #eef2f7;
   border-radius: 8px;
-  background: #f8fafc;
+  background: #fff;
+}
+
+.task-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-title {
+  min-width: 0;
+}
+
+.task-title strong {
+  display: block;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-status {
+  flex: 0 0 auto;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.task-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.task-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 1180px) {

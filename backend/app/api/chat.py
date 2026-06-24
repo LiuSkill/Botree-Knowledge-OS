@@ -15,7 +15,7 @@ from app.api.deps import get_current_user, require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
-from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate, ChatSessionOut
+from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate, ChatSessionOut, ChatSessionUpdate
 from app.services.chat_service import ChatService
 
 router = APIRouter(prefix="/chat", tags=["AI中心"])
@@ -39,6 +39,19 @@ def create_session(payload: ChatSessionCreate, current_user: User = Depends(requ
     """创建问答会话。"""
 
     session = ChatService(db).create_session(payload, current_user)
+    return success(ChatSessionOut.model_validate(session).model_dump(mode="json"))
+
+
+@router.patch("/sessions/{session_id}", summary="更新会话")
+def update_session(
+    session_id: int,
+    payload: ChatSessionUpdate,
+    current_user: User = Depends(require_permission("ai:chat")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """更新问答会话标题、置顶和收藏状态。"""
+
+    session = ChatService(db).update_session(session_id, payload, current_user)
     return success(ChatSessionOut.model_validate(session).model_dump(mode="json"))
 
 

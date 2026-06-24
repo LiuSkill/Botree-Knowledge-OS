@@ -7,7 +7,7 @@
   3. 项目资料页只负责提交审核，解析与索引统一进入审核中心构建流程。
 -->
 <script setup lang="ts">
-import { AddIcon, AssignmentCheckedIcon, ChevronDownSIcon, ChevronRightSIcon } from 'tdesign-icons-vue-next';
+import { AddIcon, AssignmentCheckedIcon, ChevronDownSIcon, ChevronRightSIcon, DeleteIcon, EditIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -324,7 +324,10 @@ onMounted(loadData);
           <template #title>
             <div class="card-title-row">
               <span>项目资料分类</span>
-              <t-button v-permission="'knowledge:create'" size="small" variant="text" @click="openCreateCategoryDialog">新增</t-button>
+              <t-button v-permission="'knowledge:create'" class="category-create-button" size="small" variant="text" @click="openCreateCategoryDialog">
+                <template #icon><AddIcon /></template>
+                新增
+              </t-button>
             </div>
           </template>
 
@@ -354,8 +357,29 @@ onMounted(loadData);
           </t-button>
 
           <div v-if="canEditCategories || canDeleteCategories" class="category-tools">
-            <t-button v-permission="'knowledge:edit'" size="small" variant="outline" @click="openEditCategoryDialog">编辑</t-button>
-            <t-button v-permission="'knowledge:delete'" size="small" variant="outline" theme="danger" @click="removeActiveCategory">删除</t-button>
+            <t-button
+              v-permission="'knowledge:edit'"
+              class="category-tool-button"
+              size="small"
+              variant="outline"
+              :disabled="activeCategoryId === null"
+              @click="openEditCategoryDialog"
+            >
+              <template #icon><EditIcon /></template>
+              编辑
+            </t-button>
+            <t-button
+              v-permission="'knowledge:delete'"
+              class="category-tool-button danger"
+              size="small"
+              variant="outline"
+              theme="danger"
+              :disabled="activeCategoryId === null"
+              @click="removeActiveCategory"
+            >
+              <template #icon><DeleteIcon /></template>
+              删除
+            </t-button>
           </div>
         </t-card>
 
@@ -474,6 +498,19 @@ onMounted(loadData);
   gap: 8px;
 }
 
+.category-create-button {
+  height: 28px;
+  border-radius: 6px;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 8px;
+}
+
+.category-create-button:hover {
+  background: #eff6ff;
+}
+
 .category-row {
   display: flex;
   width: 100%;
@@ -534,9 +571,40 @@ onMounted(loadData);
 .category-tools {
   display: flex;
   gap: 8px;
-  margin-top: 12px;
+  margin: 12px -12px -12px;
   border-top: 1px solid #eef2f7;
-  padding-top: 12px;
+  background: #fbfdff;
+  padding: 12px;
+}
+
+.category-tool-button {
+  flex: 1;
+  height: 32px;
+  border-color: #d8e3f0;
+  border-radius: 6px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.category-tool-button:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.category-tool-button.danger {
+  border-color: #fecaca;
+}
+
+.category-tool-button.danger:hover {
+  border-color: #fca5a5;
+  background: #fff1f2;
+}
+
+.category-tool-button:disabled {
+  border-color: #e5e7eb;
+  background: #f8fafc;
+  color: #94a3b8;
 }
 
 .member-row {

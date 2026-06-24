@@ -18,6 +18,17 @@ sys.path.insert(0, str(BASE_DIR))
 from app.langgraph.retrieval_graph import RetrievalGraph  # noqa: E402
 
 
+def test_prepare_node_specs_include_understanding_and_policy_resolution() -> None:
+    """QuestionUnderstanding 与 PolicyResolver 应位于 query_profile 和 planner 之间。"""
+
+    graph = object.__new__(RetrievalGraph)
+    keys = [key for key, _ in graph._prepare_node_specs()]  # type: ignore[attr-defined]
+
+    assert keys.index("query_profile") < keys.index("question_understanding")
+    assert keys.index("question_understanding") < keys.index("policy_resolution")
+    assert keys.index("policy_resolution") < keys.index("planner")
+
+
 def test_prepare_stream_emits_running_success_and_prepared_events() -> None:
     """
     单节点替身验证：
@@ -77,6 +88,11 @@ def test_trace_delta_summary_text_uses_hits_evidence_and_visual_counts() -> None
         "retriever_hits": {"milvus": 5, "keyword": 5},
         "evidences": [{}, {}, {}, {}, {}],
         "evidence_judgement": {"enough": True},
+        "evidence_evaluation": {
+            "evidence_status": "ENOUGH",
+            "weak_evidence_count": 0,
+            "strong_evidence_count": 5,
+        },
         "visual_asset_count": 5,
         "raw": {},
     }
@@ -88,7 +104,7 @@ def test_trace_delta_summary_text_uses_hits_evidence_and_visual_counts() -> None
 
     assert planner_text == "选择：语义检索 + 关键词检索\n跳过：图谱检索、页级检索"
     assert retrieval_text == "Milvus 命中 5 条\nKeyword 命中 5 条"
-    assert evidence_text == "证据足够，合并后保留 5 条有效证据\n关联 5 张图纸图片"
+    assert evidence_text == "证据状态：ENOUGH，强证据 5 条，弱证据 0 条，合并后保留 5 条证据\n关联 5 张图纸图片"
     assert visual_text == "已输入 5 张图纸图片给视觉模型"
 
 
@@ -107,6 +123,33 @@ def test_query_profile_trace_translates_industry_answer_shape() -> None:
     profile_text = graph._trace_success_text("query_profile", state, {})  # type: ignore[arg-type]
 
     assert profile_text == "已生成查询画像：行业基础知识问答 / 行业知识回答"
+
+
+def test_question_understanding_and_policy_resolution_trace_text() -> None:
+    """新增问题理解/策略解析节点应输出可读摘要。"""
+
+    graph = object.__new__(RetrievalGraph)
+    state: dict[str, Any] = {
+        "question_understanding": {
+            "task_type": "process_flow",
+            "answer_shape": "process_steps",
+            "query_rewrites": ["本项目的黑粉进料流程介绍", "Black Mass Feeding", "Raw Material Feeding"],
+        },
+        "policy_resolution": {
+            "resolved_task_type": "process_flow",
+            "answer_policy": "STRICT_KB",
+            "knowledge_scope": "project",
+            "conflict_detected": True,
+        },
+    }
+
+    understanding_text = graph._trace_success_text("question_understanding", state, {})  # type: ignore[arg-type]
+    policy_text = graph._trace_success_text("policy_resolution", state, {})  # type: ignore[arg-type]
+
+    assert "process_flow / process_steps" in understanding_text
+    assert "Black Mass Feeding" in understanding_text
+    assert "process_flow / STRICT_KB / project" in policy_text
+    assert "冲突：是" in policy_text
 
 
 def test_industry_no_evidence_answer_basis_mentions_model_knowledge() -> None:

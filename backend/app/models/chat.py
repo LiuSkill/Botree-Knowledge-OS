@@ -7,7 +7,9 @@ Chat Models
 3. 支撑问答审计和来源追溯
 """
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from typing import Any
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,6 +34,14 @@ class ChatSession(TimestampMixin, Base):
     chat_type: Mapped[str] = mapped_column(String(30), default="base_chat", index=True, nullable=False, comment="问答类型：project_chat/base_chat")
     mode: Mapped[str] = mapped_column(String(30), default="auto", nullable=False, comment="问答模式：auto/base_only/project_only/hybrid")
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, comment="项目ID，项目问答关联projects.id")
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否置顶")
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否收藏")
+    conversation_state: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="会话状态，如等待通用知识确认")
+    pending_general_question: Mapped[str | None] = mapped_column(Text, nullable=True, comment="等待确认的原始基础问答问题")
+    pending_chat_type: Mapped[str | None] = mapped_column(String(30), nullable=True, comment="等待确认的问题类型")
+    pending_answer_policy: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="等待确认的问题答案策略")
+    pending_evidence_status: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="等待确认的问题证据状态")
+    pending_created_at: Mapped[Any | None] = mapped_column(DateTime, nullable=True, comment="等待确认状态创建时间")
 
 
 class ChatMessage(TimestampMixin, Base):

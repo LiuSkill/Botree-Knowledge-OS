@@ -226,6 +226,7 @@ class QwenOrchestrationService:
         rule_intent, confidence, reason = self._rule_detect_intent(question, chat_type, mode)
         if confidence >= 0.8:
             decision = self._route_decision(rule_intent, False, reason, confidence)
+            decision = self._enforce_chat_mode_policy(decision, chat_type, mode, confidence)
             self.model_routes["intent"] = {
                 "task": "intent",
                 "source": "rules",
@@ -243,7 +244,9 @@ class QwenOrchestrationService:
             llm = LLMService(self.db)
             raw_text = llm.chat(self._build_intent_prompt(question, chat_type, mode, rule_intent), model_type="intent")
             decision = self._parse_route_payload(raw_text, fallback_intent=rule_intent)
-            if decision["direct_answer"] and (
+            if chat_type == "project_chat" or mode in {"project_only", "hybrid"}:
+                decision = self._enforce_chat_mode_policy(decision, chat_type, mode, confidence)
+            elif decision["direct_answer"] and (
                 self._is_project_reference_question(question, chat_type, mode) or is_industry_domain_question(question)
             ):
                 decision = self._route_decision(rule_intent, False, "命中知识库检索信号，覆盖模型直答判断", confidence)
@@ -262,6 +265,7 @@ class QwenOrchestrationService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("意图模型兜底失败，回退规则意图: intent=%s error=%s", rule_intent, exc)
             decision = self._route_decision(rule_intent, False, reason, confidence)
+            decision = self._enforce_chat_mode_policy(decision, chat_type, mode, confidence)
             self.model_routes["intent"] = {
                 "task": "intent",
                 "source": "rules_fallback",
@@ -274,6 +278,40 @@ class QwenOrchestrationService:
                 "knowledge_scope": decision["knowledge_scope"],
             }
             return decision
+
+    def _enforce_chat_mode_policy(
+        self,
+        decision: dict[str, Any],
+        chat_type: str,
+        mode: str,
+        confidence: float,
+    ) -> dict[str, Any]:
+        """项目问答模式只允许预设问候直答，其余统一进入项目资料检索。"""
+
+        if chat_type != "project_chat" and mode not in {"project_only", "hybrid"}:
+            return decision
+        if decision.get("intent") == "greeting" and decision.get("direct_answer"):
+            return decision
+
+        enforced = dict(decision)
+        if enforced.get("direct_answer") or enforced.get("intent") in DIRECT_INTENTS or enforced.get("knowledge_scope") != "project":
+            enforced["intent"] = "project_qa"
+            enforced["intent_type"] = "project_fact"
+            enforced["reason"] = "project_chat 禁止非预设直答，转为项目资料检索"
+            enforced["confidence"] = max(float(enforced.get("confidence") or 0.0), confidence)
+        enforced.update(
+            {
+                "need_retrieval": True,
+                "allow_direct_llm": False,
+                "answer_policy": "STRICT_KB",
+                "direct_answer": False,
+                "direct_answer_type": None,
+                "route": "project_rag",
+                "skip_retrieval": False,
+                "knowledge_scope": "project",
+            }
+        )
+        return enforced
 
     def _rule_detect_intent(self, question: str, chat_type: str, mode: str) -> tuple[str, float, str]:
         """基于确定性信号识别意图，并返回规则置信度。"""
@@ -322,6 +360,9 @@ class QwenOrchestrationService:
                 return None
             return self._route_decision("greeting", True, "命中问候/自我介绍直答规则", 0.98)
 
+        if chat_type == "project_chat" or mode in {"project_only", "hybrid"}:
+            return None
+
         if rag_required:
             return None
 
@@ -346,8 +387,15 @@ class QwenOrchestrationService:
         else:
             route = "rag"
         knowledge_scope = self._knowledge_scope_for_intent(intent)
+        intent_type = self._intent_to_intent_type(intent)
+        answer_policy = self._answer_policy_for_intent_type(intent_type, direct_answer)
         return {
             "intent": intent,
+            "intent_type": intent_type,
+            "chat_type": "",
+            "need_retrieval": not bool(direct_answer_type),
+            "allow_direct_llm": answer_policy == "GENERAL_ALLOWED",
+            "answer_policy": answer_policy,
             "direct_answer": bool(direct_answer_type),
             "direct_answer_type": direct_answer_type,
             "route": route,
@@ -356,6 +404,32 @@ class QwenOrchestrationService:
             "reason": reason,
             "confidence": confidence,
         }
+
+    def _intent_to_intent_type(self, intent: str) -> str:
+        mapping = {
+            "greeting": "greeting",
+            "pure_general_qa": "obvious_common_knowledge",
+            "general_qa": "obvious_common_knowledge",
+            "industry_knowledge_qa": "industry_knowledge",
+            "project_qa": "project_fact",
+            "project_overview": "project_fact",
+            "exact_lookup": "document_lookup",
+            "page_location": "drawing_or_page_location",
+            "graph_reasoning": "project_fact",
+            "process_flow": "project_fact",
+            "comparison": "project_fact",
+            "knowledge_qa": "kb_question",
+        }
+        return mapping.get(str(intent or ""), "ambiguous")
+
+    def _answer_policy_for_intent_type(self, intent_type: str, direct_answer: bool) -> str:
+        if intent_type in {"greeting", "bot_identity", "help"}:
+            return "PRESET_REPLY"
+        if intent_type == "obvious_common_knowledge" or direct_answer:
+            return "GENERAL_ALLOWED"
+        if intent_type == "ambiguous":
+            return "CLARIFY"
+        return "KB_FIRST"
 
     def _normalize_direct_question(self, question: str) -> str:
         return re.sub(r"[\s，。！？?!.、]+", "", question.strip())
@@ -420,8 +494,8 @@ class QwenOrchestrationService:
         if intent == "industry_knowledge_qa":
             return "industry"
         if intent in {"project_qa", "project_overview", "exact_lookup", "page_location", "graph_reasoning"}:
-            if self.settings.project_chat_include_industry_knowledge:
-                return "project_with_industry"
+            # 当前基础知识问答与项目知识问答是两个独立检索库。
+            # 项目类意图只约束到项目库，避免 planner 追加基础库造成资料串库。
             return "project"
         return "industry"
 
@@ -445,7 +519,14 @@ class QwenOrchestrationService:
                     "“酸浸原理是什么”“黑粉是什么”“P&ID 图怎么看”选择 industry_knowledge_qa；"
                     "“BMI 项目的酸浸流程是什么”选择 project_qa，不要选择 industry_knowledge_qa；"
                     "“这张 P&ID 图中物料流向是什么”选择 project_qa 或 graph_reasoning。"
-                    "请只输出 JSON：{\"intent\":\"...\",\"direct_answer\":true/false,\"reason\":\"...\"}。"
+                    "请只输出 JSON："
+                    "{\"intent_type\":\"greeting | bot_identity | help | obvious_common_knowledge | project_fact | document_lookup | parameter_query | drawing_or_page_location | industry_knowledge | kb_question | calculation_with_context | confirm_general_answer | reject_general_answer | ambiguous\","
+                    "\"chat_type\":\"project_chat | base_chat\","
+                    "\"need_retrieval\":true,"
+                    "\"allow_direct_llm\":false,"
+                    "\"answer_policy\":\"STRICT_KB | KB_FIRST | GENERAL_ALLOWED | ASK_GENERAL_CONFIRM | PRESET_REPLY | CLARIFY\","
+                    "\"confidence\":0.0,"
+                    "\"reason\":\"...\"}。"
                 ),
             },
             {
@@ -468,18 +549,49 @@ class QwenOrchestrationService:
     def _parse_route_payload(self, raw_text: str, fallback_intent: str) -> dict[str, Any]:
         stripped = self._strip_json_fence(raw_text)
         payload = json.loads(stripped)
+        intent_type = str(payload.get("intent_type") or "").strip()
         intent = str(payload.get("intent") or "").strip()
+        if not intent and intent_type:
+            intent = self._intent_from_intent_type(intent_type, fallback_intent)
         if intent == "general_qa":
             intent = "pure_general_qa"
         if intent not in ALLOWED_INTENTS:
             raise ValueError(f"unknown intent: {intent}")
         if intent == "rag_required":
             intent = fallback_intent if fallback_intent in RAG_INTENTS else "knowledge_qa"
-        direct_answer = bool(payload.get("direct_answer")) or intent in DIRECT_INTENTS
+        direct_answer = bool(payload.get("direct_answer")) or bool(payload.get("allow_direct_llm")) or intent in DIRECT_INTENTS
         if intent not in DIRECT_INTENTS:
             direct_answer = False
         reason = str(payload.get("reason") or "意图模型返回路由判断").strip()
-        return self._route_decision(intent, direct_answer, reason, 0.0)
+        decision = self._route_decision(intent, direct_answer, reason, float(payload.get("confidence") or 0.0))
+        if intent_type:
+            decision["intent_type"] = intent_type
+        if payload.get("answer_policy"):
+            decision["answer_policy"] = str(payload.get("answer_policy"))
+        if payload.get("chat_type"):
+            decision["chat_type"] = str(payload.get("chat_type"))
+        if "need_retrieval" in payload:
+            decision["need_retrieval"] = bool(payload.get("need_retrieval"))
+        if "allow_direct_llm" in payload:
+            decision["allow_direct_llm"] = bool(payload.get("allow_direct_llm"))
+        return decision
+
+    def _intent_from_intent_type(self, intent_type: str, fallback_intent: str) -> str:
+        mapping = {
+            "greeting": "greeting",
+            "bot_identity": "greeting",
+            "help": "greeting",
+            "obvious_common_knowledge": "pure_general_qa",
+            "project_fact": "project_qa",
+            "document_lookup": "exact_lookup",
+            "parameter_query": "exact_lookup",
+            "drawing_or_page_location": "page_location",
+            "industry_knowledge": "industry_knowledge_qa",
+            "kb_question": "knowledge_qa",
+            "calculation_with_context": "knowledge_qa",
+            "ambiguous": "knowledge_qa",
+        }
+        return mapping.get(intent_type, fallback_intent if fallback_intent in ALLOWED_INTENTS else "knowledge_qa")
 
     def decompose_query(self, question: str, intent: str) -> list[str]:
         """
@@ -496,7 +608,13 @@ class QwenOrchestrationService:
         expanded = expand_search_phrases(question)
         terms = extract_query_terms(question)
         sub_queries = [question]
-        if intent in {"project_overview", "exact_lookup", "page_location", "graph_reasoning"}:
+        if intent == "project_overview":
+            for term in terms:
+                if "project" in term.lower() or "项目" in term:
+                    sub_queries.append(term)
+                    break
+            return list(dict.fromkeys(item.strip() for item in sub_queries if item.strip()))[:2]
+        if intent in {"exact_lookup", "page_location", "graph_reasoning"}:
             sub_queries.extend(expanded)
             sub_queries.extend(terms)
         return list(dict.fromkeys(item.strip() for item in sub_queries if item.strip()))[:6]
@@ -556,6 +674,8 @@ class QwenOrchestrationService:
             return math_answer
 
         normalized = question.strip().lower()
+        if "水的化学式" in question:
+            return "水的化学式是 H2O。"
         if "水的沸点" in question:
             return "在标准大气压下，水的沸点约为 100°C。气压变化时，沸点也会随之变化。"
         if "欧姆定律" in question:
@@ -683,8 +803,13 @@ class QwenOrchestrationService:
         if top_score <= 0 or not valuable_evidences:
             return {"enough": False, "reason": "召回证据相关性分数过低"}
         if is_project_overview_query(question):
-            coverage = self._project_overview_coverage(valuable_evidences)
-            if coverage["coverage_count"] < 2:
+            document_evidences = [
+                item
+                for item in valuable_evidences
+                if item.retriever != "project_metadata" and not item.metadata.get("metadata_only")
+            ]
+            coverage = self._project_overview_coverage(document_evidences)
+            if coverage["coverage_count"] < 3 or not coverage["has_introduction_detail"]:
                 return {"enough": False, "reason": f"项目介绍字段覆盖不足：{coverage}"}
             return {"enough": True, "reason": f"项目介绍字段覆盖充分：{coverage}"}
         return {"enough": True, "reason": f"已召回 {len(valuable_evidences)} 条有效候选证据"}
@@ -888,6 +1013,26 @@ class QwenOrchestrationService:
             "design_basis": "design basis" in text or "plant capacity" in text,
             "product": "product" in text or "byproduct" in text,
             "client": "client" in text or "customer" in text,
+            "scope": any(
+                token in text
+                for token in (
+                    "scope",
+                    "description",
+                    "overview",
+                    "introduction",
+                    "construction",
+                    "process",
+                    "工艺",
+                    "建设",
+                    "介绍",
+                    "概况",
+                )
+            ),
         }
         matched = [name for name, passed in fields.items() if passed]
-        return {"coverage_count": len(matched), "matched_fields": matched}
+        has_introduction_detail = any(name in matched for name in ("design_basis", "product", "scope"))
+        return {
+            "coverage_count": len(matched),
+            "matched_fields": matched,
+            "has_introduction_detail": has_introduction_detail,
+        }

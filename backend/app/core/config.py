@@ -95,6 +95,8 @@ class Settings(BaseSettings):
     embedding_device: str = Field(default="cpu", alias="EMBEDDING_DEVICE")
     embedding_batch_size: int = Field(default=8, alias="EMBEDDING_BATCH_SIZE")
     embedding_timeout_seconds: int = Field(default=60, alias="EMBEDDING_TIMEOUT_SECONDS")
+    reranker_device: str = Field(default="cpu", alias="RERANKER_DEVICE")
+    reranker_batch_size: int = Field(default=8, alias="RERANKER_BATCH_SIZE")
 
     jwt_secret_key: str = Field(alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
@@ -103,6 +105,8 @@ class Settings(BaseSettings):
     upload_dir: str = Field(default="storage/uploads", alias="UPLOAD_DIR")
     page_index_dir: str = Field(default="storage/page_index", alias="PAGE_INDEX_DIR")
     ripgrep_binary: str = Field(default="rg", alias="RIPGREP_BINARY")
+    ripgrep_timeout_ms: int = Field(default=1500, alias="RIPGREP_TIMEOUT_MS")
+    retrieval_retriever_timeout_ms: int = Field(default=4500, alias="RETRIEVAL_RETRIEVER_TIMEOUT_MS")
     retrieval_trace_enabled: bool = Field(default=True, alias="RETRIEVAL_TRACE_ENABLED")
     project_chat_include_industry_knowledge: bool = Field(
         default=False,

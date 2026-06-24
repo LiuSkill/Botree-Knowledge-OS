@@ -27,12 +27,25 @@ class RetrievalGraphState(TypedDict, total=False):
     mode: str
     project_id: int | None
     user: Any
+    chat_policy: dict[str, Any]
+    intent_type: str
     intent: str
     direct_answer: bool
     direct_answer_type: str | None
     route_decision: dict[str, Any]
+    answer_policy: str
+    answer_type: str
+    evidence_status: str
+    need_user_confirm: bool
+    pending_action: str | None
     sub_queries: list[str]
     query_profile: dict[str, Any]
+    question_understanding: dict[str, Any]
+    policy_resolution: dict[str, Any]
+    resolved_task_type: str
+    resolved_answer_shape: str
+    resolved_answer_policy: str
+    resolved_knowledge_scope: str
     retrieval_plan: dict[str, Any]
     query_features: dict[str, Any]
     query_scope: str
@@ -51,6 +64,9 @@ class RetrievalGraphState(TypedDict, total=False):
     evidences: list[Evidence]
     visual_asset_count: int
     evidence_judgement: dict[str, Any]
+    evidence_evaluation: dict[str, Any]
+    answer_policy_action: str
+    answer_policy_decision: dict[str, Any]
     model_routes: dict[str, dict[str, Any]]
     answer: str
     trace: list[dict[str, Any]]

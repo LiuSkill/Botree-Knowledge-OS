@@ -70,12 +70,12 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "用户管理",
         ("system:user",),
         (
-            ActionPermission("view", "查看", "user:view"),
-            ActionPermission("create", "新增", "user:create"),
-            ActionPermission("edit", "编辑", "user:edit"),
-            ActionPermission("status", "启停", "user:status"),
-            ActionPermission("reset-password", "重置密码", "user:reset-password"),
-            ActionPermission("delete", "删除", "user:delete"),
+            ActionPermission("view", "查看用户列表", "user:view"),
+            ActionPermission("create", "新增用户账号", "user:create"),
+            ActionPermission("edit", "编辑用户资料", "user:edit"),
+            ActionPermission("status", "启用/停用用户", "user:status"),
+            ActionPermission("reset-password", "重置用户密码", "user:reset-password"),
+            ActionPermission("delete", "删除用户账号", "user:delete"),
         ),
     ),
     ActionGroup(
@@ -83,11 +83,11 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "权限矩阵",
         ("system:permission",),
         (
-            ActionPermission("view", "查看", "permission:view"),
+            ActionPermission("view", "查看权限矩阵", "permission:view"),
             ActionPermission("create", "新增角色", "permission:create"),
             ActionPermission("edit", "编辑角色", "permission:edit"),
             ActionPermission("delete", "删除角色", "permission:delete"),
-            ActionPermission("save", "保存权限", "permission:save"),
+            ActionPermission("save", "保存角色权限", "permission:save"),
         ),
     ),
     ActionGroup(
@@ -95,12 +95,12 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "模型配置",
         ("system:model-config",),
         (
-            ActionPermission("view", "查看", "model-config:view"),
-            ActionPermission("create", "新增", "model-config:create"),
-            ActionPermission("edit", "编辑", "model-config:edit"),
-            ActionPermission("set-default", "设为默认", "model-config:set-default"),
-            ActionPermission("test", "测试", "model-config:test"),
-            ActionPermission("delete", "删除", "model-config:delete"),
+            ActionPermission("view", "查看模型配置", "model-config:view"),
+            ActionPermission("create", "新增模型配置", "model-config:create"),
+            ActionPermission("edit", "编辑模型配置", "model-config:edit"),
+            ActionPermission("set-default", "设为默认模型", "model-config:set-default"),
+            ActionPermission("test", "测试模型连接", "model-config:test"),
+            ActionPermission("delete", "删除模型配置", "model-config:delete"),
         ),
     ),
     ActionGroup(
@@ -108,12 +108,12 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "知识中心",
         ("knowledge", "project"),
         (
-            ActionPermission("view", "查看", "knowledge:view"),
-            ActionPermission("create", "新增", "knowledge:create"),
-            ActionPermission("edit", "编辑", "knowledge:edit"),
-            ActionPermission("upload", "上传", "knowledge:upload"),
-            ActionPermission("submit-review", "提交审核", "knowledge:submit-review"),
-            ActionPermission("delete", "删除", "knowledge:delete"),
+            ActionPermission("view", "查看知识资料", "knowledge:view"),
+            ActionPermission("create", "新增知识分类", "knowledge:create"),
+            ActionPermission("edit", "编辑知识分类", "knowledge:edit"),
+            ActionPermission("upload", "上传知识文档", "knowledge:upload"),
+            ActionPermission("submit-review", "提交文档审核", "knowledge:submit-review"),
+            ActionPermission("delete", "删除知识资料", "knowledge:delete"),
         ),
     ),
     ActionGroup(
@@ -121,10 +121,10 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "项目中心",
         ("project",),
         (
-            ActionPermission("view", "查看", "project:view"),
-            ActionPermission("create", "新增", "project:create"),
-            ActionPermission("edit", "编辑", "project:edit"),
-            ActionPermission("delete", "删除", "project:delete"),
+            ActionPermission("view", "查看项目列表", "project:view"),
+            ActionPermission("create", "新建项目", "project:create"),
+            ActionPermission("edit", "编辑项目信息", "project:edit"),
+            ActionPermission("delete", "删除项目", "project:delete"),
         ),
     ),
     ActionGroup(
@@ -132,9 +132,9 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "审核中心",
         ("review", "knowledge"),
         (
-            ActionPermission("view", "查看", "review:view"),
-            ActionPermission("review", "审核", "review:review"),
-            ActionPermission("build-index", "构建索引", "review:build-index"),
+            ActionPermission("view", "查看审核任务", "review:view"),
+            ActionPermission("review", "审核文档通过/驳回", "review:review"),
+            ActionPermission("build-index", "构建文档索引", "review:build-index"),
         ),
     ),
     ActionGroup(
@@ -142,8 +142,8 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "智能问答",
         ("ai:project-chat", "ai:base-chat"),
         (
-            ActionPermission("chat", "发起问答", "ai:chat"),
-            ActionPermission("delete-session", "删除会话", "ai:delete-session"),
+            ActionPermission("chat", "发起智能问答", "ai:chat"),
+            ActionPermission("delete-session", "删除问答会话", "ai:delete-session"),
         ),
     ),
 )
@@ -172,18 +172,41 @@ def action_permission_codes() -> set[str]:
 def action_page_bindings() -> dict[str, set[str]]:
     """返回按钮权限与页面菜单权限的绑定关系。"""
 
-    return {action.code: set(group.menu_ids) for group in ACTION_GROUPS for action in group.actions}
+    bindings: dict[str, set[str]] = {}
+    for group in ACTION_GROUPS:
+        for action in group.actions:
+            bindings.setdefault(action.code, set()).update(group.menu_ids)
+    return bindings
+
+
+def linked_action_codes(menu_codes: set[str]) -> set[str]:
+    """根据已选菜单权限返回应自动联动的按钮权限。"""
+
+    return {
+        action.code
+        for group in ACTION_GROUPS
+        if set(group.menu_ids) & menu_codes
+        for action in group.actions
+    }
+
+
+def sync_menu_action_permission_codes(permission_codes: set[str]) -> set[str]:
+    """
+    按菜单权限同步按钮权限。
+
+    业务规则：
+        权限矩阵以菜单权限为主控项，选中菜单时自动拥有该菜单下的操作权限；
+        取消菜单时同步移除对应操作权限，避免出现孤立按钮权限。
+    """
+
+    menu_codes = permission_codes & menu_permission_codes()
+    return (permission_codes - action_permission_codes()) | linked_action_codes(menu_codes)
 
 
 def filter_bound_action_codes(permission_codes: set[str]) -> set[str]:
-    """仅保留已拥有所属页面权限的按钮权限。"""
+    """返回由已授权菜单联动得到的按钮权限。"""
 
-    bindings = action_page_bindings()
-    return {
-        code
-        for code in permission_codes & action_permission_codes()
-        if bindings.get(code, set()) & permission_codes
-    }
+    return linked_action_codes(permission_codes & menu_permission_codes())
 
 
 def permission_catalog() -> list[dict[str, str]]:

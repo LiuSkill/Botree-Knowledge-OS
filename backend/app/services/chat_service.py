@@ -14,6 +14,7 @@ import json
 import logging
 import time
 from collections.abc import Iterator
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -21,14 +22,19 @@ from sqlalchemy.orm import Session
 from app.agent.executor import AgentExecutor
 from app.core.exceptions import AppException
 from app.langgraph import RetrievalGraph
+from app.langgraph.retrieval_graph import GENERAL_ANSWER_PREFIX
 from app.models.chat import ChatCitation, ChatMessage, ChatSession
 from app.models.user import User
 from app.repositories.chat_repository import ChatRepository
-from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate
+from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate, ChatSessionUpdate
+from app.services.qwen_orchestration_service import QwenOrchestrationService
 from app.services.retrieval_trace_service import RetrievalTraceService
 from app.services.system_service import SystemService
 
 logger = logging.getLogger(__name__)
+
+AWAITING_GENERAL_CONFIRM = "AWAITING_GENERAL_CONFIRM"
+NORMAL_CONVERSATION_STATE = "NORMAL"
 
 
 class ChatService:
@@ -135,9 +141,37 @@ class ChatService:
         """删除会话。"""
 
         session = self._ensure_session_owner(session_id, user)
-        self.repository.delete_session(session)
+        cleanup_counts = self.repository.delete_session(session)
         SystemService(self.db).record_operation(user, "删除会话", "chat_session", session_id, "删除问答会话")
         self.db.commit()
+        logger.info(
+            "问答会话已删除: session_id=%s user_id=%s messages=%s citations=%s retrieval_traces=%s",
+            session_id,
+            user.id,
+            cleanup_counts["messages"],
+            cleanup_counts["citations"],
+            cleanup_counts["retrieval_traces"],
+        )
+
+    def update_session(self, session_id: int, payload: ChatSessionUpdate, user: User) -> ChatSession:
+        """更新会话展示属性。"""
+
+        session = self._ensure_session_owner(session_id, user)
+        update_data = payload.model_dump(exclude_unset=True)
+        if "title" in update_data and update_data["title"] is not None:
+            title = str(update_data["title"]).strip()
+            if not title:
+                raise AppException("会话标题不能为空", status_code=400, code=400)
+            session.title = title
+        if "is_pinned" in update_data and update_data["is_pinned"] is not None:
+            session.is_pinned = bool(update_data["is_pinned"])
+        if "is_favorite" in update_data and update_data["is_favorite"] is not None:
+            session.is_favorite = bool(update_data["is_favorite"])
+
+        self.repository.update_session(session)
+        SystemService(self.db).record_operation(user, "更新会话", "chat_session", session_id, session.title)
+        self.db.commit()
+        return session
 
     def complete(self, payload: ChatCompletionRequest, user: User) -> dict[str, Any]:
         """执行同步知识问答。"""
@@ -145,6 +179,10 @@ class ChatService:
         self._validate_chat_request(payload.chat_type, payload.project_id, user)
         session = self._get_or_create_session(payload, user)
         self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
+
+        pending_result = self._try_handle_general_confirmation(payload, user, session)
+        if pending_result is not None:
+            return pending_result
 
         agent_result = AgentExecutor(self.db).run(payload.message, payload.chat_type, payload.mode, payload.project_id, user)
         return self._persist_agent_result(payload, user, session, agent_result)
@@ -156,6 +194,7 @@ class ChatService:
         session = self._get_or_create_session(payload, user)
         self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
 
+        pending_result = self._try_handle_general_confirmation(payload, user, session)
         retrieval_graph = RetrievalGraph(self.db)
         initial_meta_payload = {
             "session_id": session.id,
@@ -173,6 +212,10 @@ class ChatService:
             answer_chunks: list[str] = []
             prepared_state: dict[str, Any] | None = None
             yield self._encode_sse("meta", initial_meta_payload)
+            if pending_result is not None:
+                yield self._encode_sse("delta", {"content": pending_result["answer"]})
+                yield self._encode_sse("done", pending_result)
+                return
             try:
                 for event_name, event_payload in retrieval_graph.prepare_stream(
                     payload.message,
@@ -203,10 +246,10 @@ class ChatService:
                 }
                 yield self._encode_sse("meta", meta_payload)
 
-                if prepared_state.get("direct_answer"):
+                if prepared_state.get("direct_answer") or prepared_state.get("raw", {}).get("terminal_without_answer_generation"):
                     answer = str(prepared_state.get("answer") or "").strip()
                     if not answer:
-                        raise AppException("直答生成失败", status_code=502, code=502)
+                        raise AppException("回答生成失败", status_code=502, code=502)
                     yield self._encode_sse("delta", {"content": answer})
                     agent_result = retrieval_graph.to_agent_result(prepared_state)
                     result = self._persist_agent_result(payload, user, session, agent_result)
@@ -223,6 +266,8 @@ class ChatService:
                     payload.message,
                     prepared_state.get("evidences", []),
                     query_profile=prepared_state.get("query_profile", {}),
+                    user=user,
+                    request_id=prepared_state.get("raw", {}).get("run_id"),
                 ):
                     if not delta:
                         continue
@@ -257,6 +302,125 @@ class ChatService:
 
         return event_stream()
 
+    def _try_handle_general_confirmation(
+        self,
+        payload: ChatCompletionRequest,
+        user: User,
+        session: ChatSession,
+    ) -> dict[str, Any] | None:
+        """处理 base_chat 等待用户确认通用回答的会话状态。"""
+
+        if (
+            session.conversation_state != AWAITING_GENERAL_CONFIRM
+            or session.pending_chat_type != "base_chat"
+            or not session.pending_general_question
+        ):
+            return None
+
+        normalized = payload.message.strip().lower().replace(" ", "")
+        confirm_words = {
+            "是",
+            "可以",
+            "需要",
+            "继续",
+            "用",
+            "用通用知识",
+            "用通用知识回答",
+            "用基模回答",
+            "帮我回答",
+            "继续回答",
+            "可以用通用知识回答",
+            "好的",
+            "好",
+            "请回答",
+            "确认",
+        }
+        reject_words = {"否", "不用", "不需要", "取消", "算了", "不要", "先不用"}
+        pending_question = session.pending_general_question
+
+        if normalized in confirm_words or any(word in normalized for word in confirm_words if len(word) >= 2):
+            answer = f"{GENERAL_ANSWER_PREFIX}\n{QwenOrchestrationService(self.db).answer_general_question(pending_question)}"
+            logger.info(
+                "BaseChat通用回答确认命中: session_id=%s decision=CONFIRM pending_question_exists=%s",
+                getattr(session, "id", None),
+                bool(pending_question),
+            )
+            self._clear_general_confirmation(session)
+            return self._persist_agent_result(
+                payload,
+                user,
+                session,
+                self._build_general_confirmation_result(payload, answer, answer_type="general_llm", direct_llm_used=True),
+            )
+
+        if normalized in reject_words or any(word in normalized for word in reject_words if len(word) >= 2):
+            logger.info("BaseChat通用回答确认拒绝: session_id=%s decision=REJECT", getattr(session, "id", None))
+            self._clear_general_confirmation(session)
+            return self._persist_agent_result(
+                payload,
+                user,
+                session,
+                self._build_general_confirmation_result(payload, "已取消通用知识回答。", answer_type="cancelled", refused=True),
+            )
+
+        logger.info("BaseChat确认阶段识别为新问题: session_id=%s clear_pending=true", getattr(session, "id", None))
+        self._clear_general_confirmation(session)
+        return None
+
+    def _clear_general_confirmation(self, session: ChatSession) -> None:
+        session.conversation_state = NORMAL_CONVERSATION_STATE
+        session.pending_general_question = None
+        session.pending_chat_type = None
+        session.pending_answer_policy = None
+        session.pending_evidence_status = None
+        session.pending_created_at = None
+        self.repository.update_session(session)
+
+    def _build_general_confirmation_result(
+        self,
+        payload: ChatCompletionRequest,
+        answer: str,
+        *,
+        answer_type: str,
+        direct_llm_used: bool = False,
+        refused: bool = False,
+    ) -> dict[str, Any]:
+        trace = [
+            {
+                "sequence": 1,
+                "step": "通用回答确认状态",
+                "implementation": "chat_session",
+                "status": "success",
+                "details": {"pending_general_question_used": direct_llm_used, "refused": refused},
+            }
+        ]
+        return {
+            "answer": answer,
+            "chat_type": payload.chat_type,
+            "mode": payload.mode,
+            "answer_type": answer_type,
+            "intent_type": "confirm_general_answer" if direct_llm_used else "reject_general_answer",
+            "answer_policy": "GENERAL_ALLOWED" if direct_llm_used else "KB_FIRST",
+            "evidence_status": "EMPTY",
+            "need_user_confirm": False,
+            "pending_action": None,
+            "query_scope": "通用知识",
+            "used_retrievers": [],
+            "agent_trace": trace,
+            "trace_steps": trace,
+            "evidences": [],
+            "raw": {
+                "candidate_k": 100,
+                "rerank_top_k": 30,
+                "answer_top_k": 10,
+                "reranker_used": False,
+                "direct_llm_used": direct_llm_used,
+                "kb_grounded": False,
+                "refused": refused,
+                "need_general_confirm": False,
+            },
+        }
+
     def _persist_agent_result(
         self,
         payload: ChatCompletionRequest,
@@ -278,6 +442,25 @@ class ChatService:
 
         citations = self._build_chat_citations(assistant_message.id, agent_result["evidences"])
         self.repository.add_citations(citations)
+        if agent_result.get("need_user_confirm") and agent_result.get("pending_action") in {
+            "confirm_general_answer",
+            "general_answer_confirm",
+        }:
+            session.conversation_state = AWAITING_GENERAL_CONFIRM
+            session.pending_general_question = payload.message
+            session.pending_chat_type = "base_chat"
+            session.pending_answer_policy = str(agent_result.get("answer_policy") or "KB_FIRST")
+            session.pending_evidence_status = str(agent_result.get("evidence_status") or "")
+            session.pending_created_at = datetime.utcnow()
+            self.repository.update_session(session)
+            logger.info(
+                "基础问答证据不足等待确认: session_id=%s evidence_status=%s pending_general_question_exists=%s",
+                session.id,
+                session.pending_evidence_status,
+                bool(session.pending_general_question),
+            )
+        elif session.conversation_state == AWAITING_GENERAL_CONFIRM and not agent_result.get("need_user_confirm"):
+            self._clear_general_confirmation(session)
         RetrievalTraceService(self.db).record_chat_trace(
             user=user,
             session_id=session.id,
@@ -300,16 +483,26 @@ class ChatService:
         self.db.commit()
         logger.info("知识问答完成: session_id=%s citations=%s", session.id, len(citations))
 
+        citation_dicts = [self._citation_to_dict(item) for item in citations]
+        trace_steps = agent_result.get("trace_steps", agent_result["agent_trace"])
         return {
             "answer": agent_result["answer"],
             "session_id": session.id,
             "chat_type": agent_result["chat_type"],
             "mode": agent_result["mode"],
+            "answer_type": agent_result.get("answer_type"),
+            "intent_type": agent_result.get("intent_type"),
+            "answer_policy": agent_result.get("answer_policy"),
+            "evidence_status": agent_result.get("evidence_status"),
             "query_scope": agent_result["query_scope"],
             "used_retrievers": agent_result["used_retrievers"],
             "agent_trace": agent_result["agent_trace"],
-            "trace_steps": agent_result.get("trace_steps", agent_result["agent_trace"]),
-            "citations": [self._citation_to_dict(item) for item in citations],
+            "trace_steps": trace_steps,
+            "trace": trace_steps,
+            "citations": citation_dicts,
+            "sources": citation_dicts,
+            "need_user_confirm": bool(agent_result.get("need_user_confirm")),
+            "pending_action": agent_result.get("pending_action"),
             "feedback_status": assistant_message.feedback_status,
             "raw": {"message_id": assistant_message.id, **agent_result.get("raw", {})},
         }

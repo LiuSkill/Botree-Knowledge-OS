@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
+import concurrent.futures
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -99,9 +102,10 @@ class FakeRetriever:
     - 返回预设 Evidence 列表
     """
 
-    def __init__(self, name: str, evidences: list[Evidence] | None = None) -> None:
+    def __init__(self, name: str, evidences: list[Evidence] | None = None, delay_seconds: float = 0.0) -> None:
         self.name = name
         self.evidences = evidences or []
+        self.delay_seconds = delay_seconds
         self.calls = 0
 
     def search(self, query: str, mode: str, project_id: int | None, user: Any, limit: int = 5) -> list[Evidence]:
@@ -120,6 +124,8 @@ class FakeRetriever:
         """
 
         self.calls += 1
+        if self.delay_seconds:
+            time.sleep(self.delay_seconds)
         return self.evidences[:limit]
 
 
@@ -166,6 +172,8 @@ def build_router(*retrievers: FakeRetriever) -> RetrievalRouter:
     router.retrievers = list(retrievers)
     router.retriever_map = {retriever.name: retriever for retriever in retrievers}
     router._scope_text = lambda mode: mode  # type: ignore[method-assign]
+    router.settings = SimpleNamespace(retrieval_retriever_timeout_ms=4500, ripgrep_timeout_ms=1500)
+    router._retriever_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
     def prepare_scope(
         mode: str,
@@ -330,11 +338,14 @@ def test_industry_knowledge_scope_uses_base_retrievers_only() -> None:
         },
     )
 
-    assert plan.selected_retrievers == ["milvus"]
-    assert plan.fallback_retrievers == ["keyword"]
-    assert plan.fallback_ladder == [["milvus"], ["keyword"]]
+    assert plan.selected_retrievers == ["milvus", "keyword"]
+    assert plan.fallback_retrievers == []
+    assert plan.fallback_ladder == [["milvus", "keyword"]]
     assert plan.query_features["knowledge_scope"] == "industry"
     assert plan.metadata["knowledge_scope"] == "industry"
+    assert plan.strategy == "rules_fast_path"
+    assert plan.metadata["model_route"]["source"] == "rules_fast_path"
+    assert plan.metadata["model_route"]["qwen_used"] is False
 
 
 def test_industry_comparison_scope_still_uses_base_retrievers_only() -> None:
@@ -356,10 +367,187 @@ def test_industry_comparison_scope_still_uses_base_retrievers_only() -> None:
         },
     )
 
-    assert plan.selected_retrievers == ["milvus"]
-    assert plan.fallback_ladder == [["milvus"], ["keyword"]]
+    assert plan.selected_retrievers == ["milvus", "keyword"]
+    assert plan.fallback_ladder == [["milvus", "keyword"]]
+    assert plan.qwen_used is False
+    assert plan.strategy == "rules_fast_path"
     assert "graphrag" in plan.skipped_retrievers
     assert "page_index" in plan.skipped_retrievers
+    assert "ripgrep" in plan.skipped_retrievers
+
+
+def test_base_definition_summary_how_to_use_rules_fast_path() -> None:
+    """自然语言基础知识问答不应调用 Qwen Planner。"""
+
+    for query_type in ("definition", "summary", "how_to"):
+        plan = RetrievalPlannerService(None).plan(
+            query="压滤机是什么",
+            sub_queries=["压滤机是什么"],
+            intent="knowledge_qa",
+            chat_type="base_chat",
+            mode="base_chat",
+            project_id=None,
+            available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+            query_profile={
+                "query_type": query_type,
+                "knowledge_scope": "industry",
+                "answer_shape": "direct_answer",
+            },
+        )
+
+        assert plan.selected_retrievers == ["milvus", "keyword"]
+        assert plan.qwen_used is False
+        assert plan.strategy == "rules_fast_path"
+        assert "ripgrep" in plan.skipped_retrievers
+
+
+def test_project_overview_uses_rules_fast_path_without_page_index_or_qwen() -> None:
+    plan = RetrievalPlannerService(object()).plan(
+        query="Introduce 2 x 2000 TPA Battery Black Mass Recycling Project",
+        sub_queries=["Introduce 2 x 2000 TPA Battery Black Mass Recycling Project"],
+        intent="project_overview",
+        chat_type="project_chat",
+        mode="project_chat",
+        project_id=1,
+        available_retrievers=["project_metadata", "page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={
+            "query_type": "project_overview",
+            "answer_shape": "project_summary",
+            "knowledge_scope": "project",
+            "need_page_location": False,
+            "need_exact_term": False,
+            "need_graph_reasoning": False,
+            "need_visual_asset": False,
+            "has_project_name": True,
+        },
+    )
+
+    assert plan.selected_retrievers == ["project_metadata", "milvus", "keyword"]
+    assert plan.fallback_ladder == [["project_metadata", "milvus", "keyword"]]
+    assert plan.skipped_retrievers == ["page_index", "ripgrep", "graphrag"]
+    assert plan.qwen_used is False
+    assert plan.strategy == "rules_fast_path"
+    assert plan.metadata["model_route"]["source"] == "rules_fast_path"
+
+
+def test_policy_matrix_project_overview_uses_metadata_milvus_keyword_only() -> None:
+    started_at = time.perf_counter()
+    plan = RetrievalPlannerService(object()).plan(
+        query="2 x 2000 TPA Battery Black Mass Recycling Project项目介绍",
+        sub_queries=["2 x 2000 TPA Battery Black Mass Recycling Project项目介绍"],
+        intent="project_overview",
+        chat_type="project_chat",
+        mode="project_chat",
+        project_id=1,
+        available_retrievers=["project_metadata", "page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={
+            "query_type": "project_overview",
+            "answer_shape": "project_summary",
+            "knowledge_scope": "project",
+        },
+        policy_resolution={
+            "resolved_task_type": "project_overview",
+            "answer_policy": "STRICT_KB",
+            "knowledge_scope": "project",
+        },
+        question_understanding={
+            "retrieval_needs": {"semantic_retrieval": True, "keyword_retrieval": True},
+            "query_rewrites": ["2 x 2000 TPA Battery Black Mass Recycling Project项目介绍"],
+        },
+    )
+    elapsed = time.perf_counter() - started_at
+
+    assert elapsed < 0.5
+    assert plan.selected_retrievers == ["project_metadata", "milvus", "keyword"]
+    assert plan.fallback_ladder == [["project_metadata", "milvus", "keyword"]]
+    assert plan.skipped_retrievers == ["page_index", "ripgrep", "graphrag"]
+    assert plan.qwen_used is False
+    assert plan.strategy == "policy_matrix"
+    assert plan.to_dict()["resolved_task_type"] == "project_overview"
+    assert plan.to_dict()["query_rewrites"] == ["2 x 2000 TPA Battery Black Mass Recycling Project项目介绍"]
+
+
+def test_policy_matrix_process_flow_keeps_page_index_without_page_hint() -> None:
+    plan = RetrievalPlannerService(object()).plan(
+        query="本项目的黑粉进料流程介绍",
+        sub_queries=["本项目的黑粉进料流程介绍"],
+        intent="project_overview",
+        chat_type="project_chat",
+        mode="project_chat",
+        project_id=1,
+        available_retrievers=["project_metadata", "page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={
+            "query_type": "project_overview",
+            "answer_shape": "project_summary",
+            "knowledge_scope": "project",
+        },
+        policy_resolution={
+            "resolved_task_type": "process_flow",
+            "answer_policy": "STRICT_KB",
+            "knowledge_scope": "project",
+        },
+        question_understanding={
+            "retrieval_needs": {
+                "semantic_retrieval": True,
+                "keyword_retrieval": True,
+                "page_level_retrieval": False,
+                "graph_retrieval": True,
+                "exact_text_search": False,
+                "visual_evidence": False,
+            },
+            "query_rewrites": [
+                "本项目的黑粉进料流程介绍",
+                "Black Mass Feeding",
+                "Raw Material Feeding",
+            ],
+        },
+    )
+
+    assert plan.selected_retrievers == ["milvus", "keyword", "page_index"]
+    assert "page_index" not in plan.skipped_retrievers
+    assert "ripgrep" in plan.skipped_retrievers
+    assert plan.query_features["resolved_task_type"] == "process_flow"
+    assert plan.query_features["retrieval_needs"]["exact_text_search"] is False
+    assert "Black Mass Feeding" in plan.to_dict()["query_rewrites"]
+
+
+def test_policy_matrix_document_location_uses_page_index_and_ripgrep() -> None:
+    plan = RetrievalPlannerService(object()).plan(
+        query="黑粉进料流程在哪张图纸第几页",
+        sub_queries=["黑粉进料流程在哪张图纸第几页"],
+        intent="project_qa",
+        chat_type="project_chat",
+        mode="project_chat",
+        project_id=1,
+        available_retrievers=["project_metadata", "page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={
+            "query_type": "page_location",
+            "answer_shape": "source_location",
+            "knowledge_scope": "project",
+            "need_page_location": True,
+        },
+        policy_resolution={
+            "resolved_task_type": "document_location",
+            "answer_policy": "STRICT_KB",
+            "knowledge_scope": "project",
+        },
+        question_understanding={
+            "retrieval_needs": {
+                "semantic_retrieval": True,
+                "keyword_retrieval": True,
+                "page_level_retrieval": True,
+                "graph_retrieval": False,
+                "exact_text_search": True,
+                "visual_evidence": True,
+            },
+            "query_rewrites": ["黑粉进料流程在哪张图纸第几页"],
+        },
+    )
+
+    assert plan.selected_retrievers == ["keyword", "page_index", "ripgrep"]
+    assert "page_index" in plan.selected_retrievers
+    assert "ripgrep" in plan.selected_retrievers
+    assert plan.to_dict()["retrieval_needs"]["exact_text_search"] is True
 
 
 def test_rule_planner_table_value_lookup_uses_page_index() -> None:
@@ -409,7 +597,7 @@ def test_qwen_new_payload_filters_unknown_retriever_and_keeps_new_fields() -> No
 
     with patch("app.services.retrieval_planner_service.LLMService", FakeNewPlannerLLMService):
         plan = RetrievalPlannerService(object()).plan(
-            query="请对比 A 和 B 的方案差异",
+            query="请对比 10-AB-123 中 A 和 B 的方案差异",
             sub_queries=["A", "B"],
             intent="project_qa",
             chat_type="project_chat",
@@ -503,6 +691,98 @@ def test_router_low_quality_milvus_triggers_keyword_fallback() -> None:
     assert keyword.calls == 1
 
 
+def test_router_executes_same_stage_retrievers_in_parallel() -> None:
+    """同一阶段的检索器应并行执行，避免 milvus/keyword 串行累加耗时。"""
+
+    milvus = FakeRetriever("milvus", [make_evidence("milvus", score=0.95)], delay_seconds=0.2)
+    keyword = FakeRetriever("keyword", [make_evidence("keyword", score=0.94)], delay_seconds=0.2)
+    router = build_router(milvus, keyword)
+    started_at = time.perf_counter()
+    result = router.execute_planned(
+        query="压滤机和过滤器有什么区别",
+        mode="base_chat",
+        project_id=None,
+        user=None,
+        retriever_names=["milvus", "keyword"],
+        fallback_ladder=[["milvus", "keyword"]],
+    )
+    elapsed = time.perf_counter() - started_at
+
+    assert elapsed < 0.35
+    assert result["used_retrievers"] == ["milvus", "keyword"]
+    assert result["retriever_hits"] == {"milvus": 1, "keyword": 1}
+    assert result["retriever_timeouts"] == {"milvus": False, "keyword": False}
+
+
+def test_router_runtime_skips_ripgrep_without_precise_signals() -> None:
+    """普通自然语言问题即使计划里带了 ripgrep，运行时也要跳过。"""
+
+    ripgrep = FakeRetriever("ripgrep", [make_evidence("ripgrep")])
+    keyword = FakeRetriever("keyword", [make_evidence("keyword", score=0.9)])
+    router = build_router(ripgrep, keyword)
+    result = router.execute_planned(
+        query="压滤机和过滤器有什么区别",
+        mode="base_chat",
+        project_id=None,
+        user=None,
+        retriever_names=["ripgrep", "keyword"],
+        fallback_ladder=[["ripgrep", "keyword"]],
+        query_features={"query_profile": {"query_type": "comparison", "answer_shape": "comparison_table"}},
+    )
+
+    assert ripgrep.calls == 0
+    assert keyword.calls == 1
+    assert result["used_retrievers"] == ["keyword"]
+    assert result["skip_reasons"]["ripgrep"].startswith("runtime_skip")
+
+
+def test_router_process_flow_does_not_skip_page_index_without_page_hint() -> None:
+    """process_flow 即使没有页码信号，也应允许 page_index 执行并受 timeout 控制。"""
+
+    page_index = FakeRetriever("page_index", [make_evidence("page_index")])
+    router = build_router(page_index)
+    result = router.execute_planned(
+        query="本项目的黑粉进料流程介绍",
+        mode="project_chat",
+        project_id=1,
+        user=None,
+        retriever_names=["page_index"],
+        fallback_ladder=[["page_index"]],
+        query_features={
+            "resolved_task_type": "process_flow",
+            "retrieval_needs": {"exact_text_search": False, "visual_evidence": False},
+            "query_profile": {"query_type": "project_overview"},
+        },
+        intent="process_flow",
+    )
+
+    assert page_index.calls == 1
+    assert result["used_retrievers"] == ["page_index"]
+    assert result["retriever_timeouts"] == {"page_index": False}
+
+
+def test_router_timeout_returns_without_waiting_for_blocking_retriever() -> None:
+    page_index = FakeRetriever("page_index", [make_evidence("page_index")], delay_seconds=0.4)
+    router = build_router(page_index)
+    router.settings.retrieval_retriever_timeout_ms = 50
+
+    started_at = time.perf_counter()
+    result = router.execute_planned(
+        query="第几页写了项目介绍",
+        mode="project_chat",
+        project_id=1,
+        user=None,
+        retriever_names=["page_index"],
+        fallback_ladder=[["page_index"]],
+        query_features={"has_page_hint": True, "query_profile": {"need_page_location": True}},
+    )
+    elapsed = time.perf_counter() - started_at
+
+    assert elapsed < 0.2
+    assert result["retriever_timeouts"] == {"page_index": True}
+    assert result["retriever_hits"] == {"page_index": 0}
+
+
 def main() -> None:
     """
     执行轻量单元测试。
@@ -517,12 +797,19 @@ def main() -> None:
     test_knowledge_qa_natural_language_prefers_milvus_only()
     test_industry_knowledge_scope_uses_base_retrievers_only()
     test_industry_comparison_scope_still_uses_base_retrievers_only()
+    test_policy_matrix_project_overview_uses_metadata_milvus_keyword_only()
+    test_policy_matrix_process_flow_keeps_page_index_without_page_hint()
+    test_policy_matrix_document_location_uses_page_index_and_ripgrep()
     test_rule_planner_table_value_lookup_uses_page_index()
     test_qwen_table_value_lookup_keeps_required_page_index()
     test_qwen_new_payload_filters_unknown_retriever_and_keeps_new_fields()
     test_router_executes_only_planned_retrievers_when_quality_is_enough()
     test_router_keyword_fallback_when_planned_empty()
     test_router_low_quality_milvus_triggers_keyword_fallback()
+    test_router_executes_same_stage_retrievers_in_parallel()
+    test_router_runtime_skips_ripgrep_without_precise_signals()
+    test_router_process_flow_does_not_skip_page_index_without_page_hint()
+    test_router_timeout_returns_without_waiting_for_blocking_retriever()
     logger.info("Retrieval Planner 单元测试通过")
 
 

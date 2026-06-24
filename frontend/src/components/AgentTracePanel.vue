@@ -10,6 +10,7 @@
 import { computed } from 'vue';
 
 import type { AgentTraceStep } from '@/types/api';
+import { visibleTraceSteps } from '@/utils/agentTrace';
 
 const props = defineProps<{
   steps: AgentTraceStep[];
@@ -67,6 +68,7 @@ const SOURCE_LABELS: Record<string, string> = {
   explicit: '指定配置',
   not_called: '未调用模型',
   rules: '规则判断',
+  rules_fast_path: '规则快速路径',
   rules_fallback: '规则回退',
   unknown: '未知来源',
 };
@@ -77,6 +79,7 @@ const RETRIEVER_LABELS: Record<string, string> = {
   keyword: '关键词检索',
   milvus: '语义检索',
   page_index: '页级检索',
+  project_metadata: '项目主数据',
   ripgrep: '精确检索',
 };
 
@@ -128,7 +131,7 @@ const QWEN_MODEL_TOKEN_LABELS: Record<string, string> = {
 const PAIR_LABELS = new Set(['选择', '跳过', '补充', '关联', '依据']);
 
 const traceItems = computed<TraceViewItem[]>(() =>
-  props.steps.map((step, index) => ({
+  visibleTraceSteps(props.steps).map((step, index) => ({
     key: traceStepKey(step, index),
     index,
     step,
@@ -251,7 +254,8 @@ function modelRouteItems(step: AgentTraceStep): TraceRouteItem[] {
   if (!route) return [];
   const items: TraceRouteItem[] = [];
   const source = textValue(route.source);
-  if (source && source !== 'unknown') {
+  const sourceIsInternalRule = ['rules', 'rules_fast_path', 'not_called'].includes(source);
+  if (source && source !== 'unknown' && !sourceIsInternalRule) {
     items.push({ label: '方式', value: translateCode(source, SOURCE_LABELS) });
   }
   if (route.model_type) {
@@ -272,6 +276,8 @@ function modelRouteItems(step: AgentTraceStep): TraceRouteItem[] {
 function modelRouteReason(step: AgentTraceStep): string {
   const route = modelRoute(step);
   if (!route) return '';
+  const source = textValue(route.source);
+  if (['rules', 'rules_fast_path', 'not_called'].includes(source)) return '';
   const reason = textValue(route.reason);
   if (!reason || shouldShowRetrieverMetrics(step)) return reason;
   const cleanedReason = reason.replace(/[，,；;]?\s*(evidence|hits|images|tables)\s*=\s*[\w.-]+/gi, '').trim();
@@ -312,7 +318,7 @@ function metricsFromDetails(step: AgentTraceStep): TraceMetric[] {
   if (!shouldShowRetrieverMetrics(step)) return [];
   const hits = asRecord(step.details?.retriever_hits);
   if (!hits) return [];
-  const orderedNames = ['page_index', 'ripgrep', 'milvus', 'keyword', 'graphrag'];
+  const orderedNames = ['project_metadata', 'milvus', 'keyword', 'page_index', 'ripgrep', 'graphrag'];
   const names = [
     ...orderedNames.filter((name) => Object.prototype.hasOwnProperty.call(hits, name)),
     ...Object.keys(hits).filter((name) => !orderedNames.includes(name)),
@@ -462,17 +468,17 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 .trace-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 2px 2px 10px;
+  gap: 8px;
+  padding: 2px 4px 8px;
 }
 
 .trace-card {
   position: relative;
   overflow: hidden;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
-  padding: 10px 12px 10px 14px;
+  padding: 9px 10px 9px 13px;
 }
 
 .trace-card::before {
@@ -480,7 +486,7 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
   top: 10px;
   bottom: 10px;
   left: 0;
-  width: 3px;
+  width: 2px;
   border-radius: 999px;
   background: #00a870;
   content: '';
@@ -512,9 +518,9 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 
 .trace-index {
   display: inline-flex;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
@@ -547,10 +553,10 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 }
 
 .trace-summary {
-  margin-top: 8px;
+  margin-top: 7px;
   border-radius: 6px;
-  background: #f8fafc;
-  padding: 8px 10px;
+  background: #f9fbfd;
+  padding: 7px 9px;
 }
 
 .trace-lead {
@@ -558,7 +564,7 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
   color: #1f2937;
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.55;
+  line-height: 1.45;
   word-break: break-word;
 }
 
@@ -566,15 +572,15 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
   margin: 6px 0 0;
   color: #64748b;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.45;
   word-break: break-word;
 }
 
 .trace-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 8px;
+  gap: 5px;
+  margin-top: 7px;
 }
 
 .trace-metric {
@@ -585,7 +591,7 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
   border: 1px solid #e6edf5;
   border-radius: 6px;
   background: #fff;
-  padding: 6px 8px;
+  padding: 5px 7px;
 }
 
 .trace-metric span {
@@ -599,7 +605,7 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 
 .trace-metric strong {
   color: #111827;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -613,8 +619,8 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 .trace-pairs {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 5px;
+  margin-top: 7px;
 }
 
 .trace-pair {
@@ -622,7 +628,7 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
   gap: 8px;
   color: #64748b;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .trace-pair span {
@@ -637,13 +643,13 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 }
 
 .trace-query-list {
-  max-height: 132px;
-  margin: 8px 0 0;
+  max-height: 96px;
+  margin: 7px 0 0;
   overflow: auto;
   padding-left: 18px;
   color: #475569;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 .trace-query-list li + li {
@@ -651,9 +657,9 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 }
 
 .trace-route {
-  margin-top: 8px;
+  margin-top: 7px;
   border-top: 1px solid #edf2f7;
-  padding-top: 8px;
+  padding-top: 7px;
   color: #64748b;
   font-size: 12px;
   line-height: 1.5;

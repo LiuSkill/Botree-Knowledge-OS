@@ -303,7 +303,10 @@ export interface ChatSession {
   chat_type: 'project_chat' | 'base_chat';
   mode: string;
   project_id?: number | null;
+  is_pinned: boolean;
+  is_favorite: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface ChatMessage {

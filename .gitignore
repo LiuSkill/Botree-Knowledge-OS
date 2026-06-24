@@ -18,6 +18,9 @@ backend/storage/mineru-output/
 backend/storage/uploads/*
 backend/storage/smoke_uploads/
 !backend/storage/uploads/.gitkeep
+eval/beir/datasets/
+eval/beir/reports/
+eval/beir/results/
 
 # Frontend dependencies and builds
 frontend/node_modules/

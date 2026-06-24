@@ -115,8 +115,23 @@ export function createChatSession(payload: {
   return request.post('/chat/sessions', payload) as Promise<ChatSession>;
 }
 
+export function updateChatSession(
+  sessionId: number,
+  payload: {
+    title?: string;
+    is_pinned?: boolean;
+    is_favorite?: boolean;
+  },
+): Promise<ChatSession> {
+  return request.patch(`/chat/sessions/${sessionId}`, payload) as Promise<ChatSession>;
+}
+
 export function listChatMessages(sessionId: number): Promise<ChatMessage[]> {
   return request.get(`/chat/sessions/${sessionId}/messages`) as Promise<ChatMessage[]>;
+}
+
+export function deleteChatSession(sessionId: number): Promise<{ deleted: boolean }> {
+  return request.delete(`/chat/sessions/${sessionId}`) as Promise<{ deleted: boolean }>;
 }
 
 export function askKnowledgeAgent(payload: AskKnowledgeAgentPayload): Promise<ChatCompletionResult> {

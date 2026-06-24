@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 
-KNOWN_RETRIEVERS = ("page_index", "milvus", "ripgrep", "keyword", "graphrag")
+KNOWN_RETRIEVERS = ("project_metadata", "page_index", "milvus", "ripgrep", "keyword", "graphrag")
 
 PLANNER_SYSTEM_PROMPT = """
 你是企业知识库 RAG 检索规划器。

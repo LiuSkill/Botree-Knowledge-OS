@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.minio import get_minio_client
-from app.core.rbac import action_page_bindings, action_permission_codes, filter_bound_action_codes, menu_permission_codes
+from app.core.rbac import filter_bound_action_codes, menu_permission_codes, sync_menu_action_permission_codes
 from app.core.security import hash_password, verify_password
 from app.models.user import Permission, Role, User
 from app.repositories.user_repository import RoleRepository, UserRepository
@@ -221,7 +221,7 @@ class UserService:
     def _current_user_profile(self, user: User) -> dict:
         """返回与 /auth/me 一致的当前用户资料。"""
 
-        permission_codes = self._user_permission_codes(user)
+        permission_codes = sync_menu_action_permission_codes(self._user_permission_codes(user))
         return {
             "id": user.id,
             "username": user.username,
@@ -367,11 +367,5 @@ class RoleService:
         selected_ids = set(permission_ids)
         permissions = self.role_repository.list_permissions()
         selected_permissions = [permission for permission in permissions if permission.id in selected_ids]
-        selected_codes = {permission.code for permission in selected_permissions}
-        action_codes = action_permission_codes()
-        bindings = action_page_bindings()
-        return [
-            permission
-            for permission in selected_permissions
-            if permission.code not in action_codes or bool(bindings.get(permission.code, set()) & selected_codes)
-        ]
+        synced_codes = sync_menu_action_permission_codes({permission.code for permission in selected_permissions})
+        return [permission for permission in permissions if permission.code in synced_codes]

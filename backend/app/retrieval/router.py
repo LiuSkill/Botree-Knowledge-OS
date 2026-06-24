@@ -9,14 +9,22 @@ Retrieval Router
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import logging
+import threading
 import time
+from types import SimpleNamespace
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.database import SessionLocal
 from app.core.config import get_settings
 from app.core.exceptions import AppException
+from app.models.document import Document, DocumentChunk
+from app.models.knowledge_base import KnowledgeBase
 from app.models.user import User
 from app.retrieval.merger import EvidenceMerger
 from app.retrieval.query_utils import boilerplate_multiplier
@@ -24,6 +32,7 @@ from app.retrieval.retrievers.graph_retriever import GraphRAGRetriever
 from app.retrieval.retrievers.keyword_retriever import KeywordRetriever
 from app.retrieval.retrievers.milvus_retriever import MilvusHybridRetriever
 from app.retrieval.retrievers.page_index_retriever import PageIndexRetriever
+from app.retrieval.retrievers.project_metadata_retriever import ProjectMetadataRetriever
 from app.retrieval.retrievers.ripgrep_retriever import RipgrepRetriever
 from app.retrieval.schemas import Evidence
 from app.services.project_service import ProjectService
@@ -35,6 +44,15 @@ logger = logging.getLogger(__name__)
 
 LOW_QUALITY_SCORE_THRESHOLD = 0.58
 LOW_QUALITY_VALUABLE_EVIDENCE_THRESHOLD = 2
+RIPGREP_SIGNAL_KEYS = (
+    "has_exact_token",
+    "has_doc_code",
+    "has_page_hint",
+    "has_section_hint",
+    "has_table_hint",
+    "has_value_hint",
+    "has_table_value_lookup",
+)
 
 
 class RetrievalRouter:
@@ -54,6 +72,10 @@ class RetrievalRouter:
         self.retriever_map = {retriever.name: retriever for retriever in self.retrievers}
         self.merger = EvidenceMerger()
         self.reranker = RerankerService(db)
+        self._retriever_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=6,
+            thread_name_prefix="retriever-worker",
+        )
 
     def search(
         self,
@@ -148,7 +170,15 @@ class RetrievalRouter:
 
         effective_mode = self._prepare_scope(mode, project_id, chat_type, user)
         retriever_names = self.available_retrievers()
-        groups, retriever_hits, retriever_elapsed, retriever_top_scores, executed_retrievers = self._execute_retrievers(
+        (
+            groups,
+            retriever_hits,
+            retriever_elapsed,
+            retriever_top_scores,
+            executed_retrievers,
+            retriever_errors,
+            retriever_timeouts,
+        ) = self._execute_retrievers(
             query=query,
             effective_mode=effective_mode,
             project_id=project_id,
@@ -159,6 +189,7 @@ class RetrievalRouter:
             fallback_used=False,
             fallback_stage=0,
             fallback_trigger_reason="execution_mode=all",
+            query_features=None,
         )
         merged_evidences = self.merger.merge(groups, max(limit * 3, limit))
         evidences = self.reranker.rerank(query, merged_evidences, limit)
@@ -177,6 +208,8 @@ class RetrievalRouter:
             "retriever_hits": retriever_hits,
             "retriever_elapsed_ms": retriever_elapsed,
             "retriever_top_scores": retriever_top_scores,
+            "retriever_errors": retriever_errors,
+            "retriever_timeouts": retriever_timeouts,
             "rerank_details": self.reranker.last_details,
             "retrieval_plan": {
                 "selected_retrievers": retriever_names,
@@ -246,16 +279,34 @@ class RetrievalRouter:
         retriever_hits: dict[str, int] = {}
         retriever_elapsed: dict[str, int] = {}
         retriever_top_scores: dict[str, float] = {}
+        retriever_errors: dict[str, str] = {}
+        retriever_timeouts: dict[str, bool] = {}
         executed_retrievers: list[str] = []
         fallback_used: list[str] = []
         fallback_trigger_reason: list[dict[str, Any]] = []
+        self._log_base_scope_diagnostics(effective_mode, project_id, user, intent)
 
         for stage_index, stage_retrievers in enumerate(normalized_ladder, start=1):
             stage_names = [name for name in stage_retrievers if name not in executed_retrievers]
+            stage_names = self._apply_runtime_retriever_skips(
+                stage_names,
+                query_features,
+                runtime_skip_reasons,
+                run_id,
+                intent,
+            )
             if not stage_names:
                 continue
 
-            stage_groups, stage_hits, stage_elapsed, stage_top_scores, stage_executed = self._execute_retrievers(
+            (
+                stage_groups,
+                stage_hits,
+                stage_elapsed,
+                stage_top_scores,
+                stage_executed,
+                stage_errors,
+                stage_timeouts,
+            ) = self._execute_retrievers(
                 query=query,
                 effective_mode=effective_mode,
                 project_id=project_id,
@@ -270,11 +321,14 @@ class RetrievalRouter:
                 intent=intent,
                 sub_query_index=sub_query_index,
                 sub_query_total=sub_query_total,
+                query_features=query_features,
             )
             groups.extend(stage_groups)
             retriever_hits.update(stage_hits)
             retriever_elapsed.update(stage_elapsed)
             retriever_top_scores.update(stage_top_scores)
+            retriever_errors.update(stage_errors)
+            retriever_timeouts.update(stage_timeouts)
             executed_retrievers.extend(stage_executed)
             if stage_index > 1:
                 fallback_used.extend(stage_executed)
@@ -325,6 +379,8 @@ class RetrievalRouter:
             "retriever_hits": retriever_hits,
             "retriever_elapsed_ms": retriever_elapsed,
             "retriever_top_scores": retriever_top_scores,
+            "retriever_errors": retriever_errors,
+            "retriever_timeouts": retriever_timeouts,
         }
 
     def available_retrievers(self) -> list[str]:
@@ -353,7 +409,16 @@ class RetrievalRouter:
         intent: str | None = None,
         sub_query_index: int | None = None,
         sub_query_total: int | None = None,
-    ) -> tuple[list[list[Evidence]], dict[str, int], dict[str, int], dict[str, float], list[str]]:
+        query_features: dict[str, Any] | None = None,
+    ) -> tuple[
+        list[list[Evidence]],
+        dict[str, int],
+        dict[str, int],
+        dict[str, float],
+        list[str],
+        dict[str, str],
+        dict[str, bool],
+    ]:
         """
         执行一组 Retriever，并输出结构化日志。
 
@@ -377,53 +442,463 @@ class RetrievalRouter:
             分组结果、命中数、耗时、最高分和实际执行 Retriever
         """
 
+        return self._run_async_blocking(
+            self._execute_retrievers_async(
+                query=query,
+                effective_mode=effective_mode,
+                project_id=project_id,
+                user=user,
+                retriever_names=retriever_names,
+                limit=limit,
+                planned_order=planned_order,
+                fallback_used=fallback_used,
+                fallback_stage=fallback_stage,
+                fallback_trigger_reason=fallback_trigger_reason,
+                run_id=run_id,
+                intent=intent,
+                sub_query_index=sub_query_index,
+                sub_query_total=sub_query_total,
+                query_features=query_features,
+            )
+        )
+
+    async def _execute_retrievers_async(
+        self,
+        query: str,
+        effective_mode: str,
+        project_id: int | None,
+        user: User,
+        retriever_names: list[str],
+        limit: int,
+        planned_order: int,
+        fallback_used: bool,
+        fallback_stage: int,
+        fallback_trigger_reason: str,
+        run_id: str | None,
+        intent: str | None,
+        sub_query_index: int | None,
+        sub_query_total: int | None,
+        query_features: dict[str, Any] | None,
+    ) -> tuple[
+        list[list[Evidence]],
+        dict[str, int],
+        dict[str, int],
+        dict[str, float],
+        list[str],
+        dict[str, str],
+        dict[str, bool],
+    ]:
+        enabled_names = [name for name in retriever_names if name in self.retriever_map]
+        disabled_names = [name for name in retriever_names if name not in self.retriever_map]
+        for name in disabled_names:
+            logger.warning("Planner selected disabled retriever: run_id=%s retriever=%s query=%s", run_id, name, query[:160])
+
+        logger.info(
+            "Retriever stage parallel execution: run_id=%s intent=%s planned_order=%s retrievers=%s query=%s",
+            run_id,
+            intent,
+            planned_order,
+            enabled_names,
+            query[:160],
+        )
+        user_snapshot = self._snapshot_user(user)
+        results = await asyncio.gather(
+            *[
+                self._execute_one_retriever_async(
+                    name=name,
+                    query=query,
+                    effective_mode=effective_mode,
+                    project_id=project_id,
+                    user=user_snapshot,
+                    limit=limit,
+                    planned_order=planned_order,
+                    fallback_used=fallback_used,
+                    fallback_stage=fallback_stage,
+                    fallback_trigger_reason=fallback_trigger_reason,
+                    run_id=run_id,
+                    intent=intent,
+                    sub_query_index=sub_query_index,
+                    sub_query_total=sub_query_total,
+                    query_features=query_features,
+                )
+                for name in enabled_names
+            ],
+            return_exceptions=True,
+        )
+
         groups: list[list[Evidence]] = []
         retriever_hits: dict[str, int] = {}
         retriever_elapsed: dict[str, int] = {}
         retriever_top_scores: dict[str, float] = {}
+        retriever_errors: dict[str, str] = {}
+        retriever_timeouts: dict[str, bool] = {}
         executed_retrievers: list[str] = []
-
-        for name in retriever_names:
-            retriever = self.retriever_map.get(name)
-            if retriever is None:
-                logger.warning(
-                    "Planner选择了未启用Retriever: run_id=%s retriever=%s query=%s",
+        for name, result in zip(enabled_names, results, strict=True):
+            if isinstance(result, Exception):
+                retriever_hits[name] = 0
+                retriever_elapsed[name] = 0
+                retriever_top_scores[name] = 0.0
+                retriever_errors[name] = result.__class__.__name__
+                retriever_timeouts[name] = False
+                executed_retrievers.append(name)
+                logger.error(
+                    "Retriever parallel task failed unexpectedly: run_id=%s retriever=%s error=%s",
                     run_id,
                     name,
-                    query[:160],
+                    result,
                 )
                 continue
 
-            started_at = time.perf_counter()
-            group = retriever.search(query, effective_mode, project_id, user, limit)
-            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-            top_score = max((float(item.score) for item in group), default=0.0)
-
+            group = result["group"]
             groups.append(group)
-            retriever_hits[retriever.name] = len(group)
-            retriever_elapsed[retriever.name] = elapsed_ms
-            retriever_top_scores[retriever.name] = round(top_score, 4)
-            executed_retrievers.append(retriever.name)
+            retriever_hits[name] = result["hits"]
+            retriever_elapsed[name] = result["elapsed_ms"]
+            retriever_top_scores[name] = result["top_score"]
+            retriever_timeouts[name] = result["timeout"]
+            if result["error"]:
+                retriever_errors[name] = result["error"]
+            executed_retrievers.append(name)
 
-            logger.info(
-                "Retriever执行完成: run_id=%s query=%s intent=%s retriever=%s planned_order=%s hits=%s top_score=%.4f post_filter_hits=%s fallback_used=%s fallback_stage=%s fallback_trigger_reason=%s elapsed_ms=%s sub_query_index=%s sub_query_total=%s",
-                run_id,
-                query[:160],
-                intent,
-                retriever.name,
-                planned_order,
-                len(group),
-                top_score,
-                len(group),
-                fallback_used,
-                fallback_stage,
-                fallback_trigger_reason,
-                elapsed_ms,
-                sub_query_index,
-                sub_query_total,
+        return (
+            groups,
+            retriever_hits,
+            retriever_elapsed,
+            retriever_top_scores,
+            executed_retrievers,
+            retriever_errors,
+            retriever_timeouts,
+        )
+
+    async def _execute_one_retriever_async(
+        self,
+        name: str,
+        query: str,
+        effective_mode: str,
+        project_id: int | None,
+        user: User,
+        limit: int,
+        planned_order: int,
+        fallback_used: bool,
+        fallback_stage: int,
+        fallback_trigger_reason: str,
+        run_id: str | None,
+        intent: str | None,
+        sub_query_index: int | None,
+        sub_query_total: int | None,
+        query_features: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        timeout_ms = self._retriever_timeout_ms(name)
+        started_at = time.perf_counter()
+        timeout = False
+        error = ""
+        group: list[Evidence] = []
+        loop = asyncio.get_running_loop()
+        future = loop.run_in_executor(
+            self._retriever_executor,
+            self._search_with_isolated_retriever,
+            name,
+            query,
+            effective_mode,
+            project_id,
+            user,
+            limit,
+        )
+        try:
+            group = await asyncio.wait_for(future, timeout=max(timeout_ms, 1) / 1000)
+        except asyncio.TimeoutError:
+            timeout = True
+            error = f"timeout>{timeout_ms}ms"
+            future.cancel()
+            logger.warning("Retriever timed out: run_id=%s retriever=%s timeout_ms=%s query=%s", run_id, name, timeout_ms, query[:160])
+        except Exception as exc:  # noqa: BLE001
+            error = exc.__class__.__name__
+            logger.exception("Retriever execution failed: run_id=%s retriever=%s query=%s error=%s", run_id, name, query[:160], exc)
+
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        top_score = max((float(item.score) for item in group), default=0.0)
+        logger.info(
+            "Retriever execution completed: run_id=%s query=%s intent=%s retriever=%s planned_order=%s hits=%s top_score=%.4f post_filter_hits=%s fallback_used=%s fallback_stage=%s fallback_trigger_reason=%s elapsed_ms=%s timeout=%s error=%s sub_query_index=%s sub_query_total=%s query_features=%s",
+            run_id,
+            query[:160],
+            intent,
+            name,
+            planned_order,
+            len(group),
+            top_score,
+            len(group),
+            fallback_used,
+            fallback_stage,
+            fallback_trigger_reason,
+            elapsed_ms,
+            timeout,
+            error or None,
+            sub_query_index,
+            sub_query_total,
+            self._compact_query_features(query_features),
+        )
+        return {
+            "group": group,
+            "hits": len(group),
+            "elapsed_ms": elapsed_ms,
+            "top_score": round(top_score, 4),
+            "timeout": timeout,
+            "error": error,
+        }
+
+    def _run_async_blocking(self, coroutine: Any) -> Any:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coroutine)
+
+        result: dict[str, Any] = {}
+
+        def runner() -> None:
+            try:
+                result["value"] = asyncio.run(coroutine)
+            except Exception as exc:  # noqa: BLE001
+                result["error"] = exc
+
+        thread = threading.Thread(target=runner, name="retrieval-router-async", daemon=True)
+        thread.start()
+        thread.join()
+        if "error" in result:
+            raise result["error"]
+        return result.get("value")
+
+    def _apply_runtime_retriever_skips(
+        self,
+        stage_names: list[str],
+        query_features: dict[str, Any] | None,
+        runtime_skip_reasons: dict[str, str],
+        run_id: str | None,
+        intent: str | None,
+    ) -> list[str]:
+        if query_features is None:
+            return stage_names
+
+        executable: list[str] = []
+        for name in stage_names:
+            if intent == "project_overview" and name == "page_index" and not self._page_index_allowed(query_features):
+                reason = "runtime_skip:project_overview has no page/doc/section location signal"
+                runtime_skip_reasons[name] = reason
+                logger.info("Retriever skipped: run_id=%s retriever=%s intent=%s reason=%s", run_id, name, intent, reason)
+                continue
+            if intent == "project_overview" and name == "ripgrep" and not self._ripgrep_allowed(query_features):
+                reason = "runtime_skip:project_overview has no exact/doc/page/section signal"
+                runtime_skip_reasons[name] = reason
+                logger.info("Retriever skipped: run_id=%s retriever=%s intent=%s reason=%s", run_id, name, intent, reason)
+                continue
+            if name == "ripgrep" and not self._ripgrep_allowed(query_features):
+                reason = "runtime_skip:no exact/doc/page/section/table/value signal"
+                runtime_skip_reasons[name] = reason
+                logger.info("Retriever skipped: run_id=%s retriever=%s intent=%s reason=%s", run_id, name, intent, reason)
+                continue
+            executable.append(name)
+        return executable
+
+    def _page_index_allowed(self, query_features: dict[str, Any]) -> bool:
+        profile = query_features.get("query_profile") or {}
+        resolved_task_type = str(query_features.get("resolved_task_type") or "")
+        return bool(
+            resolved_task_type == "process_flow"
+            or query_features.get("has_page_hint")
+            or query_features.get("has_doc_code")
+            or query_features.get("has_section_hint")
+            or profile.get("need_page_location")
+            or profile.get("need_visual_asset")
+        )
+
+    def _ripgrep_allowed(self, query_features: dict[str, Any]) -> bool:
+        profile = query_features.get("query_profile") or {}
+        retrieval_needs = query_features.get("retrieval_needs") or {}
+        resolved_task_type = str(query_features.get("resolved_task_type") or "")
+        return bool(
+            resolved_task_type in {"document_location", "parameter_lookup"}
+            or bool(retrieval_needs.get("exact_text_search"))
+            or any(query_features.get(key) for key in RIPGREP_SIGNAL_KEYS)
+            or profile.get("need_exact_term")
+            or profile.get("need_page_location")
+        )
+
+    def _search_with_isolated_retriever(
+        self,
+        name: str,
+        query: str,
+        effective_mode: str,
+        project_id: int | None,
+        user: User,
+        limit: int,
+    ) -> list[Evidence]:
+        retriever = self.retriever_map[name]
+        if not self._uses_real_db_session(retriever):
+            return retriever.search(query, effective_mode, project_id, user, limit)
+
+        with SessionLocal() as db:
+            isolated_retriever = self._build_retriever_for_session(name, db)
+            return isolated_retriever.search(query, effective_mode, project_id, user, limit)
+
+    def _uses_real_db_session(self, retriever: Any) -> bool:
+        return isinstance(
+            retriever,
+            (
+                PageIndexRetriever,
+                ProjectMetadataRetriever,
+                MilvusHybridRetriever,
+                RipgrepRetriever,
+                GraphRAGRetriever,
+                KeywordRetriever,
+            ),
+        )
+
+    def _build_retriever_for_session(self, name: str, db: Session) -> Any:
+        if name == "page_index":
+            return PageIndexRetriever(db)
+        if name == "project_metadata":
+            return ProjectMetadataRetriever(db)
+        if name == "milvus":
+            return MilvusHybridRetriever(db)
+        if name == "ripgrep":
+            return RipgrepRetriever(db)
+        if name == "graphrag":
+            return GraphRAGRetriever(db)
+        if name == "keyword":
+            return KeywordRetriever(db)
+        raise ValueError(f"unknown retriever: {name}")
+
+    def _snapshot_user(self, user: User) -> User:
+        if user is None:
+            return user
+        roles: list[Any] = []
+        for role in list(getattr(user, "roles", []) or []):
+            roles.append(
+                SimpleNamespace(
+                    id=getattr(role, "id", None),
+                    code=getattr(role, "code", ""),
+                    name=getattr(role, "name", ""),
+                )
             )
+        return SimpleNamespace(
+            id=getattr(user, "id", None),
+            username=getattr(user, "username", ""),
+            roles=roles,
+        )
 
-        return groups, retriever_hits, retriever_elapsed, retriever_top_scores, executed_retrievers
+    def _retriever_timeout_ms(self, name: str) -> int:
+        settings = getattr(self, "settings", None)
+        if name == "ripgrep":
+            return int(getattr(settings, "ripgrep_timeout_ms", 1500) or 1500)
+        return int(getattr(settings, "retrieval_retriever_timeout_ms", 4500) or 4500)
+
+    def __del__(self) -> None:
+        executor = getattr(self, "_retriever_executor", None)
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    def _compact_query_features(self, query_features: dict[str, Any] | None) -> dict[str, Any]:
+        if not query_features:
+            return {}
+        keys = [
+            "has_exact_token",
+            "has_doc_code",
+            "has_page_hint",
+            "has_section_hint",
+            "has_table_hint",
+            "has_value_hint",
+            "has_table_value_lookup",
+            "has_graph_relation",
+            "has_project_name",
+            "knowledge_scope",
+            "resolved_task_type",
+            "answer_policy",
+        ]
+        compact = {key: query_features.get(key) for key in keys if query_features.get(key)}
+        if query_features.get("retrieval_needs"):
+            compact["retrieval_needs"] = query_features.get("retrieval_needs")
+        if query_features.get("query_rewrites"):
+            compact["query_rewrite_count"] = len(query_features.get("query_rewrites") or [])
+        profile = query_features.get("query_profile") or {}
+        if profile:
+            compact["query_type"] = profile.get("query_type")
+            compact["answer_shape"] = profile.get("answer_shape")
+        return compact
+
+    def _log_base_scope_diagnostics(
+        self,
+        effective_mode: str,
+        project_id: int | None,
+        user: User,
+        intent: str | None,
+    ) -> None:
+        if effective_mode != "base_chat" or intent not in {"industry_knowledge_qa", "knowledge_qa"}:
+            return
+        if getattr(self, "db", None) is None or user is None:
+            return
+        try:
+            policy = KeywordRetriever(self.db)
+            base_kb_ids = list(
+                self.db.scalars(
+                    select(KnowledgeBase.id).where(KnowledgeBase.type == "base", KnowledgeBase.enabled.is_(True))
+                ).all()
+            )
+            allowed_kb_ids = [
+                kb_id
+                for kb_id in base_kb_ids
+                if policy._base_knowledge_allowed(kb_id, project_id, user, strict_external=False)
+            ]
+            total_base_docs = int(
+                self.db.scalar(
+                    select(func.count(Document.id)).where(
+                        Document.knowledge_type == "base",
+                        Document.review_status == "approved",
+                        Document.index_status == "indexed",
+                    )
+                )
+                or 0
+            )
+            allowed_docs = 0
+            active_chunks = 0
+            if allowed_kb_ids:
+                allowed_docs = int(
+                    self.db.scalar(
+                        select(func.count(Document.id)).where(
+                            Document.knowledge_type == "base",
+                            Document.knowledge_base_id.in_(allowed_kb_ids),
+                            Document.review_status == "approved",
+                            Document.index_status == "indexed",
+                        )
+                    )
+                    or 0
+                )
+                active_chunks = int(
+                    self.db.scalar(
+                        select(func.count(DocumentChunk.id))
+                        .join(Document, Document.id == DocumentChunk.document_id)
+                        .where(
+                            Document.knowledge_type == "base",
+                            Document.knowledge_base_id.in_(allowed_kb_ids),
+                            Document.review_status == "approved",
+                            Document.index_status == "indexed",
+                            DocumentChunk.chunk_status == "active",
+                            DocumentChunk.version_no == Document.version_no,
+                        )
+                    )
+                    or 0
+                )
+            logger.info(
+                "Base knowledge scope diagnostics: intent=%s user_id=%s allowed_scopes=%s allowed_project_ids=%s allowed_knowledge_base_ids=%s approved_document_count=%s allowed_document_count=%s active_chunk_count=%s user_security_level=%s",
+                intent,
+                getattr(user, "id", None),
+                ["base"],
+                [],
+                allowed_kb_ids,
+                total_base_docs,
+                allowed_docs,
+                active_chunks,
+                "n/a",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Base knowledge scope diagnostics failed: intent=%s error=%s", intent, exc)
 
     def _normalize_execution_ladder(
         self,
@@ -606,16 +1081,16 @@ class RetrievalRouter:
             生效检索模式
         """
 
-        if knowledge_scope == "industry":
-            return "base_chat" if chat_type == "base_chat" else "base_only"
-        if knowledge_scope == "project_with_industry":
-            return "project_with_industry"
-        if knowledge_scope == "project":
-            return "project_chat" if chat_type == "project_chat" else "project_only"
         if chat_type == "project_chat":
             return "project_chat"
         if chat_type == "base_chat":
             return "base_chat"
+        if knowledge_scope == "industry":
+            return "base_only"
+        if knowledge_scope == "project_with_industry":
+            return "project_with_industry"
+        if knowledge_scope == "project":
+            return "project_only"
         if mode == "auto":
             return "hybrid" if project_id is not None else "base_only"
         if mode not in {"base_only", "project_only", "hybrid", "project_chat", "base_chat", "project_with_industry"}:
@@ -666,7 +1141,7 @@ class RetrievalRouter:
             Retriever 实例列表
         """
 
-        retrievers: list[Any] = [PageIndexRetriever(db)]
+        retrievers: list[Any] = [ProjectMetadataRetriever(db), PageIndexRetriever(db)]
         if self.settings.milvus_enabled:
             retrievers.append(MilvusHybridRetriever(db))
         else:

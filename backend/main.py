@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal, init_database
 from app.core.exceptions import AppException, register_exception_handlers
 from app.services.embedding_service import EmbeddingService
+from app.services.reranker_service import RerankerService
 
 def configure_logging() -> None:
     """
@@ -91,6 +92,22 @@ def warmup_embedding_model() -> None:
         logger.exception("本地Embedding预热出现未预期异常，服务继续启动: error=%s", exc)
 
 
+def warmup_reranker_model() -> None:
+    """
+    预热本地 Reranker 模型。
+
+    说明：启动时加载默认启用的本地 reranker 到进程缓存，避免首轮问答承担模型加载耗时。
+    """
+
+    try:
+        with SessionLocal() as db:
+            RerankerService(db).warmup_local_reranker()
+    except AppException as exc:
+        logger.warning("本地Reranker预热失败，服务继续启动: error=%s", exc.message)
+    except Exception as exc:
+        logger.exception("本地Reranker预热出现未预期异常，服务继续启动: error=%s", exc)
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     """
@@ -103,4 +120,5 @@ def on_startup() -> None:
 
     init_database()
     warmup_embedding_model()
+    warmup_reranker_model()
     logger.info("Botree Knowledge OS 后端启动完成")
