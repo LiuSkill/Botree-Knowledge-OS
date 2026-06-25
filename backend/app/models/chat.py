@@ -50,7 +50,7 @@ class ChatMessage(TimestampMixin, Base):
 
     职责：
     - 保存用户消息和助手回答
-    - 保存 query_scope 与 agent_trace_json 供审计使用
+    - 保存 query_scope、用户可见进度与审计用 agent_trace_json
     """
 
     __tablename__ = "chat_messages"
@@ -66,6 +66,11 @@ class ChatMessage(TimestampMixin, Base):
         Text().with_variant(LONGTEXT(), "mysql"),
         nullable=True,
         comment="Agent执行过程JSON",
+    )
+    progress_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(LONGTEXT(), "mysql"),
+        nullable=True,
+        comment="用户可见处理进度JSON",
     )
     feedback_status: Mapped[str | None] = mapped_column(
         String(20),

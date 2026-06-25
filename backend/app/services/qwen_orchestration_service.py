@@ -770,6 +770,14 @@ class QwenOrchestrationService:
             }
             return rule_result
 
+        if self.db is None:
+            self.model_routes["evidence_judge"] = {
+                "task": "evidence_judge",
+                "source": "rules",
+                "reason": "无数据库模型配置，使用结构化规则证据判断",
+            }
+            return rule_result
+
         model_type, reason = self._select_evidence_model(evidences, context or {})
         try:
             llm = LLMService(self.db)
@@ -797,11 +805,27 @@ class QwenOrchestrationService:
         """执行确定性证据充足性判断。"""
 
         if not evidences:
-            return {"enough": False, "reason": "未召回任何证据"}
+            return self._evidence_judge_payload(
+                enough=False,
+                confidence=0.0,
+                relevance="none",
+                support_level="none",
+                risk="insufficient_coverage",
+                reason="未召回任何证据",
+            )
         valuable_evidences = [item for item in evidences if boilerplate_multiplier(item.content) >= 0.45]
         top_score = max(item.score for item in evidences)
         if top_score <= 0 or not valuable_evidences:
-            return {"enough": False, "reason": "召回证据相关性分数过低"}
+            return self._evidence_judge_payload(
+                enough=False,
+                confidence=0.2,
+                relevance="weak" if evidences else "none",
+                support_level="weak" if evidences else "none",
+                suggested_retrievers=["milvus", "keyword", "ripgrep"],
+                suggested_queries=[question],
+                risk="weak_evidence",
+                reason="召回证据相关性分数过低或只包含弱内容",
+            )
         if is_project_overview_query(question):
             document_evidences = [
                 item
@@ -810,9 +834,33 @@ class QwenOrchestrationService:
             ]
             coverage = self._project_overview_coverage(document_evidences)
             if coverage["coverage_count"] < 3 or not coverage["has_introduction_detail"]:
-                return {"enough": False, "reason": f"项目介绍字段覆盖不足：{coverage}"}
-            return {"enough": True, "reason": f"项目介绍字段覆盖充分：{coverage}"}
-        return {"enough": True, "reason": f"已召回 {len(valuable_evidences)} 条有效候选证据"}
+                return self._evidence_judge_payload(
+                    enough=False,
+                    confidence=0.45,
+                    relevance="partial",
+                    support_level="partial",
+                    missing_aspects=["项目概况", "建设内容", "设计依据", "处理规模"],
+                    suggested_retrievers=["milvus", "ripgrep", "page_index"],
+                    suggested_queries=[question],
+                    risk="insufficient_coverage",
+                    reason=f"项目介绍字段覆盖不足：{coverage}",
+                )
+            return self._evidence_judge_payload(
+                enough=True,
+                confidence=0.75,
+                relevance="full",
+                support_level="full",
+                answerable_parts=["项目概况"],
+                reason=f"项目介绍字段覆盖充分：{coverage}",
+            )
+        return self._evidence_judge_payload(
+            enough=True,
+            confidence=0.72,
+            relevance="full",
+            support_level="full",
+            answerable_parts=["可基于召回证据回答的问题部分"],
+            reason=f"已召回 {len(valuable_evidences)} 条有效候选证据",
+        )
 
     def _select_evidence_model(self, evidences: list[Evidence], context: dict[str, Any]) -> tuple[str, str]:
         """按证据数量、图片和表格复杂度选择证据判断模型。"""
@@ -844,6 +892,9 @@ class QwenOrchestrationService:
         图纸图片会在最终回答的视觉模型阶段读取；证据整理阶段只需要判断是否有可用证据，
         避免因为图片数量触发慢模型而阻塞流式 Thinking。
         """
+
+        if self._needs_structured_drawing_judge(evidences, context):
+            return False
 
         visual_asset_count = sum(len(evidence.assets) for evidence in evidences)
         if visual_asset_count <= 0:
@@ -879,6 +930,9 @@ class QwenOrchestrationService:
                 "file_name": evidence.file_name,
                 "drawing_no": evidence.drawing_no,
                 "page_number": evidence.page_number,
+                "source_type": evidence.source_type,
+                "retriever": evidence.retriever,
+                "metadata": self._safe_evidence_metadata(evidence.metadata),
                 "content": self._clip(evidence.content, 260),
                 "asset_count": len(evidence.assets),
             }
@@ -921,13 +975,124 @@ class QwenOrchestrationService:
         return {
             "enough": enough,
             "confidence": self._clamp_confidence(payload.get("confidence"), default=0.65 if enough else 0.45),
+            "relevance": self._level(payload.get("relevance"), default="full" if enough else "partial"),
+            "support_level": self._level(payload.get("support_level"), default="full" if enough else "partial"),
+            "conflict": self._bool(payload.get("conflict")),
+            "conflict_evidence_ids": self._index_list(payload.get("conflict_evidence_ids")),
             "answerable_parts": self._string_list(payload.get("answerable_parts")),
             "missing_aspects": self._string_list(payload.get("missing_aspects")),
             "best_evidence_indexes": self._index_list(payload.get("best_evidence_indexes")),
             "suggested_retrievers": self._filter_retrievers(payload.get("suggested_retrievers")),
             "suggested_queries": self._string_list(payload.get("suggested_queries"), limit=6, max_length=240),
+            "risk": self._risk(payload.get("risk")),
             "reason": str(payload.get("reason") or "证据模型未返回原因"),
         }
+
+    def _evidence_judge_payload(
+        self,
+        *,
+        enough: bool,
+        confidence: float,
+        relevance: str,
+        support_level: str,
+        conflict: bool = False,
+        conflict_evidence_ids: list[int] | None = None,
+        answerable_parts: list[str] | None = None,
+        missing_aspects: list[str] | None = None,
+        suggested_retrievers: list[str] | None = None,
+        suggested_queries: list[str] | None = None,
+        risk: str = "none",
+        reason: str = "",
+    ) -> dict[str, Any]:
+        """统一规则兜底的结构化证据判断，避免后续节点解析自然语言 reason。"""
+
+        return {
+            "enough": enough,
+            "confidence": self._clamp_confidence(confidence, default=0.0),
+            "relevance": self._level(relevance, default="none"),
+            "support_level": self._level(support_level, default="none"),
+            "conflict": conflict,
+            "conflict_evidence_ids": conflict_evidence_ids or [],
+            "answerable_parts": answerable_parts or [],
+            "missing_aspects": missing_aspects or [],
+            "suggested_retrievers": self._filter_retrievers(suggested_retrievers or []),
+            "suggested_queries": self._string_list(suggested_queries or [], limit=6, max_length=240),
+            "risk": self._risk(risk),
+            "reason": reason,
+        }
+
+    def _needs_structured_drawing_judge(self, evidences: list[Evidence], context: dict[str, Any]) -> bool:
+        """图纸/流程类问题必须进入结构化证据判断，不能只按弱文本降级。"""
+
+        profile = context.get("query_profile") or {}
+        answer_shape = str(profile.get("answer_shape") or "").strip()
+        query_type = str(profile.get("query_type") or "").strip()
+        drawing_shapes = {
+            "process_steps",
+            "flow_description",
+            "equipment_relation",
+            "parameter_lookup",
+            "parameter_table",
+            "drawing_understanding",
+            "material_flow",
+        }
+        drawing_query_types = {"process_flow", "graph_reasoning", "page_location", "exact_lookup", "metadata_lookup"}
+        if answer_shape in drawing_shapes or query_type in drawing_query_types:
+            return True
+        return any(self._is_drawing_like_evidence(evidence) for evidence in evidences)
+
+    def _is_drawing_like_evidence(self, evidence: Evidence) -> bool:
+        metadata = evidence.metadata or {}
+        source_text = " ".join(
+            str(value or "").lower()
+            for value in (
+                evidence.source_type,
+                evidence.retriever,
+                evidence.drawing_no,
+                metadata.get("source_type"),
+                metadata.get("asset_type"),
+                metadata.get("parser"),
+                metadata.get("document_type"),
+                metadata.get("layout_type"),
+            )
+        )
+        return bool(evidence.assets) or any(
+            token in source_text for token in ("drawing", "image", "pdf_visual", "mineru_layout", "pfd", "pid", "p&id")
+        )
+
+    def _safe_evidence_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        allow_keys = {
+            "source_type",
+            "asset_type",
+            "parser",
+            "document_type",
+            "layout_type",
+            "metadata_only",
+            "visual_summary",
+            "parsed_visual_evidence",
+            "version_no",
+            "document_version",
+            "review_status",
+            "document_status",
+            "index_status",
+        }
+        return {key: value for key, value in (metadata or {}).items() if key in allow_keys}
+
+    def _level(self, raw_value: Any, default: str) -> str:
+        value = str(raw_value or "").strip().lower()
+        return value if value in {"none", "weak", "partial", "full"} else default
+
+    def _bool(self, raw_value: Any) -> bool:
+        if isinstance(raw_value, bool):
+            return raw_value
+        if isinstance(raw_value, str):
+            return raw_value.strip().lower() in {"true", "yes", "1", "是", "冲突"}
+        return bool(raw_value)
+
+    def _risk(self, raw_value: Any) -> str:
+        value = str(raw_value or "none").strip().lower()
+        allowed = {"none", "insufficient_coverage", "weak_evidence", "conflict", "irrelevant", "permission_limited"}
+        return value if value in allowed else "none"
 
     def _string_list(self, raw_value: Any, limit: int = 8, max_length: int = 180) -> list[str]:
         if not isinstance(raw_value, list):

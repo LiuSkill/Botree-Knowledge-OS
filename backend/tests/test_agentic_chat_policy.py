@@ -9,7 +9,6 @@ from app.langgraph.retrieval_graph import (
     GENERAL_ANSWER_PREFIX,
     PRESET_GREETING_ANSWER,
     PRESET_IDENTITY_ANSWER,
-    PROJECT_REFUSAL_ANSWER,
     RetrievalGraph,
 )
 from app.retrieval.schemas import Evidence
@@ -36,12 +35,17 @@ class _Plan:
         }
 
 
-def _evidence(content: str = "项目资料正文显示：黑粉经给料系统进入浸出槽，再通过泵输送至过滤单元，包含上游和下游设备关系。") -> Evidence:
+def _evidence(
+    content: str = "项目资料正文显示：黑粉经给料系统进入浸出槽，再通过泵输送至过滤单元，包含上游和下游设备关系。",
+    *,
+    source_type: str = "project",
+    project_id: int | None = 1,
+) -> Evidence:
     return Evidence(
         score=0.95,
-        source_type="project",
+        source_type=source_type,
         knowledge_base_id=1,
-        project_id=1,
+        project_id=project_id,
         document_id=1,
         chunk_id=1,
         drawing_no=None,
@@ -81,6 +85,8 @@ def _graph(monkeypatch, evidences=None, enough=True):
     graph.visual_evidence_service = SimpleNamespace(enrich=lambda question, items, features: items)
     graph.qwen.judge_evidence = lambda *args, **kwargs: {"enough": enough, "reason": "ok" if enough else "not enough"}
     graph.answer_generator.generate = lambda question, items, query_profile=None: "基于知识库回答"
+    graph.answer_generator._partial_answer_with_llm = lambda *args, **kwargs: "受限部分回答"  # noqa: SLF001
+    graph.answer_generator._general_answer = lambda *args, **kwargs: "通用回答"  # noqa: SLF001
     graph.answer_generator.last_model_route = {"source": "test"}
     return graph
 
@@ -100,7 +106,7 @@ def test_project_chat_identity_uses_preset(monkeypatch):
 
 def test_project_chat_obvious_common_knowledge_uses_project_kb_policy(monkeypatch):
     result = _graph(monkeypatch).run("1+1 等于几", "project_chat", "auto", 1, SimpleNamespace(id=1))
-    assert result["answer"] == PROJECT_REFUSAL_ANSWER
+    assert "无法基于项目资料回答" in result["answer"]
     assert result["answer_type"] == "refusal"
     assert result["answer_policy"] == "STRICT_KB"
     assert result["evidence_status"] == "EMPTY"
@@ -121,7 +127,7 @@ def test_project_chat_kb_answer_requires_sources(monkeypatch):
 
 def test_project_chat_without_evidence_refuses(monkeypatch):
     result = _graph(monkeypatch, [], enough=False).run("项目资料中不存在的问题", "project_chat", "auto", 1, SimpleNamespace(id=1))
-    assert result["answer"] == PROJECT_REFUSAL_ANSWER
+    assert "无法基于项目资料回答" in result["answer"]
     assert result["answer_type"] == "refusal"
     assert result["evidence_status"] == "EMPTY"
     assert result["raw"]["direct_llm_used"] is False
@@ -154,10 +160,9 @@ def test_project_chat_partial_evidence_returns_partial_answer(monkeypatch):
         SimpleNamespace(id=1),
     )
 
-    assert result["answer_type"] == "partial_answer"
+    assert result["answer_type"] == "partial_answer_with_llm"
     assert result["evidence_status"] == "PARTIAL"
-    assert result["answer"]
-    assert "部分正文片段" in result["answer"]
+    assert result["answer"] == "受限部分回答"
 
 
 def test_project_chat_unauthorized_only_refuses(monkeypatch):
@@ -185,7 +190,17 @@ def test_base_chat_water_formula_direct(monkeypatch):
 
 
 def test_base_chat_kb_hit_answers_with_sources(monkeypatch):
-    result = _graph(monkeypatch, [_evidence("基础知识库命中")], enough=True).run("知识库命中问题", "base_chat", "auto", None, SimpleNamespace(id=1))
+    result = _graph(
+        monkeypatch,
+        [_evidence("基础知识库正文显示：黑粉进料量为 2000 TPA，单位为 t/a，资料可支持回答。", source_type="base", project_id=None)],
+        enough=True,
+    ).run(
+        "知识库命中问题",
+        "base_chat",
+        "auto",
+        None,
+        SimpleNamespace(id=1),
+    )
     assert result["answer_type"] == "normal_answer"
     assert result["evidences"]
 

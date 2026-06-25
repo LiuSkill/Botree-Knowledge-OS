@@ -316,6 +316,7 @@ export interface ChatMessage {
   content: string;
   query_scope?: string | null;
   agent_trace_json?: string | null;
+  progress_json?: string | null;
   feedback_status?: 'like' | 'dislike' | null;
   citations?: Citation[];
   created_at: string;
@@ -389,6 +390,17 @@ export interface AgentTraceStep {
   details?: Record<string, unknown>;
 }
 
+export type ChatProgressStage = 'understanding' | 'planning' | 'retrieving' | 'filtering' | 'answering';
+export type ChatProgressStatus = 'pending' | 'running' | 'success' | 'failed';
+
+export interface ChatProgressEvent {
+  visible: true;
+  stage: ChatProgressStage;
+  title: string;
+  status: ChatProgressStatus;
+  sequence?: number | null;
+}
+
 export interface ChatCompletionResult {
   answer: string;
   session_id: number;
@@ -398,6 +410,7 @@ export interface ChatCompletionResult {
   used_retrievers: string[];
   agent_trace: AgentTraceStep[];
   trace_steps?: AgentTraceStep[];
+  progress_events?: ChatProgressEvent[];
   citations: Citation[];
   feedback_status?: 'like' | 'dislike' | null;
   raw?: Record<string, unknown>;
@@ -411,6 +424,7 @@ export interface ChatStreamMeta {
   used_retrievers: string[];
   agent_trace: AgentTraceStep[];
   trace_steps?: AgentTraceStep[];
+  progress_events?: ChatProgressEvent[];
   citations: Citation[];
   raw?: Record<string, unknown>;
 }
@@ -419,6 +433,9 @@ export interface ChatTraceDeltaEvent extends AgentTraceStep {
   sequence: number;
   status: 'running' | 'success' | 'failed';
   display_text: string;
+  visible?: boolean;
+  stage?: ChatProgressStage;
+  title?: string;
 }
 
 export interface ChatStreamDoneEvent extends ChatCompletionResult {}

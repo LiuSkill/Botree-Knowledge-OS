@@ -99,6 +99,7 @@ def _build_graph() -> RetrievalGraph:
     graph.reranker = FakeReranker()
     graph.visual_evidence_service = FakeVisualEvidenceService()
     graph.answer_generator.generate = lambda question, items, query_profile=None: "基于项目资料生成的正常回答"
+    graph.answer_generator._partial_answer_with_llm = lambda *args, **kwargs: "受限部分回答"  # noqa: SLF001
     graph.answer_generator.last_model_route = {"source": "fake"}
     graph.qwen.judge_evidence = _judge_evidence
     graph.qwen.model_routes["evidence_judge"] = {"task": "evidence_judge", "source": "fake"}

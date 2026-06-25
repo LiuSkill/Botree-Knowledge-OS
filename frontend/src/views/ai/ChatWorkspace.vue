@@ -3,11 +3,11 @@
 
   负责：
   1. 复用项目问答和基础问答布局
-  2. 使用 TDesign Chat 组件承载消息、推理过程和发送器
-  3. 接入后端流式问答，并展示引用来源、执行过程和知识范围
+  2. 使用 TDesign Chat 组件承载消息和发送器
+  3. 接入后端流式问答，并展示引用来源、处理进度和知识范围
 -->
 <script setup lang="ts">
-import { ChatContent as TChatContent, ChatMessage as TChatMessage, ChatSender as TChatSender, ChatThinking as TChatThinking } from '@tdesign-vue-next/chat';
+import { ChatContent as TChatContent, ChatMessage as TChatMessage, ChatSender as TChatSender } from '@tdesign-vue-next/chat';
 import { CloseIcon, QuoteIcon, TaskIcon, ThumbDownIcon, ThumbUpIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, nextTick, onMounted, provide, ref } from 'vue';
@@ -15,14 +15,15 @@ import { computed, nextTick, onMounted, provide, ref } from 'vue';
 import { listChatMessages, listChatSessions, streamKnowledgeAgent, updateMessageFeedback, type ChatFeedbackStatus } from '@/api/chat';
 import { listProjects } from '@/api/projects';
 import botreeLogo from '@/assets/botree-logo.png';
-import AgentTracePanel from '@/components/AgentTracePanel.vue';
 import ChatRichContent from '@/components/ChatRichContent.vue';
 import CitationList from '@/components/CitationList.vue';
+import ProcessingProgressPanel from '@/components/ProcessingProgressPanel.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { useAuthStore } from '@/stores/auth';
 import type {
   AgentTraceStep,
   ChatMessage,
+  ChatProgressEvent,
   ChatSession,
   ChatStreamDoneEvent,
   ChatTraceDeltaEvent,
@@ -30,11 +31,19 @@ import type {
   ProjectInfo,
 } from '@/types/api';
 import { formatDateTime } from '@/utils/format';
+import {
+  markProgressComplete,
+  mergeProgressEvent,
+  parseProgressJson,
+  progressEventFromTrace,
+  progressEventsFromTrace,
+  normalizeProgressEvents,
+} from '@/utils/chatProgress';
 
 interface UiChatMessage extends Omit<ChatMessage, 'id' | 'citations'> {
   id: number | string;
   citations: Citation[];
-  agentTrace: AgentTraceStep[];
+  progressEvents: ChatProgressEvent[];
   status?: '' | 'streaming' | 'complete' | 'stop' | 'error';
   streaming?: boolean;
 }
@@ -56,12 +65,11 @@ const projectId = ref<number | null>(null);
 const question = ref('');
 const streaming = ref(false);
 const citations = ref<Citation[]>([]);
-const trace = ref<AgentTraceStep[]>([]);
+const trace = ref<ChatProgressEvent[]>([]);
 const queryScope = ref('');
 const chatHistoryRef = ref<HTMLElement | null>(null);
 const senderShellRef = ref<HTMLElement | null>(null);
 const streamAbortController = ref<AbortController | null>(null);
-const thinkingCollapsedMap = ref<Record<string, boolean>>({});
 const activeDetailMode = ref<DetailMode | null>(null);
 const activeDetailMessageId = ref<number | string | null>(null);
 const feedbackUpdatingMap = ref<Record<number, boolean>>({});
@@ -86,9 +94,9 @@ const activeDetailMessage = computed(
   () => messages.value.find((item) => item.role === 'assistant' && item.id === activeDetailMessageId.value) || null,
 );
 const isDetailOpen = computed(() => Boolean(activeDetailMode.value && activeDetailMessage.value));
-const detailPanelTitle = computed(() => (activeDetailMode.value === 'citations' ? '引用来源' : '执行过程'));
+const detailPanelTitle = computed(() => (activeDetailMode.value === 'citations' ? '引用来源' : '处理进度'));
 const activeDetailCitations = computed(() => activeDetailMessage.value?.citations || []);
-const activeDetailTrace = computed(() => activeDetailMessage.value?.agentTrace || []);
+const activeDetailProgress = computed(() => activeDetailMessage.value?.progressEvents || []);
 const activeDetailQuestion = computed(() => (activeDetailMessage.value ? questionForAssistant(activeDetailMessage.value) : ''));
 
 provide('role', computed(() => 'assistant'));
@@ -104,11 +112,13 @@ function parseAgentTrace(rawTrace?: string | null): AgentTraceStep[] {
 }
 
 function toUiMessage(message: ChatMessage): UiChatMessage {
+  const fallbackTrace = parseAgentTrace(message.agent_trace_json);
+  const progressEvents = parseProgressJson(message.progress_json);
   return {
     ...message,
     id: message.id,
     citations: message.citations || [],
-    agentTrace: parseAgentTrace(message.agent_trace_json),
+    progressEvents: progressEvents.length ? progressEvents : progressEventsFromTrace(fallbackTrace, Boolean(message.content.trim())),
     status: '',
     streaming: false,
   };
@@ -122,9 +132,10 @@ function createStreamingAssistantMessage(): UiChatMessage {
     content: '',
     query_scope: '',
     agent_trace_json: null,
+    progress_json: null,
     feedback_status: null,
     citations: [],
-    agentTrace: [],
+    progressEvents: [],
     created_at: new Date().toISOString(),
     status: 'streaming',
     streaming: true,
@@ -175,59 +186,20 @@ function normalizeMarkdownDisplay(content: string): string {
   return normalized.join('\n').trim();
 }
 
-function renderTraceSummary(step: AgentTraceStep): string {
-  if (step.display_text) return step.display_text;
-  if (step.result) return step.result;
-  if (step.output_summary && Object.keys(step.output_summary).length) {
-    return JSON.stringify(step.output_summary, null, 2);
-  }
-  if (step.details && Object.keys(step.details).length) {
-    return JSON.stringify(step.details, null, 2);
-  }
-  return '已执行';
-}
-
-function traceStepKey(message: UiChatMessage, step: AgentTraceStep): string {
-  return `${message.id}-${step.sequence ?? step.step}`;
-}
-
-function mergeTraceStep(items: AgentTraceStep[], nextStep: AgentTraceStep): AgentTraceStep[] {
-  const index =
-    nextStep.sequence !== undefined && nextStep.sequence !== null
-      ? items.findIndex((item) => item.sequence === nextStep.sequence)
-      : items.findIndex((item) => item.step === nextStep.step);
-  if (index < 0) return [...items, nextStep];
-  const merged = [...items];
-  merged[index] = { ...merged[index], ...nextStep };
-  return merged;
-}
-
-function applyTraceDelta(assistantId: number | string, payload: ChatTraceDeltaEvent): void {
+function applyProgressEvent(assistantId: number | string, payload: ChatProgressEvent | null): void {
+  if (!payload) return;
   const currentAssistant = messages.value.find((item) => item.id === assistantId);
-  trace.value = mergeTraceStep(trace.value, payload);
+  trace.value = mergeProgressEvent(trace.value, payload);
   if (!currentAssistant) return;
-  currentAssistant.agentTrace = mergeTraceStep(currentAssistant.agentTrace, payload);
-}
-
-function thinkingStatus(message: UiChatMessage): 'pending' | 'complete' | 'stop' | 'error' {
-  if (message.status === 'error') return 'error';
-  if (message.status === 'stop') return 'stop';
-  if (message.streaming) return 'pending';
-  return 'complete';
+  currentAssistant.progressEvents = mergeProgressEvent(currentAssistant.progressEvents, payload);
 }
 
 function chatContentStatus(message: UiChatMessage): '' | 'error' {
   return message.status === 'error' ? 'error' : '';
 }
 
-function thinkingContent(message: UiChatMessage): { title: string } {
-  return {
-    title: message.streaming && !message.content.trim() ? '正在处理...' : '执行过程',
-  };
-}
-
-function shouldShowThinking(message: UiChatMessage): boolean {
-  return !message.content.trim() && (message.streaming || message.agentTrace.length > 0);
+function shouldShowProgress(message: UiChatMessage): boolean {
+  return !message.content.trim() && (message.streaming || message.progressEvents.length > 0);
 }
 
 function shouldShowAssistantActions(message: UiChatMessage): boolean {
@@ -297,30 +269,6 @@ async function handleFeedbackClick(message: UiChatMessage, feedbackStatus: Exclu
   }
 }
 
-function shouldCollapseThinking(message: UiChatMessage): boolean {
-  const messageKey = String(message.id);
-  if (thinkingCollapsedMap.value[messageKey] !== undefined) {
-    return thinkingCollapsedMap.value[messageKey];
-  }
-  if (message.content.trim()) return true;
-  return !message.streaming;
-}
-
-function onThinkingCollapsedChange(message: UiChatMessage, value: boolean | CustomEvent<boolean | boolean[]>): void {
-  const eventDetail = typeof value === 'boolean' ? value : value.detail;
-  const collapsed = Array.isArray(eventDetail) ? Boolean(eventDetail[0]) : Boolean(eventDetail);
-  thinkingCollapsedMap.value = {
-    ...thinkingCollapsedMap.value,
-    [String(message.id)]: collapsed,
-  };
-}
-
-function traceStatusText(step: AgentTraceStep): string {
-  if (step.status === 'running') return '进行中';
-  if (step.status === 'failed') return '失败';
-  return step.elapsed_ms !== undefined && step.elapsed_ms !== null ? `${step.elapsed_ms} ms` : '完成';
-}
-
 async function scrollToBottom(): Promise<void> {
   await nextTick();
   const container = chatHistoryRef.value;
@@ -341,7 +289,7 @@ function syncAssistantContext(items: UiChatMessage[]): void {
   const latestAssistant = [...items].reverse().find((item) => item.role === 'assistant');
   citations.value = latestAssistant?.citations || [];
   queryScope.value = latestAssistant?.query_scope || '';
-  trace.value = latestAssistant?.agentTrace || [];
+  trace.value = latestAssistant?.progressEvents || [];
 }
 
 async function loadSessionsForCurrentProject(): Promise<void> {
@@ -435,7 +383,7 @@ async function submitQuestion(): Promise<void> {
     query_scope: null,
     agent_trace_json: null,
     citations: [],
-    agentTrace: [],
+    progressEvents: [],
     created_at: new Date().toISOString(),
     status: '',
     streaming: false,
@@ -469,17 +417,21 @@ async function submitQuestion(): Promise<void> {
         onMeta: (payload) => {
           activeSessionId.value = payload.session_id;
           citations.value = payload.citations;
-          trace.value = payload.agent_trace;
+          trace.value = normalizeProgressEvents(payload.progress_events || []);
           queryScope.value = payload.query_scope;
           const currentAssistant = messages.value.find((item) => item.id === assistantId);
           if (!currentAssistant) return;
           currentAssistant.session_id = payload.session_id;
           currentAssistant.query_scope = payload.query_scope;
           currentAssistant.citations = payload.citations;
-          currentAssistant.agentTrace = payload.agent_trace;
+          currentAssistant.progressEvents = trace.value;
+        },
+        onProgress: (payload) => {
+          applyProgressEvent(assistantId, payload);
+          void scrollToBottom();
         },
         onTraceDelta: (payload) => {
-          applyTraceDelta(assistantId, payload);
+          applyProgressEvent(assistantId, progressEventFromTrace(payload));
           void scrollToBottom();
         },
         onDelta: (delta) => {
@@ -492,7 +444,9 @@ async function submitQuestion(): Promise<void> {
         onDone: (payload) => {
           finalResult = payload;
           citations.value = payload.citations;
-          trace.value = payload.agent_trace;
+          trace.value = payload.progress_events?.length
+            ? markProgressComplete(payload.progress_events)
+            : progressEventsFromTrace(payload.agent_trace || [], true);
           queryScope.value = payload.query_scope;
         },
       },
@@ -588,33 +542,13 @@ onMounted(loadBaseData);
                 <img :src="botreeLogo" alt="" />
               </span>
               <div class="assistant-chat-stack">
-                <TChatThinking
-                  v-if="shouldShowThinking(message)"
-                  class="message-thinking"
-                  layout="border"
-                  :status="thinkingStatus(message)"
-                  :content="thinkingContent(message)"
-                  :collapsed="shouldCollapseThinking(message)"
-                  @collapsed-change="onThinkingCollapsedChange(message, $event)"
-                >
-                  <div class="thinking-list">
-                    <div
-                      v-for="step in message.agentTrace"
-                      :key="traceStepKey(message, step)"
-                      class="thinking-step"
-                      :class="step.status || 'success'"
-                    >
-                      <span class="thinking-dot"></span>
-                      <div class="thinking-step-body">
-                        <div class="thinking-step-header">
-                          <strong>{{ step.step }}</strong>
-                          <span>{{ traceStatusText(step) }}</span>
-                        </div>
-                        <p>{{ renderTraceSummary(step) }}</p>
-                      </div>
-                    </div>
-                  </div>
-                </TChatThinking>
+                <ProcessingProgressPanel
+                  v-if="shouldShowProgress(message)"
+                  class="message-progress"
+                  :events="message.progressEvents"
+                  :streaming="message.streaming"
+                  title="正在处理..."
+                />
 
                 <TChatMessage
                   v-if="message.content"
@@ -661,7 +595,7 @@ onMounted(loadBaseData);
                         <QuoteIcon />
                       </t-button>
                     </t-tooltip>
-                    <t-tooltip content="执行过程">
+                    <t-tooltip content="处理进度">
                       <t-button
                         class="message-action-button"
                         :class="{ active: isDetailButtonActive(message, 'trace') }"
@@ -731,7 +665,11 @@ onMounted(loadBaseData);
         </div>
         <div class="detail-panel-body">
           <CitationList v-if="activeDetailMode === 'citations'" :citations="activeDetailCitations" :chat-type="chatType" />
-          <AgentTracePanel v-else-if="activeDetailMode === 'trace'" :steps="activeDetailTrace" />
+          <ProcessingProgressPanel
+            v-else-if="activeDetailMode === 'trace'"
+            :events="activeDetailProgress"
+            title="处理进度"
+          />
         </div>
       </aside>
     </div>
@@ -1031,110 +969,9 @@ onMounted(loadBaseData);
   white-space: pre-wrap;
 }
 
-.message-thinking {
+.message-progress {
   width: 100%;
-}
-
-.message-thinking {
-  color: #7a8699;
-  font-size: 12px;
-  line-height: 1.55;
   margin-bottom: 8px;
-}
-
-.message-thinking :deep(.t-collapse-panel__header) {
-  cursor: pointer;
-}
-
-.message-thinking :deep(.t-chat__item__think__header__content) {
-  color: #475569;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.message-thinking :deep(.t-chat__item__think__inner) {
-  color: #7a8699;
-  font-size: 12px;
-  line-height: 1.55;
-  max-height: none;
-  overflow: visible;
-}
-
-.message-thinking :deep(*) {
-  scrollbar-width: none;
-}
-
-.message-thinking :deep(*::-webkit-scrollbar) {
-  display: none;
-}
-
-.thinking-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.thinking-step {
-  display: flex;
-  gap: 10px;
-  color: #7a8699;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.thinking-dot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  margin-top: 8px;
-  border-radius: 50%;
-  background: #a3b1c6;
-}
-
-.thinking-step.running .thinking-dot {
-  background: #2f6fed;
-}
-
-.thinking-step.success .thinking-dot {
-  background: #00a870;
-}
-
-.thinking-step.failed .thinking-dot {
-  background: #d54941;
-}
-
-.thinking-step-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.thinking-step-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: #667085;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.thinking-step-header strong {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.thinking-step-header span {
-  color: #8a94a6;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.thinking-step p {
-  margin: 4px 0 0;
-  color: #7a8699;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 .message-action-bar {

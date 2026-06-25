@@ -24,6 +24,7 @@ from app.retrieval.merger import EvidenceMerger
 from app.retrieval.router import RetrievalRouter
 from app.retrieval.schemas import Evidence
 from app.services.answer_policy_gate_service import AnswerAction, AnswerPolicyGateService
+from app.services.evidence_access_guard_service import EvidenceAccessGuardService
 from app.services.evidence_evaluator_service import EvidenceEvaluatorService, EvidenceStatus
 from app.services.query_profile_service import QueryProfileService
 from app.services.question_understanding_service import QuestionUnderstandingService
@@ -142,6 +143,7 @@ class RetrievalGraph:
         self.question_understanding_service = QuestionUnderstandingService()
         self.policy_resolver = PolicyResolver()
         self.evidence_evaluator = EvidenceEvaluatorService()
+        self.evidence_access_guard = EvidenceAccessGuardService(db)
         self.answer_policy_gate = AnswerPolicyGateService()
         self.planner = RetrievalPlannerService(db)
         self.retrieval_router = RetrievalRouter(db)
@@ -971,13 +973,48 @@ class RetrievalGraph:
             if answer_policy == ANSWER_POLICY_PRESET:
                 return True
             return answer_policy == ANSWER_POLICY_CLARIFY and state.get("direct_answer_type") == "invalid"
-        if answer_policy in {ANSWER_POLICY_PRESET, ANSWER_POLICY_GENERAL_ALLOWED}:
+        if answer_policy == ANSWER_POLICY_PRESET:
             return True
-        return bool(state.get("direct_answer")) or str(state.get("intent") or "") in {
-            "greeting",
-            "pure_general_qa",
-            "general_qa",
+        if answer_policy == ANSWER_POLICY_GENERAL_ALLOWED:
+            return self._is_safe_general_direct_answer(state)
+        return bool(state.get("direct_answer")) and self._is_safe_general_direct_answer(state)
+
+    def _is_safe_general_direct_answer(self, state: RetrievalGraphState) -> bool:
+        intent_type = str(state.get("intent_type") or "")
+        direct_answer_type = str(state.get("direct_answer_type") or state.get("intent") or "")
+        query_profile = state.get("query_profile", {}) or {}
+        query_type = str(query_profile.get("query_type") or "")
+        scope = str(query_profile.get("knowledge_scope") or "")
+        if scope in {"project", "industry"}:
+            return False
+        project_markers = {
+            "project_fact",
+            "industry_knowledge",
+            "process_flow",
+            "equipment_relation",
+            "parameter_lookup",
+            "project_overview",
+            "graph_reasoning",
+            "page_location",
+            "exact_lookup",
+            "comparison",
         }
+        if intent_type in project_markers or direct_answer_type in project_markers or query_type in project_markers:
+            return False
+        allowed = {
+            "greeting",
+            "identity",
+            "bot_identity",
+            "help",
+            "obvious_common_knowledge",
+            "simple_math_or_formula",
+        }
+        return (
+            intent_type in allowed
+            or direct_answer_type in allowed
+            or str(state.get("intent") or "") == "greeting"
+            or self._is_obvious_common_knowledge(str(state.get("question") or ""))
+        )
 
     def _is_terminal_without_answer_generation(self, state: RetrievalGraphState) -> bool:
         return bool(state.get("raw", {}).get("terminal_without_answer_generation"))
@@ -2005,7 +2042,18 @@ class RetrievalGraph:
             judgement = state.get("evidence_judgement", {}) or {}
             raw = state.setdefault("raw", {})
             retry_count = int(raw.get("retry_count", 0) or 0)
-            retry_skip_reason = self._retry_skip_reason(state, judgement, retry_count)
+            pre_retry_evaluation = self.evidence_evaluator.evaluate(
+                question=state["question"],
+                evidences=list(state.get("evidences", [])),
+                judgement=judgement,
+                resolved_task_type=state.get("resolved_task_type"),
+                answer_shape=state.get("resolved_answer_shape"),
+                query_profile=state.get("query_profile", {}),
+            ).to_dict()
+            pre_retry_status = str(pre_retry_evaluation.get("evidence_status") or EVIDENCE_EMPTY)
+            raw["pre_retry_evidence_status"] = pre_retry_status
+            raw["pre_retry_evidence_evaluation"] = pre_retry_evaluation
+            retry_skip_reason = self._retry_skip_reason(state, judgement, retry_count, pre_retry_status)
             if retry_skip_reason:
                 raw.setdefault("max_retry", 1)
                 raw["retry_count"] = retry_count
@@ -2031,26 +2079,29 @@ class RetrievalGraph:
                     len(state.get("evidences", [])),
                 )
                 return state
-            if judgement.get("enough") is True or retry_count >= 1:
+            if pre_retry_status == EVIDENCE_ENOUGH or retry_count >= 1:
                 raw.setdefault("max_retry", 1)
                 raw.setdefault("retry_count", retry_count)
                 raw.setdefault("retry_skipped_reason", "evidence_enough_or_retry_limit")
                 raw["retry_allowed"] = False
                 return state
 
-            retry_retrievers = self._filter_available_retrievers(judgement.get("suggested_retrievers") or [])
-            retry_queries = self._build_retry_queries(judgement.get("suggested_queries") or [], state)
+            retry_retrievers, retry_queries, retry_reason = self._retry_strategy_for_status(
+                pre_retry_status,
+                judgement,
+                state,
+            )
             if not retry_retrievers or not retry_queries:
                 raw.setdefault("max_retry", 1)
                 raw["retry_count"] = retry_count
-                raw["retry_skipped_reason"] = "missing_suggested_retrievers_or_queries"
+                raw["retry_skipped_reason"] = "missing_retry_retrievers_or_queries"
                 raw["retry_allowed"] = False
                 return state
 
             raw["max_retry"] = 1
             raw["retry_count"] = retry_count + 1
             raw["retry_allowed"] = True
-            raw["retry_reason"] = judgement.get("reason") or "evidence_not_enough"
+            raw["retry_reason"] = retry_reason
             raw["retry_retrievers"] = retry_retrievers
             raw["retry_queries"] = retry_queries
             raw["retry_query_count"] = len(retry_queries)
@@ -2197,6 +2248,7 @@ class RetrievalGraph:
         state: RetrievalGraphState,
         judgement: dict[str, Any],
         retry_count: int,
+        evidence_status: str,
     ) -> str | None:
         if bool(state.get("raw", {}).get("eval_mode")):
             return None
@@ -2206,14 +2258,12 @@ class RetrievalGraph:
             return "INVALID_QUERY"
         if state.get("intent_type") in {"invalid", "invalid_or_noise_query", "ambiguous", "greeting", "bot_identity", "help"}:
             return "NON_RETRIEVAL_INTENT"
-        if judgement.get("enough") is True:
+        if evidence_status == EVIDENCE_ENOUGH:
             return "EVIDENCE_ENOUGH"
         if state.get("intent") == "project_overview":
             return "PROJECT_OVERVIEW_INSUFFICIENT_NO_HEAVY_RETRY"
         if retry_count >= 1:
             return "RETRY_LIMIT"
-        if not judgement.get("suggested_retrievers") and not judgement.get("suggested_queries"):
-            return "NO_RETRY_SUGGESTION"
         return None
 
     def _evidence_decision_node(self, state: RetrievalGraphState) -> RetrievalGraphState:
@@ -2226,6 +2276,7 @@ class RetrievalGraph:
                 judgement=state.get("evidence_judgement", {}) or {},
                 resolved_task_type=state.get("resolved_task_type"),
                 answer_shape=state.get("resolved_answer_shape"),
+                query_profile=state.get("query_profile", {}),
             ).to_dict()
             status = str(evaluation.get("evidence_status") or EVIDENCE_EMPTY)
             state["evidence_status"] = status
@@ -2254,6 +2305,57 @@ class RetrievalGraph:
 
         return self._with_trace(state, "证据状态判断", "rules", run)
 
+    def _apply_final_evidence_guard(self, state: RetrievalGraphState) -> None:
+        """答案门控前二次断言证据权限、项目、审核状态和版本有效性。"""
+
+        raw = state.setdefault("raw", {})
+        guard_result = self.evidence_access_guard.filter_evidences(
+            evidences=list(state.get("evidences", [])),
+            chat_type=str(state.get("chat_type") or ""),
+            project_id=state.get("project_id"),
+            user=state.get("user"),
+        )
+        raw["final_evidence_guard"] = guard_result.to_dict()
+        if not guard_result.rejected:
+            return
+
+        state["evidences"] = guard_result.evidences
+        judgement = dict(state.get("evidence_judgement", {}) or {})
+        if not guard_result.evidences:
+            judgement.update(
+                {
+                    "enough": False,
+                    "confidence": 0.0,
+                    "relevance": "none",
+                    "support_level": "none",
+                    "conflict": False,
+                    "risk": guard_result.risk,
+                    "reason": f"最终证据断言剔除全部证据：{guard_result.primary_reason}",
+                }
+            )
+        state["evidence_judgement"] = judgement
+        evaluation = self.evidence_evaluator.evaluate(
+            question=state["question"],
+            evidences=list(state.get("evidences", [])),
+            judgement=judgement,
+            resolved_task_type=state.get("resolved_task_type"),
+            answer_shape=state.get("resolved_answer_shape"),
+            query_profile=state.get("query_profile", {}),
+        ).to_dict()
+        if not guard_result.evidences and guard_result.risk != "none":
+            evaluation["risk"] = guard_result.risk
+            evaluation["reason"] = f"{evaluation.get('reason') or ''}；最终证据断言：{guard_result.primary_reason}".strip("；")
+        status = str(evaluation.get("evidence_status") or EVIDENCE_EMPTY)
+        state["evidence_status"] = status
+        state["evidence_evaluation"] = evaluation
+        raw["evidence_status"] = status
+        raw["evidence_evaluation"] = evaluation
+        raw["weak_evidence_count"] = evaluation.get("weak_evidence_count", 0)
+        raw["strong_evidence_count"] = evaluation.get("strong_evidence_count", 0)
+        raw["missing_aspects"] = evaluation.get("missing_aspects", [])
+        raw["should_retry"] = bool(evaluation.get("should_retry"))
+        raw["allow_limited_answer"] = bool(evaluation.get("allow_limited_answer"))
+
     def _answer_policy_gate_node(self, state: RetrievalGraphState) -> RetrievalGraphState:
         """根据答案策略和证据状态决定生成、拒答、反问或澄清。"""
 
@@ -2281,6 +2383,10 @@ class RetrievalGraph:
                 raw["terminal_without_answer_generation"] = True
                 return state
 
+            self._apply_final_evidence_guard(state)
+            evidence_status = str(state.get("evidence_status") or EVIDENCE_EMPTY)
+            raw["evidence_status"] = evidence_status
+
             decision = self.answer_policy_gate.resolve(
                 answer_policy=policy,
                 evidence_status=evidence_status,
@@ -2288,6 +2394,9 @@ class RetrievalGraph:
                 answer_shape=str(state.get("resolved_answer_shape") or ""),
                 evidence=list(state.get("evidences", [])),
                 is_obvious_common_knowledge=self._is_obvious_common_knowledge(state["question"]),
+                chat_type=str(state.get("chat_type") or ""),
+                intent_type=str(state.get("intent_type") or ""),
+                query_profile=state.get("query_profile", {}),
             ).to_dict()
             action = str(decision.get("action") or AnswerAction.REFUSAL.value)
             state["answer_policy"] = policy
@@ -2298,7 +2407,11 @@ class RetrievalGraph:
             raw["answer_policy_gate"] = decision
             raw["answer_policy_decision"] = decision
 
-            if action == AnswerAction.NORMAL_ANSWER.value:
+            if action in {
+                AnswerAction.NORMAL_ANSWER.value,
+                AnswerAction.GENERAL_ANSWER.value,
+                AnswerAction.PARTIAL_ANSWER_WITH_LLM.value,
+            }:
                 state["answer_type"] = action
                 raw["answer_type"] = action
                 return state
@@ -2324,8 +2437,13 @@ class RetrievalGraph:
             state.setdefault("model_routes", {})["answer"] = self.answer_generator.last_model_route or {}
             raw["answer_type"] = action
             raw["terminal_without_answer_generation"] = True
-            raw["direct_llm_used"] = False
-            raw["kb_grounded"] = action in {AnswerAction.LIMITED_ANSWER.value, AnswerAction.PARTIAL_ANSWER.value}
+            raw["direct_llm_used"] = action in {AnswerAction.GENERAL_ANSWER.value, AnswerAction.PARTIAL_ANSWER_WITH_LLM.value}
+            raw["kb_grounded"] = action in {
+                AnswerAction.LIMITED_ANSWER.value,
+                AnswerAction.PARTIAL_ANSWER.value,
+                AnswerAction.PARTIAL_ANSWER_WITH_LLM.value,
+                AnswerAction.CONFLICT_ANSWER.value,
+            }
             raw["refused"] = action == AnswerAction.REFUSAL.value
             if action == AnswerAction.REFUSAL.value:
                 state["evidences"] = []
@@ -2380,8 +2498,15 @@ class RetrievalGraph:
             state["pending_action"] = None
             raw = state.setdefault("raw", {})
             raw["answer_type"] = action
-            raw["kb_grounded"] = action == AnswerAction.NORMAL_ANSWER.value
-            raw["direct_llm_used"] = False
+            raw["kb_grounded"] = action in {
+                AnswerAction.NORMAL_ANSWER.value,
+                AnswerAction.PARTIAL_ANSWER_WITH_LLM.value,
+            }
+            raw["direct_llm_used"] = action in {
+                AnswerAction.NORMAL_ANSWER.value,
+                AnswerAction.GENERAL_ANSWER.value,
+                AnswerAction.PARTIAL_ANSWER_WITH_LLM.value,
+            }
             raw["refused"] = False
             raw["need_general_confirm"] = False
             raw["reranker_used"] = bool(raw.get("reranker_used"))
@@ -2389,6 +2514,64 @@ class RetrievalGraph:
             return state
 
         return self._with_trace(state, "回答生成", "answer_generator", run)
+
+    def _retry_strategy_for_status(
+        self,
+        evidence_status: str,
+        judgement: dict[str, Any],
+        state: RetrievalGraphState,
+    ) -> tuple[list[str], list[str], str]:
+        """按证据状态选择一次性补检索策略。"""
+
+        suggested_retrievers = list(judgement.get("suggested_retrievers") or [])
+        if evidence_status == EVIDENCE_EMPTY:
+            default_retrievers = ["ripgrep", "keyword", "milvus", "project_metadata", "page_index"]
+        elif evidence_status == EVIDENCE_WEAK_ONLY:
+            default_retrievers = ["page_index", "ripgrep", "milvus", "keyword"]
+        elif evidence_status == EVIDENCE_PARTIAL:
+            default_retrievers = ["milvus", "ripgrep", "page_index", "keyword"]
+        elif evidence_status == EVIDENCE_CONFLICTED:
+            default_retrievers = ["project_metadata", "ripgrep", "page_index", "keyword"]
+        else:
+            return [], [], "evidence_enough"
+
+        retry_retrievers = self._filter_available_retrievers([*suggested_retrievers, *default_retrievers])
+        retry_queries = self._retry_queries_for_status(evidence_status, judgement, state)
+        reason = judgement.get("reason") or f"evidence_status={evidence_status}"
+        return retry_retrievers, retry_queries, reason
+
+    def _retry_queries_for_status(
+        self,
+        evidence_status: str,
+        judgement: dict[str, Any],
+        state: RetrievalGraphState,
+    ) -> list[str]:
+        suggested_queries = [str(item).strip() for item in (judgement.get("suggested_queries") or []) if str(item).strip()]
+        missing_aspects = [str(item).strip() for item in (judgement.get("missing_aspects") or []) if str(item).strip()]
+        candidates: list[str] = []
+        candidates.extend(suggested_queries)
+        candidates.extend(f"{state['question']} {aspect}" for aspect in missing_aspects[:3])
+        if evidence_status == EVIDENCE_EMPTY:
+            profile = state.get("query_profile", {}) or {}
+            profile_terms = [
+                *list(profile.get("project_name_candidates") or [])[:3],
+                *list(profile.get("entities") or [])[:6],
+                *list(profile.get("keywords") or [])[:8],
+            ]
+            candidates.append(state["question"])
+            if profile_terms:
+                candidates.append(" ".join(str(item) for item in profile_terms))
+            candidates.extend(state.get("sub_queries", [])[:2])
+        elif evidence_status == EVIDENCE_WEAK_ONLY:
+            candidates.append(f"{state['question']} 正文 参数 流程 设备关系")
+            candidates.extend(state.get("sub_queries", [])[:2])
+        elif evidence_status == EVIDENCE_PARTIAL:
+            candidates.append(state["question"])
+        elif evidence_status == EVIDENCE_CONFLICTED:
+            candidates.append(f"{state['question']} 版本 审核状态 来源 发布时间 优先级")
+        if not candidates:
+            candidates = self._build_retry_queries([], state)
+        return list(dict.fromkeys(item for item in candidates if item))[:4]
 
     def _filter_available_retrievers(self, retrievers: list[Any]) -> list[str]:
         """按当前 Router 可用列表过滤补充检索器。"""
@@ -2887,8 +3070,12 @@ class RetrievalGraph:
         action = str(state.get("answer_policy_action") or "")
         if action == AnswerAction.LIMITED_ANSWER.value:
             return "仅基于项目资料中的弱证据输出有限回答"
-        if action == AnswerAction.PARTIAL_ANSWER.value:
-            return "仅基于项目资料中的部分证据输出部分回答"
+        if action in {AnswerAction.PARTIAL_ANSWER.value, AnswerAction.PARTIAL_ANSWER_WITH_LLM.value}:
+            return "仅基于项目资料中的部分证据输出受限回答"
+        if action == AnswerAction.CONFLICT_ANSWER.value:
+            return "资料存在冲突，仅输出冲突说明和可核对证据"
+        if action == AnswerAction.GENERAL_ANSWER.value:
+            return "未引用知识库资料，基于通用知识回答"
         if action == AnswerAction.REFUSAL.value:
             return "项目资料无有效证据，拒绝使用通用知识编造项目事实"
         if action == AnswerAction.ASK_GENERAL_CONFIRM.value:
@@ -2979,7 +3166,13 @@ class RetrievalGraph:
             "direct_llm_used": bool(state.get("raw", {}).get("direct_llm_used")),
             "kb_grounded": bool(
                 state.get("raw", {}).get("kb_grounded")
-                or state.get("answer_type") in {AnswerAction.NORMAL_ANSWER.value, AnswerAction.PARTIAL_ANSWER.value}
+                or state.get("answer_type")
+                in {
+                    AnswerAction.NORMAL_ANSWER.value,
+                    AnswerAction.PARTIAL_ANSWER.value,
+                    AnswerAction.PARTIAL_ANSWER_WITH_LLM.value,
+                    AnswerAction.CONFLICT_ANSWER.value,
+                }
             ),
             "refused": bool(state.get("raw", {}).get("refused") or state.get("answer_type") == AnswerAction.REFUSAL.value),
             "need_general_confirm": bool(

@@ -11,6 +11,7 @@ import { request } from '@/api/request';
 import type {
   ChatCompletionResult,
   ChatMessage,
+  ChatProgressEvent,
   ChatSession,
   ChatStreamDoneEvent,
   ChatStreamMeta,
@@ -34,6 +35,7 @@ export type ChatFeedbackStatus = 'like' | 'dislike' | null;
 interface StreamEventHandlers {
   signal?: AbortSignal;
   onMeta?: (payload: ChatStreamMeta) => void;
+  onProgress?: (payload: ChatProgressEvent) => void;
   onTraceDelta?: (payload: ChatTraceDeltaEvent) => void;
   onDelta?: (content: string) => void;
   onDone?: (payload: ChatStreamDoneEvent) => void;
@@ -83,6 +85,10 @@ function parseEventBlock(
   }
   if (event === 'delta') {
     handlers.onDelta?.(typeof payload.content === 'string' ? payload.content : '');
+    return { done: false };
+  }
+  if (event === 'progress') {
+    handlers.onProgress?.(payload as unknown as ChatProgressEvent);
     return { done: false };
   }
   if (event === 'trace_delta') {

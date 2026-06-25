@@ -64,6 +64,7 @@ class ChatMessageOut(BaseModel):
     content: str
     query_scope: str | None = None
     agent_trace_json: str | None = None
+    progress_json: str | None = None
     feedback_status: Literal["like", "dislike"] | None = None
     citations: list["CitationOut"] = Field(default_factory=list)
     created_at: datetime
@@ -134,6 +135,16 @@ class AgentTraceStep(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict, description="节点结构化详情")
 
 
+class ChatProgressEvent(BaseModel):
+    """普通用户可见的问答处理进度。"""
+
+    visible: bool = True
+    stage: Literal["understanding", "planning", "retrieving", "filtering", "answering"]
+    title: str
+    status: Literal["pending", "running", "success", "failed"]
+    sequence: int | None = None
+
+
 class ChatCompletionResponse(BaseModel):
     """问答响应。"""
 
@@ -145,6 +156,7 @@ class ChatCompletionResponse(BaseModel):
     used_retrievers: list[str]
     agent_trace: list[AgentTraceStep]
     trace_steps: list[AgentTraceStep] = Field(default_factory=list, description="前端展示用执行步骤")
+    progress_events: list[ChatProgressEvent] = Field(default_factory=list, description="普通用户可见处理进度")
     citations: list[CitationOut]
     feedback_status: Literal["like", "dislike"] | None = None
     raw: dict[str, Any] = Field(default_factory=dict, description="扩展调试信息")

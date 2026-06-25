@@ -359,12 +359,27 @@ def migrate_database() -> None:
                 "VARCHAR(20) COMMENT '回答反馈状态：like/dislike'",
                 "VARCHAR(20)",
             )
+            _add_column_if_missing(
+                connection,
+                message_columns,
+                "chat_messages",
+                "progress_json",
+                "LONGTEXT COMMENT '用户可见处理进度JSON'",
+                "TEXT",
+            )
             _modify_mysql_column_if_needed(
                 connection,
                 inspector,
                 "chat_messages",
                 "agent_trace_json",
                 "LONGTEXT COMMENT 'Agent执行过程JSON'",
+            )
+            _modify_mysql_column_if_needed(
+                connection,
+                inspector,
+                "chat_messages",
+                "progress_json",
+                "LONGTEXT COMMENT '用户可见处理进度JSON'",
             )
 
         if "retrieval_traces" in table_names:

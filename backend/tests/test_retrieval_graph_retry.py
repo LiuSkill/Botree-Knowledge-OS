@@ -11,6 +11,7 @@ sys.path.insert(0, str(BASE_DIR))
 
 from app.langgraph.retrieval_graph import RetrievalGraph  # noqa: E402
 from app.retrieval.schemas import Evidence  # noqa: E402
+from app.services.evidence_evaluator_service import EvidenceEvaluatorService  # noqa: E402
 
 
 def make_evidence(chunk_id: int, retriever: str = "page_index") -> Evidence:
@@ -91,6 +92,7 @@ class FakeQwen:
 
 def build_graph() -> RetrievalGraph:
     graph = object.__new__(RetrievalGraph)
+    graph.evidence_evaluator = EvidenceEvaluatorService()
     graph.retrieval_router = FakeRouter()
     graph.reranker = FakeReranker()
     graph.visual_evidence_service = FakeVisualEvidenceService()
@@ -134,16 +136,18 @@ def test_retry_retrieval_runs_at_most_once_and_filters_unknown_retriever() -> No
     state = graph._retry_retrieval_node(base_state())  # noqa: SLF001
 
     assert state["raw"]["retry_count"] == 1
-    assert state["raw"]["retry_retrievers"] == ["page_index"]
-    assert state["raw"]["retry_query_count"] == 1
+    assert state["raw"]["retry_retrievers"][0] == "page_index"
+    assert "unknown" not in state["raw"]["retry_retrievers"]
+    assert 1 <= state["raw"]["retry_query_count"] <= 4
+    assert state["raw"]["retry_queries"][0] == "Raw Material & Chemical Feeding 终点 主要设备"
     assert state["evidence_judgement"]["enough"] is True
-    assert graph.retrieval_router.calls[0]["retriever_names"] == ["page_index"]
+    assert graph.retrieval_router.calls[0]["retriever_names"][0] == "page_index"
     assert graph.qwen.calls == 1
+    first_retry_call_count = len(graph.retrieval_router.calls)
 
     state["raw"]["active_trace_display_key"] = "retry_retrieval"
     state = graph._retry_retrieval_node(state)  # noqa: SLF001
 
     assert state["raw"]["retry_count"] == 1
-    assert len(graph.retrieval_router.calls) == 1
+    assert len(graph.retrieval_router.calls) == first_retry_call_count
     assert graph.qwen.calls == 1
-

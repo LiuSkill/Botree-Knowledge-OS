@@ -36,6 +36,95 @@ logger = logging.getLogger(__name__)
 AWAITING_GENERAL_CONFIRM = "AWAITING_GENERAL_CONFIRM"
 NORMAL_CONVERSATION_STATE = "NORMAL"
 
+VISIBLE_PROGRESS_TITLES = {
+    "understanding": "正在理解你的问题",
+    "planning": "正在规划资料检索方式",
+    "retrieving": "正在检索相关资料",
+    "filtering": "正在筛选可用依据",
+    "answering": "正在整理回答内容",
+}
+VISIBLE_PROGRESS_STAGE_ORDER = ("understanding", "planning", "retrieving", "filtering", "answering")
+VISIBLE_PROGRESS_STAGE_INDEX = {stage: index for index, stage in enumerate(VISIBLE_PROGRESS_STAGE_ORDER)}
+VISIBLE_PROGRESS_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "understanding",
+        (
+            "问答模式策略",
+            "问答策略",
+            "通用回答确认状态",
+            "确认状态",
+            "快速意图门控",
+            "用户意图识别",
+            "意图识别",
+            "答案策略路由",
+            "答案策略",
+            "chat_policy",
+            "confirm_state",
+            "pre_intent_gate",
+            "intent",
+            "answer_policy_router",
+        ),
+    ),
+    (
+        "planning",
+        (
+            "任务拆解",
+            "查询拆解",
+            "查询画像生成",
+            "查询画像",
+            "问题理解生成",
+            "问题理解",
+            "策略解析",
+            "数据检索规划",
+            "检索规划",
+            "query_decompose",
+            "query_profile",
+            "question_understanding",
+            "policy_resolution",
+            "planner",
+        ),
+    ),
+    (
+        "retrieving",
+        (
+            "检索执行",
+            "向量检索",
+            "关键词检索",
+            "页级检索",
+            "图谱检索",
+            "精准检索",
+            "精确检索",
+            "项目资料检索",
+            "内部知识检索",
+            "检索召回与数据组装",
+            "补充检索",
+            "视觉图纸阅读",
+            "retrieval",
+            "retry_retrieval",
+            "visual_reading",
+            "visual_evidence",
+        ),
+    ),
+    (
+        "filtering",
+        (
+            "证据判断",
+            "证据筛选",
+            "资料聚合",
+            "证据状态",
+            "答案门控",
+            "答案策略门控",
+            "evidence_judge",
+            "evidence_decision",
+            "answer_policy_gate",
+            "rerank",
+            "context build",
+        ),
+    ),
+    ("answering", ("回答生成", "LLM生成", "answer", "answer_generator", "direct_answer")),
+)
+RETRIEVAL_EMPTY_PATTERNS = ("未命中有效资料", "未找到足够的相关资料")
+
 
 class ChatService:
     """问答服务。"""
@@ -204,6 +293,7 @@ class ChatService:
             "used_retrievers": [],
             "agent_trace": [],
             "trace_steps": [],
+            "progress_events": [],
             "citations": [],
             "raw": {},
         }
@@ -211,10 +301,13 @@ class ChatService:
         def event_stream() -> Iterator[str]:
             answer_chunks: list[str] = []
             prepared_state: dict[str, Any] | None = None
+            emitted_progress: dict[str, str] = {}
             yield self._encode_sse("meta", initial_meta_payload)
             if pending_result is not None:
+                for progress_event in self._build_visible_progress_events(pending_result.get("agent_trace", []), completed=True):
+                    yield self._encode_sse("progress", progress_event)
                 yield self._encode_sse("delta", {"content": pending_result["answer"]})
-                yield self._encode_sse("done", pending_result)
+                yield self._encode_sse("done", self._sanitize_stream_result(pending_result))
                 return
             try:
                 for event_name, event_payload in retrieval_graph.prepare_stream(
@@ -225,7 +318,9 @@ class ChatService:
                     user,
                 ):
                     if event_name == "trace_delta":
-                        yield self._encode_sse("trace_delta", event_payload)
+                        progress_event = self._progress_event_from_trace(event_payload)
+                        if progress_event is not None and self._should_emit_progress(progress_event, emitted_progress):
+                            yield self._encode_sse("progress", progress_event)
                         continue
                     if event_name == "prepared":
                         prepared_state = event_payload
@@ -238,11 +333,12 @@ class ChatService:
                     "chat_type": prepared_state["chat_type"],
                     "mode": prepared_state["mode"],
                     "query_scope": prepared_state.get("query_scope") or "自动判断",
-                    "used_retrievers": prepared_state.get("used_retrievers", []),
-                    "agent_trace": prepared_state.get("trace", []),
-                    "trace_steps": prepared_state.get("trace", []),
+                    "used_retrievers": [],
+                    "agent_trace": [],
+                    "trace_steps": [],
+                    "progress_events": self._build_visible_progress_events(prepared_state.get("trace", []), completed=False),
                     "citations": self._serialize_evidences(prepared_state.get("evidences", [])),
-                    "raw": prepared_state.get("raw", {}),
+                    "raw": {},
                 }
                 yield self._encode_sse("meta", meta_payload)
 
@@ -253,19 +349,22 @@ class ChatService:
                     yield self._encode_sse("delta", {"content": answer})
                     agent_result = retrieval_graph.to_agent_result(prepared_state)
                     result = self._persist_agent_result(payload, user, session, agent_result)
-                    yield self._encode_sse("done", result)
+                    yield self._encode_sse("done", self._sanitize_stream_result(result))
                     return
 
                 answer_sequence = retrieval_graph.next_trace_sequence(prepared_state)
-                yield self._encode_sse(
-                    "trace_delta",
-                    retrieval_graph.answer_running_trace_delta(prepared_state, answer_sequence),
+                answer_progress = self._progress_event_from_trace(
+                    retrieval_graph.answer_running_trace_delta(prepared_state, answer_sequence)
                 )
+                if answer_progress is not None and self._should_emit_progress(answer_progress, emitted_progress):
+                    yield self._encode_sse("progress", answer_progress)
                 answer_started_at = time.perf_counter()
                 for delta in retrieval_graph.answer_generator.stream_generate(
                     payload.message,
                     prepared_state.get("evidences", []),
                     query_profile=prepared_state.get("query_profile", {}),
+                    action=str(prepared_state.get("answer_policy_action") or "normal_answer"),
+                    evidence_evaluation=prepared_state.get("evidence_evaluation", {}),
                     user=user,
                     request_id=prepared_state.get("raw", {}).get("run_id"),
                 ):
@@ -288,9 +387,13 @@ class ChatService:
                     trace_sequence=answer_sequence,
                 )
                 if agent_result.get("agent_trace"):
-                    yield self._encode_sse("trace_delta", retrieval_graph.trace_delta_payload(agent_result["agent_trace"][-1]))
+                    final_progress = self._progress_event_from_trace(
+                        retrieval_graph.trace_delta_payload(agent_result["agent_trace"][-1])
+                    )
+                    if final_progress is not None and self._should_emit_progress(final_progress, emitted_progress):
+                        yield self._encode_sse("progress", final_progress)
                 result = self._persist_agent_result(payload, user, session, agent_result)
-                yield self._encode_sse("done", result)
+                yield self._encode_sse("done", self._sanitize_stream_result(result))
             except AppException as exc:
                 self.db.rollback()
                 logger.warning("知识问答流式输出失败: session_id=%s reason=%s", session.id, exc.message)
@@ -301,6 +404,144 @@ class ChatService:
                 yield self._encode_sse("error", {"message": "知识问答流式输出失败，请稍后重试", "code": 500})
 
         return event_stream()
+
+    def _progress_event_from_trace(self, trace_item: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        将内部 trace item 转换成普通用户可见进度。
+
+        业务规则：
+        - 只输出固定 stage/title/status/sequence 字段。
+        - 不透出耗时、节点实现、检索器名称、策略 code 或 raw payload。
+        """
+
+        stage = self._progress_stage_from_trace(trace_item)
+        if stage is None:
+            return None
+        status = self._progress_status(trace_item.get("status"))
+        source_text = self._trace_source_text(trace_item)
+        return {
+            "visible": True,
+            "stage": stage,
+            "title": self._progress_title(stage, status, source_text),
+            "status": status,
+            "sequence": trace_item.get("sequence"),
+        }
+
+    def _build_visible_progress_events(self, trace_steps: list[dict[str, Any]], *, completed: bool) -> list[dict[str, Any]]:
+        """从完整内部 trace 生成去重后的用户可见进度列表。"""
+
+        events = [event for step in trace_steps if (event := self._progress_event_from_trace(step)) is not None]
+        if completed and events and not any(event["stage"] == "answering" for event in events):
+            events.append(
+                {
+                    "visible": True,
+                    "stage": "answering",
+                    "title": VISIBLE_PROGRESS_TITLES["answering"],
+                    "status": "success",
+                    "sequence": None,
+                }
+            )
+        normalized = self._normalize_progress_events(events)
+        return self._mark_progress_complete(normalized) if completed else normalized
+
+    def _sanitize_stream_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        """普通用户流式完成事件只返回答案、引用和清洗后的进度。"""
+
+        safe_result = dict(result)
+        progress_events = safe_result.get("progress_events") or self._build_visible_progress_events(
+            safe_result.get("agent_trace", []),
+            completed=True,
+        )
+        safe_result["progress_events"] = progress_events
+        safe_result["agent_trace"] = []
+        safe_result["trace_steps"] = []
+        safe_result["trace"] = []
+        safe_result["used_retrievers"] = []
+        for debug_key in (
+            "answer_type",
+            "intent_type",
+            "answer_policy",
+            "evidence_status",
+            "need_user_confirm",
+            "pending_action",
+            "sources",
+        ):
+            safe_result.pop(debug_key, None)
+        raw = safe_result.get("raw") if isinstance(safe_result.get("raw"), dict) else {}
+        safe_result["raw"] = {"message_id": raw.get("message_id")}
+        return safe_result
+
+    def _should_emit_progress(self, event: dict[str, Any], emitted_progress: dict[str, str]) -> bool:
+        stage = str(event.get("stage") or "")
+        signature = f"{event.get('status')}::{event.get('title')}"
+        if emitted_progress.get(stage) == signature:
+            return False
+        emitted_progress[stage] = signature
+        return True
+
+    def _progress_stage_from_trace(self, trace_item: dict[str, Any]) -> str | None:
+        explicit_stage = trace_item.get("stage")
+        if explicit_stage in VISIBLE_PROGRESS_TITLES:
+            return str(explicit_stage)
+        source_text = self._trace_source_text(trace_item).lower()
+        for stage, keywords in VISIBLE_PROGRESS_KEYWORDS:
+            if any(keyword.lower() in source_text for keyword in keywords):
+                return stage
+        return None
+
+    def _progress_status(self, raw_status: Any) -> str:
+        status = str(raw_status or "success")
+        if status in {"pending", "running", "success", "failed"}:
+            return status
+        return "success"
+
+    def _progress_title(self, stage: str, status: str, source_text: str) -> str:
+        if stage == "retrieving" and status == "failed":
+            return "资料检索遇到问题，正在尝试继续处理"
+        if stage == "retrieving" and any(pattern in source_text for pattern in RETRIEVAL_EMPTY_PATTERNS):
+            return "未找到足够的相关资料"
+        return VISIBLE_PROGRESS_TITLES[stage]
+
+    def _trace_source_text(self, trace_item: dict[str, Any]) -> str:
+        return "\n".join(
+            str(trace_item.get(key) or "")
+            for key in ("step", "implementation", "display_text", "result")
+            if trace_item.get(key) is not None
+        )
+
+    def _normalize_progress_events(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        by_stage: dict[str, dict[str, Any]] = {}
+        for event in events:
+            stage = str(event.get("stage") or "")
+            if stage not in VISIBLE_PROGRESS_TITLES:
+                continue
+            status = self._progress_status(event.get("status"))
+            by_stage[stage] = {
+                "visible": True,
+                "stage": stage,
+                "title": self._progress_title(stage, status, str(event.get("title") or "")),
+                "status": status,
+                "sequence": event.get("sequence"),
+            }
+        return [by_stage[stage] for stage in VISIBLE_PROGRESS_STAGE_ORDER if stage in by_stage]
+
+    def _mark_progress_complete(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not events:
+            return []
+        latest_index = max(VISIBLE_PROGRESS_STAGE_INDEX[str(event["stage"])] for event in events)
+        by_stage = {str(event["stage"]): event for event in events}
+        completed_events: list[dict[str, Any]] = []
+        for stage in VISIBLE_PROGRESS_STAGE_ORDER[: latest_index + 1]:
+            completed_events.append(
+                {
+                    "visible": True,
+                    "stage": stage,
+                    "title": VISIBLE_PROGRESS_TITLES[stage],
+                    "status": "success",
+                    "sequence": by_stage.get(stage, {}).get("sequence"),
+                }
+            )
+        return completed_events
 
     def _try_handle_general_confirmation(
         self,
@@ -430,6 +671,7 @@ class ChatService:
     ) -> dict[str, Any]:
         """持久化回答、引用与检索轨迹，并返回统一响应。"""
 
+        progress_events = self._build_visible_progress_events(agent_result["agent_trace"], completed=True)
         assistant_message = ChatMessage(
             session_id=session.id,
             user_id=None,
@@ -437,6 +679,7 @@ class ChatService:
             content=agent_result["answer"],
             query_scope=agent_result["query_scope"],
             agent_trace_json=json.dumps(agent_result["agent_trace"], ensure_ascii=False),
+            progress_json=json.dumps(progress_events, ensure_ascii=False),
         )
         self.repository.add_message(assistant_message)
 
@@ -499,6 +742,7 @@ class ChatService:
             "agent_trace": agent_result["agent_trace"],
             "trace_steps": trace_steps,
             "trace": trace_steps,
+            "progress_events": progress_events,
             "citations": citation_dicts,
             "sources": citation_dicts,
             "need_user_confirm": bool(agent_result.get("need_user_confirm")),
@@ -517,12 +761,30 @@ class ChatService:
             "role": message.role,
             "content": message.content,
             "query_scope": message.query_scope,
-            "agent_trace_json": message.agent_trace_json,
+            "agent_trace_json": None,
+            "progress_json": self._message_progress_json(message),
             "feedback_status": message.feedback_status,
             "citations": [self._citation_to_dict(citation) for citation in citations],
             "created_at": message.created_at.isoformat() if message.created_at else None,
             "updated_at": message.updated_at.isoformat() if message.updated_at else None,
         }
+
+    def _message_progress_json(self, message: ChatMessage) -> str | None:
+        """读取普通聊天页可用进度；旧消息缺少 progress_json 时现场从审计 trace 派生。"""
+
+        if message.progress_json:
+            return message.progress_json
+        if not message.agent_trace_json:
+            return None
+        try:
+            parsed = json.loads(message.agent_trace_json)
+        except json.JSONDecodeError:
+            logger.warning("助手消息进度派生失败: message_id=%s reason=invalid_trace_json", message.id)
+            return None
+        if not isinstance(parsed, list):
+            return None
+        progress_events = self._build_visible_progress_events(parsed, completed=True)
+        return json.dumps(progress_events, ensure_ascii=False) if progress_events else None
 
     def _citation_to_dict(self, citation: ChatCitation) -> dict[str, Any]:
         """序列化持久化的引用来源。"""

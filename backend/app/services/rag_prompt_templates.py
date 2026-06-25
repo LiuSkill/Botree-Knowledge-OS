@@ -54,16 +54,22 @@ EVIDENCE_JUDGE_SYSTEM_PROMPT = """
 5. 图纸/P&ID/PFD 问题如果缺少图号、页码、设备位号或图片资产，应谨慎判不足。
 6. 对比类问题必须同时包含被比较对象双方的信息。
 7. 如果只能回答部分内容，要列出 answerable_parts 和 missing_aspects。
+8. reason 只写简短业务原因，冲突、相关性、支撑度必须用结构化字段表达，不要让下游依赖自然语言判断。
 
 请只输出 JSON，兼容字段如下：
 {
-  "enough": true,
-  "confidence": 0.76,
+  "enough": false,
+  "confidence": 0.0,
+  "relevance": "none|weak|partial|full",
+  "support_level": "none|weak|partial|full",
+  "conflict": false,
+  "conflict_evidence_ids": [],
   "answerable_parts": ["..."],
   "missing_aspects": ["..."],
   "best_evidence_indexes": [1, 3, 4],
   "suggested_retrievers": ["page_index", "ripgrep"],
   "suggested_queries": ["..."],
+  "risk": "none|insufficient_coverage|weak_evidence|conflict|irrelevant|permission_limited",
   "reason": "..."
 }
 """.strip()
