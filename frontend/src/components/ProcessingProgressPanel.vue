@@ -127,12 +127,12 @@ watch(
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  min-height: 34px;
+  min-height: 32px;
   color: #64748b;
 }
 
 .processing-progress-row + .processing-progress-row {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .processing-progress-marker {

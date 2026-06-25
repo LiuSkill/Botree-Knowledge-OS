@@ -222,15 +222,16 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
 
   return CHAT_PROGRESS_STAGES.map((config, index) => {
     const event = eventByStage.get(config.stage);
+    if (activeIndex >= 0 && index < activeIndex) {
+      return { ...config, title: event?.title ?? config.title, status: 'success' };
+    }
     if (event) {
+      const eventStatus = toVisibleStatus(event.status);
       return {
         ...config,
         title: event.title,
-        status: toVisibleStatus(event.status),
+        status: streaming && index === activeIndex && eventStatus === 'pending' ? 'running' : eventStatus,
       };
-    }
-    if (activeIndex >= 0 && index < activeIndex) {
-      return { ...config, status: 'success' };
     }
     if (streaming && index === activeIndex) {
       return { ...config, status: 'running' };
