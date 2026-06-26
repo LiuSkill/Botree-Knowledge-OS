@@ -454,12 +454,8 @@ class ChatService:
         """流式处理用户确认使用通用知识回答，先推送进度再执行耗时生成。"""
 
         decision_type, pending_question = decision
-        understanding_progress = self._manual_progress_event("understanding", "success", sequence=1)
-        if self._should_emit_progress(understanding_progress, emitted_progress):
-            yield self._encode_sse("progress", understanding_progress)
-
         if decision_type == "confirm":
-            answer_progress = self._manual_progress_event("answering", "running", sequence=2)
+            answer_progress = self._manual_progress_event("answering", "running", sequence=1, compact=True)
             if self._should_emit_progress(answer_progress, emitted_progress):
                 yield self._encode_sse("progress", answer_progress)
             answer = self._build_confirmed_general_answer(pending_question)
@@ -527,9 +523,14 @@ class ChatService:
         """普通用户流式完成事件只返回答案、引用和清洗后的进度。"""
 
         safe_result = dict(result)
-        progress_events = safe_result.get("progress_events") or self._build_visible_progress_events(
-            safe_result.get("agent_trace", []),
-            completed=True,
+        custom_progress_events = safe_result.get("progress_events")
+        progress_events = (
+            custom_progress_events
+            if isinstance(custom_progress_events, list)
+            else self._build_visible_progress_events(
+                safe_result.get("agent_trace", []),
+                completed=True,
+            )
         )
         safe_result["progress_events"] = progress_events
         safe_result["agent_trace"] = []
@@ -558,10 +559,17 @@ class ChatService:
         emitted_progress[stage] = signature
         return True
 
-    def _manual_progress_event(self, stage: str, status: str, *, sequence: int | None = None) -> dict[str, Any]:
+    def _manual_progress_event(
+        self,
+        stage: str,
+        status: str,
+        *,
+        sequence: int | None = None,
+        compact: bool = False,
+    ) -> dict[str, Any]:
         """构造无内部 trace 依赖的用户可见进度事件。"""
 
-        return {
+        event = {
             "visible": True,
             "stage": stage,
             "title": VISIBLE_PROGRESS_TITLES[stage],
@@ -569,6 +577,9 @@ class ChatService:
             "detail": self._progress_detail(stage, status, ""),
             "sequence": sequence,
         }
+        if compact:
+            event["compact"] = True
+        return event
 
     def _has_progress_stage(self, trace_steps: list[dict[str, Any]], stage: str) -> bool:
         """判断 trace 是否已经包含指定的用户可见阶段，避免直接回答重复回退进度。"""
@@ -770,6 +781,11 @@ class ChatService:
                 "details": {"pending_general_question_used": direct_llm_used, "refused": refused},
             }
         ]
+        progress_events = (
+            [self._manual_progress_event("answering", "success", sequence=1, compact=True)]
+            if direct_llm_used
+            else []
+        )
         return {
             "answer": answer,
             "chat_type": payload.chat_type,
@@ -784,6 +800,7 @@ class ChatService:
             "used_retrievers": [],
             "agent_trace": trace,
             "trace_steps": trace,
+            "progress_events": progress_events,
             "evidences": [],
             "raw": {
                 "candidate_k": 100,
@@ -806,7 +823,12 @@ class ChatService:
     ) -> dict[str, Any]:
         """持久化回答、引用与检索轨迹，并返回统一响应。"""
 
-        progress_events = self._build_visible_progress_events(agent_result["agent_trace"], completed=True)
+        custom_progress_events = agent_result.get("progress_events")
+        progress_events = (
+            custom_progress_events
+            if isinstance(custom_progress_events, list)
+            else self._build_visible_progress_events(agent_result["agent_trace"], completed=True)
+        )
         assistant_message = ChatMessage(
             session_id=session.id,
             user_id=None,

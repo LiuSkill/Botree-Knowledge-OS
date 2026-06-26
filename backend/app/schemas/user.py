@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from app.core.security_levels import DEFAULT_SECURITY_LEVEL
+from app.core.security_levels import DEFAULT_SECURITY_LEVEL, user_max_security_level
 from app.utils.user_avatar import avatar_url_for_user
 
 
@@ -75,7 +75,4 @@ class UserOut(BaseModel):
     def max_security_level(self) -> str:
         """Derived max security level."""
 
-        if not self.roles:
-            return DEFAULT_SECURITY_LEVEL
-        levels = [role.security_level for role in self.roles if role.enabled]
-        return max(levels) if levels else DEFAULT_SECURITY_LEVEL
+        return user_max_security_level(self)

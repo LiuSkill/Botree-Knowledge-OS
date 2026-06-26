@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,7 +20,8 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-user-profile")
 from app.core.exceptions import AppException  # noqa: E402
 from app.core.security import hash_password, verify_password  # noqa: E402
 from app.models import Base  # noqa: E402
-from app.models.user import User  # noqa: E402
+from app.models.user import Role, User  # noqa: E402
+from app.schemas.user import RoleBrief, UserOut  # noqa: E402
 from app.services.auth_service import AuthService  # noqa: E402
 from app.services.user_service import UserService  # noqa: E402
 
@@ -127,6 +129,46 @@ def test_current_user_response_includes_avatar_url(db_session: Session, monkeypa
 
     assert profile["avatar_url"] == f"/api/users/{user.id}/avatar"
     assert profile["avatar_updated_at"] is None
+
+
+def test_current_user_response_includes_max_security_level(db_session: Session) -> None:
+    """当前用户资料应按启用角色返回可访问最高密级。"""
+
+    user = seed_user(db_session)
+    enabled_role = Role(name="内部角色", code="internal-role", enabled=True, security_level="internal")
+    disabled_role = Role(name="禁用秘密角色", code="disabled-confidential", enabled=False, security_level="confidential")
+    user.roles = [enabled_role, disabled_role]
+    db_session.add_all([enabled_role, disabled_role, user])
+    db_session.commit()
+    db_session.refresh(user)
+
+    profile = AuthService(db_session).to_current_user(user)
+
+    assert profile["max_security_level"] == "internal"
+    assert {role["code"]: role["security_level"] for role in profile["roles"]} == {
+        "internal-role": "internal",
+        "disabled-confidential": "confidential",
+    }
+
+
+def test_user_out_max_security_level_uses_security_rank() -> None:
+    """用户输出模型的最高密级应按 public/internal/confidential 顺序计算。"""
+
+    now = datetime.utcnow()
+    profile = UserOut(
+        id=1,
+        username="rank-user",
+        real_name="Rank User",
+        status="enabled",
+        created_at=now,
+        updated_at=now,
+        roles=[
+            RoleBrief(id=1, name="公开角色", code="public-role", enabled=True, security_level="public"),
+            RoleBrief(id=2, name="秘密角色", code="confidential-role", enabled=True, security_level="confidential"),
+        ],
+    )
+
+    assert profile.max_security_level == "confidential"
 
 
 def test_upload_avatar_requires_minio(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:

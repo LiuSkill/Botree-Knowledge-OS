@@ -7,6 +7,8 @@
   3. 在阶段更新时保持组件内部滚动，不撑开聊天页面
 -->
 <script setup lang="ts">
+import { ChatLoading } from '@tdesign-vue-next/chat';
+import { CheckCircleIcon, ChevronDownSIcon, ChevronUpSIcon, ErrorCircleIcon } from 'tdesign-icons-vue-next';
 import { computed, nextTick, ref, watch } from 'vue';
 
 import type { ChatProgressEvent } from '@/types/api';
@@ -17,17 +19,47 @@ const props = withDefaults(
     events: ChatProgressEvent[];
     streaming?: boolean;
     title?: string;
+    collapsible?: boolean;
+    defaultCollapsed?: boolean;
   }>(),
   {
     streaming: false,
     title: '处理进度',
+    collapsible: false,
+    defaultCollapsed: false,
   },
 );
 
 const scrollRef = ref<HTMLElement | null>(null);
+const collapsed = ref(props.defaultCollapsed);
 const rows = computed<ChatProgressRow[]>(() => buildProgressRows(props.events, props.streaming));
 const updateSignature = computed(() =>
   rows.value.map((row) => `${row.stage}:${row.status}:${row.title}:${row.detail}`).join('|'),
+);
+const hasError = computed(() => props.events.some((event) => event.status === 'failed'));
+const isThinking = computed(() => props.streaming || rows.value.some((row) => row.status === 'running'));
+const thinkingStatus = computed<'pending' | 'complete' | 'error'>(() => {
+  if (hasError.value) return 'error';
+  if (isThinking.value) return 'pending';
+  return 'complete';
+});
+const thinkingTitle = computed(() => {
+  if (thinkingStatus.value === 'error') return '思考过程出错';
+  if (thinkingStatus.value === 'complete') return '思考完成';
+  return '思考中';
+});
+const canToggle = computed(() => props.collapsible && thinkingStatus.value !== 'pending');
+
+function toggleCollapsed(): void {
+  if (!canToggle.value) return;
+  collapsed.value = !collapsed.value;
+}
+
+watch(
+  () => props.defaultCollapsed,
+  (value) => {
+    if (props.collapsible) collapsed.value = value;
+  },
 );
 
 watch(
@@ -35,7 +67,7 @@ watch(
   async () => {
     await nextTick();
     const container = scrollRef.value;
-    if (!container) return;
+    if (!container || collapsed.value) return;
     container.scrollTop = container.scrollHeight;
   },
   { immediate: true },
@@ -43,11 +75,23 @@ watch(
 </script>
 
 <template>
-  <section class="processing-progress-card" aria-label="处理进度">
-    <div class="processing-progress-header">
-      <strong>{{ title }}</strong>
+  <section class="processing-progress-card" :class="{ collapsible, collapsed }" aria-label="处理进度">
+    <div class="processing-progress-header" :class="{ clickable: canToggle }" @click="toggleCollapsed">
+      <div class="processing-progress-heading">
+        <span v-if="collapsible" class="processing-progress-thinking" :class="thinkingStatus">
+          <ChatLoading v-if="thinkingStatus === 'pending'" animation="moving" text="思考中..." />
+          <CheckCircleIcon v-else-if="thinkingStatus === 'complete'" />
+          <ErrorCircleIcon v-else />
+          <span v-if="thinkingStatus !== 'pending'">{{ thinkingTitle }}</span>
+        </span>
+        <strong v-else>{{ title }}</strong>
+        <button v-if="canToggle" class="processing-progress-toggle" type="button" :aria-expanded="!collapsed" @click.stop="toggleCollapsed">
+          <ChevronDownSIcon v-if="collapsed" />
+          <ChevronUpSIcon v-else />
+        </button>
+      </div>
     </div>
-    <div ref="scrollRef" class="processing-progress-scroll">
+    <div v-show="!collapsed" ref="scrollRef" class="processing-progress-scroll">
       <TransitionGroup name="progress-step" tag="div" class="processing-progress-list">
         <div
           v-for="row in rows"
@@ -84,12 +128,31 @@ watch(
   padding: 2px 0;
 }
 
+.processing-progress-card.collapsible {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  padding: 0;
+}
+
 .processing-progress-header {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 6px;
   margin-bottom: 10px;
+}
+
+.processing-progress-header.clickable {
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.processing-progress-card.collapsed .processing-progress-header {
+  margin-bottom: 0;
 }
 
 .processing-progress-header strong {
@@ -98,10 +161,79 @@ watch(
   font-weight: 700;
 }
 
+.processing-progress-heading {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.processing-progress-thinking {
+  display: inline-flex;
+  min-width: fit-content;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.processing-progress-thinking :deep(.t-icon) {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  font-size: 16px;
+}
+
+.processing-progress-thinking :deep(.t-chat-loading) {
+  gap: 8px;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.processing-progress-thinking.complete :deep(.t-icon) {
+  color: #00a870;
+}
+
+.processing-progress-thinking.error :deep(.t-icon) {
+  color: #d54941;
+}
+
+.processing-progress-toggle {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8b95a5;
+  cursor: pointer;
+  margin-left: 2px;
+  padding: 0;
+}
+
+.processing-progress-toggle:hover {
+  background: transparent;
+  color: #1d4ed8;
+}
+
+.processing-progress-toggle :deep(.t-icon) {
+  font-size: 16px;
+}
+
 .processing-progress-scroll {
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
+  padding-top: 2px;
 }
 
 .processing-progress-list {

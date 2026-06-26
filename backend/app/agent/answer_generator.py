@@ -508,8 +508,17 @@ class AnswerGenerator:
             "out_of_scope": "该问题超出当前知识库或项目范围，无法基于现有资料回答。",
             "unsafe_generalization": "该问题涉及项目事实，不能使用通用知识补答。",
         }
+        reason_labels = {
+            "no_project_evidence": "未检索到可支撑回答的项目资料",
+            "conflict_evidence": "检索资料存在冲突",
+            "permission_denied": "当前权限下无可访问资料",
+            "invalid_question": "问题不明确或缺少业务含义",
+            "out_of_scope": "问题超出当前知识库或项目范围",
+            "unsafe_generalization": "不能使用通用知识补答项目事实",
+        }
         detail = messages.get(reason_code, PROJECT_REFUSAL_TEXT)
-        return f"{detail}\n拒答原因：{reason_code}\n问题：{self._topic_text(question)}"
+        reason_label = reason_labels.get(reason_code, "当前资料不足以支撑回答")
+        return f"{detail}\n拒答原因：{reason_label}\n问题：{self._topic_text(question)}"
 
     def _refusal_reason_code(self, evidence_evaluation: dict[str, Any], query_profile: dict[str, Any]) -> str:
         risk = str(evidence_evaluation.get("risk") or "")

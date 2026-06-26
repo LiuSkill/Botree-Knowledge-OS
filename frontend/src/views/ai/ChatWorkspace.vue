@@ -27,6 +27,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vu
 
 import {
   deleteChatSession,
+  getMessageTrace,
   listChatMessages,
   listChatSessions,
   streamKnowledgeAgent,
@@ -36,6 +37,7 @@ import {
 } from '@/api/chat';
 import { listProjects } from '@/api/projects';
 import botreeLogo from '@/assets/botree-logo.png';
+import AgentTracePanel from '@/components/AgentTracePanel.vue';
 import ChatRichContent from '@/components/ChatRichContent.vue';
 import CitationList from '@/components/CitationList.vue';
 import ProcessingProgressPanel from '@/components/ProcessingProgressPanel.vue';
@@ -98,6 +100,9 @@ const renamingSession = ref<ChatSession | null>(null);
 const renameTitle = ref('');
 const renameDialogVisible = ref(false);
 const renameSubmitting = ref(false);
+const traceDetailCache = ref<Record<number, AgentTraceStep[] | null>>({});
+const traceDetailLoadingMap = ref<Record<number, boolean>>({});
+const traceDetailErrorMap = ref<Record<number, string>>({});
 // 正文通过插槽渲染，外层 TChatMessage 保持空状态，避免底层加载态替换插槽内容。
 const chatMessageStatus = '';
 
@@ -119,10 +124,22 @@ const activeDetailMessage = computed(
   () => messages.value.find((item) => item.role === 'assistant' && item.id === activeDetailMessageId.value) || null,
 );
 const isDetailOpen = computed(() => Boolean(activeDetailMode.value && activeDetailMessage.value));
-const detailPanelTitle = computed(() => (activeDetailMode.value === 'citations' ? '引用来源' : '处理进度'));
+const detailPanelTitle = computed(() => (activeDetailMode.value === 'citations' ? '引用来源' : '生成过程'));
 const activeDetailCitations = computed(() => activeDetailMessage.value?.citations || []);
-const activeDetailProgress = computed(() => activeDetailMessage.value?.progressEvents || []);
 const activeDetailQuestion = computed(() => (activeDetailMessage.value ? questionForAssistant(activeDetailMessage.value) : ''));
+const activeTraceMessageId = computed(() => (typeof activeDetailMessageId.value === 'number' ? activeDetailMessageId.value : null));
+const activeDetailTraceState = computed(() => {
+  const messageId = activeTraceMessageId.value;
+  if (messageId === null) {
+    return { steps: [] as AgentTraceStep[], loaded: false, loading: false, error: '' };
+  }
+  return {
+    steps: traceDetailCache.value[messageId] || [],
+    loaded: Object.prototype.hasOwnProperty.call(traceDetailCache.value, messageId),
+    loading: Boolean(traceDetailLoadingMap.value[messageId]),
+    error: traceDetailErrorMap.value[messageId] || '',
+  };
+});
 const sessionGroups = computed(() => {
   const pinnedSessions = sessions.value.filter((session) => session.is_pinned);
   const recentSessions = sessions.value.filter((session) => !session.is_pinned && !session.is_favorite);
@@ -234,7 +251,7 @@ function chatContentStatus(message: UiChatMessage): '' | 'error' {
 }
 
 function shouldShowProgress(message: UiChatMessage): boolean {
-  return !message.content.trim() && (message.streaming || message.progressEvents.length > 0);
+  return message.role === 'assistant' && (message.streaming || message.progressEvents.length > 0);
 }
 
 function shouldShowAssistantActions(message: UiChatMessage): boolean {
@@ -274,7 +291,37 @@ function toggleDetailPanel(message: UiChatMessage, mode: DetailMode): void {
   }
   activeDetailMessageId.value = message.id;
   activeDetailMode.value = mode;
+  if (mode === 'trace') {
+    void loadDetailTrace(message);
+  }
   void focusQuestionInput();
+}
+
+async function loadDetailTrace(message: UiChatMessage): Promise<void> {
+  if (typeof message.id !== 'number') return;
+  const messageId = message.id;
+  if (
+    Object.prototype.hasOwnProperty.call(traceDetailCache.value, messageId) ||
+    traceDetailLoadingMap.value[messageId]
+  ) {
+    return;
+  }
+
+  traceDetailErrorMap.value = { ...traceDetailErrorMap.value, [messageId]: '' };
+  traceDetailLoadingMap.value = { ...traceDetailLoadingMap.value, [messageId]: true };
+  try {
+    const detail = await getMessageTrace(messageId);
+    const steps = parseAgentTrace(detail.trace_json);
+    traceDetailCache.value = { ...traceDetailCache.value, [messageId]: steps.length ? steps : null };
+  } catch (error) {
+    traceDetailErrorMap.value = {
+      ...traceDetailErrorMap.value,
+      [messageId]: error instanceof Error ? error.message : '生成过程加载失败',
+    };
+  } finally {
+    const { [messageId]: _removed, ...remaining } = traceDetailLoadingMap.value;
+    traceDetailLoadingMap.value = remaining;
+  }
 }
 
 function isDetailButtonActive(message: UiChatMessage, mode: DetailMode): boolean {
@@ -725,9 +772,12 @@ onBeforeUnmount(() => {
                 <ProcessingProgressPanel
                   v-if="shouldShowProgress(message)"
                   class="message-progress"
+                  :class="{ 'with-answer': Boolean(message.content.trim()) }"
                   :events="message.progressEvents"
                   :streaming="message.streaming"
-                  title="正在处理..."
+                  :title="message.content.trim() ? '处理过程' : '正在处理...'"
+                  :collapsible="true"
+                  :default-collapsed="Boolean(message.content.trim())"
                 />
 
                 <TChatMessage
@@ -775,7 +825,7 @@ onBeforeUnmount(() => {
                         <QuoteIcon />
                       </t-button>
                     </t-tooltip>
-                    <t-tooltip content="处理进度">
+                    <t-tooltip content="生成过程">
                       <t-button
                         class="message-action-button"
                         :class="{ active: isDetailButtonActive(message, 'trace') }"
@@ -845,11 +895,14 @@ onBeforeUnmount(() => {
         </div>
         <div class="detail-panel-body">
           <CitationList v-if="activeDetailMode === 'citations'" :citations="activeDetailCitations" :chat-type="chatType" />
-          <ProcessingProgressPanel
-            v-else-if="activeDetailMode === 'trace'"
-            :events="activeDetailProgress"
-            title="处理进度"
-          />
+          <div v-else-if="activeDetailMode === 'trace'" class="detail-trace-panel">
+            <div v-if="activeDetailTraceState.loading" class="detail-trace-loading">正在加载生成过程...</div>
+            <div v-else-if="activeDetailTraceState.error" class="detail-trace-error">
+              {{ activeDetailTraceState.error }}
+            </div>
+            <AgentTracePanel v-else-if="activeDetailTraceState.steps.length" :steps="activeDetailTraceState.steps" />
+            <t-empty v-else size="small" description="暂无生成过程记录" />
+          </div>
         </div>
       </aside>
     </div>
@@ -1290,6 +1343,12 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
 }
 
+.message-progress.with-answer {
+  border-bottom: 1px solid #edf0f5;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+}
+
 .message-action-bar {
   display: flex;
   align-items: center;
@@ -1432,6 +1491,27 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: auto;
   padding-top: 12px;
+}
+
+.detail-trace-panel {
+  min-height: 0;
+}
+
+.detail-trace-loading,
+.detail-trace-error {
+  border: 1px solid #e5eaf3;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 12px;
+}
+
+.detail-trace-error {
+  border-color: #f3d6d4;
+  background: #fff7f6;
+  color: #b42318;
 }
 
 </style>

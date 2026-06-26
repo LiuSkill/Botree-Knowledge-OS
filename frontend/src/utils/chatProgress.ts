@@ -319,6 +319,14 @@ export function normalizeProgressEvents(events: ChatProgressEvent[]): ChatProgre
 export function buildProgressRows(events: ChatProgressEvent[], streaming = false): ChatProgressRow[] {
   const normalized = normalizeProgressEvents(events);
   const eventByStage = new Map(normalized.map((item) => [item.stage, item]));
+  if (normalized.some((event) => event.compact)) {
+    return normalized.map((event) => ({
+      stage: event.stage,
+      title: event.title,
+      status: streaming && event.status === 'pending' ? 'running' : toVisibleStatus(event.status),
+      detail: safeDetail(event.stage, normalizeStatus(event.status), event.title, event.detail),
+    }));
+  }
   let activeIndex = -1;
   for (const event of normalized) {
     activeIndex = Math.max(activeIndex, STAGE_INDEX[event.stage]);
@@ -392,6 +400,7 @@ function sanitizeProgressEvent(event: ChatProgressEvent): ChatProgressEvent {
     status,
     detail: safeDetail(event.stage, status, event.title, event.detail),
     sequence: event.sequence ?? null,
+    compact: event.compact === true,
   };
 }
 

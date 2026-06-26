@@ -684,7 +684,7 @@ onMounted(async () => {
   border-radius: 6px;
   background: #fff;
   overflow: auto;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
 }
 
 .audit-table-scroll :deep(.t-table) {

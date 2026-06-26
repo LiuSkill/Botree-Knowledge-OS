@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import AppException
 from app.core.rbac import filter_bound_action_codes, menu_permission_codes, sync_menu_action_permission_codes
 from app.core.security import create_access_token, verify_password
+from app.core.security_levels import user_max_security_level
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.system_service import SystemService
@@ -86,9 +87,16 @@ class AuthService:
             "avatar_url": avatar_url_for_user(user),
             "avatar_updated_at": user.avatar_updated_at.isoformat() if user.avatar_updated_at else None,
             "roles": [
-                {"id": role.id, "name": role.name, "code": role.code, "enabled": role.enabled}
+                {
+                    "id": role.id,
+                    "name": role.name,
+                    "code": role.code,
+                    "enabled": role.enabled,
+                    "security_level": role.security_level,
+                }
                 for role in user.roles
             ],
+            "max_security_level": user_max_security_level(user),
             "permission_codes": sorted(permission_codes),
             "permissions": {
                 "menus": sorted(permission_codes & MENU_PERMISSION_CODES),

@@ -14,6 +14,8 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import botreeLogo from '@/assets/botree-logo.png';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { useAuthStore } from '@/stores/auth';
+import type { SecurityLevel } from '@/types/api';
+import { securityLevelLabel } from '@/utils/securityLevels';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -30,6 +32,22 @@ const passwordForm = reactive({
 
 const displayName = computed(() => authStore.user?.real_name || authStore.user?.username || '用户');
 const roleNames = computed(() => authStore.user?.roles.map((role) => role.name).join('、') || '-');
+const securityLevelRank: Record<SecurityLevel, number> = {
+  public: 0,
+  internal: 1,
+  confidential: 2,
+};
+const maxSecurityLevel = computed<SecurityLevel>(() => {
+  const enabledRoleLevels = (authStore.user?.roles || [])
+    .filter((role) => role.enabled)
+    .map((role) => role.security_level)
+    .filter((level): level is SecurityLevel => Boolean(level));
+  if (!enabledRoleLevels.length) return authStore.user?.max_security_level || 'public';
+  return enabledRoleLevels.reduce((maxLevel, level) =>
+    securityLevelRank[level] > securityLevelRank[maxLevel] ? level : maxLevel,
+  );
+});
+const maxSecurityLevelClass = computed(() => `security-level-${maxSecurityLevel.value}`);
 const selectedAvatarName = computed(() => selectedAvatarFile.value?.name || '');
 
 function openProfile(): void {
@@ -180,6 +198,14 @@ async function logout(): Promise<void> {
             <div>
               <dt>角色</dt>
               <dd>{{ roleNames }}</dd>
+            </div>
+            <div>
+              <dt>最高密级</dt>
+              <dd>
+                <span class="security-level-text" :class="maxSecurityLevelClass">
+                  {{ securityLevelLabel(maxSecurityLevel) }}
+                </span>
+              </dd>
             </div>
           </dl>
         </section>
@@ -356,6 +382,22 @@ async function logout(): Promise<void> {
 .profile-info dd {
   margin: 0;
   color: #111827;
+}
+
+.security-level-text {
+  font-weight: 600;
+}
+
+.security-level-public {
+  color: #00a870;
+}
+
+.security-level-internal {
+  color: #b7791f;
+}
+
+.security-level-confidential {
+  color: #d54941;
 }
 
 .avatar-upload-actions,

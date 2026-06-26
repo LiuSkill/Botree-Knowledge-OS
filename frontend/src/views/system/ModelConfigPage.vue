@@ -379,7 +379,7 @@ onMounted(loadConfigs);
   border-radius: 6px;
   background: #fff;
   overflow: auto;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
 }
 
 .table-scroll :deep(.t-table) {

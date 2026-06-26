@@ -331,6 +331,25 @@ export interface ChatMessage {
   created_at: string;
 }
 
+export interface ChatMessageTrace {
+  id?: number;
+  message_id: number;
+  session_id?: number;
+  chat_type?: 'project_chat' | 'base_chat';
+  mode?: string;
+  project_id?: number | null;
+  question?: string | null;
+  intent?: string | null;
+  sub_queries_json?: string | null;
+  retriever_hits_json?: string | null;
+  rerank_result_json?: string | null;
+  citations_json?: string | null;
+  trace_json?: string | null;
+  elapsed_ms?: number | null;
+  created_at?: string | null;
+  trace?: null;
+}
+
 export interface CurrentPermissions {
   menus: string[];
   actions: string[];
@@ -409,6 +428,7 @@ export interface ChatProgressEvent {
   status: ChatProgressStatus;
   detail?: string | null;
   sequence?: number | null;
+  compact?: boolean;
 }
 
 export interface ChatCompletionResult {

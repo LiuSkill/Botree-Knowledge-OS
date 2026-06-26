@@ -293,6 +293,20 @@ def test_answer_generator_selects_text_vision_and_analysis_models() -> None:
     assert generator._select_answer_model("请综合分析上下游关系和影响原因", complex_evidences)[0] == "analysis_llm"  # noqa: SLF001
 
 
+def test_answer_generator_refusal_reason_uses_chinese_label() -> None:
+    """项目问答拒答原因面向用户时不应暴露内部英文 code。"""
+
+    generator = object.__new__(AnswerGenerator)
+    answer = generator._refusal_answer(  # noqa: SLF001
+        "哈哈，很好",
+        {"risk": "irrelevant"},
+        {"query_validity": "valid"},
+    )
+
+    assert "拒答原因：问题超出当前知识库或项目范围" in answer
+    assert "out_of_scope" not in answer
+
+
 def test_answer_generator_marks_industry_no_evidence_as_model_fallback() -> None:
     class FakeLLMService:
         def answer_with_evidence(

@@ -11,6 +11,7 @@ import { request } from '@/api/request';
 import type {
   ChatCompletionResult,
   ChatMessage,
+  ChatMessageTrace,
   ChatProgressEvent,
   ChatSession,
   ChatStreamDoneEvent,
@@ -134,6 +135,10 @@ export function updateChatSession(
 
 export function listChatMessages(sessionId: number): Promise<ChatMessage[]> {
   return request.get(`/chat/sessions/${sessionId}/messages`) as Promise<ChatMessage[]>;
+}
+
+export function getMessageTrace(messageId: number): Promise<ChatMessageTrace> {
+  return request.get(`/chat/messages/${messageId}/trace`) as Promise<ChatMessageTrace>;
 }
 
 export function deleteChatSession(sessionId: number): Promise<{ deleted: boolean }> {

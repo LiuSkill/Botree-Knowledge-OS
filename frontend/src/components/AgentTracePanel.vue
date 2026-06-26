@@ -44,6 +44,7 @@ interface TraceViewItem {
   key: string;
   index: number;
   step: AgentTraceStep;
+  title: string;
   routeItems: TraceRouteItem[];
   routeReason: string;
   summary: TraceSummaryView;
@@ -52,12 +53,28 @@ interface TraceViewItem {
 const TASK_LABELS: Record<string, string> = {
   answer: '回答生成',
   answer_llm: '回答模型',
+  answer_generator: '回答生成',
+  answer_policy_gate: '答案门控',
+  answer_policy_router: '答案策略',
+  chat_policy: '问答策略',
+  confirm_state: '确认状态',
+  direct_answer: '直接回答',
   evidence_judge: '证据判断',
   evidence_judge_fast: '快速证据判断',
+  evidence_decision: '证据状态判断',
   intent: '用户意图识别',
   llm: '通用文本模型',
+  policy_resolution: '策略解析',
   planner: '检索规划',
+  pre_intent_gate: '快速意图门控',
   query_decompose: '任务拆解',
+  query_profile: '查询画像',
+  question_understanding: '问题理解',
+  retrieval: '资料检索',
+  retry_retrieval: '补充检索',
+  router: '检索路由',
+  reranker: '证据重排',
+  visual_evidence: '图纸证据',
   visual_reading: '图像资料理解',
   vision_llm: '视觉模型',
 };
@@ -67,6 +84,8 @@ const SOURCE_LABELS: Record<string, string> = {
   env_fallback: '环境变量兜底',
   explicit: '指定配置',
   not_called: '未调用模型',
+  policy_matrix: '检索策略矩阵',
+  retrieval_policy_matrix: '检索策略矩阵',
   rules: '规则判断',
   rules_fast_path: '规则快速路径',
   rules_fallback: '规则回退',
@@ -77,33 +96,147 @@ const RETRIEVER_LABELS: Record<string, string> = {
   graph: '图谱检索',
   graphrag: '图谱检索',
   keyword: '关键词检索',
+  keyword_retrieval: '关键词检索',
   milvus: '语义检索',
   page_index: '页级检索',
-  project_metadata: '项目主数据',
+  page_level_retrieval: '页级检索',
+  project_metadata: '项目元数据',
   ripgrep: '精确检索',
+  semantic_retrieval: '语义检索',
 };
 
 const PROFILE_LABELS: Record<string, string> = {
+  base: '基础知识库',
+  base_chat: '基础问答',
+  bot_identity: '助手身份',
+  calculation: '计算类问题',
+  casual: '闲聊',
   comparison: '对比问答',
   comparison_table: '对比表格',
+  concept: '概念',
+  document: '文档',
+  document_location: '文档定位问答',
   direct_answer: '直接回答',
   direct_value: '精确答案',
+  equipment: '设备',
+  equipment_lookup: '设备查询',
   exact_lookup: '精确定位问答',
+  flow_description: '流程描述',
   general: '常规回答',
   general_qa: '通用问答',
   graph_reasoning: '图谱推理问答',
+  help: '帮助说明',
+  identity: '身份问题',
+  industry: '行业知识库',
   industry_explanation: '行业知识回答',
   industry_knowledge_qa: '行业基础知识问答',
   knowledge_qa: '知识问答',
+  limited_answer: '有限回答',
+  material_flow: '物料流程',
+  normal_answer: '正常回答',
   page_location: '页级定位问答',
+  parameter: '参数',
+  parameter_lookup: '参数查询',
+  parameter_table: '参数表格',
+  partial_answer: '部分回答',
+  partial_answer_with_llm: '受限模型补充回答',
+  process: '流程',
   process_flow: '流程问答',
   process_steps: '流程步骤',
+  project: '项目资料',
+  project_chat: '项目问答',
   project_overview: '项目概览问答',
   project_qa: '项目资料问答',
   project_summary: '项目概览',
+  project_with_industry: '项目资料和行业知识',
   pure_general_qa: '纯通用问答',
+  refusal: '拒答',
   source_location: '来源定位',
+  summary: '总结归纳',
+  troubleshooting: '故障排查',
   unknown: '未知类型',
+};
+
+const POLICY_LABELS: Record<string, string> = {
+  ASK_GENERAL_CONFIRM: '先询问是否使用通用知识',
+  CLARIFY: '需要补充问题信息',
+  EMPTY: '未检索到有效证据',
+  ENOUGH: '证据充足',
+  CONFLICTED: '证据存在冲突',
+  GENERAL_ALLOWED: '允许通用回答',
+  INVALID_QUERY: '问题无效',
+  KB_FIRST: '知识库优先',
+  PARTIAL: '证据部分可用',
+  PRESET_REPLY: '预设回复',
+  STRICT_KB: '严格依据知识库',
+  WEAK_ONLY: '仅有弱证据',
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  action: '处理动作',
+  answer_policy: '回答策略',
+  answer_policy_action: '回答动作',
+  answer_shape: '回答形式',
+  chat_type: '问答类型',
+  confidence: '置信度',
+  conflict_detected: '是否存在冲突',
+  direct_llm_used: '是否直接使用模型',
+  document_id: '文档 ID',
+  drawing_no: '图号',
+  evidence_status: '证据状态',
+  exact_text_search: '精确原文搜索',
+  executed_retrievers: '已执行检索方式',
+  fallback_ladder: '兜底检索顺序',
+  fallback_retrievers: '兜底检索方式',
+  fallback_used: '是否使用兜底检索',
+  graph_retrieval: '图谱检索',
+  has_doc_code: '是否包含文档编号',
+  has_exact_token: '是否包含精确词',
+  has_graph_relation: '是否需要关系推理',
+  has_page_hint: '是否包含页码线索',
+  has_section_hint: '是否包含章节线索',
+  has_table_hint: '是否包含表格线索',
+  has_value_hint: '是否包含数值线索',
+  images: '图片数',
+  implementation: '执行方式',
+  intent: '意图',
+  intent_type: '意图类型',
+  kb_grounded: '是否基于知识库',
+  keyword_retrieval: '关键词检索',
+  knowledge_scope: '知识范围',
+  mode: '模式',
+  model_route: '模型路由',
+  need_general_confirm: '是否需要用户确认',
+  need_graph_reasoning: '是否需要图谱推理',
+  need_page_location: '是否需要页级定位',
+  object_type: '对象类型',
+  page_level_retrieval: '页级检索',
+  page_no: '页码',
+  planned_retrievers: '计划检索方式',
+  policy_matrix_used: '是否使用检索策略矩阵',
+  project_id: '项目 ID',
+  qwen_used: '是否调用通义千问',
+  query_features: '问题特征',
+  query_profile: '查询画像',
+  query_rewrite: '检索改写',
+  query_rewrites: '检索改写',
+  reason: '原因',
+  resolved_answer_policy: '解析后的回答策略',
+  resolved_answer_shape: '解析后的回答形式',
+  resolved_knowledge_scope: '解析后的知识范围',
+  resolved_task_type: '解析后的问题类型',
+  retrieval_needs: '检索需求',
+  rule_id: '规则',
+  semantic_retrieval: '语义检索',
+  selected_retrievers: '选用检索方式',
+  skip_reasons: '跳过原因',
+  skipped_retrievers: '跳过的检索方式',
+  source: '来源',
+  strategy: '策略',
+  task: '任务',
+  task_type: '问题类型',
+  user_id: '用户 ID',
+  visual_evidence: '图纸/图片依据',
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -128,13 +261,14 @@ const QWEN_MODEL_TOKEN_LABELS: Record<string, string> = {
   vl: '视觉版',
 };
 
-const PAIR_LABELS = new Set(['选择', '跳过', '补充', '关联', '依据']);
+const PAIR_LABELS = new Set(['选择', '跳过', '补充', '关联', '依据', '改写', '冲突']);
 
 const traceItems = computed<TraceViewItem[]>(() =>
   visibleTraceSteps(props.steps).map((step, index) => ({
     key: traceStepKey(step, index),
     index,
     step,
+    title: traceStepTitle(step),
     routeItems: modelRouteItems(step),
     routeReason: modelRouteReason(step),
     summary: buildSummaryView(step),
@@ -145,12 +279,12 @@ function stepSummary(step: AgentTraceStep): string {
   if (step.display_text) return step.display_text;
   if (step.result) return step.result;
   if (step.output_summary && Object.keys(step.output_summary).length) {
-    return JSON.stringify(step.output_summary, null, 2);
+    return readableRecordLines(step.output_summary).join('\n');
   }
   if (step.details && Object.keys(step.details).length) {
     const { model_route: _modelRoute, ...visibleDetails } = step.details;
     if (Object.keys(visibleDetails).length) {
-      return JSON.stringify(visibleDetails, null, 2);
+      return readableRecordLines(visibleDetails).join('\n');
     }
   }
   return '已执行';
@@ -158,6 +292,10 @@ function stepSummary(step: AgentTraceStep): string {
 
 function traceStepKey(step: AgentTraceStep, index: number): string {
   return `${step.sequence ?? index}-${step.step}-${step.elapsed_ms ?? 'pending'}`;
+}
+
+function traceStepTitle(step: AgentTraceStep): string {
+  return localizeKnownCodes(step.step || step.implementation || '生成步骤');
 }
 
 function tagTheme(status?: string): 'primary' | 'success' | 'danger' {
@@ -189,11 +327,19 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return null;
 }
 
-function textValue(value: unknown): string {
+function rawTextValue(value: unknown): string {
   if (value === undefined || value === null) return '';
-  if (Array.isArray(value)) return value.map((item) => textValue(item)).filter(Boolean).join('、');
+  if (Array.isArray(value)) return value.map((item) => rawTextValue(item)).filter(Boolean).join('、');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value).trim();
+}
+
+function textValue(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (Array.isArray(value)) return value.map((item) => textValue(item)).filter(Boolean).join('、');
+  if (typeof value === 'object') return readableValue(value);
+  return localizeKnownCodes(String(value).trim());
 }
 
 function escapeRegExp(text: string): string {
@@ -201,22 +347,75 @@ function escapeRegExp(text: string): string {
 }
 
 function localizeKnownCodes(text: string): string {
-  const labels = { ...PROFILE_LABELS, ...PROVIDER_LABELS };
+  const labels = {
+    ...PROFILE_LABELS,
+    ...TASK_LABELS,
+    ...SOURCE_LABELS,
+    ...RETRIEVER_LABELS,
+    ...POLICY_LABELS,
+    ...FIELD_LABELS,
+    ...PROVIDER_LABELS,
+  };
+  const phraseReplacements: Array<[RegExp, string]> = [
+    [/\bPolicyResolver\b/g, '策略解析器'],
+    [/\bQuestionUnderstanding\b/g, '问题理解'],
+    [/\bretrieval_needs\b/g, '检索需求'],
+    [/\bresolved_task_type\b/g, '解析后的问题类型'],
+    [/\banswer_policy\b/g, '回答策略'],
+    [/\bknowledge_scope\b/g, '知识范围'],
+    [/\bpolicy_matrix\b/g, '检索策略矩阵'],
+    [/\boptional graph retrieval\b/gi, '可选图谱检索'],
+    [/\bexact_text_search\b/g, '精确原文搜索'],
+    [/\btrue\b/g, '是'],
+    [/\bfalse\b/g, '否'],
+  ];
+  const replacedText = phraseReplacements.reduce((result, [pattern, replacement]) => result.replace(pattern, replacement), text);
   return Object.entries(labels)
     .sort(([left], [right]) => right.length - left.length)
     .reduce((result, [code, label]) => {
       const pattern = new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(code)}(?=$|[^A-Za-z0-9_])`, 'g');
       return result.replace(pattern, `$1${label}`);
-    }, text);
+    }, replacedText);
+}
+
+function readableLabel(key: string): string {
+  return localizeKnownCodes(key);
+}
+
+function readableValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (Array.isArray(value)) return value.map((item) => readableValue(item)).filter(Boolean).join('、');
+  if (typeof value === 'object') {
+    const record = asRecord(value);
+    if (!record) return '';
+    return Object.entries(record)
+      .map(([key, item]) => {
+        const text = readableValue(item);
+        return text ? `${readableLabel(key)}：${text}` : '';
+      })
+      .filter(Boolean)
+      .join('；');
+  }
+  return localizeKnownCodes(String(value).trim());
+}
+
+function readableRecordLines(record: Record<string, unknown>): string[] {
+  return Object.entries(record)
+    .map(([key, value]) => {
+      const text = readableValue(value);
+      return text ? `${readableLabel(key)}：${text}` : '';
+    })
+    .filter(Boolean);
 }
 
 function providerText(value: unknown): string {
-  const text = textValue(value);
+  const text = rawTextValue(value);
   return PROVIDER_LABELS[text.toLowerCase()] || localizeKnownCodes(text);
 }
 
 function modelNameText(value: unknown): string {
-  const text = textValue(value);
+  const text = rawTextValue(value);
   const normalized = text.toLowerCase();
   if (!normalized.startsWith('qwen')) return localizeKnownCodes(text);
 
@@ -235,7 +434,7 @@ function modelRoute(step: AgentTraceStep): Record<string, unknown> | null {
   const route = asRecord(step.details?.model_route);
   if (!route) return null;
   const hasMeaningfulValue = Object.entries(route).some(([key, value]) => {
-    const text = textValue(value);
+    const text = rawTextValue(value);
     return text && !(key === 'source' && text === 'unknown');
   });
   if (hasMeaningfulValue) {
@@ -245,15 +444,15 @@ function modelRoute(step: AgentTraceStep): Record<string, unknown> | null {
 }
 
 function translateCode(value: unknown, labels: Record<string, string>): string {
-  const text = String(value || '');
-  return labels[text] || text;
+  const text = rawTextValue(value);
+  return labels[text] || labels[text.toLowerCase()] || localizeKnownCodes(text);
 }
 
 function modelRouteItems(step: AgentTraceStep): TraceRouteItem[] {
   const route = modelRoute(step);
   if (!route) return [];
   const items: TraceRouteItem[] = [];
-  const source = textValue(route.source);
+  const source = rawTextValue(route.source);
   const sourceIsInternalRule = ['rules', 'rules_fast_path', 'not_called'].includes(source);
   if (source && source !== 'unknown' && !sourceIsInternalRule) {
     items.push({ label: '方式', value: translateCode(source, SOURCE_LABELS) });
@@ -276,10 +475,11 @@ function modelRouteItems(step: AgentTraceStep): TraceRouteItem[] {
 function modelRouteReason(step: AgentTraceStep): string {
   const route = modelRoute(step);
   if (!route) return '';
-  const source = textValue(route.source);
+  const source = rawTextValue(route.source);
   if (['rules', 'rules_fast_path', 'not_called'].includes(source)) return '';
-  const reason = textValue(route.reason);
-  if (!reason || shouldShowRetrieverMetrics(step)) return reason;
+  const reason = rawTextValue(route.reason);
+  if (!reason) return '';
+  if (shouldShowRetrieverMetrics(step)) return localizeKnownCodes(reason);
   const cleanedReason = reason.replace(/[，,；;]?\s*(evidence|hits|images|tables)\s*=\s*[\w.-]+/gi, '').trim();
   return localizeKnownCodes(cleanedReason);
 }
@@ -290,7 +490,7 @@ function splitSummaryLines(text: string): string[] {
 
 function retrieverLabel(name: string): string {
   const normalized = name.trim();
-  return RETRIEVER_LABELS[normalized] || RETRIEVER_LABELS[normalized.toLowerCase()] || normalized;
+  return RETRIEVER_LABELS[normalized] || RETRIEVER_LABELS[normalized.toLowerCase()] || localizeKnownCodes(normalized);
 }
 
 function parseHitLine(line: string): TraceMetric | null {
@@ -410,13 +610,13 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 </script>
 
 <template>
-  <t-empty v-if="!traceItems.length" size="small" description="暂无执行过程" />
+  <t-empty v-if="!traceItems.length" size="small" description="暂无生成过程" />
   <div v-else class="trace-list">
     <article v-for="item in traceItems" :key="item.key" class="trace-card" :class="statusClass(item.step.status)">
       <div class="trace-header">
         <div class="trace-title">
           <span class="trace-index">{{ item.index + 1 }}</span>
-          <strong>{{ item.step.step }}</strong>
+          <strong>{{ item.title }}</strong>
         </div>
         <div class="trace-meta">
           <span v-if="elapsedText(item.step)" class="trace-time">{{ elapsedText(item.step) }}</span>
