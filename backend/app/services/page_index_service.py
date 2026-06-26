@@ -120,6 +120,7 @@ class PageIndexService:
                     mineru_json_object_key=normalized["mineru_json_object_key"],
                     page_image_object_key=normalized["page_image_object_key"],
                     source_hash=normalized["source_hash"],
+                    security_level=document.security_level,
                 )
             )
             blocks = self._build_blocks(page, raw_page)
@@ -174,6 +175,7 @@ class PageIndexService:
                         index_text=text,
                         text_mirror_path=str(mirror_path),
                         status="staging",
+                        security_level=document.security_level,
                     )
                 )
                 index_count += 1
@@ -366,6 +368,7 @@ class PageIndexService:
                     f"# {document.file_name} / page {page.page_no}",
                     f"document_id: {document.id}",
                     f"project_id: {document.project_id or ''}",
+                    f"security_level: {document.security_level}",
                     f"drawing_no: {page.drawing_no or ''}",
                     "",
                     text,

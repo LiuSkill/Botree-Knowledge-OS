@@ -123,6 +123,43 @@ def migrate_database() -> None:
     table_names = inspector.get_table_names()
 
     with engine.begin() as connection:
+        if "knowledge_base_permissions" in table_names:
+            connection.execute(text("DROP TABLE knowledge_base_permissions"))
+            logger.info("数据库迁移完成: drop knowledge_base_permissions")
+            table_names = [name for name in table_names if name != "knowledge_base_permissions"]
+
+        if "knowledge_bases" in table_names:
+            knowledge_base_columns = {column["name"] for column in inspector.get_columns("knowledge_bases")}
+            _drop_column_if_exists(connection, knowledge_base_columns, "knowledge_bases", "visibility")
+
+        if "roles" in table_names:
+            role_columns = {column["name"] for column in inspector.get_columns("roles")}
+            _add_security_level_column(connection, role_columns, "roles", "角色最高密级")
+            connection.execute(
+                text(
+                    """
+                    UPDATE roles
+                    SET security_level = CASE
+                        WHEN code = 'admin' THEN 'confidential'
+                        WHEN code = 'engineer' THEN 'internal'
+                        WHEN code = 'viewer' THEN 'public'
+                        ELSE COALESCE(NULLIF(security_level, ''), 'internal')
+                    END
+                    WHERE security_level IS NULL
+                       OR security_level = ''
+                       OR code IN ('admin', 'engineer', 'viewer')
+                    """
+                )
+            )
+
+        if "projects" in table_names:
+            project_columns = {column["name"] for column in inspector.get_columns("projects")}
+            _add_security_level_column(connection, project_columns, "projects", "项目密级")
+            connection.execute(
+                text("UPDATE projects SET security_level = COALESCE(NULLIF(security_level, ''), 'internal') WHERE security_level IS NULL OR security_level = ''")
+            )
+            _create_index_if_missing(connection, inspector, "projects", "idx_projects_security_level", "security_level")
+
         if "users" in table_names:
             user_columns = {column["name"] for column in inspector.get_columns("users")}
             _add_column_if_missing(
@@ -235,10 +272,15 @@ def migrate_database() -> None:
                 "INTEGER COMMENT '构建操作人ID，关联users.id'",
                 "INTEGER",
             )
+            _add_security_level_column(connection, document_columns, "documents", "文档密级")
+            connection.execute(
+                text("UPDATE documents SET security_level = COALESCE(NULLIF(security_level, ''), 'internal') WHERE security_level IS NULL OR security_level = ''")
+            )
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_category_id", "category_id")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_build_status", "index_status")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_document_status", "document_status")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_parse_status", "parse_status")
+            _create_index_if_missing(connection, inspector, "documents", "idx_documents_security_level", "security_level")
 
         if "document_versions" in table_names:
             version_columns = {column["name"] for column in inspector.get_columns("document_versions")}
@@ -278,9 +320,23 @@ def migrate_database() -> None:
             _add_column_if_missing(connection, version_columns, "document_versions", "build_started_at", "DATETIME COMMENT '索引构建开始时间'", "DATETIME")
             _add_column_if_missing(connection, version_columns, "document_versions", "build_finished_at", "DATETIME COMMENT '索引构建完成时间'", "DATETIME")
             _add_column_if_missing(connection, version_columns, "document_versions", "build_error", "TEXT COMMENT '索引构建失败原因'", "TEXT")
+            _add_security_level_column(connection, version_columns, "document_versions", "文档版本密级")
+            connection.execute(
+                text(
+                    """
+                    UPDATE document_versions
+                    SET security_level = COALESCE(
+                        (SELECT documents.security_level FROM documents WHERE documents.id = document_versions.document_id),
+                        'internal'
+                    )
+                    WHERE security_level IS NULL OR security_level = ''
+                    """
+                )
+            )
             _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_category_id", "category_id")
             _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_version_status", "version_status")
             _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_parse_status", "parse_status")
+            _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_security_level", "security_level")
 
         if "review_tasks" in table_names:
             review_task_columns = {column["name"] for column in inspector.get_columns("review_tasks")}
@@ -316,14 +372,60 @@ def migrate_database() -> None:
                 "VARCHAR(30) NOT NULL DEFAULT 'active' COMMENT 'Chunk状态：active/obsolete'",
                 "VARCHAR(30) NOT NULL DEFAULT 'active'",
             )
+            _add_security_level_column(connection, chunk_columns, "document_chunks", "Chunk密级")
+            connection.execute(
+                text(
+                    """
+                    UPDATE document_chunks
+                    SET security_level = COALESCE(
+                        (SELECT documents.security_level FROM documents WHERE documents.id = document_chunks.document_id),
+                        'internal'
+                    )
+                    WHERE security_level IS NULL OR security_level = ''
+                    """
+                )
+            )
             _create_index_if_missing(connection, inspector, "document_chunks", "idx_document_chunks_version_no", "version_no")
             _create_index_if_missing(connection, inspector, "document_chunks", "idx_document_chunks_chunk_status", "chunk_status")
+            _create_index_if_missing(connection, inspector, "document_chunks", "idx_document_chunks_security_level", "security_level")
 
         if "document_pages" in table_names:
             page_columns = {column["name"] for column in inspector.get_columns("document_pages")}
             _add_column_if_missing(connection, page_columns, "document_pages", "clean_content", "TEXT COMMENT '清洗后页文本，用于分块和索引'", "TEXT")
             _add_column_if_missing(connection, page_columns, "document_pages", "filtered_content", "TEXT COMMENT '清洗过滤掉的页文本'", "TEXT")
             _add_column_if_missing(connection, page_columns, "document_pages", "cleaning_metadata_json", "TEXT COMMENT '解析清洗摘要JSON'", "TEXT")
+
+            _add_security_level_column(connection, page_columns, "document_pages", "文档页密级")
+            connection.execute(
+                text(
+                    """
+                    UPDATE document_pages
+                    SET security_level = COALESCE(
+                        (SELECT documents.security_level FROM documents WHERE documents.id = document_pages.document_id),
+                        'internal'
+                    )
+                    WHERE security_level IS NULL OR security_level = ''
+                    """
+                )
+            )
+            _create_index_if_missing(connection, inspector, "document_pages", "idx_document_pages_security_level", "security_level")
+
+        if "page_indexes" in table_names:
+            page_index_columns = {column["name"] for column in inspector.get_columns("page_indexes")}
+            _add_security_level_column(connection, page_index_columns, "page_indexes", "PageIndex密级")
+            connection.execute(
+                text(
+                    """
+                    UPDATE page_indexes
+                    SET security_level = COALESCE(
+                        (SELECT documents.security_level FROM documents WHERE documents.id = page_indexes.document_id),
+                        'internal'
+                    )
+                    WHERE security_level IS NULL OR security_level = ''
+                    """
+                )
+            )
+            _create_index_if_missing(connection, inspector, "page_indexes", "idx_page_indexes_security_level", "security_level")
 
         if "document_page_blocks" in table_names:
             block_columns = {column["name"] for column in inspector.get_columns("document_page_blocks")}
@@ -505,6 +607,29 @@ def _add_column_if_missing(
     logger.info("数据库迁移完成: %s.%s", table_name, column_name)
 
 
+def _add_security_level_column(connection, existing_columns: set[str], table_name: str, comment: str) -> None:
+    """为三层密级访问控制补齐 security_level 字段。"""
+
+    _add_column_if_missing(
+        connection,
+        existing_columns,
+        table_name,
+        "security_level",
+        f"VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '{comment}: public/internal/confidential'",
+        "VARCHAR(30) NOT NULL DEFAULT 'internal'",
+    )
+
+
+def _drop_column_if_exists(connection, existing_columns: set[str], table_name: str, column_name: str) -> None:
+    """彻底移除不再参与访问控制的旧字段。"""
+
+    if column_name not in existing_columns:
+        return
+    connection.execute(text(f"ALTER TABLE {table_name} DROP COLUMN {column_name}"))
+    existing_columns.remove(column_name)
+    logger.info("数据库迁移完成: drop %s.%s", table_name, column_name)
+
+
 def _modify_mysql_column_if_needed(
     connection,
     inspector,
@@ -576,17 +701,23 @@ def seed_roles(db: Session) -> Role:
 
     admin_role = db.scalar(select(Role).where(Role.code == "admin"))
     if not admin_role:
-        admin_role = Role(name="超级管理员", code="admin", description="拥有平台全部权限", enabled=True)
+        admin_role = Role(name="超级管理员", code="admin", description="拥有平台全部权限", enabled=True, security_level="confidential")
         db.add(admin_role)
         db.flush()
+    else:
+        admin_role.security_level = "confidential"
 
     engineer_role = db.scalar(select(Role).where(Role.code == "engineer"))
     if not engineer_role:
-        db.add(Role(name="知识工程师", code="engineer", description="管理知识库和项目资料", enabled=True))
+        db.add(Role(name="知识工程师", code="engineer", description="管理知识库和项目资料", enabled=True, security_level="internal"))
+    else:
+        engineer_role.security_level = "internal"
 
     viewer_role = db.scalar(select(Role).where(Role.code == "viewer"))
     if not viewer_role:
-        db.add(Role(name="只读用户", code="viewer", description="查看已授权知识和项目", enabled=True))
+        db.add(Role(name="只读用户", code="viewer", description="查看已授权知识和项目", enabled=True, security_level="public"))
+    else:
+        viewer_role.security_level = "public"
 
     # 管理员角色默认绑定全部权限，便于系统管理页展示完整矩阵。
     permissions = db.scalars(select(Permission)).all()
@@ -642,7 +773,6 @@ def seed_base_knowledge(db: Session) -> None:
             type="base",
             project_id=None,
             description="企业通用工艺、设备、规范和专家经验知识库",
-            visibility="internal",
             enabled=True,
         )
     )

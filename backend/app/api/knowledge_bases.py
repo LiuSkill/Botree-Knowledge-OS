@@ -82,12 +82,13 @@ async def upload_document(
     kb_id: int,
     file: UploadFile = File(...),
     category_id: int = Form(...),
+    security_level: str | None = Form(default=None),
     current_user: User = Depends(require_permission("knowledge:upload")),
     db: Session = Depends(get_db),
 ) -> dict:
     """上传资料到知识库。"""
 
-    document = await DocumentService(db).upload_document(kb_id, file, current_user, category_id)
+    document = await DocumentService(db).upload_document(kb_id, file, current_user, category_id, security_level)
     return success(DocumentOut.model_validate(document).model_dump(mode="json"))
 
 

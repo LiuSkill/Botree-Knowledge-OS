@@ -17,7 +17,8 @@ import { getActionPermissions, getSystemMenus } from '@/api/system';
 import PermissionMenuTree from '@/components/PermissionMenuTree.vue';
 import { syncAuthorizedRoutes } from '@/router/dynamicRoutes';
 import { useAuthStore } from '@/stores/auth';
-import type { ActionPermissionGroup, ActionPermissionInfo, RoleInfo, SystemMenuNode } from '@/types/api';
+import type { ActionPermissionGroup, ActionPermissionInfo, RoleInfo, SecurityLevel, SystemMenuNode } from '@/types/api';
+import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 type RoleDialogMode = 'create' | 'edit';
 
@@ -40,6 +41,7 @@ const roleForm = reactive({
   code: '',
   description: '',
   enabled: true,
+  security_level: 'internal' as SecurityLevel,
 });
 
 const selectedRole = computed(() => roles.value.find((role) => role.id === selectedRoleId.value) || null);
@@ -207,6 +209,7 @@ function resetRoleForm(): void {
     code: '',
     description: '',
     enabled: true,
+    security_level: 'internal' as SecurityLevel,
   });
   editingRoleId.value = null;
 }
@@ -225,6 +228,7 @@ function openEditRoleDialog(role: RoleInfo): void {
     code: role.code,
     description: role.description || '',
     enabled: role.enabled,
+    security_level: role.security_level,
   });
   roleDialogVisible.value = true;
 }
@@ -243,6 +247,7 @@ async function submitRole(): Promise<void> {
       name: roleForm.name.trim(),
       code: roleForm.code.trim(),
       description: roleForm.description.trim() || null,
+      security_level: roleForm.security_level,
       permission_ids: [],
     });
     selectedRoleId.value = role.id;
@@ -252,6 +257,7 @@ async function submitRole(): Promise<void> {
       name: roleForm.name.trim(),
       description: roleForm.description.trim() || null,
       enabled: roleForm.enabled,
+      security_level: roleForm.security_level,
     });
     MessagePlugin.success('角色已更新');
   }
@@ -347,6 +353,9 @@ onMounted(loadMatrix);
               <strong>{{ role.name }}</strong>
               <t-tag size="small" variant="light" :theme="role.enabled ? 'success' : 'danger'">
                 {{ role.enabled ? '启用' : '停用' }}
+              </t-tag>
+              <t-tag size="small" variant="light" :theme="securityLevelTheme(role.security_level)">
+                {{ securityLevelLabel(role.security_level) }}
               </t-tag>
             </div>
             <p>{{ role.description || '未填写角色说明' }}</p>
@@ -463,6 +472,11 @@ onMounted(loadMatrix);
         <t-form-item label="角色名称"><t-input v-model="roleForm.name" /></t-form-item>
         <t-form-item label="角色编码"><t-input v-model="roleForm.code" :disabled="roleDialogMode === 'edit'" /></t-form-item>
         <t-form-item label="角色说明"><t-textarea v-model="roleForm.description" /></t-form-item>
+        <t-form-item label="最高密级">
+          <t-select v-model="roleForm.security_level">
+            <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+          </t-select>
+        </t-form-item>
         <t-form-item v-if="roleDialogMode === 'edit'" label="状态"><t-switch v-model="roleForm.enabled" /></t-form-item>
       </t-form>
     </t-dialog>

@@ -25,6 +25,7 @@ def make_evidence(source_type: str = "project", project_id: int | None = 1, cont
         page_number=3,
         content=content,
         retriever="ripgrep",
+        metadata={"security_level": "public"},
     )
 
 
@@ -201,7 +202,7 @@ def test_project_with_industry_prompt_keeps_project_evidence_primary() -> None:
     service = object.__new__(LLMService)
     evidences = [
         make_evidence("project", 1, "项目资料明确：酸浸温度为 80 °C。"),
-        make_evidence("authorized_internal", None, "行业知识：酸浸通常利用酸与金属氧化物反应。"),
+        make_evidence("base", None, "行业知识：酸浸通常利用酸与金属氧化物反应。"),
     ]
 
     messages = service._build_text_messages(  # noqa: SLF001
@@ -215,4 +216,4 @@ def test_project_with_industry_prompt_keeps_project_evidence_primary() -> None:
     assert "行业知识补充/原理说明" in prompt
     assert "不得替代项目资料生成项目参数、设备、流程或专有结论" in prompt
     assert "source_type=project" in prompt
-    assert "source_type=authorized_internal" in prompt
+    assert "source_type=base" in prompt

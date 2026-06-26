@@ -248,7 +248,7 @@ class DocumentRepository:
 
         return self.db.get(DocumentChunk, chunk_id)
 
-    def searchable_chunks(self) -> list[tuple[DocumentChunk, Document]]:
+    def searchable_chunks(self, security_levels: list[str] | None = None) -> list[tuple[DocumentChunk, Document]]:
         """查询可参与检索的 Chunk 和文档。"""
 
         stmt = (
@@ -258,4 +258,6 @@ class DocumentRepository:
             .where(Document.review_status != "archived")
             .where(DocumentChunk.chunk_status == "active", DocumentChunk.version_no == Document.version_no)
         )
+        if security_levels is not None:
+            stmt = stmt.where(Document.security_level.in_(security_levels), DocumentChunk.security_level.in_(security_levels))
         return list(self.db.execute(stmt).all())

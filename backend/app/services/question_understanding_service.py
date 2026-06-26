@@ -32,7 +32,6 @@ class KnowledgeScope(str, Enum):
     PROJECT = "project"
     BASE = "base"
     INDUSTRY = "industry"
-    AUTHORIZED_INTERNAL = "authorized_internal"
 
 
 class TaskType(str, Enum):

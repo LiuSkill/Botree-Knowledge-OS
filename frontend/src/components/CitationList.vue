@@ -30,10 +30,9 @@ function sourceLabel(sourceType: Citation['source_type'], chatType?: 'project_ch
    * 根据问答入口转换引用来源展示文案。
    */
   if (chatType === 'project_chat') {
-    return sourceType === 'project' ? '项目资料' : '授权内部资料';
+    return sourceType === 'project' ? '项目资料' : '基础知识';
   }
   if (sourceType === 'project') return '项目知识';
-  if (sourceType === 'authorized_internal') return '授权内部资料';
   return '基础知识';
 }
 

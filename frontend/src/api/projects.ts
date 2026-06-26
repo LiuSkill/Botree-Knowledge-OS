@@ -8,7 +8,7 @@
  */
 
 import { request } from '@/api/request';
-import type { ProjectInfo } from '@/types/api';
+import type { ProjectInfo, SecurityLevel } from '@/types/api';
 
 export interface ProjectPayload {
   name: string;
@@ -18,6 +18,7 @@ export interface ProjectPayload {
   manager?: string;
   status?: string;
   progress?: number;
+  security_level?: SecurityLevel;
 }
 
 export function listProjects(params?: { keyword?: string }): Promise<ProjectInfo[]> {

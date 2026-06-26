@@ -29,6 +29,7 @@ from app.schemas.document import (
     DocumentOut,
     DocumentPageOut,
     DocumentPreviewOut,
+    DocumentSecurityLevelUpdate,
     DocumentVersionOut,
     IndexTaskOut,
     PageCorrectionRequest,
@@ -130,6 +131,19 @@ def get_document(document_id: int, current_user: User = Depends(get_current_user
     """查询文档详情。"""
 
     document = DocumentService(db).get_document(document_id, current_user)
+    return success(DocumentOut.model_validate(document).model_dump(mode="json"))
+
+
+@router.put("/{document_id}/security-level", summary="修改文档密级")
+def update_document_security_level(
+    document_id: int,
+    payload: DocumentSecurityLevelUpdate,
+    current_user: User = Depends(require_permission("knowledge:edit")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """修改文档密级，并让依赖旧向量 metadata 的索引失效后重建。"""
+
+    document = DocumentService(db).update_document_security_level(document_id, payload.security_level, current_user)
     return success(DocumentOut.model_validate(document).model_dump(mode="json"))
 
 

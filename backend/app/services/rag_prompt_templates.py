@@ -162,7 +162,7 @@ def answer_scope_instruction(query_profile: dict[str, Any] | None) -> str:
     if scope == "project_with_industry":
         return (
             "本问题是项目资料问答：必须优先使用 source_type=project 的项目资料证据。"
-            "source_type=base 或 authorized_internal 只能作为“行业知识补充/原理说明”，"
+            "source_type=base 只能作为“行业知识补充/原理说明”，"
             "不得替代项目资料生成项目参数、设备、流程或专有结论。回答中请区分“项目资料证据”和“行业知识补充”。"
         )
     if scope == "project":

@@ -93,7 +93,7 @@ class ChatCitation(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
     message_id: Mapped[int] = mapped_column(ForeignKey("chat_messages.id"), index=True, nullable=False, comment="助手消息ID，关联chat_messages.id")
-    source_type: Mapped[str] = mapped_column(String(30), nullable=False, comment="来源类型：base/project/authorized_internal")
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False, comment="来源类型：base/project")
     knowledge_base_id: Mapped[int] = mapped_column(ForeignKey("knowledge_bases.id"), nullable=False, comment="知识库ID，关联knowledge_bases.id")
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True, comment="项目ID，项目知识关联projects.id")
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), nullable=False, comment="文档ID，关联documents.id")

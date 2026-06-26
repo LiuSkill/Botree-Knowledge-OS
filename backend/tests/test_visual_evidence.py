@@ -37,7 +37,7 @@ def make_session() -> Session:
 def make_evidence(page_index_id: int | None = None) -> Evidence:
     """创建可挂载视觉资产的检索证据。"""
 
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, Any] = {"security_level": "public"}
     if page_index_id is not None:
         metadata["page_index_id"] = page_index_id
     return Evidence(

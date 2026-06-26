@@ -43,6 +43,38 @@ VISIBLE_PROGRESS_TITLES = {
     "filtering": "正在筛选可用依据",
     "answering": "正在整理回答内容",
 }
+VISIBLE_PROGRESS_DETAILS = {
+    "understanding": {
+        "pending": "等待开始理解问题",
+        "running": "正在确认问题意图和回答范围",
+        "success": "已确认问题意图和回答范围",
+        "failed": "问题理解遇到波动，正在继续处理",
+    },
+    "planning": {
+        "pending": "等待生成资料查找思路",
+        "running": "正在选择适合的资料查找方式",
+        "success": "已确定资料检索路径",
+        "failed": "资料检索规划遇到波动，正在继续处理",
+    },
+    "retrieving": {
+        "pending": "等待开始查找资料",
+        "running": "正在查找可能相关的资料",
+        "success": "已完成相关资料查找",
+        "failed": "资料检索遇到问题，正在尝试继续处理",
+    },
+    "filtering": {
+        "pending": "等待筛选可用依据",
+        "running": "正在判断资料是否可以支持回答",
+        "success": "已筛选可用于回答的依据",
+        "failed": "依据筛选遇到问题，正在继续处理",
+    },
+    "answering": {
+        "pending": "等待整理回答内容",
+        "running": "正在基于可用依据组织回答",
+        "success": "已完成回答整理",
+        "failed": "回答整理遇到问题，正在继续处理",
+    },
+}
 VISIBLE_PROGRESS_STAGE_ORDER = ("understanding", "planning", "retrieving", "filtering", "answering")
 VISIBLE_PROGRESS_STAGE_INDEX = {stage: index for index, stage in enumerate(VISIBLE_PROGRESS_STAGE_ORDER)}
 VISIBLE_PROGRESS_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -124,6 +156,7 @@ VISIBLE_PROGRESS_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("answering", ("回答生成", "LLM生成", "answer", "answer_generator", "direct_answer")),
 )
 RETRIEVAL_EMPTY_PATTERNS = ("未命中有效资料", "未找到足够的相关资料")
+PROJECT_REFUSAL_PATTERNS = ("当前项目资料中未检索到", "当前项目资料中未找到")
 
 
 class ChatService:
@@ -283,8 +316,7 @@ class ChatService:
         session = self._get_or_create_session(payload, user)
         self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
 
-        pending_result = self._try_handle_general_confirmation(payload, user, session)
-        retrieval_graph = RetrievalGraph(self.db)
+        confirmation_decision = self._resolve_general_confirmation_decision(payload, session)
         initial_meta_payload = {
             "session_id": session.id,
             "chat_type": payload.chat_type,
@@ -303,13 +335,12 @@ class ChatService:
             prepared_state: dict[str, Any] | None = None
             emitted_progress: dict[str, str] = {}
             yield self._encode_sse("meta", initial_meta_payload)
-            if pending_result is not None:
-                for progress_event in self._build_visible_progress_events(pending_result.get("agent_trace", []), completed=True):
-                    yield self._encode_sse("progress", progress_event)
-                yield self._encode_sse("delta", {"content": pending_result["answer"]})
-                yield self._encode_sse("done", self._sanitize_stream_result(pending_result))
-                return
             try:
+                if confirmation_decision is not None:
+                    yield from self._stream_general_confirmation(payload, user, session, confirmation_decision, emitted_progress)
+                    return
+
+                retrieval_graph = RetrievalGraph(self.db)
                 for event_name, event_payload in retrieval_graph.prepare_stream(
                     payload.message,
                     payload.chat_type,
@@ -346,6 +377,13 @@ class ChatService:
                     answer = str(prepared_state.get("answer") or "").strip()
                     if not answer:
                         raise AppException("回答生成失败", status_code=502, code=502)
+                    if not self._has_progress_stage(prepared_state.get("trace", []), "answering"):
+                        answer_sequence = retrieval_graph.next_trace_sequence(prepared_state)
+                        answer_progress = self._progress_event_from_trace(
+                            retrieval_graph.answer_running_trace_delta(prepared_state, answer_sequence)
+                        )
+                        if answer_progress is not None and self._should_emit_progress(answer_progress, emitted_progress):
+                            yield self._encode_sse("progress", answer_progress)
                     yield self._encode_sse("delta", {"content": answer})
                     agent_result = retrieval_graph.to_agent_result(prepared_state)
                     result = self._persist_agent_result(payload, user, session, agent_result)
@@ -405,12 +443,51 @@ class ChatService:
 
         return event_stream()
 
+    def _stream_general_confirmation(
+        self,
+        payload: ChatCompletionRequest,
+        user: User,
+        session: ChatSession,
+        decision: tuple[str, str],
+        emitted_progress: dict[str, str],
+    ) -> Iterator[str]:
+        """流式处理用户确认使用通用知识回答，先推送进度再执行耗时生成。"""
+
+        decision_type, pending_question = decision
+        understanding_progress = self._manual_progress_event("understanding", "success", sequence=1)
+        if self._should_emit_progress(understanding_progress, emitted_progress):
+            yield self._encode_sse("progress", understanding_progress)
+
+        if decision_type == "confirm":
+            answer_progress = self._manual_progress_event("answering", "running", sequence=2)
+            if self._should_emit_progress(answer_progress, emitted_progress):
+                yield self._encode_sse("progress", answer_progress)
+            answer = self._build_confirmed_general_answer(pending_question)
+            logger.info(
+                "BaseChat通用回答确认命中: session_id=%s decision=CONFIRM pending_question_exists=%s",
+                getattr(session, "id", None),
+                bool(pending_question),
+            )
+            self._clear_general_confirmation(session)
+            agent_result = self._build_general_confirmation_result(payload, answer, answer_type="general_llm", direct_llm_used=True)
+        else:
+            logger.info("BaseChat通用回答确认拒绝: session_id=%s decision=REJECT", getattr(session, "id", None))
+            self._clear_general_confirmation(session)
+            agent_result = self._build_general_confirmation_result(payload, "已取消通用知识回答。", answer_type="cancelled", refused=True)
+
+        result = self._persist_agent_result(payload, user, session, agent_result)
+        for progress_event in result.get("progress_events", []):
+            if self._should_emit_progress(progress_event, emitted_progress):
+                yield self._encode_sse("progress", progress_event)
+        yield self._encode_sse("delta", {"content": result["answer"]})
+        yield self._encode_sse("done", self._sanitize_stream_result(result))
+
     def _progress_event_from_trace(self, trace_item: dict[str, Any]) -> dict[str, Any] | None:
         """
         将内部 trace item 转换成普通用户可见进度。
 
         业务规则：
-        - 只输出固定 stage/title/status/sequence 字段。
+        - 只输出固定 stage/title/status/detail/sequence 字段。
         - 不透出耗时、节点实现、检索器名称、策略 code 或 raw payload。
         """
 
@@ -424,6 +501,7 @@ class ChatService:
             "stage": stage,
             "title": self._progress_title(stage, status, source_text),
             "status": status,
+            "detail": self._progress_detail(stage, status, source_text),
             "sequence": trace_item.get("sequence"),
         }
 
@@ -438,6 +516,7 @@ class ChatService:
                     "stage": "answering",
                     "title": VISIBLE_PROGRESS_TITLES["answering"],
                     "status": "success",
+                    "detail": self._progress_detail("answering", "success", ""),
                     "sequence": None,
                 }
             )
@@ -473,11 +552,28 @@ class ChatService:
 
     def _should_emit_progress(self, event: dict[str, Any], emitted_progress: dict[str, str]) -> bool:
         stage = str(event.get("stage") or "")
-        signature = f"{event.get('status')}::{event.get('title')}"
+        signature = f"{event.get('status')}::{event.get('title')}::{event.get('detail')}"
         if emitted_progress.get(stage) == signature:
             return False
         emitted_progress[stage] = signature
         return True
+
+    def _manual_progress_event(self, stage: str, status: str, *, sequence: int | None = None) -> dict[str, Any]:
+        """构造无内部 trace 依赖的用户可见进度事件。"""
+
+        return {
+            "visible": True,
+            "stage": stage,
+            "title": VISIBLE_PROGRESS_TITLES[stage],
+            "status": status,
+            "detail": self._progress_detail(stage, status, ""),
+            "sequence": sequence,
+        }
+
+    def _has_progress_stage(self, trace_steps: list[dict[str, Any]], stage: str) -> bool:
+        """判断 trace 是否已经包含指定的用户可见阶段，避免直接回答重复回退进度。"""
+
+        return any(self._progress_stage_from_trace(step) == stage for step in trace_steps)
 
     def _progress_stage_from_trace(self, trace_item: dict[str, Any]) -> str | None:
         explicit_stage = trace_item.get("stage")
@@ -502,6 +598,17 @@ class ChatService:
             return "未找到足够的相关资料"
         return VISIBLE_PROGRESS_TITLES[stage]
 
+    def _progress_detail(self, stage: str, status: str, source_text: str) -> str:
+        """生成普通用户可读的阶段结论，避免把内部策略和检索实现透出到前端。"""
+
+        if stage == "retrieving" and status == "failed":
+            return "已切换为继续处理，尽量保留可用信息"
+        if stage == "retrieving" and any(pattern in source_text for pattern in RETRIEVAL_EMPTY_PATTERNS):
+            return "未找到足够相关资料，后续会基于可确认内容作答"
+        if any(pattern in source_text for pattern in PROJECT_REFUSAL_PATTERNS):
+            return "当前项目资料中未找到可以支持回答的内容"
+        return VISIBLE_PROGRESS_DETAILS[stage][status]
+
     def _trace_source_text(self, trace_item: dict[str, Any]) -> str:
         return "\n".join(
             str(trace_item.get(key) or "")
@@ -521,6 +628,7 @@ class ChatService:
                 "stage": stage,
                 "title": self._progress_title(stage, status, str(event.get("title") or "")),
                 "status": status,
+                "detail": self._progress_detail(stage, status, str(event.get("title") or event.get("detail") or "")),
                 "sequence": event.get("sequence"),
             }
         return [by_stage[stage] for stage in VISIBLE_PROGRESS_STAGE_ORDER if stage in by_stage]
@@ -538,6 +646,11 @@ class ChatService:
                     "stage": stage,
                     "title": VISIBLE_PROGRESS_TITLES[stage],
                     "status": "success",
+                    "detail": self._progress_detail(
+                        stage,
+                        "success",
+                        str(by_stage.get(stage, {}).get("title") or by_stage.get(stage, {}).get("detail") or ""),
+                    ),
                     "sequence": by_stage.get(stage, {}).get("sequence"),
                 }
             )
@@ -550,6 +663,42 @@ class ChatService:
         session: ChatSession,
     ) -> dict[str, Any] | None:
         """处理 base_chat 等待用户确认通用回答的会话状态。"""
+
+        decision = self._resolve_general_confirmation_decision(payload, session)
+        if decision is None:
+            return None
+
+        decision_type, pending_question = decision
+        if decision_type == "confirm":
+            answer = self._build_confirmed_general_answer(pending_question)
+            logger.info(
+                "BaseChat通用回答确认命中: session_id=%s decision=CONFIRM pending_question_exists=%s",
+                getattr(session, "id", None),
+                bool(pending_question),
+            )
+            self._clear_general_confirmation(session)
+            return self._persist_agent_result(
+                payload,
+                user,
+                session,
+                self._build_general_confirmation_result(payload, answer, answer_type="general_llm", direct_llm_used=True),
+            )
+
+        logger.info("BaseChat通用回答确认拒绝: session_id=%s decision=REJECT", getattr(session, "id", None))
+        self._clear_general_confirmation(session)
+        return self._persist_agent_result(
+            payload,
+            user,
+            session,
+            self._build_general_confirmation_result(payload, "已取消通用知识回答。", answer_type="cancelled", refused=True),
+        )
+
+    def _resolve_general_confirmation_decision(
+        self,
+        payload: ChatCompletionRequest,
+        session: ChatSession,
+    ) -> tuple[str, str] | None:
+        """识别确认态会话的用户决定；非确认回复会清理挂起状态并走新问题流程。"""
 
         if (
             session.conversation_state != AWAITING_GENERAL_CONFIRM
@@ -580,33 +729,19 @@ class ChatService:
         pending_question = session.pending_general_question
 
         if normalized in confirm_words or any(word in normalized for word in confirm_words if len(word) >= 2):
-            answer = f"{GENERAL_ANSWER_PREFIX}\n{QwenOrchestrationService(self.db).answer_general_question(pending_question)}"
-            logger.info(
-                "BaseChat通用回答确认命中: session_id=%s decision=CONFIRM pending_question_exists=%s",
-                getattr(session, "id", None),
-                bool(pending_question),
-            )
-            self._clear_general_confirmation(session)
-            return self._persist_agent_result(
-                payload,
-                user,
-                session,
-                self._build_general_confirmation_result(payload, answer, answer_type="general_llm", direct_llm_used=True),
-            )
+            return "confirm", pending_question
 
         if normalized in reject_words or any(word in normalized for word in reject_words if len(word) >= 2):
-            logger.info("BaseChat通用回答确认拒绝: session_id=%s decision=REJECT", getattr(session, "id", None))
-            self._clear_general_confirmation(session)
-            return self._persist_agent_result(
-                payload,
-                user,
-                session,
-                self._build_general_confirmation_result(payload, "已取消通用知识回答。", answer_type="cancelled", refused=True),
-            )
+            return "reject", pending_question
 
         logger.info("BaseChat确认阶段识别为新问题: session_id=%s clear_pending=true", getattr(session, "id", None))
         self._clear_general_confirmation(session)
         return None
+
+    def _build_confirmed_general_answer(self, question: str) -> str:
+        """生成用户确认后的通用知识回答。"""
+
+        return f"{GENERAL_ANSWER_PREFIX}\n{QwenOrchestrationService(self.db).answer_general_question(question)}"
 
     def _clear_general_confirmation(self, session: ChatSession) -> None:
         session.conversation_state = NORMAL_CONVERSATION_STATE

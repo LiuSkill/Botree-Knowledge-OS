@@ -13,11 +13,14 @@ export interface ApiResponse<T> {
   data: T;
 }
 
+export type SecurityLevel = 'public' | 'internal' | 'confidential';
+
 export interface RoleBrief {
   id: number;
   name: string;
   code: string;
   enabled: boolean;
+  security_level: SecurityLevel;
 }
 
 export interface UserInfo {
@@ -31,6 +34,7 @@ export interface UserInfo {
   avatar_url?: string | null;
   avatar_updated_at?: string | null;
   roles: RoleBrief[];
+  max_security_level?: SecurityLevel;
   permission_codes?: string[];
   permissions?: CurrentPermissions;
 }
@@ -58,6 +62,7 @@ export interface ProjectInfo {
   manager?: string | null;
   status: string;
   progress: number;
+  security_level: SecurityLevel;
   knowledge_base_id?: number | null;
   document_count: number;
   knowledge_count: number;
@@ -72,7 +77,6 @@ export interface KnowledgeBaseInfo {
   type: 'base' | 'project';
   project_id?: number | null;
   description?: string | null;
-  visibility: string;
   enabled: boolean;
   document_count?: number;
   chunk_count?: number;
@@ -120,6 +124,7 @@ export interface DocumentInfo {
   index_status: string;
   version_no: number;
   current_version: boolean;
+  security_level: SecurityLevel;
   build_started_at?: string | null;
   build_finished_at?: string | null;
   build_error?: string | null;
@@ -147,6 +152,7 @@ export interface DocumentVersionInfo {
   review_status: string;
   index_status: string;
   is_current: boolean;
+  security_level: SecurityLevel;
   reviewed_by?: number | null;
   reviewed_at?: string | null;
   review_comment?: string | null;
@@ -195,6 +201,7 @@ export interface DocumentChunk {
   content: string;
   page_number?: number | null;
   section_title?: string | null;
+  security_level: SecurityLevel;
 }
 
 export interface DocumentAssetInfo {
@@ -234,6 +241,7 @@ export interface DocumentPreviewPage {
   cleaning_metadata_json?: string | null;
   corrected_text?: string | null;
   correction_status: string;
+  security_level: SecurityLevel;
   page_summary?: string | null;
   page_preview_asset?: DocumentAssetInfo | null;
   blocks: DocumentPreviewBlock[];
@@ -248,6 +256,7 @@ export interface DocumentPreview {
     knowledge_type: 'base' | 'project';
     project_id?: number | null;
     index_status: string;
+    security_level: SecurityLevel;
   };
   converted_pdf_asset?: DocumentAssetInfo | null;
   markdown_content?: string | null;
@@ -362,7 +371,7 @@ export interface CitationAsset {
 }
 
 export interface Citation {
-  source_type: 'base' | 'project' | 'authorized_internal';
+  source_type: 'base' | 'project';
   knowledge_base_id: number;
   project_id?: number | null;
   document_id: number;
@@ -398,6 +407,7 @@ export interface ChatProgressEvent {
   stage: ChatProgressStage;
   title: string;
   status: ChatProgressStatus;
+  detail?: string | null;
   sequence?: number | null;
 }
 
@@ -436,6 +446,7 @@ export interface ChatTraceDeltaEvent extends AgentTraceStep {
   visible?: boolean;
   stage?: ChatProgressStage;
   title?: string;
+  detail?: string | null;
 }
 
 export interface ChatStreamDoneEvent extends ChatCompletionResult {}

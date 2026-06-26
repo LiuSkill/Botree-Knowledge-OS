@@ -18,9 +18,10 @@ import { getKnowledgeBase, listKnowledgeBaseDocuments, uploadKnowledgeDocument }
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
-import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory } from '@/types/api';
+import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
+import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 
@@ -39,6 +40,7 @@ const filterForm = reactive({
 
 const uploadForm = reactive({
   category_id: null as number | null,
+  security_level: 'internal' as SecurityLevel,
 });
 
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
@@ -109,7 +111,7 @@ async function handleUpload(): Promise<void> {
 
   uploading.value = true;
   try {
-    await uploadKnowledgeDocument(currentId(), selectedUploadFile.value, uploadForm.category_id);
+    await uploadKnowledgeDocument(currentId(), selectedUploadFile.value, uploadForm.category_id, uploadForm.security_level);
     MessagePlugin.success('上传成功，资料处于草稿状态');
     selectedUploadFile.value = null;
     await loadData();
@@ -174,6 +176,11 @@ onMounted(loadData);
                 <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
               </t-select>
             </t-form-item>
+            <t-form-item label="文档密级">
+              <t-select v-model="uploadForm.security_level">
+                <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+              </t-select>
+            </t-form-item>
             <t-form-item label="资料文件">
               <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
               <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
@@ -197,6 +204,7 @@ onMounted(loadData);
             <tr>
               <th>文件名</th>
               <th>分类</th>
+              <th>密级</th>
               <th>版本</th>
               <th>大小</th>
               <th>审核状态</th>
@@ -209,6 +217,11 @@ onMounted(loadData);
             <tr v-for="doc in filteredDocuments" :key="doc.id">
               <td><t-link theme="primary" @click="router.push(`/documents/${doc.id}`)">{{ doc.file_name }}</t-link></td>
               <td>{{ doc.category_path || doc.category_name || '-' }}</td>
+              <td>
+                <t-tag size="small" variant="light" :theme="securityLevelTheme(doc.security_level)">
+                  {{ securityLevelLabel(doc.security_level) }}
+                </t-tag>
+              </td>
               <td>v{{ doc.version_no }}</td>
               <td>{{ formatFileSize(doc.file_size) }}</td>
               <td><StatusTag type="review" :value="doc.review_status" /></td>
@@ -240,7 +253,7 @@ onMounted(loadData);
 
 .upload-grid {
   display: grid;
-  grid-template-columns: 180px minmax(220px, 320px) minmax(260px, 1fr);
+  grid-template-columns: 180px minmax(220px, 320px) 180px minmax(260px, 1fr);
   gap: 16px;
 }
 

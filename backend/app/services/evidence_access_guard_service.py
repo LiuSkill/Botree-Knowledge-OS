@@ -1,10 +1,4 @@
-"""Final evidence access guard service.
-
-负责：
-1. 在答案生成前二次断言证据的项目、权限、审核状态、版本和使用范围。
-2. 剔除不合规证据，避免它们进入 LLM prompt。
-3. 输出可审计的剔除原因，供 EvidenceEvaluator 重新归一 evidence_status。
-"""
+"""Final evidence access guard service."""
 
 from __future__ import annotations
 
@@ -15,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.security_levels import can_access_security_level, normalize_security_level, user_max_security_level
 from app.models.document import Document, DocumentChunk
 from app.retrieval.schemas import Evidence
 
@@ -24,13 +19,6 @@ APPROVED_DOCUMENT_STATUSES = {"reviewed", "active"}
 APPROVED_REVIEW_STATUSES = {"approved"}
 ACTIVE_INDEX_STATUSES = {"indexed"}
 ACTIVE_CHUNK_STATUSES = {"active"}
-SECURITY_LEVELS = {
-    "public": 0,
-    "internal": 1,
-    "confidential": 2,
-    "secret": 3,
-    "top_secret": 4,
-}
 
 
 @dataclass(frozen=True)
@@ -48,7 +36,7 @@ class EvidenceGuardResult:
 
 
 class EvidenceAccessGuardService:
-    """答案生成前的最后一道证据安全门。"""
+    """LLM prompt 组装前的最后一道证据安全门。"""
 
     def __init__(self, db: Session | None) -> None:
         self.db = db
@@ -88,13 +76,14 @@ class EvidenceAccessGuardService:
         )
         if rejected:
             logger.info(
-                "final_evidence_guard: accepted=%s rejected=%s primary_reason=%s counts=%s chat_type=%s project_id=%s",
+                "final_evidence_guard: accepted=%s rejected=%s primary_reason=%s counts=%s chat_type=%s project_id=%s user_level=%s",
                 len(accepted),
                 len(rejected),
                 primary_reason,
                 counts,
                 chat_type,
                 project_id,
+                user_max_security_level(user),
             )
         return result
 
@@ -112,9 +101,9 @@ class EvidenceAccessGuardService:
             return reason
         if reason := self._metadata_status_reject_reason(evidence):
             return reason
-        if self.db is None:
+        if self.db is None or bool((evidence.metadata or {}).get("metadata_only")):
             return None
-        return self._database_status_reject_reason(evidence)
+        return self._database_status_reject_reason(evidence, user)
 
     def _scope_reject_reason(self, evidence: Evidence, *, chat_type: str, project_id: int | None) -> str | None:
         metadata = evidence.metadata or {}
@@ -126,9 +115,8 @@ class EvidenceAccessGuardService:
             if evidence.project_id != project_id:
                 return "project_mismatch"
             return None
-        if chat_type == "base_chat":
-            if evidence.project_id is not None and evidence.source_type == "project":
-                return "source_scope_denied"
+        if chat_type == "base_chat" and evidence.project_id is not None and evidence.source_type == "project":
+            return "source_scope_denied"
         return None
 
     def _source_scope_allows(self, raw_scope: Any, chat_type: str) -> bool:
@@ -142,17 +130,20 @@ class EvidenceAccessGuardService:
             return True
         scope_aliases = {
             "project_chat": {"project_chat", "project"},
-            "base_chat": {"base_chat", "base", "industry", "authorized_internal"},
+            "base_chat": {"base_chat", "base", "industry"},
         }
         return not scopes or bool(scopes & scope_aliases.get(chat_type, {chat_type})) or "all" in scopes
 
     def _security_reject_reason(self, evidence: Evidence, user: Any | None) -> str | None:
-        raw_level = (evidence.metadata or {}).get("security_level")
+        metadata = evidence.metadata or {}
+        raw_level = metadata.get("security_level")
         if raw_level is None:
-            return None
-        evidence_level = self._security_level(raw_level, default=0)
-        user_level = self._user_security_level(user)
-        if evidence_level > user_level:
+            return "security_level_missing"
+        try:
+            evidence_level = normalize_security_level(raw_level)
+        except Exception:  # noqa: BLE001
+            return "security_level_invalid"
+        if not can_access_security_level(user_max_security_level(user), evidence_level):
             return "permission_denied"
         return None
 
@@ -175,12 +166,14 @@ class EvidenceAccessGuardService:
             return "version_not_current"
         return None
 
-    def _database_status_reject_reason(self, evidence: Evidence) -> str | None:
+    def _database_status_reject_reason(self, evidence: Evidence, user: Any | None) -> str | None:
         document = self.db.get(Document, evidence.document_id)
         if document is None:
             return "document_missing"
         if document.project_id != evidence.project_id:
             return "project_mismatch"
+        if not can_access_security_level(user_max_security_level(user), document.security_level):
+            return "permission_denied"
         if document.review_status not in APPROVED_REVIEW_STATUSES:
             return "document_not_approved"
         if document.document_status not in APPROVED_DOCUMENT_STATUSES:
@@ -194,33 +187,21 @@ class EvidenceAccessGuardService:
             return "chunk_missing"
         if chunk.document_id != document.id:
             return "chunk_document_mismatch"
+        if not can_access_security_level(user_max_security_level(user), chunk.security_level):
+            return "permission_denied"
         if chunk.chunk_status not in ACTIVE_CHUNK_STATUSES:
             return "chunk_inactive"
         if chunk.version_no != document.version_no:
             return "version_not_current"
         return None
 
-    def _security_level(self, raw_level: Any, default: int) -> int:
-        try:
-            return int(raw_level)
-        except (TypeError, ValueError):
-            return SECURITY_LEVELS.get(str(raw_level or "").strip().lower(), default)
-
-    def _user_security_level(self, user: Any | None) -> int:
-        if user is None:
-            return SECURITY_LEVELS["internal"]
-        if any(getattr(role, "code", "") == "admin" for role in getattr(user, "roles", []) or []):
-            return max(SECURITY_LEVELS.values())
-        raw_level = getattr(user, "security_level", None)
-        if raw_level is None:
-            raw_level = getattr(user, "data_security_level", None)
-        return self._security_level(raw_level, default=SECURITY_LEVELS["internal"])
-
     def _primary_reason(self, counts: dict[str, int]) -> str:
         if not counts:
             return ""
         priority = [
             "permission_denied",
+            "security_level_missing",
+            "security_level_invalid",
             "project_mismatch",
             "source_scope_denied",
             "document_not_approved",
@@ -234,7 +215,7 @@ class EvidenceAccessGuardService:
         return max(counts.items(), key=lambda item: item[1])[0]
 
     def _risk_for_reason(self, reason: str) -> str:
-        if reason in {"permission_denied", "source_scope_denied"}:
+        if reason in {"permission_denied", "security_level_missing", "security_level_invalid", "source_scope_denied"}:
             return "permission_limited"
         if reason in {"project_mismatch", "document_missing", "chunk_missing"}:
             return "irrelevant"

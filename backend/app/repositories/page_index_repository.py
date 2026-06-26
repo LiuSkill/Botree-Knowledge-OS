@@ -123,10 +123,13 @@ class PageIndexRepository:
             stmt = stmt.where(DocumentPage.version_no == version_no)
         return self.db.scalar(stmt.order_by(DocumentPage.version_no.desc()))
 
-    def list_published_indexes(self) -> list[PageIndex]:
+    def list_published_indexes(self, security_levels: list[str] | None = None) -> list[PageIndex]:
         """查询已发布 PageIndex，用于在线检索。"""
 
-        return list(self.db.scalars(select(PageIndex).where(PageIndex.status == "published").order_by(PageIndex.id.desc())).all())
+        stmt = select(PageIndex).where(PageIndex.status == "published").order_by(PageIndex.id.desc())
+        if security_levels is not None:
+            stmt = stmt.where(PageIndex.security_level.in_(security_levels))
+        return list(self.db.scalars(stmt).all())
 
     def list_document_indexes(self, document_id: int, status: str | None = None) -> list[PageIndex]:
         """查询指定文档的 PageIndex。"""

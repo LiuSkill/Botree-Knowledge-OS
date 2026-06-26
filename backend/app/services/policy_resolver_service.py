@@ -222,7 +222,7 @@ class PolicyResolver:
             return KnowledgeScope.PROJECT.value
         understanding_scope = str(understanding.get("knowledge_scope") or "")
         profile_scope = str(query_profile.get("knowledge_scope") or "")
-        if understanding_scope in {KnowledgeScope.INDUSTRY.value, KnowledgeScope.AUTHORIZED_INTERNAL.value}:
+        if understanding_scope == KnowledgeScope.INDUSTRY.value:
             return understanding_scope
         if profile_scope == KnowledgeScope.INDUSTRY.value:
             return KnowledgeScope.INDUSTRY.value

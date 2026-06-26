@@ -1,18 +1,16 @@
-"""
-Keyword Retriever
+"""Keyword retriever."""
 
-负责：
-1. 基于数据库 Chunk 内容做关键词检索
-2. 严格过滤未审核、未索引和无权限资料
-3. 返回带来源追踪的证据
-"""
+from __future__ import annotations
 
-from datetime import datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.knowledge_base import KnowledgeBase, KnowledgeBasePermission
+from app.core.security_levels import allowed_security_levels, user_max_security_level
+from app.models.document import Document, DocumentChunk
+from app.models.knowledge_base import KnowledgeBase
+from app.models.project import Project
 from app.models.user import User
 from app.repositories.document_repository import DocumentRepository
 from app.retrieval.base import BaseRetriever
@@ -22,13 +20,7 @@ from app.services.project_service import ProjectService
 
 
 class KeywordRetriever(BaseRetriever):
-    """
-    关键词检索器
-
-    职责：
-    - 对 Chunk 文本计算简单相关性分数
-    - 在未启用向量库时提供真实数据库文本检索
-    """
+    """基于数据库 Chunk 正文的轻量关键词检索器。"""
 
     name = "keyword"
 
@@ -36,17 +28,19 @@ class KeywordRetriever(BaseRetriever):
         self.db = db
 
     def search(self, query: str, mode: str, project_id: int | None, user: User, limit: int = 5) -> list[Evidence]:
-        """执行关键词检索。"""
-
         terms = self._terms(query)
         evidences: list[Evidence] = []
         project_service = ProjectService(self.db)
+        allowed_levels = self._allowed_security_levels(user)
 
-        for chunk, document in DocumentRepository(self.db).searchable_chunks():
+        for chunk, document in DocumentRepository(self.db).searchable_chunks(security_levels=allowed_levels):
             if not self._scope_allowed(document.knowledge_type, document.project_id, document.knowledge_base_id, mode, project_id, user):
                 continue
             if document.project_id is not None:
-                project_service.ensure_project_access(document.project_id, user)
+                try:
+                    project_service.ensure_project_access(document.project_id, user)
+                except Exception:
+                    continue
 
             score = self._score(chunk.content, query, terms)
             if score <= 0:
@@ -64,6 +58,7 @@ class KeywordRetriever(BaseRetriever):
                     page_number=chunk.page_number,
                     content=chunk.content,
                     retriever=self.name,
+                    metadata=self._evidence_metadata(document, chunk),
                 )
             )
         return sorted(evidences, key=lambda item: item.score, reverse=True)[:limit]
@@ -77,15 +72,13 @@ class KeywordRetriever(BaseRetriever):
         project_id: int | None,
         user: User,
     ) -> bool:
-        """判断 Chunk 是否在当前检索范围内。"""
+        """判断 Chunk 是否落在当前问答范围内，不再读取旧 KB 授权模型。"""
 
         effective_mode = "hybrid" if mode == "auto" and project_id is not None else ("base_only" if mode == "auto" else mode)
         if effective_mode == "project_chat":
             return knowledge_type == "project" and doc_project_id == project_id
         if effective_mode == "base_chat":
-            if knowledge_type == "base":
-                return self._base_knowledge_allowed(knowledge_base_id, None, user, strict_external=False)
-            return False
+            return knowledge_type == "base" and self._base_knowledge_allowed(knowledge_base_id, project_id, user, strict_external=False)
         if effective_mode == "base_only":
             return knowledge_type == "base" and self._base_knowledge_allowed(knowledge_base_id, project_id, user, strict_external=False)
         if effective_mode == "project_only":
@@ -100,98 +93,68 @@ class KeywordRetriever(BaseRetriever):
             ) or (knowledge_type == "project" and doc_project_id == project_id)
         return False
 
-    def _source_type(self, knowledge_type: str, mode: str) -> str:
-        """
-        计算引用来源类型
-
-        参数:
-            knowledge_type: 文档知识类型
-            mode: 实际检索模式
-
-        返回:
-            前端展示使用的来源类型。
-        """
-
-        if mode in {"project_chat", "project_with_industry"} and knowledge_type == "base":
-            return "authorized_internal"
-        return knowledge_type
+    def _source_type(self, knowledge_type: str, mode: str) -> str:  # noqa: ARG002
+        return "base" if knowledge_type == "base" else "project"
 
     def _base_knowledge_allowed(
         self,
         knowledge_base_id: int,
-        project_id: int | None,
-        user: User,
-        strict_external: bool,
+        project_id: int | None,  # noqa: ARG002
+        user: User,  # noqa: ARG002
+        strict_external: bool,  # noqa: ARG002
     ) -> bool:
-        """
-        判断基础知识库是否可被当前问答引用
+        """基础知识库只作为容器，启用即可进入密级过滤后的检索范围。"""
 
-        说明:
-            - 普通内部用户可以访问 internal 基础知识。
-            - project_chat 支持 project/user/role 三类授权记录。
-            - 外部用户只能访问显式授权给项目、用户或外部主体的基础知识。
-        """
-
-        if self._is_admin(user):
+        if self.db is None:
             return True
         knowledge_base = self.db.get(KnowledgeBase, knowledge_base_id)
-        if not knowledge_base or not knowledge_base.enabled:
-            return False
-        external_user = self._is_external_user(user)
-        if knowledge_base.visibility == "internal" and not (strict_external and external_user):
-            return True
-        return self._has_explicit_base_permission(knowledge_base_id, project_id, user)
+        return bool(knowledge_base and knowledge_base.enabled and knowledge_base.type == "base")
 
-    def _has_explicit_base_permission(self, knowledge_base_id: int, project_id: int | None, user: User) -> bool:
-        """查询用户、角色或项目是否具备基础知识库授权。"""
+    def accessible_base_knowledge_base_ids(self, project_id: int | None, user: User, strict_external: bool) -> list[int]:  # noqa: ARG002
+        """返回启用的基础知识库容器 ID，内容权限由文档密级控制。"""
 
-        now = datetime.utcnow()
-        role_ids = [role.id for role in user.roles]
-        stmt = select(KnowledgeBasePermission).where(
-            KnowledgeBasePermission.knowledge_base_id == knowledge_base_id,
-            KnowledgeBasePermission.permission.in_(["read", "manage"]),
-        )
-        permissions = list(self.db.scalars(stmt).all())
-        for permission in permissions:
-            if permission.expires_at and permission.expires_at < now:
-                continue
-            if permission.subject_type == "user" and permission.subject_id == user.id:
-                return True
-            if permission.subject_type == "role" and permission.subject_id in role_ids:
-                return True
-            if permission.subject_type == "project" and project_id is not None and permission.subject_id == project_id:
-                return True
-            if permission.subject_type == "external_user" and permission.external_subject == user.username:
-                return True
-        return False
-
-    def accessible_base_knowledge_base_ids(self, project_id: int | None, user: User, strict_external: bool) -> list[int]:
-        """Return base knowledge base ids allowed by the existing scope policy."""
-
+        if self.db is None:
+            return []
         stmt = select(KnowledgeBase.id).where(KnowledgeBase.type == "base", KnowledgeBase.enabled.is_(True))
-        kb_ids = list(self.db.scalars(stmt).all())
-        return [
-            int(kb_id)
-            for kb_id in kb_ids
-            if self._base_knowledge_allowed(int(kb_id), project_id, user, strict_external=strict_external)
-        ]
+        return [int(kb_id) for kb_id in self.db.scalars(stmt).all()]
 
-    def _is_admin(self, user: User) -> bool:
-        """判断是否平台管理员。"""
+    def _evidence_metadata(
+        self,
+        document: Document,
+        chunk: DocumentChunk,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        metadata = {
+            "source_scope": "project" if document.knowledge_type == "project" else "base",
+            "security_level": chunk.security_level or document.security_level,
+            "document_security_level": document.security_level,
+            "project_security_level": self._project_security_level(document),
+            "review_status": document.review_status,
+            "document_status": document.document_status,
+            "index_status": document.index_status,
+            "chunk_status": chunk.chunk_status,
+            "current_version": chunk.version_no == document.version_no and bool(document.current_version),
+            "version_no": chunk.version_no,
+            "document_version_no": document.version_no,
+        }
+        if extra:
+            metadata.update(extra)
+        return metadata
 
-        return any(role.code == "admin" for role in user.roles)
+    def _project_security_level(self, document: Document) -> str | None:
+        if self.db is None or document.project_id is None:
+            return None
+        project = self.db.get(Project, document.project_id)
+        return getattr(project, "security_level", None)
+
+    def _allowed_security_levels(self, user: User) -> list[str]:
+        return allowed_security_levels(user_max_security_level(user))
 
     def _is_external_user(self, user: User) -> bool:
-        """判断是否外部用户。"""
-
-        return any(role.code == "external" or "外部" in role.name for role in user.roles)
+        return any(role.code == "external" or "外部" in role.name for role in getattr(user, "roles", []) or [])
 
     def _terms(self, query: str) -> list[str]:
-        """抽取中英文检索词。"""
-
         return extract_query_terms(query)
 
-    def _score(self, content: str, query: str, terms: list[str]) -> float:
-        """计算简单相关性得分。"""
-
-        return score_text_relevance(content, query, terms)
+    def _score(self, content: str, query: str, terms: list[str] | None = None) -> float:
+        return score_text_relevance(content, query, terms or self._terms(query))

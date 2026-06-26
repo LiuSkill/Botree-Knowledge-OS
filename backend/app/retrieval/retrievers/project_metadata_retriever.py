@@ -59,6 +59,12 @@ class ProjectMetadataRetriever(BaseRetriever):
                 page_number=None,
                 content="\n".join(lines),
                 retriever=self.name,
-                metadata={"project_id": project.id, "metadata_only": True},
+                metadata={
+                    "project_id": project.id,
+                    "metadata_only": True,
+                    "source_scope": "project",
+                    "security_level": project.security_level,
+                    "project_security_level": project.security_level,
+                },
             )
         ][:limit]

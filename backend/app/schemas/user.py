@@ -1,21 +1,17 @@
 """
 User Schemas
-
-负责：
-1. 用户管理请求和响应模型
-2. 支持角色信息嵌套展示
-3. 保证用户接口具备 Swagger 说明
 """
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.core.security_levels import DEFAULT_SECURITY_LEVEL
 from app.utils.user_avatar import avatar_url_for_user
 
 
 class RoleBrief(BaseModel):
-    """角色简要信息。"""
+    """Role brief info."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -23,10 +19,11 @@ class RoleBrief(BaseModel):
     name: str = Field(..., description="角色名称")
     code: str = Field(..., description="角色编码")
     enabled: bool = Field(..., description="角色是否启用")
+    security_level: str = Field(default=DEFAULT_SECURITY_LEVEL, description="角色最高密级")
 
 
 class UserCreate(BaseModel):
-    """新增用户请求。"""
+    """Create user request."""
 
     username: str = Field(..., description="用户名")
     password: str = Field(default="Botree@123456", description="初始密码")
@@ -38,18 +35,18 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    """更新用户请求。"""
+    """Update user request."""
 
     real_name: str | None = Field(default=None, description="真实姓名")
     email: str | None = Field(default=None, description="邮箱")
     phone: str | None = Field(default=None, description="手机号")
     department: str | None = Field(default=None, description="部门")
-    status: str | None = Field(default=None, description="状态：enabled/disabled")
+    status: str | None = Field(default=None, description="状态")
     role_ids: list[int] | None = Field(default=None, description="角色ID列表")
 
 
 class UserOut(BaseModel):
-    """用户响应。"""
+    """User response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -69,6 +66,16 @@ class UserOut(BaseModel):
     @computed_field
     @property
     def avatar_url(self) -> str | None:
-        """头像访问地址。"""
+        """Avatar URL."""
 
         return avatar_url_for_user(self)  # type: ignore[arg-type]
+
+    @computed_field
+    @property
+    def max_security_level(self) -> str:
+        """Derived max security level."""
+
+        if not self.roles:
+            return DEFAULT_SECURITY_LEVEL
+        levels = [role.security_level for role in self.roles if role.enabled]
+        return max(levels) if levels else DEFAULT_SECURITY_LEVEL

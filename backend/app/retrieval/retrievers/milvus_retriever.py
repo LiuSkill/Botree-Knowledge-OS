@@ -67,9 +67,11 @@ class MilvusHybridRetriever(BaseRetriever):
             "missing_or_inactive_chunk": 0,
             "document_unavailable": 0,
             "version_mismatch": 0,
+            "security_denied": 0,
             "scope_denied": 0,
             "project_access_denied": 0,
         }
+        allowed_levels = set(self.keyword_policy._allowed_security_levels(user))
 
         for hit in hits:
             chunk = self.document_repository.get_chunk(hit["chunk_id"])
@@ -82,6 +84,9 @@ class MilvusHybridRetriever(BaseRetriever):
                 continue
             if chunk.version_no != document.version_no:
                 filter_stats["version_mismatch"] += 1
+                continue
+            if document.security_level not in allowed_levels or chunk.security_level not in allowed_levels:
+                filter_stats["security_denied"] += 1
                 continue
             if not self.keyword_policy._scope_allowed(document.knowledge_type, document.project_id, document.knowledge_base_id, mode, project_id, user):
                 filter_stats["scope_denied"] += 1
@@ -111,6 +116,11 @@ class MilvusHybridRetriever(BaseRetriever):
                     page_number=chunk.page_number,
                     content=chunk.content,
                     retriever=self.name,
+                    metadata=self.keyword_policy._evidence_metadata(
+                        document,
+                        chunk,
+                        {"vector_id": hit["vector_id"], "milvus_security_level": hit.get("security_level")},
+                    ),
                 )
             )
             if len(evidences) >= limit:
@@ -129,7 +139,7 @@ class MilvusHybridRetriever(BaseRetriever):
             access_debug["allowed_scopes"],
             access_debug["allowed_project_ids"],
             access_debug["allowed_knowledge_base_ids"],
-            "n/a",
+            access_debug["user_security_level"],
             milvus_expr,
             len(hits),
             len(evidences),
@@ -146,6 +156,7 @@ class MilvusHybridRetriever(BaseRetriever):
         effective_mode = "hybrid" if mode == "auto" and project_id is not None else ("base_only" if mode == "auto" else mode)
         allowed_base_kb_ids: list[int] = []
         allowed_project_ids: list[int] = []
+        allowed_levels = self.keyword_policy._allowed_security_levels(user)
         clauses: list[str] = []
 
         def build_base_clause(strict_external: bool) -> str:
@@ -174,18 +185,26 @@ class MilvusHybridRetriever(BaseRetriever):
                 clauses.append(f"project_id == {int(project_id)}")
             clauses.append(build_base_clause(strict_external=False))
 
-        expr = " or ".join(f"({clause})" for clause in clauses if clause)
+        scope_expr = " or ".join(f"({clause})" for clause in clauses if clause)
+        security_expr = f"security_level in {self._milvus_str_list(allowed_levels)}"
+        expr = f"({scope_expr}) and {security_expr}" if scope_expr else security_expr
         return (
             expr or None,
             {
                 "allowed_scopes": self._allowed_scope_names(effective_mode, bool(allowed_base_kb_ids), bool(allowed_project_ids)),
                 "allowed_project_ids": allowed_project_ids,
                 "allowed_knowledge_base_ids": list(allowed_base_kb_ids),
+                "allowed_security_levels": allowed_levels,
+                "user_security_level": self.keyword_policy._allowed_security_levels(user)[-1],
             },
         )
 
     def _milvus_int_list(self, values: list[int]) -> str:
         return "[" + ", ".join(str(int(value)) for value in values) + "]"
+
+    def _milvus_str_list(self, values: list[str]) -> str:
+        safe_values = [str(value).replace("\\", "\\\\").replace('"', '\\"') for value in values]
+        return "[" + ", ".join(f'"{value}"' for value in safe_values) + "]"
 
     def _allowed_scope_names(self, mode: str, has_base: bool, has_project: bool) -> list[str]:
         scopes: list[str] = []

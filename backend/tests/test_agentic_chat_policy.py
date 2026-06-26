@@ -53,6 +53,7 @@ def _evidence(
         page_number=1,
         content=content,
         retriever="milvus",
+        metadata={"security_level": "public"},
     )
 
 
@@ -245,6 +246,59 @@ def test_base_chat_pending_confirm_and_reject(monkeypatch):
     assert result["answer_type"] == "cancelled"
     assert result["raw"]["refused"] is True
     assert session.conversation_state == "NORMAL"
+
+
+def test_stream_base_chat_confirm_emits_answering_before_llm(monkeypatch):
+    service = ChatService.__new__(ChatService)
+    service.db = None
+    service.repository = SimpleNamespace(add_message=lambda message: message, update_session=lambda session: None)
+    service._validate_chat_request = lambda *args, **kwargs: None
+
+    session = SimpleNamespace(
+        id=1,
+        conversation_state=AWAITING_GENERAL_CONFIRM,
+        pending_chat_type="base_chat",
+        pending_general_question="原始问题",
+        pending_answer_policy=None,
+        pending_evidence_status=None,
+        pending_created_at=None,
+    )
+    service._get_or_create_session = lambda payload, user: session
+
+    def fake_persist(payload, user, session, agent_result):
+        return {
+            **agent_result,
+            "session_id": session.id,
+            "progress_events": service._build_visible_progress_events(agent_result["agent_trace"], completed=True),
+            "citations": [],
+            "sources": [],
+            "feedback_status": None,
+            "raw": {"message_id": 1, **agent_result.get("raw", {})},
+        }
+
+    service._persist_agent_result = fake_persist
+    llm_calls = []
+    monkeypatch.setattr(
+        "app.services.chat_service.QwenOrchestrationService",
+        lambda db: SimpleNamespace(answer_general_question=lambda question: llm_calls.append(question) or "通用答案"),
+    )
+
+    payload = SimpleNamespace(message="可以", chat_type="base_chat", mode="auto", project_id=None)
+    stream = iter(service.complete_stream(payload, SimpleNamespace(id=1)))
+
+    assert "event: meta" in next(stream)
+    assert '"stage": "understanding"' in next(stream)
+    assert llm_calls == []
+    answering_progress = next(stream)
+    assert '"stage": "answering"' in answering_progress
+    assert '"status": "running"' in answering_progress
+    assert llm_calls == []
+
+    next(stream)
+    assert llm_calls == ["原始问题"]
+    remaining = "".join(stream)
+    assert GENERAL_ANSWER_PREFIX in remaining
+    assert "event: done" in remaining
 
 
 def test_invalid_query_short_circuits_without_heavy_nodes(monkeypatch):

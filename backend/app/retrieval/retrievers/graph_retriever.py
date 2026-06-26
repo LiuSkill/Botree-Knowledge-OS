@@ -45,6 +45,7 @@ class GraphRAGRetriever(BaseRetriever):
         relations = self.graph_repository.relations_for_entities([entity.id for entity in entities], limit=limit * 3)
         evidences: list[Evidence] = []
         project_service = ProjectService(self.db)
+        allowed_levels = set(self.keyword_policy._allowed_security_levels(user))
         for relation in relations:
             if relation.chunk_id is None or relation.document_id is None:
                 continue
@@ -53,12 +54,19 @@ class GraphRAGRetriever(BaseRetriever):
                 continue
             if document.version_no != relation.version_no:
                 continue
+            if document.security_level not in allowed_levels:
+                continue
             if not self.keyword_policy._scope_allowed(document.knowledge_type, document.project_id, document.knowledge_base_id, mode, project_id, user):
                 continue
             if document.project_id is not None:
-                project_service.ensure_project_access(document.project_id, user)
+                try:
+                    project_service.ensure_project_access(document.project_id, user)
+                except Exception:
+                    continue
             chunk = self.document_repository.get_chunk(relation.chunk_id)
             if not chunk or chunk.chunk_status != "active":
+                continue
+            if chunk.security_level not in allowed_levels:
                 continue
             source = self.graph_repository.get_entity(relation.source_entity_id)
             target = self.graph_repository.get_entity(relation.target_entity_id)
@@ -76,7 +84,11 @@ class GraphRAGRetriever(BaseRetriever):
                     page_number=relation.page_number or chunk.page_number,
                     content=f"{relation_text}\n\n{chunk.content}",
                     retriever=self.name,
-                    metadata={"relation_id": relation.id, "relation_type": relation.relation_type},
+                    metadata=self.keyword_policy._evidence_metadata(
+                        document,
+                        chunk,
+                        {"relation_id": relation.id, "relation_type": relation.relation_type},
+                    ),
                 )
             )
             if len(evidences) >= limit:

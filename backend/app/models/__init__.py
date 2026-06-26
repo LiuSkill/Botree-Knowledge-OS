@@ -13,7 +13,7 @@ from app.models.document_asset import DocumentAsset
 from app.models.document import Document, DocumentChunk, DocumentVersion
 from app.models.graph import GraphEntity, GraphRelation
 from app.models.index_task import IndexTask
-from app.models.knowledge_base import KnowledgeBase, KnowledgeBasePermission
+from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_category import KnowledgeCategory
 from app.models.model_config import ModelConfig
 from app.models.operation_log import OperationLog
@@ -37,7 +37,6 @@ __all__ = [
     "GraphRelation",
     "IndexTask",
     "KnowledgeBase",
-    "KnowledgeBasePermission",
     "KnowledgeCategory",
     "ModelConfig",
     "OperationLog",

@@ -1,19 +1,16 @@
 """
 Document Schemas
-
-负责：
-1. 文档列表、详情和 Chunk 响应模型
-2. 文档版本、解析和索引操作模型
-3. 支持知识中心与项目详情页
 """
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.security_levels import DEFAULT_SECURITY_LEVEL
+
 
 class DocumentOut(BaseModel):
-    """文档响应。"""
+    """Document response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -40,6 +37,7 @@ class DocumentOut(BaseModel):
     current_version: bool
     drawing_no: str | None = None
     drawing_name: str | None = None
+    security_level: str = DEFAULT_SECURITY_LEVEL
     created_by: int | None = None
     submitted_by: int | None = None
     reviewed_by: int | None = None
@@ -55,7 +53,7 @@ class DocumentOut(BaseModel):
 
 
 class DocumentChunkOut(BaseModel):
-    """文档 Chunk 响应。"""
+    """Document chunk response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -72,12 +70,13 @@ class DocumentChunkOut(BaseModel):
     section_title: str | None = None
     metadata_json: str | None = None
     vector_id: str | None = None
+    security_level: str = DEFAULT_SECURITY_LEVEL
     created_at: datetime
     updated_at: datetime
 
 
 class DocumentPageOut(BaseModel):
-    """文档页级响应。"""
+    """Document page response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -101,12 +100,13 @@ class DocumentPageOut(BaseModel):
     correction_status: str
     corrected_text: str | None = None
     corrected_by: int | None = None
+    security_level: str = DEFAULT_SECURITY_LEVEL
     created_at: datetime
     updated_at: datetime
 
 
 class DocumentAssetOut(BaseModel):
-    """文档派生资产响应。"""
+    """Document asset response."""
 
     id: int
     asset_type: str
@@ -121,7 +121,7 @@ class DocumentAssetOut(BaseModel):
 
 
 class DocumentPreviewDocumentOut(BaseModel):
-    """原始内容预览中的文档摘要。"""
+    """Document summary in preview."""
 
     id: int
     file_name: str
@@ -130,10 +130,11 @@ class DocumentPreviewDocumentOut(BaseModel):
     knowledge_type: str
     project_id: int | None = None
     index_status: str
+    security_level: str = DEFAULT_SECURITY_LEVEL
 
 
 class DocumentPreviewBlockOut(BaseModel):
-    """原始内容预览中的块级结构。"""
+    """Block entry in preview."""
 
     id: int
     block_index: int
@@ -148,7 +149,7 @@ class DocumentPreviewBlockOut(BaseModel):
 
 
 class DocumentPreviewPageOut(BaseModel):
-    """原始内容预览中的页级结构。"""
+    """Page entry in preview."""
 
     id: int
     page_no: int
@@ -160,13 +161,20 @@ class DocumentPreviewPageOut(BaseModel):
     cleaning_metadata_json: str | None = None
     corrected_text: str | None = None
     correction_status: str
+    security_level: str = DEFAULT_SECURITY_LEVEL
     page_summary: str | None = None
     page_preview_asset: DocumentAssetOut | None = None
     blocks: list[DocumentPreviewBlockOut]
 
 
+class DocumentSecurityLevelUpdate(BaseModel):
+    """Document security level update request."""
+
+    security_level: str = Field(..., description="public/internal/confidential")
+
+
 class DocumentPreviewOut(BaseModel):
-    """原始内容预览响应。"""
+    """Document preview response."""
 
     document: DocumentPreviewDocumentOut
     converted_pdf_asset: DocumentAssetOut | None = None
@@ -178,13 +186,7 @@ class DocumentPreviewOut(BaseModel):
 
 
 class DocumentDeleteOut(BaseModel):
-    """
-    文档删除结果响应。
-
-    说明：
-        统一返回文档删除时已清理的检索、预览、审核和任务数据统计，
-        便于前端展示二次确认后的清理结果。
-    """
+    """Document delete response."""
 
     deleted: bool
     vector_count: int
@@ -207,7 +209,7 @@ class DocumentDeleteOut(BaseModel):
 
 
 class PageCorrectionRequest(BaseModel):
-    """页级人工修正请求。"""
+    """Page correction request."""
 
     corrected_text: str = Field(..., description="人工修正后的页文本")
     drawing_no: str | None = Field(default=None, description="修正后的图纸编号")
@@ -215,14 +217,14 @@ class PageCorrectionRequest(BaseModel):
 
 
 class QualityCheckRequest(BaseModel):
-    """解析质量确认请求。"""
+    """Quality check request."""
 
-    passed: bool = Field(default=True, description="是否通过质量检查")
-    comment: str | None = Field(default=None, description="质量检查备注")
+    passed: bool = Field(default=True, description="是否通过")
+    comment: str | None = Field(default=None, description="质检备注")
 
 
 class IndexTaskOut(BaseModel):
-    """离线索引任务响应。"""
+    """Index task response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -244,7 +246,7 @@ class IndexTaskOut(BaseModel):
 
 
 class DocumentVersionOut(BaseModel):
-    """文档版本响应。"""
+    """Document version response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -266,6 +268,7 @@ class DocumentVersionOut(BaseModel):
     review_status: str
     index_status: str
     is_current: bool
+    security_level: str = DEFAULT_SECURITY_LEVEL
     reviewed_by: int | None = None
     reviewed_at: datetime | None = None
     review_comment: str | None = None
@@ -278,12 +281,12 @@ class DocumentVersionOut(BaseModel):
 
 
 class ReviewSubmitRequest(BaseModel):
-    """提交审核请求。"""
+    """Review submit request."""
 
     comment: str | None = Field(default=None, description="提交说明")
 
 
 class ArchiveRequest(BaseModel):
-    """归档请求。"""
+    """Archive request."""
 
     comment: str | None = Field(default=None, description="归档说明")

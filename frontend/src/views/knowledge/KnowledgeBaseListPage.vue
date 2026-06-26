@@ -18,9 +18,10 @@ import { listKnowledgeBaseDocuments, listKnowledgeBases, uploadKnowledgeDocument
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
 import { useAuthStore } from '@/stores/auth';
-import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory } from '@/types/api';
+import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
+import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 type FileTypeFilter = 'all' | 'pdf' | 'word' | 'excel';
 type CategoryDialogMode = 'create' | 'edit';
@@ -53,6 +54,7 @@ const editingCategoryId = ref<number | null>(null);
 
 const uploadForm = reactive({
   category_id: null as number | null,
+  security_level: 'internal' as SecurityLevel,
 });
 
 const categoryForm = reactive({
@@ -228,6 +230,7 @@ function openUploadDialog(): void {
     return;
   }
   uploadForm.category_id = activeCategoryId.value || categoryOptions.value.find((item) => !item.disabled)?.value || null;
+  uploadForm.security_level = 'internal';
   selectedUploadFile.value = null;
   uploadDialogVisible.value = true;
 }
@@ -255,7 +258,7 @@ async function confirmUpload(): Promise<void> {
 
   uploading.value = true;
   try {
-    await uploadKnowledgeDocument(uploadTargetBase.value.id, selectedUploadFile.value, uploadForm.category_id);
+    await uploadKnowledgeDocument(uploadTargetBase.value.id, selectedUploadFile.value, uploadForm.category_id, uploadForm.security_level);
     MessagePlugin.success('上传成功，文档已进入草稿状态');
     uploadDialogVisible.value = false;
     await loadEnterpriseKnowledge();
@@ -487,6 +490,7 @@ onMounted(loadEnterpriseKnowledge);
               <tr>
                 <th>文档名称</th>
                 <th>分类</th>
+                <th>密级</th>
                 <th>版本</th>
                 <th>类型</th>
                 <th>大小</th>
@@ -502,6 +506,11 @@ onMounted(loadEnterpriseKnowledge);
                   <t-link theme="primary" @click="router.push(`/documents/${document.id}`)">{{ document.file_name }}</t-link>
                 </td>
                 <td>{{ document.category_path || document.category_name || '-' }}</td>
+                <td>
+                  <t-tag size="small" variant="light" :theme="securityLevelTheme(document.security_level)">
+                    {{ securityLevelLabel(document.security_level) }}
+                  </t-tag>
+                </td>
                 <td>v{{ document.version_no }}</td>
                 <td>{{ getFileTypeLabel(document) }}</td>
                 <td>{{ formatFileSize(document.file_size) }}</td>
@@ -543,6 +552,11 @@ onMounted(loadEnterpriseKnowledge);
         <t-form-item label="知识分类">
           <t-select v-model="uploadForm.category_id" placeholder="请选择知识分类">
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
+          </t-select>
+        </t-form-item>
+        <t-form-item label="文档密级">
+          <t-select v-model="uploadForm.security_level">
+            <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
         </t-form-item>
         <t-form-item label="文档文件">

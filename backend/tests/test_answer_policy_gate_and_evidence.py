@@ -24,6 +24,7 @@ def evidence(
     project_id: int | None = 1,
     metadata: dict | None = None,
 ) -> Evidence:
+    evidence_metadata = {"security_level": "public", **(metadata or {})}
     return Evidence(
         score=0.9,
         source_type=source_type,
@@ -36,7 +37,7 @@ def evidence(
         page_number=1,
         content=content,
         retriever="milvus",
-        metadata=metadata or {},
+        metadata=evidence_metadata,
     )
 
 
@@ -203,7 +204,7 @@ def test_final_evidence_guard_removes_permission_limited_evidence_before_prompt(
         "question": "项目参数是什么？",
         "chat_type": "project_chat",
         "project_id": 1,
-        "user": SimpleNamespace(id=1, roles=[], security_level="public"),
+        "user": SimpleNamespace(id=1, roles=[]),
         "evidences": [guarded_evidence],
         "evidence_judgement": {
             "enough": True,

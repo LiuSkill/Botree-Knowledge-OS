@@ -8,11 +8,32 @@
 -->
 <script setup lang="ts">
 import { ChatContent as TChatContent, ChatMessage as TChatMessage, ChatSender as TChatSender } from '@tdesign-vue-next/chat';
-import { CloseIcon, QuoteIcon, TaskIcon, ThumbDownIcon, ThumbUpIcon } from 'tdesign-icons-vue-next';
+import {
+  CloseIcon,
+  DeleteIcon,
+  EditIcon,
+  EllipsisIcon,
+  PinFilledIcon,
+  PinIcon,
+  QuoteIcon,
+  StarFilledIcon,
+  StarIcon,
+  TaskIcon,
+  ThumbDownIcon,
+  ThumbUpIcon,
+} from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { computed, nextTick, onMounted, provide, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue';
 
-import { listChatMessages, listChatSessions, streamKnowledgeAgent, updateMessageFeedback, type ChatFeedbackStatus } from '@/api/chat';
+import {
+  deleteChatSession,
+  listChatMessages,
+  listChatSessions,
+  streamKnowledgeAgent,
+  updateChatSession,
+  updateMessageFeedback,
+  type ChatFeedbackStatus,
+} from '@/api/chat';
 import { listProjects } from '@/api/projects';
 import botreeLogo from '@/assets/botree-logo.png';
 import ChatRichContent from '@/components/ChatRichContent.vue';
@@ -30,7 +51,6 @@ import type {
   Citation,
   ProjectInfo,
 } from '@/types/api';
-import { formatDateTime } from '@/utils/format';
 import {
   markProgressComplete,
   mergeProgressEvent,
@@ -73,6 +93,11 @@ const streamAbortController = ref<AbortController | null>(null);
 const activeDetailMode = ref<DetailMode | null>(null);
 const activeDetailMessageId = ref<number | string | null>(null);
 const feedbackUpdatingMap = ref<Record<number, boolean>>({});
+const openSessionMenuId = ref<number | null>(null);
+const renamingSession = ref<ChatSession | null>(null);
+const renameTitle = ref('');
+const renameDialogVisible = ref(false);
+const renameSubmitting = ref(false);
 // 正文通过插槽渲染，外层 TChatMessage 保持空状态，避免底层加载态替换插槽内容。
 const chatMessageStatus = '';
 
@@ -98,6 +123,16 @@ const detailPanelTitle = computed(() => (activeDetailMode.value === 'citations' 
 const activeDetailCitations = computed(() => activeDetailMessage.value?.citations || []);
 const activeDetailProgress = computed(() => activeDetailMessage.value?.progressEvents || []);
 const activeDetailQuestion = computed(() => (activeDetailMessage.value ? questionForAssistant(activeDetailMessage.value) : ''));
+const sessionGroups = computed(() => {
+  const pinnedSessions = sessions.value.filter((session) => session.is_pinned);
+  const recentSessions = sessions.value.filter((session) => !session.is_pinned && !session.is_favorite);
+  const favoriteSessions = sessions.value.filter((session) => session.is_favorite);
+  return [
+    { key: 'pinned', title: '置顶', items: pinnedSessions },
+    { key: 'recent', title: '最近', items: recentSessions },
+    { key: 'favorite', title: '收藏', items: favoriteSessions },
+  ].filter((group) => group.items.length > 0);
+});
 
 provide('role', computed(() => 'assistant'));
 
@@ -302,7 +337,7 @@ async function loadSessionsForCurrentProject(): Promise<void> {
   if (props.chatType === 'project_chat' && projectId.value !== null) {
     params.project_id = projectId.value;
   }
-  sessions.value = await listChatSessions(params);
+  sessions.value = sortSessions(await listChatSessions(params));
 }
 
 async function loadBaseData(): Promise<void> {
@@ -316,6 +351,7 @@ async function loadBaseData(): Promise<void> {
 
 async function selectSession(session: ChatSession): Promise<void> {
   closeDetailPanel();
+  closeSessionMenu();
   activeSessionId.value = session.id;
   projectId.value = session.project_id || null;
   const fetchedMessages = await listChatMessages(session.id);
@@ -328,12 +364,118 @@ async function selectSession(session: ChatSession): Promise<void> {
 function startNewSession(): void {
   if (streaming.value) return;
   closeDetailPanel();
+  closeSessionMenu();
   activeSessionId.value = null;
   messages.value = [];
   citations.value = [];
   trace.value = [];
   queryScope.value = '';
   void focusQuestionInput();
+}
+
+function sortSessions(items: ChatSession[]): ChatSession[] {
+  return [...items].sort((left, right) => {
+    if (left.is_pinned !== right.is_pinned) return left.is_pinned ? -1 : 1;
+    const timeDiff = Date.parse(right.updated_at || right.created_at) - Date.parse(left.updated_at || left.created_at);
+    return timeDiff || right.id - left.id;
+  });
+}
+
+function replaceSession(updatedSession: ChatSession): void {
+  const nextSessions = sessions.value.map((session) => (session.id === updatedSession.id ? updatedSession : session));
+  if (!nextSessions.some((session) => session.id === updatedSession.id)) {
+    nextSessions.push(updatedSession);
+  }
+  sessions.value = sortSessions(nextSessions);
+}
+
+function closeSessionMenu(): void {
+  openSessionMenuId.value = null;
+}
+
+function toggleSessionMenu(sessionId: number): void {
+  openSessionMenuId.value = openSessionMenuId.value === sessionId ? null : sessionId;
+}
+
+async function togglePinnedSession(session: ChatSession): Promise<void> {
+  closeSessionMenu();
+  try {
+    replaceSession(await updateChatSession(session.id, { is_pinned: !session.is_pinned }));
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '置顶状态更新失败');
+  } finally {
+    await focusQuestionInput();
+  }
+}
+
+async function toggleFavoriteSession(session: ChatSession): Promise<void> {
+  closeSessionMenu();
+  try {
+    replaceSession(await updateChatSession(session.id, { is_favorite: !session.is_favorite }));
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '收藏状态更新失败');
+  } finally {
+    await focusQuestionInput();
+  }
+}
+
+function openRenameSessionDialog(session: ChatSession): void {
+  closeSessionMenu();
+  renamingSession.value = session;
+  renameTitle.value = session.title;
+  renameDialogVisible.value = true;
+}
+
+async function confirmRenameSession(): Promise<void> {
+  if (!renamingSession.value || renameSubmitting.value) return;
+  const title = renameTitle.value.trim();
+  if (!title) {
+    MessagePlugin.warning('会话名称不能为空');
+    return;
+  }
+
+  renameSubmitting.value = true;
+  try {
+    replaceSession(await updateChatSession(renamingSession.value.id, { title }));
+    renameDialogVisible.value = false;
+    renamingSession.value = null;
+    renameTitle.value = '';
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '会话重命名失败');
+  } finally {
+    renameSubmitting.value = false;
+    await focusQuestionInput();
+  }
+}
+
+async function confirmRemoveSession(session: ChatSession): Promise<void> {
+  closeSessionMenu();
+  if (streaming.value && session.id === activeSessionId.value) {
+    MessagePlugin.warning('当前会话正在回答中，暂不能删除');
+    return;
+  }
+  if (!window.confirm(`确认删除会话“${session.title}”吗？`)) {
+    await focusQuestionInput();
+    return;
+  }
+
+  try {
+    await deleteChatSession(session.id);
+    sessions.value = sessions.value.filter((item) => item.id !== session.id);
+    if (activeSessionId.value === session.id) {
+      activeSessionId.value = null;
+      messages.value = [];
+      citations.value = [];
+      trace.value = [];
+      queryScope.value = '';
+      closeDetailPanel();
+    }
+    MessagePlugin.success('会话已删除');
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '会话删除失败');
+  } finally {
+    await focusQuestionInput();
+  }
 }
 
 async function onProjectChange(value: number | string | Array<number | string> | undefined): Promise<void> {
@@ -487,7 +629,14 @@ async function submitQuestion(): Promise<void> {
   }
 }
 
-onMounted(loadBaseData);
+onMounted(() => {
+  void loadBaseData();
+  document.addEventListener('click', closeSessionMenu);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeSessionMenu);
+});
 </script>
 
 <template>
@@ -502,18 +651,49 @@ onMounted(loadBaseData);
           <t-button v-permission="'ai:chat'" block theme="primary" variant="outline" :disabled="streaming" @click="startNewSession">新建对话</t-button>
         </div>
         <div class="session-list">
-          <t-button
-            v-for="session in sessions"
-            :key="session.id"
-            class="session-item"
-            :class="{ active: session.id === activeSessionId }"
-            block
-            variant="text"
-            @click="selectSession(session)"
-          >
-            <span class="truncate">{{ session.title }}</span>
-            <small>{{ formatDateTime(session.created_at) }}</small>
-          </t-button>
+          <template v-for="group in sessionGroups" :key="group.key">
+            <div class="session-group-title">{{ group.title }}</div>
+            <div
+              v-for="session in group.items"
+              :key="`${group.key}-${session.id}`"
+              class="session-item"
+              :class="{ active: session.id === activeSessionId, 'menu-open': openSessionMenuId === session.id }"
+              role="button"
+              tabindex="0"
+              @click="selectSession(session)"
+              @keydown.enter.prevent="selectSession(session)"
+              @keydown.space.prevent="selectSession(session)"
+            >
+              <span class="session-title-text">{{ session.title }}</span>
+              <div class="session-actions" @click.stop>
+                <t-tooltip :content="session.is_pinned ? '取消置顶' : '置顶'">
+                  <button type="button" class="session-icon-button" @click.stop="togglePinnedSession(session)">
+                    <PinFilledIcon v-if="session.is_pinned" />
+                    <PinIcon v-else />
+                  </button>
+                </t-tooltip>
+                <div class="session-menu-wrap">
+                  <button type="button" class="session-icon-button" @click.stop="toggleSessionMenu(session.id)">
+                    <EllipsisIcon />
+                  </button>
+                  <div v-if="openSessionMenuId === session.id" class="session-menu">
+                    <button type="button" class="session-menu-item" @click.stop="openRenameSessionDialog(session)">
+                      <EditIcon />
+                      <span>重命名</span>
+                    </button>
+                    <button type="button" class="session-menu-item" @click.stop="toggleFavoriteSession(session)">
+                      <component :is="session.is_favorite ? StarFilledIcon : StarIcon" />
+                      <span>{{ session.is_favorite ? '取消收藏' : '收藏' }}</span>
+                    </button>
+                    <button type="button" class="session-menu-item danger" @click.stop="confirmRemoveSession(session)">
+                      <DeleteIcon />
+                      <span>删除</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
           <t-empty v-if="!sessions.length" size="small" :description="sessionEmptyDescription" />
         </div>
       </aside>
@@ -673,6 +853,17 @@ onMounted(loadBaseData);
         </div>
       </aside>
     </div>
+
+    <t-dialog
+      v-model:visible="renameDialogVisible"
+      header="重命名会话"
+      width="420px"
+      :confirm-btn="{ content: '保存', loading: renameSubmitting }"
+      @confirm="confirmRenameSession"
+      @close="renamingSession = null"
+    >
+      <t-input v-model="renameTitle" placeholder="请输入会话名称" maxlength="100" autofocus />
+    </t-dialog>
   </section>
 </template>
 
@@ -739,36 +930,161 @@ onMounted(loadBaseData);
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   min-height: 0;
   overflow: auto;
+  padding-right: 2px;
+  scrollbar-width: none;
+}
+
+.session-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.session-group-title {
+  margin: 8px 4px 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
 }
 
 .session-item {
+  position: relative;
   display: flex;
   width: 100%;
-  height: auto;
-  min-height: 56px;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  min-height: 38px;
+  align-items: center;
+  border: 0;
   border-radius: 8px;
-  padding: 10px;
+  background: transparent;
+  color: #0f172a;
+  cursor: pointer;
+  gap: 8px;
+  outline: none;
+  padding: 0 6px 0 12px;
   text-align: left;
 }
 
-.session-item :deep(.t-button__text) {
-  display: flex;
-  width: 100%;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+.session-item:hover,
+.session-item:focus-visible,
+.session-item.menu-open {
+  background: #f1f5f9;
+}
+
+.session-title-text {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  font-size: 14px;
+  line-height: 38px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-item.active {
   background: #eaf2ff;
   color: #1d4ed8;
   font-weight: 700;
+}
+
+.session-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.session-item:hover .session-actions,
+.session-item:focus-within .session-actions,
+.session-item.menu-open .session-actions {
+  opacity: 1;
+}
+
+.session-icon-button {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+}
+
+.session-icon-button:hover {
+  background: #e2e8f0;
+  color: #1d4ed8;
+}
+
+.session-icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.session-menu-wrap {
+  position: relative;
+}
+
+.session-menu {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 20;
+  min-width: 120px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  padding: 6px;
+}
+
+.session-menu-item {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #334155;
+  cursor: pointer;
+  gap: 8px;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.session-menu-item:hover {
+  background: #f1f5f9;
+  color: #1d4ed8;
+}
+
+.session-menu-item.danger {
+  color: #dc2626;
+}
+
+.session-menu-item.danger:hover {
+  background: #fff1f2;
+  color: #b91c1c;
+}
+
+.session-menu-item svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.session-menu-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-panel {

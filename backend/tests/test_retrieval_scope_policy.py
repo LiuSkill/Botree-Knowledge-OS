@@ -10,7 +10,7 @@ from app.services.qwen_orchestration_service import QwenOrchestrationService
 
 def make_admin_user() -> User:
     user = User(id=1, username="admin", password_hash="x", real_name="Admin")
-    user.roles = [Role(id=1, name="Admin", code="admin", enabled=True)]
+    user.roles = [Role(id=1, name="Admin", code="admin", enabled=True, security_level="confidential")]
     return user
 
 

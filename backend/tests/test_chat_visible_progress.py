@@ -42,11 +42,13 @@ def test_progress_event_from_trace_hides_internal_fields() -> None:
         "stage": "planning",
         "title": "正在规划资料检索方式",
         "status": "success",
+        "detail": "已确定资料检索路径",
         "sequence": 7,
     }
     assert "elapsed_ms" not in event
     assert "implementation" not in event
     assert "details" not in event
+    assert "STRICT_KB" not in event["detail"]
 
 
 def test_visible_progress_events_dedupe_and_complete_answering() -> None:
@@ -73,6 +75,7 @@ def test_visible_progress_events_dedupe_and_complete_answering() -> None:
     ]
     assert [event["status"] for event in events] == ["success", "success", "success", "success", "success"]
     assert events[2]["title"] == "正在检索相关资料"
+    assert events[2]["detail"] == "已完成相关资料查找"
 
 
 def test_sanitize_stream_result_strips_raw_trace_payload() -> None:
@@ -112,5 +115,6 @@ def test_sanitize_stream_result_strips_raw_trace_payload() -> None:
         "stage": "answering",
         "title": "正在整理回答内容",
         "status": "success",
+        "detail": "已完成回答整理",
         "sequence": 1,
     }

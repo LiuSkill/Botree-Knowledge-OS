@@ -14,7 +14,8 @@ import { useRouter } from 'vue-router';
 import { createProject, listProjects } from '@/api/projects';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
-import type { ProjectInfo } from '@/types/api';
+import type { ProjectInfo, SecurityLevel } from '@/types/api';
+import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 const router = useRouter();
 const projects = ref<ProjectInfo[]>([]);
@@ -27,6 +28,7 @@ const form = reactive({
   description: '',
   status: 'active',
   progress: 0,
+  security_level: 'internal' as SecurityLevel,
 });
 
 async function loadProjects(): Promise<void> {
@@ -43,7 +45,7 @@ async function handleCreate(): Promise<void> {
   await createProject({ ...form });
   MessagePlugin.success('项目已创建，项目知识库已自动生成');
   dialogVisible.value = false;
-  Object.assign(form, { name: '', code: '', client: '', manager: '', description: '', status: 'active', progress: 0 });
+  Object.assign(form, { name: '', code: '', client: '', manager: '', description: '', status: 'active', progress: 0, security_level: 'internal' });
   await loadProjects();
 }
 
@@ -63,7 +65,12 @@ onMounted(loadProjects);
             <div class="project-name">{{ project.name }}</div>
             <div class="muted mono">{{ project.code }}</div>
           </div>
-          <StatusTag type="project" :value="project.status" />
+          <t-space size="small">
+            <StatusTag type="project" :value="project.status" />
+            <t-tag size="small" variant="light" :theme="securityLevelTheme(project.security_level)">
+              {{ securityLevelLabel(project.security_level) }}
+            </t-tag>
+          </t-space>
         </div>
         <p class="project-desc">{{ project.description || '暂无项目描述' }}</p>
         <div class="project-meta">
@@ -85,6 +92,11 @@ onMounted(loadProjects);
         <t-form-item label="项目编码"><t-input v-model="form.code" /></t-form-item>
         <t-form-item label="客户名称"><t-input v-model="form.client" /></t-form-item>
         <t-form-item label="项目经理"><t-input v-model="form.manager" /></t-form-item>
+        <t-form-item label="项目密级">
+          <t-select v-model="form.security_level">
+            <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+          </t-select>
+        </t-form-item>
         <t-form-item label="项目描述"><t-textarea v-model="form.description" /></t-form-item>
       </t-form>
     </t-dialog>

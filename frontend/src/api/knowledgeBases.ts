@@ -8,7 +8,7 @@
  */
 
 import { request } from '@/api/request';
-import type { DocumentInfo, KnowledgeBaseInfo } from '@/types/api';
+import type { DocumentInfo, KnowledgeBaseInfo, SecurityLevel } from '@/types/api';
 
 export interface KnowledgeBasePayload {
   name: string;
@@ -16,7 +16,6 @@ export interface KnowledgeBasePayload {
   type: 'base' | 'project';
   project_id?: number | null;
   description?: string;
-  visibility?: string;
   enabled?: boolean;
 }
 
@@ -36,10 +35,11 @@ export function listKnowledgeBaseDocuments(id: number, params?: { category_id?: 
   return request.get(`/knowledge-bases/${id}/documents`, { params }) as Promise<DocumentInfo[]>;
 }
 
-export function uploadKnowledgeDocument(id: number, file: File, categoryId: number): Promise<DocumentInfo> {
+export function uploadKnowledgeDocument(id: number, file: File, categoryId: number, securityLevel?: SecurityLevel | null): Promise<DocumentInfo> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('category_id', String(categoryId));
+  if (securityLevel) formData.append('security_level', securityLevel);
   return request.post(`/knowledge-bases/${id}/documents/upload`, formData) as Promise<DocumentInfo>;
 }
 

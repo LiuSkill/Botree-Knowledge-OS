@@ -26,13 +26,9 @@ const props = withDefaults(
 
 const scrollRef = ref<HTMLElement | null>(null);
 const rows = computed<ChatProgressRow[]>(() => buildProgressRows(props.events, props.streaming));
-const updateSignature = computed(() => rows.value.map((row) => `${row.stage}:${row.status}:${row.title}`).join('|'));
-
-function statusText(status: ChatProgressRow['status']): string {
-  if (status === 'success') return '已完成';
-  if (status === 'running') return '进行中';
-  return '等待中';
-}
+const updateSignature = computed(() =>
+  rows.value.map((row) => `${row.stage}:${row.status}:${row.title}:${row.detail}`).join('|'),
+);
 
 watch(
   updateSignature,
@@ -52,21 +48,25 @@ watch(
       <strong>{{ title }}</strong>
     </div>
     <div ref="scrollRef" class="processing-progress-scroll">
-      <div
-        v-for="row in rows"
-        :key="row.stage"
-        class="processing-progress-row"
-        :class="row.status"
-      >
-        <span class="processing-progress-marker" aria-hidden="true">
-          <span v-if="row.status === 'running'" class="processing-progress-spinner"></span>
-          <span v-else class="processing-progress-dot"></span>
-        </span>
-        <div class="processing-progress-copy">
-          <span class="processing-progress-title">{{ row.title }}</span>
-          <span class="processing-progress-status">{{ statusText(row.status) }}</span>
+      <TransitionGroup name="progress-step" tag="div" class="processing-progress-list">
+        <div
+          v-for="row in rows"
+          :key="row.stage"
+          class="processing-progress-row"
+          :class="row.status"
+        >
+          <span class="processing-progress-marker" aria-hidden="true">
+            <span v-if="row.status === 'running'" class="processing-progress-spinner"></span>
+            <span v-else class="processing-progress-dot"></span>
+          </span>
+          <div class="processing-progress-copy">
+            <div class="processing-progress-main">
+              <span class="processing-progress-title">{{ row.title }}</span>
+            </div>
+            <p class="processing-progress-detail">{{ row.detail }}</p>
+          </div>
         </div>
-      </div>
+      </TransitionGroup>
     </div>
   </section>
 </template>
@@ -75,16 +75,13 @@ watch(
 .processing-progress-card {
   display: flex;
   width: 100%;
-  height: 260px;
+  height: auto;
   flex-direction: column;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #fff;
   box-sizing: border-box;
-  color: #334155;
-  font-size: 13px;
-  line-height: 1.5;
-  padding: 14px 14px 12px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 2px 0;
 }
 
 .processing-progress-header {
@@ -97,64 +94,52 @@ watch(
 
 .processing-progress-header strong {
   color: #111827;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .processing-progress-scroll {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
-  scrollbar-color: #d4dae6 transparent;
-  scrollbar-width: thin;
+  overflow: visible;
 }
 
-.processing-progress-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-
-.processing-progress-scroll::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: #d4dae6;
-}
-
-.processing-progress-scroll::-webkit-scrollbar-track {
-  background: transparent;
+.processing-progress-list {
+  min-height: 0;
 }
 
 .processing-progress-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  min-height: 32px;
-  color: #64748b;
+  gap: 8px;
+  min-height: 0;
+  color: #7b8798;
 }
 
 .processing-progress-row + .processing-progress-row {
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 .processing-progress-marker {
   display: inline-flex;
-  width: 16px;
-  height: 20px;
-  flex: 0 0 16px;
+  width: 14px;
+  height: 18px;
+  flex: 0 0 14px;
   align-items: center;
   justify-content: center;
-  padding-top: 1px;
+  padding-top: 3px;
 }
 
 .processing-progress-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #cbd5e1;
 }
 
 .processing-progress-spinner {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border: 2px solid #bfdbfe;
   border-top-color: #2563eb;
   border-radius: 50%;
@@ -166,30 +151,50 @@ watch(
 }
 
 .processing-progress-row.running .processing-progress-title {
-  color: #1d4ed8;
+  color: #2563eb;
+}
+
+.processing-progress-row.pending .processing-progress-title {
+  color: #94a3b8;
 }
 
 .processing-progress-copy {
-  display: flex;
+  display: block;
   min-width: 0;
   flex: 1;
+}
+
+.processing-progress-main {
+  display: flex;
+  min-width: 0;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .processing-progress-title {
   min-width: 0;
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
-.processing-progress-status {
-  flex: 0 0 auto;
-  color: #8a94a6;
+.processing-progress-detail {
+  margin: 2px 0 0;
+  color: #94a3b8;
   font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.progress-step-enter-active,
+.progress-step-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.progress-step-enter-from,
+.progress-step-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 @keyframes progress-spin {
@@ -200,14 +205,11 @@ watch(
 
 @media (max-width: 768px) {
   .processing-progress-card {
-    height: 200px;
-    padding: 12px;
+    padding: 2px 0;
   }
 
-  .processing-progress-copy {
+  .processing-progress-main {
     align-items: flex-start;
-    flex-direction: column;
-    gap: 2px;
   }
 }
 </style>

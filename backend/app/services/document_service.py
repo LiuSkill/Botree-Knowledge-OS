@@ -18,11 +18,19 @@ from threading import Thread
 from types import SimpleNamespace
 
 from fastapi import UploadFile
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.exceptions import AppException, is_database_lock_error
+from app.core.security_levels import (
+    DEFAULT_SECURITY_LEVEL,
+    allowed_security_levels,
+    ensure_security_level_access,
+    normalize_security_level,
+    user_max_security_level,
+)
 from app.core.minio import get_minio_client
 from app.knowledge.chunking.chunk_builder import ChunkBuilder
 from app.knowledge.indexing.milvus_indexer import MilvusIndexer
@@ -33,7 +41,7 @@ from app.knowledge.parsing.parser_service import ParserService
 from app.models.document_asset import DocumentAsset
 from app.models.document import Document, DocumentChunk, DocumentVersion
 from app.models.index_task import IndexTask
-from app.models.page_index import DocumentPage, DocumentPageBlock
+from app.models.page_index import DocumentPage, DocumentPageBlock, PageIndex
 from app.services.document_asset_service import DocumentAssetService
 from app.services.libreoffice_conversion_service import LibreOfficeConversionService
 from app.models.user import User
@@ -152,6 +160,38 @@ class DocumentService:
         self.review_repository = ReviewRepository(db)
         self.retrieval_trace_repository = RetrievalTraceRepository(db)
 
+    def _user_allowed_levels(self, user: User) -> list[str]:
+        """根据用户启用角色推导可访问密级集合，用户自身不保存密级。"""
+
+        return allowed_security_levels(user_max_security_level(user))
+
+    def _ensure_document_security_access(self, document: Document, user: User) -> None:
+        """文档内容访问必须叠加三层密级强制门禁。"""
+
+        ensure_security_level_access(user, document.security_level)
+
+    def _default_document_security_level(self, knowledge_base_project_id: int | None) -> str:
+        """项目资料默认继承项目密级，基础知识默认 internal。"""
+
+        if knowledge_base_project_id is None:
+            return DEFAULT_SECURITY_LEVEL
+        project = ProjectService(self.db).project_repository.get(knowledge_base_project_id)
+        return normalize_security_level(getattr(project, "security_level", None), default=DEFAULT_SECURITY_LEVEL)
+
+    def _resolve_document_security_level(
+        self,
+        *,
+        operator: User,
+        knowledge_base_project_id: int | None,
+        requested_level: str | None,
+    ) -> str:
+        security_level = normalize_security_level(
+            requested_level,
+            default=self._default_document_security_level(knowledge_base_project_id),
+        )
+        ensure_security_level_access(operator, security_level, message="无权创建或修改超出自身最高密级的文档")
+        return security_level
+
     def list_documents(
         self,
         user: User,
@@ -203,8 +243,19 @@ class DocumentService:
 
         result: list[Document] = []
         for document in documents:
+            if document.security_level not in self._user_allowed_levels(user):
+                continue
             if document.project_id is not None:
-                ProjectService(self.db).ensure_project_access(document.project_id, user)
+                try:
+                    ProjectService(self.db).ensure_project_access(document.project_id, user)
+                except AppException:
+                    logger.info(
+                        "文档列表过滤无权项目资料: document_id=%s project_id=%s user_id=%s",
+                        document.id,
+                        document.project_id,
+                        getattr(user, "id", None),
+                    )
+                    continue
             self._enrich_category_fields(document)
             result.append(document)
         return result
@@ -226,6 +277,7 @@ class DocumentService:
             raise AppException("文档不存在", status_code=404, code=404)
         if document.project_id is not None:
             ProjectService(self.db).ensure_project_access(document.project_id, user)
+        self._ensure_document_security_access(document, user)
         self._enrich_category_fields(document)
         return document
 
@@ -235,6 +287,7 @@ class DocumentService:
         upload_file: UploadFile,
         operator: User,
         category_id: int,
+        security_level: str | None = None,
     ) -> Document:
         """
         上传文档并创建首个版本。
@@ -254,6 +307,11 @@ class DocumentService:
             raise AppException("知识库不存在", status_code=404, code=404)
         if knowledge_base.type == "project" and knowledge_base.project_id is not None:
             ProjectService(self.db).ensure_project_access(knowledge_base.project_id, operator)
+        resolved_security_level = self._resolve_document_security_level(
+            operator=operator,
+            knowledge_base_project_id=knowledge_base.project_id,
+            requested_level=security_level,
+        )
 
         category = self.category_service.validate_for_document(
             category_id,
@@ -278,6 +336,7 @@ class DocumentService:
             index_status=INDEX_STATUS_NOT_INDEXED,
             version_no=1,
             current_version=False,
+            security_level=resolved_security_level,
             created_by=operator.id,
         )
         self.repository.add(document)
@@ -296,6 +355,7 @@ class DocumentService:
                 review_status=REVIEW_STATUS_DRAFT,
                 index_status=document.index_status,
                 is_current=False,
+                security_level=document.security_level,
                 created_by=operator.id,
             )
         )
@@ -375,6 +435,7 @@ class DocumentService:
                 review_status=REVIEW_STATUS_DRAFT,
                 index_status=INDEX_STATUS_NOT_INDEXED,
                 is_current=False,
+                security_level=document.security_level,
                 created_by=operator.id,
             )
         )
@@ -687,6 +748,7 @@ class DocumentService:
         document.file_size = target_version.file_size
         document.storage_path = target_version.storage_path
         document.category_id = target_version.category_id
+        document.security_level = target_version.security_level
         document.document_status = DOCUMENT_STATUS_ACTIVE
         document.parse_status = target_version.parse_status
         document.parse_started_at = target_version.parse_started_at
@@ -1223,6 +1285,7 @@ class DocumentService:
         document.storage_path = target.storage_path
         document.file_size = self._resolve_file_size(target.storage_path)
         document.category_id = target.category_id
+        document.security_level = target.security_level
         document.review_status = target.review_status
         document.index_status = INDEX_STATUS_NOT_INDEXED
         document.build_started_at = None
@@ -1268,6 +1331,7 @@ class DocumentService:
             version_no=version.version_no,
             drawing_no=document.drawing_no,
             drawing_name=document.drawing_name,
+            security_level=version.security_level or document.security_level,
             created_by=version.created_by or document.created_by,
             built_by=operator_id or document.built_by,
         )
@@ -1445,6 +1509,7 @@ class DocumentService:
                 content=item["content"],
                 page_number=item["page_number"],
                 section_title=item["section_title"],
+                security_level=document.security_level,
                 metadata_json=json.dumps(
                     {
                         "file_name": document.file_name,
@@ -1452,6 +1517,7 @@ class DocumentService:
                         "project_id": document.project_id,
                         "knowledge_base_id": document.knowledge_base_id,
                         "category_id": document.category_id,
+                        "security_level": document.security_level,
                     },
                     ensure_ascii=False,
                 ),
@@ -1614,6 +1680,7 @@ class DocumentService:
                     "cleaning_metadata_json": page.cleaning_metadata_json,
                     "corrected_text": page.corrected_text,
                     "correction_status": page.correction_status,
+                    "security_level": page.security_level,
                     "page_summary": page.page_summary,
                     "page_preview_asset": self._serialize_asset(page_preview_by_page_id.get(page.id)),
                     "blocks": [
@@ -1644,6 +1711,7 @@ class DocumentService:
                 "knowledge_type": document.knowledge_type,
                 "project_id": document.project_id,
                 "index_status": index_status_for_preview,
+                "security_level": (version.security_level if version else document.security_level),
             },
             "converted_pdf_asset": self._serialize_asset(converted_pdf_asset),
             "markdown_content": markdown_content,
@@ -1799,6 +1867,53 @@ class DocumentService:
         self.db.commit()
         self._enrich_category_fields(document)
         logger.info("文档归档完成: document_id=%s", document.id)
+        return document
+
+    def update_document_security_level(self, document_id: int, security_level: str, operator: User) -> Document:
+        """修改文档密级，并让依赖旧向量 metadata 的索引失效后重建。"""
+
+        document = self.get_document(document_id, operator)
+        target_level = normalize_security_level(security_level, default=document.security_level)
+        ensure_security_level_access(operator, target_level, message="无权修改为超出自身最高密级的文档")
+        if document.security_level == target_level:
+            return document
+
+        old_level = document.security_level
+        document.security_level = target_level
+        if document.index_status == INDEX_STATUS_INDEXED:
+            document.index_status = INDEX_STATUS_INVALID
+        for version in self.repository.list_versions(document.id):
+            version.security_level = target_level
+            if version.index_status == INDEX_STATUS_INDEXED:
+                version.index_status = INDEX_STATUS_INVALID
+        for chunk in self.repository.list_chunks(document.id, include_obsolete=True):
+            chunk.security_level = target_level
+        pages = list(self.db.scalars(select(DocumentPage).where(DocumentPage.document_id == document.id)).all())
+        for page in pages:
+            page.security_level = target_level
+        page_indexes = list(self.db.scalars(select(PageIndex).where(PageIndex.document_id == document.id)).all())
+        for page_index in page_indexes:
+            page_index.security_level = target_level
+            if page_index.status in {"staging", "published"}:
+                page_index.status = "obsolete"
+
+        SystemService(self.db).record_operation(
+            operator,
+            "修改文档密级",
+            TARGET_TYPE_DOCUMENT,
+            document.id,
+            f"{old_level}->{target_level}",
+        )
+        self.db.commit()
+        self._enrich_category_fields(document)
+        logger.info(
+            "文档密级已更新并标记索引失效: document_id=%s old_level=%s new_level=%s pages=%s page_indexes=%s",
+            document.id,
+            old_level,
+            target_level,
+            len(pages),
+            len(page_indexes),
+        )
         return document
 
     def _delete_document_retrieval_artifacts(

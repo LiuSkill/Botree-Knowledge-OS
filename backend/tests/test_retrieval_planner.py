@@ -23,6 +23,7 @@ sys.path.insert(0, str(BASE_DIR))
 
 from app.retrieval.router import RetrievalRouter  # noqa: E402
 from app.retrieval.schemas import Evidence  # noqa: E402
+from app.services.evidence_access_guard_service import EvidenceAccessGuardService  # noqa: E402
 from app.services.retrieval_planner_service import RetrievalPlannerService  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,7 @@ def make_evidence(retriever: str, score: float = 1.0, content: str | None = None
         page_number=1,
         content=content or "这是高质量业务证据内容",
         retriever=retriever,
+        metadata={"security_level": "public"},
     )
 
 
@@ -171,6 +173,7 @@ def build_router(*retrievers: FakeRetriever) -> RetrievalRouter:
     router = object.__new__(RetrievalRouter)
     router.retrievers = list(retrievers)
     router.retriever_map = {retriever.name: retriever for retriever in retrievers}
+    router.evidence_access_guard = EvidenceAccessGuardService(None)
     router._scope_text = lambda mode: mode  # type: ignore[method-assign]
     router.settings = SimpleNamespace(retrieval_retriever_timeout_ms=4500, ripgrep_timeout_ms=1500)
     router._retriever_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)

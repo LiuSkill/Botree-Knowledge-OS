@@ -142,6 +142,7 @@ class ChatProgressEvent(BaseModel):
     stage: Literal["understanding", "planning", "retrieving", "filtering", "answering"]
     title: str
     status: Literal["pending", "running", "success", "failed"]
+    detail: str | None = Field(default=None, description="普通用户可见的阶段结论")
     sequence: int | None = None
 
 

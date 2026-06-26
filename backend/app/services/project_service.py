@@ -1,15 +1,11 @@
-"""
-Project Service
+"""Project service."""
 
-负责：
-1. 项目 CRUD 业务
-2. 创建项目时自动创建项目知识库
-3. 校验项目成员权限，防止跨项目访问
-"""
+from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppException
+from app.core.security_levels import DEFAULT_SECURITY_LEVEL, allowed_security_levels, ensure_security_level_access, normalize_security_level, user_max_security_level
 from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_category import KnowledgeCategory
 from app.models.project import Project, ProjectMember
@@ -23,67 +19,52 @@ from app.services.system_service import SystemService
 
 
 class ProjectService:
-    """
-    项目服务
-
-    职责：
-    - 管理项目基础信息
-    - 管理项目成员授权
-    - 维护项目知识库自动绑定关系
-    """
-
     def __init__(self, db: Session) -> None:
         self.db = db
         self.project_repository = ProjectRepository(db)
         self.kb_repository = KnowledgeBaseRepository(db)
 
     def user_is_admin(self, user: User) -> bool:
-        """判断用户是否管理员。"""
-
         return any(role.code == "admin" for role in user.roles)
 
+    def _user_allowed_levels(self, user: User) -> list[str]:
+        return allowed_security_levels(user_max_security_level(user))
+
     def ensure_project_access(self, project_id: int, user: User) -> None:
-        """
-        校验项目访问权限
-
-        参数:
-            project_id: 项目ID
-            user: 当前用户
-        """
-
+        project = self.project_repository.get(project_id)
+        if not project:
+            raise AppException("项目不存在", status_code=404, code=404)
+        ensure_security_level_access(user, project.security_level)
         if self.user_is_admin(user):
             return
         if not self.project_repository.get_member(project_id, user.id):
             raise AppException("无权访问该项目", status_code=403, code=403)
 
     def list_projects(self, user: User, keyword: str | None = None) -> list[dict]:
-        """查询当前用户可访问项目。"""
-
         projects = self.project_repository.list(keyword=keyword, user_id=user.id, admin=self.user_is_admin(user))
+        projects = [project for project in projects if project.security_level in self._user_allowed_levels(user)]
         doc_repo = DocumentRepository(self.db)
         result: list[dict] = []
         for project in projects:
             kb = self.kb_repository.get_project_base(project.id)
-            documents = doc_repo.list(project_id=project.id)
+            documents = [item for item in doc_repo.list(project_id=project.id) if item.security_level in self._user_allowed_levels(user)]
             result.append(self._project_to_dict(project, kb.id if kb else None, len(documents), sum(1 for doc in documents if doc.index_status == "indexed")))
         return result
 
     def get_project(self, project_id: int, user: User) -> dict:
-        """查询项目详情。"""
-
         self.ensure_project_access(project_id, user)
         project = self.project_repository.get(project_id)
         if not project:
             raise AppException("项目不存在", status_code=404, code=404)
         kb = self.kb_repository.get_project_base(project.id)
-        documents = DocumentRepository(self.db).list(project_id=project.id)
+        documents = [item for item in DocumentRepository(self.db).list(project_id=project.id) if item.security_level in self._user_allowed_levels(user)]
         return self._project_to_dict(project, kb.id if kb else None, len(documents), sum(1 for doc in documents if doc.index_status == "indexed"))
 
     def create_project(self, payload: ProjectCreate, operator: User) -> dict:
-        """创建项目并自动创建项目知识库。"""
-
         if self.project_repository.get_by_code(payload.code):
             raise AppException("项目编码已存在")
+        security_level = normalize_security_level(payload.security_level, default=DEFAULT_SECURITY_LEVEL)
+        ensure_security_level_access(operator, security_level)
         project = Project(
             name=payload.name,
             code=payload.code,
@@ -92,11 +73,11 @@ class ProjectService:
             manager=payload.manager,
             status=payload.status,
             progress=payload.progress,
+            security_level=security_level,
             created_by=operator.id,
         )
         self.project_repository.add(project)
 
-        # 创建者自动成为项目 owner，确保项目创建后立刻具备访问权限。
         self.project_repository.add_member(
             ProjectMember(
                 project_id=project.id,
@@ -113,7 +94,6 @@ class ProjectService:
             type="project",
             project_id=project.id,
             description=f"{project.name} 的项目资料与专业知识库",
-            visibility="private",
             enabled=True,
             created_by=operator.id,
         )
@@ -124,12 +104,13 @@ class ProjectService:
         return self._project_to_dict(project, kb.id, 0, 0)
 
     def update_project(self, project_id: int, payload: ProjectUpdate, operator: User) -> dict:
-        """更新项目。"""
-
         self.ensure_project_access(project_id, operator)
         project = self.project_repository.get(project_id)
         if not project:
             raise AppException("项目不存在", status_code=404, code=404)
+        if payload.security_level is not None:
+            project.security_level = normalize_security_level(payload.security_level, default=project.security_level)
+            ensure_security_level_access(operator, project.security_level)
         for field in ["name", "description", "client", "manager", "status", "progress"]:
             value = getattr(payload, field)
             if value is not None:
@@ -139,8 +120,6 @@ class ProjectService:
         return self.get_project(project_id, operator)
 
     def delete_project(self, project_id: int, operator: User) -> None:
-        """删除项目。"""
-
         self.ensure_project_access(project_id, operator)
         project = self.project_repository.get(project_id)
         if not project:
@@ -150,14 +129,10 @@ class ProjectService:
         self.db.commit()
 
     def list_members(self, project_id: int, operator: User) -> list[ProjectMember]:
-        """查询项目成员。"""
-
         self.ensure_project_access(project_id, operator)
         return self.project_repository.list_members(project_id)
 
     def add_member(self, project_id: int, payload: ProjectMemberCreate, operator: User) -> ProjectMember:
-        """新增项目成员。"""
-
         self.ensure_project_access(project_id, operator)
         if not UserRepository(self.db).get_by_id(payload.user_id):
             raise AppException("用户不存在", status_code=404, code=404)
@@ -178,8 +153,6 @@ class ProjectService:
         return member
 
     def delete_member(self, project_id: int, user_id: int, operator: User) -> None:
-        """删除项目成员。"""
-
         self.ensure_project_access(project_id, operator)
         member = self.project_repository.get_member(project_id, user_id)
         if not member:
@@ -195,19 +168,6 @@ class ProjectService:
         document_count: int,
         knowledge_count: int,
     ) -> dict:
-        """
-        转换项目响应字典
-
-        参数:
-            project: 项目 ORM 对象
-            knowledge_base_id: 项目知识库ID
-            document_count: 文档数量
-            knowledge_count: 已索引知识数量
-
-        返回:
-            不包含 SQLAlchemy 内部状态的项目字典。
-        """
-
         return {
             "id": project.id,
             "name": project.name,
@@ -217,6 +177,7 @@ class ProjectService:
             "manager": project.manager,
             "status": project.status,
             "progress": project.progress,
+            "security_level": project.security_level,
             "created_by": project.created_by,
             "created_at": project.created_at,
             "updated_at": project.updated_at,
@@ -226,14 +187,6 @@ class ProjectService:
         }
 
     def _seed_default_project_categories(self, project_id: int, created_by: int | None) -> None:
-        """
-        初始化项目资料默认分类
-
-        参数:
-            project_id: 项目ID
-            created_by: 创建人ID
-        """
-
         defaults = {
             "设计资料": ["设计输入", "设计计算", "设计评审"],
             "实施资料": ["会议纪要", "现场记录", "变更资料"],

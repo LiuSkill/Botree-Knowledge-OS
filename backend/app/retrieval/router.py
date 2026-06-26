@@ -20,9 +20,10 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
 from app.core.config import get_settings
+from app.core.database import SessionLocal
 from app.core.exceptions import AppException
+from app.core.security_levels import allowed_security_levels, user_max_security_level
 from app.models.document import Document, DocumentChunk
 from app.models.knowledge_base import KnowledgeBase
 from app.models.user import User
@@ -37,6 +38,7 @@ from app.retrieval.retrievers.ripgrep_retriever import RipgrepRetriever
 from app.retrieval.schemas import Evidence
 from app.services.project_service import ProjectService
 from app.services.qwen_orchestration_service import QwenOrchestrationService
+from app.services.evidence_access_guard_service import EvidenceAccessGuardService
 from app.services.reranker_service import RerankerService
 from app.services.retrieval_planner_service import RetrievalPlannerService
 
@@ -72,6 +74,7 @@ class RetrievalRouter:
         self.retriever_map = {retriever.name: retriever for retriever in self.retrievers}
         self.merger = EvidenceMerger()
         self.reranker = RerankerService(db)
+        self.evidence_access_guard = EvidenceAccessGuardService(db)
         self._retriever_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=6,
             thread_name_prefix="retriever-worker",
@@ -134,6 +137,13 @@ class RetrievalRouter:
             intent=intent,
         )
         merged_evidences = self.merger.merge([retrieval["evidences"]], max(limit * 3, limit))
+        merged_evidences, guard_details = self._guard_before_rerank(
+            merged_evidences,
+            chat_type=chat_type,
+            effective_mode=effective_mode,
+            project_id=project_id,
+            user=user,
+        )
         evidences = self.reranker.rerank(query, merged_evidences, limit)
         return {
             **retrieval,
@@ -142,6 +152,7 @@ class RetrievalRouter:
             "retrieval_plan": plan.to_dict(),
             "evidences": evidences,
             "rerank_details": self.reranker.last_details,
+            "pre_rerank_guard": guard_details,
         }
 
     def search_all(
@@ -192,6 +203,13 @@ class RetrievalRouter:
             query_features=None,
         )
         merged_evidences = self.merger.merge(groups, max(limit * 3, limit))
+        merged_evidences, guard_details = self._guard_before_rerank(
+            merged_evidences,
+            chat_type=chat_type,
+            effective_mode=effective_mode,
+            project_id=project_id,
+            user=user,
+        )
         evidences = self.reranker.rerank(query, merged_evidences, limit)
         return {
             "mode": effective_mode,
@@ -211,6 +229,7 @@ class RetrievalRouter:
             "retriever_errors": retriever_errors,
             "retriever_timeouts": retriever_timeouts,
             "rerank_details": self.reranker.last_details,
+            "pre_rerank_guard": guard_details,
             "retrieval_plan": {
                 "selected_retrievers": retriever_names,
                 "fallback_retrievers": [],
@@ -364,6 +383,13 @@ class RetrievalRouter:
             runtime_skip_reasons.setdefault(retriever_name, "未进入当前执行阶段")
 
         evidences = [item for group in groups for item in group]
+        evidences, guard_details = self._guard_before_rerank(
+            evidences,
+            chat_type=chat_type,
+            effective_mode=effective_mode,
+            project_id=project_id,
+            user=user,
+        )
         return {
             "mode": effective_mode,
             "query_scope": self._scope_text(effective_mode),
@@ -381,6 +407,7 @@ class RetrievalRouter:
             "retriever_top_scores": retriever_top_scores,
             "retriever_errors": retriever_errors,
             "retriever_timeouts": retriever_timeouts,
+            "pre_rerank_guard": guard_details,
         }
 
     def available_retrievers(self) -> list[str]:
@@ -392,6 +419,44 @@ class RetrievalRouter:
         """
 
         return [retriever.name for retriever in self.retrievers]
+
+    def _guard_before_rerank(
+        self,
+        evidences: list[Evidence],
+        *,
+        chat_type: str | None,
+        effective_mode: str,
+        project_id: int | None,
+        user: User,
+    ) -> tuple[list[Evidence], dict[str, Any]]:
+        guard_chat_type = self._guard_chat_type(chat_type, effective_mode)
+        result = self.evidence_access_guard.filter_evidences(
+            evidences=evidences,
+            chat_type=guard_chat_type,
+            project_id=project_id,
+            user=user,
+        )
+        if result.rejected:
+            logger.info(
+                "pre_rerank_evidence_guard: accepted=%s rejected=%s primary_reason=%s chat_type=%s mode=%s project_id=%s",
+                len(result.evidences),
+                len(result.rejected),
+                result.primary_reason,
+                guard_chat_type,
+                effective_mode,
+                project_id,
+            )
+        return result.evidences, result.to_dict()
+
+    def _guard_chat_type(self, chat_type: str | None, effective_mode: str) -> str:
+        normalized = (chat_type or effective_mode or "").strip()
+        if normalized in {"project_chat", "base_chat"}:
+            return normalized
+        if normalized == "project":
+            return "project_chat"
+        if normalized in {"base", "industry"}:
+            return "base_chat"
+        return "project_chat" if effective_mode == "project" else "base_chat"
 
     def _execute_retrievers(
         self,
@@ -776,6 +841,8 @@ class RetrievalRouter:
                     id=getattr(role, "id", None),
                     code=getattr(role, "code", ""),
                     name=getattr(role, "name", ""),
+                    enabled=getattr(role, "enabled", True),
+                    security_level=getattr(role, "security_level", None),
                 )
             )
         return SimpleNamespace(
@@ -856,6 +923,8 @@ class RetrievalRouter:
                 )
                 or 0
             )
+            user_level = user_max_security_level(user)
+            allowed_levels = allowed_security_levels(user_level)
             allowed_docs = 0
             active_chunks = 0
             if allowed_kb_ids:
@@ -866,6 +935,7 @@ class RetrievalRouter:
                             Document.knowledge_base_id.in_(allowed_kb_ids),
                             Document.review_status == "approved",
                             Document.index_status == "indexed",
+                            Document.security_level.in_(allowed_levels),
                         )
                     )
                     or 0
@@ -879,6 +949,8 @@ class RetrievalRouter:
                             Document.knowledge_base_id.in_(allowed_kb_ids),
                             Document.review_status == "approved",
                             Document.index_status == "indexed",
+                            Document.security_level.in_(allowed_levels),
+                            DocumentChunk.security_level.in_(allowed_levels),
                             DocumentChunk.chunk_status == "active",
                             DocumentChunk.version_no == Document.version_no,
                         )
@@ -895,7 +967,7 @@ class RetrievalRouter:
                 total_base_docs,
                 allowed_docs,
                 active_chunks,
-                "n/a",
+                user_level,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Base knowledge scope diagnostics failed: intent=%s error=%s", intent, exc)

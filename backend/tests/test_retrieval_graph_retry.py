@@ -27,6 +27,7 @@ def make_evidence(chunk_id: int, retriever: str = "page_index") -> Evidence:
         page_number=2,
         content="补充证据显示流程起点、终点和主要设备。",
         retriever=retriever,
+        metadata={"security_level": "public"},
     )
 
 

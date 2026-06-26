@@ -29,10 +29,13 @@ from app.models import (  # noqa: E402
     Document,
     DocumentAsset,
     DocumentChunk,
+    DocumentPage,
     DocumentVersion,
     IndexTask,
     KnowledgeBase,
     KnowledgeCategory,
+    PageIndex,
+    Role,
     ReviewLog,
     ReviewTask,
 )
@@ -76,7 +79,9 @@ def make_fk_session() -> Session:
 def make_operator() -> User:
     """创建不需要落库的测试操作人。"""
 
-    return User(id=1, username="tester", password_hash="x", real_name="Tester")
+    user = User(id=1, username="tester", password_hash="x", real_name="Tester")
+    user.roles = [Role(id=1, name="Admin", code="admin", enabled=True, security_level="confidential")]
+    return user
 
 
 def test_pdf_preview_uses_original_pdf_file() -> None:
@@ -354,12 +359,103 @@ def test_upload_document_creates_draft_version_without_review_task() -> None:
         assert document.review_status == "draft"
         assert document.document_status == "pending_review"
         assert document.current_version is False
+        assert document.security_level == "internal"
         assert version is not None
         assert version.review_status == "draft"
         assert version.version_status == "draft"
         assert version.is_current is False
+        assert version.security_level == "internal"
         assert not list(db.scalars(select(ReviewTask).where(ReviewTask.document_id == document.id)).all())
         create_parse_task.assert_called_once()
+    finally:
+        db.close()
+
+
+def test_update_document_security_level_syncs_versions_chunks_and_page_indexes() -> None:
+    """修改文档密级时，所有可作为 Evidence 来源的记录必须同步更新。"""
+
+    db = make_session()
+    try:
+        operator = make_operator()
+        document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="secure.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/secure.md",
+            document_status="active",
+            parse_status="success",
+            review_status="approved",
+            index_status="indexed",
+            version_no=1,
+            current_version=True,
+            security_level="internal",
+        )
+        db.add(document)
+        db.flush()
+        version = DocumentVersion(
+            document_id=document.id,
+            version_no=1,
+            file_name="secure.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/secure.md",
+            version_status="current",
+            parse_status="success",
+            review_status="approved",
+            index_status="indexed",
+            is_current=True,
+            security_level="internal",
+        )
+        chunk = DocumentChunk(
+            knowledge_base_id=1,
+            document_id=document.id,
+            knowledge_type="base",
+            version_no=1,
+            chunk_status="active",
+            chunk_index=1,
+            content="secure content",
+            security_level="internal",
+        )
+        page = DocumentPage(
+            knowledge_base_id=1,
+            document_id=document.id,
+            version_no=1,
+            page_no=1,
+            page_text="page content",
+            security_level="internal",
+        )
+        db.add_all([version, chunk, page])
+        db.flush()
+        page_index = PageIndex(
+            knowledge_base_id=1,
+            document_id=document.id,
+            page_id=page.id,
+            chunk_id=chunk.id,
+            version_no=1,
+            page_no=1,
+            index_text="page content",
+            status="published",
+            security_level="internal",
+        )
+        db.add(page_index)
+        db.commit()
+
+        updated = DocumentService(db).update_document_security_level(document.id, "public", operator)
+
+        db.refresh(version)
+        db.refresh(chunk)
+        db.refresh(page)
+        db.refresh(page_index)
+        assert updated.security_level == "public"
+        assert updated.index_status == "invalid"
+        assert version.security_level == "public"
+        assert version.index_status == "invalid"
+        assert chunk.security_level == "public"
+        assert page.security_level == "public"
+        assert page_index.security_level == "public"
+        assert page_index.status == "obsolete"
     finally:
         db.close()
 

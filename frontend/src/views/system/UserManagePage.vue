@@ -15,7 +15,8 @@ import { createUser, deleteUser, listUsers, resetUserPassword, updateUser } from
 import type { UserListParams } from '@/api/users';
 import { listRoles } from '@/api/roles';
 import TableActionButton from '@/components/TableActionButton.vue';
-import type { PageResult, RoleInfo, UserInfo } from '@/types/api';
+import type { PageResult, RoleInfo, SecurityLevel, UserInfo } from '@/types/api';
+import { securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 interface PaginationInfo {
   current: number;
@@ -27,6 +28,11 @@ type TagTheme = 'default' | 'primary' | 'success' | 'warning' | 'danger';
 
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+const SECURITY_LEVEL_RANK: Record<SecurityLevel, number> = {
+  public: 0,
+  internal: 1,
+  confidential: 2,
+};
 
 const users = ref<PageResult<UserInfo>>(createEmptyPageResult<UserInfo>());
 const roles = ref<RoleInfo[]>([]);
@@ -62,6 +68,7 @@ const columns = [
   { colKey: 'email', title: '邮箱', minWidth: 180 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'roles', title: '角色', minWidth: 180 },
+  { colKey: 'max_security_level', title: '最高密级', width: 120 },
   { colKey: 'operation', title: '操作', width: 160, fixed: 'right' },
 ];
 
@@ -227,6 +234,13 @@ function roleNames(userRoles: UserInfo['roles']): string {
   return userRoles.map((role) => role.name).join('、') || '-';
 }
 
+function userMaxSecurityLevel(user: UserInfo): SecurityLevel {
+  if (user.max_security_level) return user.max_security_level;
+  return user.roles.reduce<SecurityLevel>((current, role) => {
+    return SECURITY_LEVEL_RANK[role.security_level] > SECURITY_LEVEL_RANK[current] ? role.security_level : current;
+  }, 'public');
+}
+
 onMounted(async () => {
   await Promise.all([loadRoleOptions(), loadUsers()]);
 });
@@ -300,6 +314,11 @@ onMounted(async () => {
         </template>
         <template #roles="{ row }">
           {{ roleNames(row.roles) }}
+        </template>
+        <template #max_security_level="{ row }">
+          <t-tag size="small" variant="light" :theme="securityLevelTheme(userMaxSecurityLevel(row))">
+            {{ securityLevelLabel(userMaxSecurityLevel(row)) }}
+          </t-tag>
         </template>
         <template #operation="{ row }">
           <t-space size="small">

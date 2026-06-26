@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS model_configs (
 	model_type VARCHAR(30) NOT NULL COMMENT '模型类型：llm/embedding/reranker/intent/planner/evidence_judge_fast/evidence_judge/answer_llm/vision_llm/analysis_llm/graph_extractor',
 	is_default BOOL NOT NULL COMMENT '是否默认模型', 
 	enabled BOOL NOT NULL COMMENT '是否启用', 
+	security_level VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '角色最高密级：public/internal/confidential',
 	created_at DATETIME NOT NULL COMMENT '创建时间', 
 	updated_at DATETIME NOT NULL COMMENT '更新时间', 
 	PRIMARY KEY (id)
@@ -127,6 +128,7 @@ CREATE TABLE IF NOT EXISTS projects (
 	manager VARCHAR(100) COMMENT '项目经理', 
 	status VARCHAR(30) NOT NULL COMMENT '项目状态：active/completed/pending/archived', 
 	progress INTEGER NOT NULL COMMENT '项目进度百分比', 
+	security_level VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '项目密级：public/internal/confidential',
 	created_by INTEGER COMMENT '创建人ID，关联users.id', 
 	created_at DATETIME NOT NULL COMMENT '创建时间', 
 	updated_at DATETIME NOT NULL COMMENT '更新时间', 
@@ -134,6 +136,7 @@ CREATE TABLE IF NOT EXISTS projects (
 	UNIQUE KEY uk_projects_code (code), 
 	FOREIGN KEY(created_by) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目主表';
+CREATE INDEX idx_projects_security_level ON projects (security_level);
 
 CREATE TABLE IF NOT EXISTS role_permissions (
 	role_id INTEGER NOT NULL COMMENT '角色ID，关联roles.id', 
@@ -178,7 +181,6 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
 	type VARCHAR(30) NOT NULL COMMENT '知识库类型：base/project', 
 	project_id INTEGER COMMENT '所属项目ID，base为空，project关联projects.id', 
 	description TEXT COMMENT '知识库描述', 
-	visibility VARCHAR(30) NOT NULL COMMENT '可见性：internal/authorized/private', 
 	enabled BOOL NOT NULL COMMENT '是否启用', 
 	created_by INTEGER COMMENT '创建人ID，关联users.id', 
 	created_at DATETIME NOT NULL COMMENT '创建时间', 
@@ -265,6 +267,7 @@ CREATE TABLE IF NOT EXISTS documents (
 	parent_document_id INTEGER COMMENT '父文档ID，关联documents.id', 
 	drawing_no VARCHAR(100) COMMENT '图纸编号', 
 	drawing_name VARCHAR(255) COMMENT '图纸名称', 
+	security_level VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '文档密级：public/internal/confidential',
 	created_by INTEGER COMMENT '创建人ID，关联users.id', 
 	submitted_by INTEGER COMMENT '提交人ID，关联users.id', 
 	reviewed_by INTEGER COMMENT '审核人ID，关联users.id', 
@@ -293,23 +296,7 @@ CREATE INDEX idx_documents_knowledge_base_id ON documents (knowledge_base_id);
 CREATE INDEX idx_documents_knowledge_type ON documents (knowledge_type);
 CREATE INDEX idx_documents_project_id ON documents (project_id);
 CREATE INDEX idx_documents_review_status ON documents (review_status);
-
-CREATE TABLE IF NOT EXISTS knowledge_base_permissions (
-	id INTEGER NOT NULL COMMENT '主键ID' AUTO_INCREMENT, 
-	knowledge_base_id INTEGER NOT NULL COMMENT '知识库ID，关联knowledge_bases.id', 
-	subject_type VARCHAR(30) NOT NULL COMMENT '授权主体类型：user/role/project/external_user', 
-	subject_id INTEGER COMMENT '授权主体ID，项目授权关联projects.id，外部用户可为空', 
-	external_subject VARCHAR(255) COMMENT '外部授权主体标识', 
-	permission VARCHAR(50) NOT NULL COMMENT '授权权限：read/manage', 
-	expires_at DATETIME COMMENT '授权过期时间', 
-	created_by INTEGER COMMENT '创建人ID，关联users.id', 
-	created_at DATETIME NOT NULL COMMENT '创建时间', 
-	updated_at DATETIME NOT NULL COMMENT '更新时间', 
-	PRIMARY KEY (id), 
-	FOREIGN KEY(knowledge_base_id) REFERENCES knowledge_bases (id), 
-	FOREIGN KEY(created_by) REFERENCES users (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库授权表';
-CREATE INDEX idx_knowledge_base_permissions_knowledge_base_id ON knowledge_base_permissions (knowledge_base_id);
+CREATE INDEX idx_documents_security_level ON documents (security_level);
 
 CREATE TABLE IF NOT EXISTS document_chunks (
 	id INTEGER NOT NULL COMMENT '主键ID' AUTO_INCREMENT, 
@@ -325,6 +312,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 	section_title VARCHAR(255) COMMENT '章节标题', 
 	metadata_json TEXT COMMENT '扩展元数据JSON', 
 	vector_id VARCHAR(255) COMMENT '向量ID，后续关联Milvus', 
+	security_level VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT 'Chunk密级：public/internal/confidential',
 	created_at DATETIME NOT NULL COMMENT '创建时间', 
 	updated_at DATETIME NOT NULL COMMENT '更新时间', 
 	PRIMARY KEY (id), 
@@ -338,6 +326,7 @@ CREATE INDEX idx_document_chunks_knowledge_type ON document_chunks (knowledge_ty
 CREATE INDEX idx_document_chunks_project_id ON document_chunks (project_id);
 CREATE INDEX idx_document_chunks_version_no ON document_chunks (version_no);
 CREATE INDEX idx_document_chunks_chunk_status ON document_chunks (chunk_status);
+CREATE INDEX idx_document_chunks_security_level ON document_chunks (security_level);
 
 CREATE TABLE IF NOT EXISTS document_pages (
 	id INTEGER NOT NULL COMMENT '主键ID' AUTO_INCREMENT,
@@ -360,6 +349,7 @@ CREATE TABLE IF NOT EXISTS document_pages (
 	correction_status VARCHAR(30) NOT NULL DEFAULT 'raw' COMMENT '修正状态：raw/corrected/confirmed',
 	corrected_text TEXT COMMENT '人工修正后的页文本',
 	corrected_by INTEGER COMMENT '修正人ID，关联users.id',
+	security_level VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '文档页密级：public/internal/confidential',
 	created_at DATETIME NOT NULL COMMENT '创建时间',
 	updated_at DATETIME NOT NULL COMMENT '更新时间',
 	PRIMARY KEY (id),
@@ -375,6 +365,7 @@ CREATE INDEX idx_document_pages_version_no ON document_pages (version_no);
 CREATE INDEX idx_document_pages_page_no ON document_pages (page_no);
 CREATE INDEX idx_document_pages_drawing_no ON document_pages (drawing_no);
 CREATE INDEX idx_document_pages_correction_status ON document_pages (correction_status);
+CREATE INDEX idx_document_pages_security_level ON document_pages (security_level);
 
 CREATE TABLE IF NOT EXISTS document_page_blocks (
 	id INTEGER NOT NULL COMMENT '主键ID' AUTO_INCREMENT,
@@ -441,6 +432,7 @@ CREATE TABLE IF NOT EXISTS page_indexes (
 	index_text TEXT NOT NULL COMMENT '用于页级检索的文本',
 	text_mirror_path VARCHAR(500) COMMENT 'ripgrep本地文本镜像路径',
 	status VARCHAR(30) NOT NULL DEFAULT 'staging' COMMENT '索引状态：staging/published/obsolete',
+	security_level VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT 'PageIndex密级：public/internal/confidential',
 	created_at DATETIME NOT NULL COMMENT '创建时间',
 	updated_at DATETIME NOT NULL COMMENT '更新时间',
 	PRIMARY KEY (id),
@@ -459,6 +451,7 @@ CREATE INDEX idx_page_indexes_version_no ON page_indexes (version_no);
 CREATE INDEX idx_page_indexes_page_no ON page_indexes (page_no);
 CREATE INDEX idx_page_indexes_drawing_no ON page_indexes (drawing_no);
 CREATE INDEX idx_page_indexes_status ON page_indexes (status);
+CREATE INDEX idx_page_indexes_security_level ON page_indexes (security_level);
 
 CREATE TABLE IF NOT EXISTS index_tasks (
 	id INTEGER NOT NULL COMMENT '主键ID' AUTO_INCREMENT,
@@ -495,6 +488,7 @@ CREATE TABLE IF NOT EXISTS document_versions (
 	review_status VARCHAR(30) NOT NULL COMMENT '审核状态：draft/submitted/reviewing/approved/rejected/archived', 
 	index_status VARCHAR(30) NOT NULL COMMENT '索引状态：not_indexed/parsing/parsed_pending_review/parsed/indexing/indexed/failed', 
 	is_current BOOL NOT NULL COMMENT '是否当前版本', 
+	security_level VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '文档版本密级：public/internal/confidential',
 	created_by INTEGER COMMENT '创建人ID，关联users.id', 
 	created_at DATETIME NOT NULL COMMENT '创建时间', 
 	updated_at DATETIME NOT NULL COMMENT '更新时间', 
@@ -505,6 +499,7 @@ CREATE TABLE IF NOT EXISTS document_versions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文档版本表';
 CREATE INDEX idx_document_versions_category_id ON document_versions (category_id);
 CREATE INDEX idx_document_versions_document_id ON document_versions (document_id);
+CREATE INDEX idx_document_versions_security_level ON document_versions (security_level);
 
 CREATE TABLE IF NOT EXISTS review_logs (
 	id INTEGER NOT NULL COMMENT '主键ID' AUTO_INCREMENT, 
@@ -539,7 +534,7 @@ CREATE INDEX idx_review_tasks_review_status ON review_tasks (review_status);
 CREATE TABLE IF NOT EXISTS chat_citations (
 	id INTEGER NOT NULL COMMENT '主键ID' AUTO_INCREMENT, 
 	message_id INTEGER NOT NULL COMMENT '助手消息ID，关联chat_messages.id', 
-	source_type VARCHAR(30) NOT NULL COMMENT '来源类型：base/project/authorized_internal', 
+	source_type VARCHAR(30) NOT NULL COMMENT '来源类型：base/project', 
 	knowledge_base_id INTEGER NOT NULL COMMENT '知识库ID，关联knowledge_bases.id', 
 	project_id INTEGER COMMENT '项目ID，项目知识关联projects.id', 
 	document_id INTEGER NOT NULL COMMENT '文档ID，关联documents.id', 
@@ -702,11 +697,11 @@ INSERT INTO permissions (module, action, code, description, created_at, updated_
 ON DUPLICATE KEY UPDATE description = VALUES(description), updated_at = NOW();
 
 -- 默认角色
-INSERT INTO roles (name, code, description, enabled, created_at, updated_at) VALUES
-('超级管理员', 'admin', '拥有平台全部权限', 1, NOW(), NOW()),
-('知识工程师', 'engineer', '管理知识库和项目资料', 1, NOW(), NOW()),
-('只读用户', 'viewer', '查看已授权知识和项目', 1, NOW(), NOW())
-ON DUPLICATE KEY UPDATE description = VALUES(description), enabled = VALUES(enabled), updated_at = NOW();
+INSERT INTO roles (name, code, description, enabled, security_level, created_at, updated_at) VALUES
+('超级管理员', 'admin', '拥有平台全部权限', 1, 'confidential', NOW(), NOW()),
+('知识工程师', 'engineer', '管理知识库和项目资料', 1, 'internal', NOW(), NOW()),
+('只读用户', 'viewer', '查看已授权知识和项目', 1, 'public', NOW(), NOW())
+ON DUPLICATE KEY UPDATE description = VALUES(description), enabled = VALUES(enabled), security_level = VALUES(security_level), updated_at = NOW();
 
 -- 管理员绑定全部权限
 INSERT IGNORE INTO role_permissions (role_id, permission_id, created_at, updated_at)
@@ -715,8 +710,8 @@ SELECT r.id, p.id, NOW(), NOW() FROM roles r CROSS JOIN permissions p WHERE r.co
 -- 默认管理员由应用启动时根据 DEFAULT_ADMIN_USERNAME/DEFAULT_ADMIN_PASSWORD 创建，初始化SQL不写入固定密码。
 
 -- 默认基础知识库
-INSERT INTO knowledge_bases (name, code, type, project_id, description, visibility, enabled, created_by, created_at, updated_at) VALUES
-('企业基础知识库', 'base-default', 'base', NULL, '企业通用工艺、设备、规范和专家经验知识库', 'internal', 1, NULL, NOW(), NOW())
+INSERT INTO knowledge_bases (name, code, type, project_id, description, enabled, created_by, created_at, updated_at) VALUES
+('企业基础知识库', 'base-default', 'base', NULL, '企业通用工艺、设备、规范和专家经验知识库', 1, NULL, NOW(), NOW())
 ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), enabled = VALUES(enabled), updated_at = NOW();
 
 -- 默认企业知识分类

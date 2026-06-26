@@ -108,16 +108,22 @@ class RipgrepRetriever(BaseRetriever):
 
         result: list[PageIndex] = []
         project_service = ProjectService(self.db)
-        for page_index in self.page_repository.list_published_indexes():
+        allowed_levels = set(self.keyword_policy._allowed_security_levels(user))
+        for page_index in self.page_repository.list_published_indexes(list(allowed_levels)):
             document = self.db.get(Document, page_index.document_id)
             if not document or document.review_status != "approved" or document.index_status != "indexed":
                 continue
             if document.version_no != page_index.version_no:
                 continue
+            if document.security_level not in allowed_levels or page_index.security_level not in allowed_levels:
+                continue
             if not self.keyword_policy._scope_allowed(document.knowledge_type, document.project_id, document.knowledge_base_id, mode, project_id, user):
                 continue
             if document.project_id is not None:
-                project_service.ensure_project_access(document.project_id, user)
+                try:
+                    project_service.ensure_project_access(document.project_id, user)
+                except Exception:
+                    continue
             result.append(page_index)
         return result
 
@@ -144,6 +150,8 @@ class RipgrepRetriever(BaseRetriever):
         chunk = self.document_repository.get_chunk(page_index.chunk_id) if page_index.chunk_id else None
         if not document or not chunk or chunk.chunk_status != "active":
             return None
+        if chunk.security_level != page_index.security_level or document.security_level != page_index.security_level:
+            return None
         score = 10.0 + score_text_relevance(chunk.content, query)
         return Evidence(
             score=score,
@@ -157,5 +165,13 @@ class RipgrepRetriever(BaseRetriever):
             page_number=page_index.page_no,
             content=chunk.content,
             retriever=self.name,
-            metadata={"hit_line": hit_line, "page_index_id": page_index.id},
+            metadata=self.keyword_policy._evidence_metadata(
+                document,
+                chunk,
+                {
+                    "hit_line": hit_line,
+                    "page_index_id": page_index.id,
+                    "page_index_security_level": page_index.security_level,
+                },
+            ),
         )

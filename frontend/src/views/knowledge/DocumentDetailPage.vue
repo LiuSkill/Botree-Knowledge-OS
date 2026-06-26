@@ -28,6 +28,7 @@ import {
   listDocumentVersions,
   parseDocument,
   submitDocumentReview,
+  updateDocumentSecurityLevel,
 } from '@/api/documents';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
@@ -41,6 +42,7 @@ import type {
   DocumentPreview,
   DocumentVersionInfo,
   IndexTaskInfo,
+  SecurityLevel,
 } from '@/types/api';
 import {
   INDEX_TASK_STATUS_TEXT,
@@ -48,6 +50,7 @@ import {
   PARSE_STATUS_TEXT,
 } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
+import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 type DetailTab = 'preview' | 'cleaning' | 'chunks' | 'versions';
 
@@ -184,6 +187,8 @@ const pdfPreviewLoading = ref(false);
 const pdfPreviewUrl = ref('');
 const pdfPreviewTitle = ref('PDF 预览');
 const pdfPreviewError = ref('');
+const securityDialogVisible = ref(false);
+const securitySaving = ref(false);
 
 const documentInfo = ref<DocumentInfo | null>(null);
 const previewData = ref<DocumentPreview | null>(null);
@@ -195,6 +200,10 @@ const selectedVersionNo = ref<number | null>(null);
 
 const versionForm = reactive({
   change_summary: '',
+});
+
+const securityForm = reactive({
+  security_level: 'internal' as SecurityLevel,
 });
 
 const assetUrlMap = reactive<Record<number, string>>({});
@@ -216,6 +225,7 @@ const canUploadVersion = computed(() => authStore.hasActionPermission('knowledge
 const canDeleteDocument = computed(() => authStore.hasActionPermission('knowledge:delete'));
 const canReviewDocument = computed(() => authStore.hasActionPermission('review:review'));
 const canBuildDocumentIndex = computed(() => authStore.hasActionPermission('review:build-index'));
+const canEditDocumentSecurity = computed(() => authStore.hasActionPermission('knowledge:edit'));
 const backPath = computed(() => {
   /**
    * 根据知识范围返回对应的上级页面，保证删除或返回时回到正确上下文。
@@ -241,6 +251,7 @@ const pdfPreviewButtonLabel = computed(() => (isViewedPdfFile.value ? '预览原
 const viewedReviewStatus = computed(() => viewedVersion.value?.review_status || documentInfo.value?.review_status || 'draft');
 const viewedParseStatus = computed(() => viewedVersion.value?.parse_status || documentInfo.value?.parse_status || 'unparsed');
 const viewedIndexStatus = computed(() => viewedVersion.value?.index_status || documentInfo.value?.index_status || 'not_indexed');
+const documentSecurityLevel = computed<SecurityLevel>(() => (documentInfo.value?.security_level || 'internal') as SecurityLevel);
 const canSubmitReview = computed(() => {
   return SUBMITTABLE_REVIEW_STATUSES.has(viewedReviewStatus.value);
 });
@@ -1127,6 +1138,30 @@ async function viewCurrentVersion(): Promise<void> {
   await refreshActiveTab();
 }
 
+function openSecurityDialog(): void {
+  /**
+   * 文档密级是文档及其版本、分块、页索引的统一上限，前端只允许在文档维度修改。
+   */
+  if (!documentInfo.value) return;
+  securityForm.security_level = documentInfo.value.security_level;
+  securityDialogVisible.value = true;
+}
+
+async function confirmSecurityDialog(): Promise<void> {
+  if (!documentInfo.value || securitySaving.value) return;
+  securitySaving.value = true;
+  try {
+    await updateDocumentSecurityLevel(documentInfo.value.id, securityForm.security_level);
+    MessagePlugin.success('文档密级已更新，相关索引状态已同步');
+    securityDialogVisible.value = false;
+    await loadData(true);
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '文档密级更新失败');
+  } finally {
+    securitySaving.value = false;
+  }
+}
+
 function taskStatusText(task: IndexTaskInfo | null): string {
   /**
    * 将索引任务状态统一映射成前端显示文案。
@@ -1218,6 +1253,15 @@ onBeforeUnmount(() => {
         >
           返回
         </t-button>
+        <t-button
+          v-permission="'knowledge:edit'"
+          v-if="canEditDocumentSecurity"
+          variant="outline"
+          :disabled="!documentInfo"
+          @click="openSecurityDialog"
+        >
+          修改密级
+        </t-button>
         <t-button v-permission="'knowledge:submit-review'" v-if="canSubmitReview" theme="primary" @click="submitReview()">提交审核</t-button>
         <t-button v-permission="'knowledge:delete'" v-if="canDeleteDocument" theme="danger" variant="outline" :loading="deleting" @click="removeDocument">删除文档</t-button>
       </t-space>
@@ -1249,14 +1293,19 @@ onBeforeUnmount(() => {
             <div class="summary-value"><StatusTag type="index" :value="documentInfo?.index_status || 'not_indexed'" /></div>
           </div>
           <div class="summary-item">
-            <div class="summary-label">最新任务</div>
-            <div class="summary-value">{{ taskStatusText(latestIndexTask) }}</div>
+            <div class="summary-label">文档密级</div>
+            <div class="summary-value">
+              <t-tag size="small" variant="light" :theme="securityLevelTheme(documentSecurityLevel)">
+                {{ securityLevelLabel(documentSecurityLevel) }}
+              </t-tag>
+            </div>
           </div>
         </div>
 
         <div class="summary-aside">
           <div class="summary-line">知识范围：{{ documentInfo?.knowledge_type === 'project' ? `项目 #${documentInfo?.project_id}` : '企业知识' }}</div>
           <div class="summary-line">分类：{{ documentInfo?.category_path || documentInfo?.category_name || '-' }}</div>
+          <div class="summary-line">最新任务：{{ taskStatusText(latestIndexTask) }}</div>
           <div class="summary-line">更新时间：{{ formatDateTime(documentInfo?.updated_at) }}</div>
           <div v-if="documentInfo?.build_error" class="error-text">构建错误：{{ documentInfo.build_error }}</div>
         </div>
@@ -1379,6 +1428,7 @@ onBeforeUnmount(() => {
                   <tr>
                     <th>序号</th>
                     <th>页码</th>
+                    <th>密级</th>
                     <th>章节</th>
                     <th>内容</th>
                   </tr>
@@ -1387,6 +1437,11 @@ onBeforeUnmount(() => {
                   <tr v-for="chunk in chunks" :key="chunk.id">
                     <td>{{ chunk.chunk_index }}</td>
                     <td>{{ chunk.page_number || '-' }}</td>
+                    <td>
+                      <t-tag size="small" variant="light" :theme="securityLevelTheme(chunk.security_level)">
+                        {{ securityLevelLabel(chunk.security_level) }}
+                      </t-tag>
+                    </td>
                     <td>{{ chunk.section_title || '-' }}</td>
                     <td class="content-cell">
                       <div class="chunk-markdown" v-html="renderMarkdown(chunk.content)" />
@@ -1405,6 +1460,7 @@ onBeforeUnmount(() => {
                   <tr>
                     <th>版本</th>
                     <th>文件名</th>
+                    <th>密级</th>
                     <th>版本状态</th>
                     <th>解析状态</th>
                     <th>状态</th>
@@ -1417,6 +1473,11 @@ onBeforeUnmount(() => {
                   <tr v-for="version in versions" :key="version.id">
                     <td>v{{ version.version_no }}</td>
                     <td><t-link theme="primary" @click="openDocumentPdfPreview(version)">{{ version.file_name }}</t-link></td>
+                    <td>
+                      <t-tag size="small" variant="light" :theme="securityLevelTheme(version.security_level)">
+                        {{ securityLevelLabel(version.security_level) }}
+                      </t-tag>
+                    </td>
                     <td>{{ version.version_status || (version.is_current ? 'current' : '-') }}</td>
                     <td>{{ version.parse_status || '-' }}</td>
                     <td>
@@ -1558,6 +1619,23 @@ onBeforeUnmount(() => {
           </section>
         </aside>
       </section>
+
+      <t-dialog
+        v-model:visible="securityDialogVisible"
+        header="修改文档密级"
+        width="480px"
+        :confirm-loading="securitySaving"
+        @confirm="confirmSecurityDialog"
+      >
+        <t-form :data="securityForm" label-align="top">
+          <t-form-item label="文档密级">
+            <t-select v-model="securityForm.security_level">
+              <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+            </t-select>
+          </t-form-item>
+          <div class="dialog-hint">修改后会同步当前文档的版本、分块和页索引；已发布索引需要重新构建后生效。</div>
+        </t-form>
+      </t-dialog>
 
       <t-dialog
         v-model:visible="pdfPreviewVisible"
@@ -1990,6 +2068,12 @@ onBeforeUnmount(() => {
   font-size: 13px;
   line-height: 32px;
   word-break: break-word;
+}
+
+.dialog-hint {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .chunk-table .content-cell {

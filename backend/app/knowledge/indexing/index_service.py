@@ -74,6 +74,7 @@ class IndexService:
                     "page_no": int(chunk.page_number or 0),
                     "version_no": int(chunk.version_no),
                     "drawing_no": str(document.drawing_no if document else ""),
+                    "security_level": str(chunk.security_level),
                     "embedding": vector,
                 }
             )

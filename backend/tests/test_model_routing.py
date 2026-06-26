@@ -78,6 +78,7 @@ def make_evidence(content: str = "项目资料显示该流程包含原料输送�
         page_number=1,
         content=content,
         retriever="milvus",
+        metadata={"security_level": "public"},
     )
 
 

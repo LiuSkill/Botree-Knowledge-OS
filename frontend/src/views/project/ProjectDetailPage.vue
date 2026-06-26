@@ -15,14 +15,15 @@ import { useRoute, useRouter } from 'vue-router';
 import { listDocuments, submitDocumentReview } from '@/api/documents';
 import { createKnowledgeCategory, deleteKnowledgeCategory, listKnowledgeCategories, updateKnowledgeCategory } from '@/api/knowledgeCategories';
 import { uploadKnowledgeDocument } from '@/api/knowledgeBases';
-import { getProject, listProjectMembers } from '@/api/projects';
+import { getProject, listProjectMembers, updateProject } from '@/api/projects';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
 import { useAuthStore } from '@/stores/auth';
-import type { DocumentInfo, KnowledgeCategory, ProjectInfo } from '@/types/api';
+import type { DocumentInfo, KnowledgeCategory, ProjectInfo, SecurityLevel } from '@/types/api';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
+import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 type CategoryDialogMode = 'create' | 'edit';
 
@@ -45,6 +46,7 @@ const expandedCategoryIds = ref<number[]>([]);
 const uploading = ref(false);
 const uploadDialogVisible = ref(false);
 const selectedUploadFile = ref<File | null>(null);
+const projectDialogVisible = ref(false);
 const categoryDialogVisible = ref(false);
 const categoryDialogMode = ref<CategoryDialogMode>('create');
 const editingCategoryId = ref<number | null>(null);
@@ -56,6 +58,18 @@ const canDeleteCategories = computed(() => authStore.hasActionPermission('knowle
 
 const uploadForm = reactive({
   category_id: null as number | null,
+  security_level: 'internal' as SecurityLevel,
+});
+
+const projectForm = reactive({
+  name: '',
+  code: '',
+  client: '',
+  manager: '',
+  description: '',
+  status: 'active',
+  progress: 0,
+  security_level: 'internal' as SecurityLevel,
 });
 
 const categoryForm = reactive({
@@ -147,8 +161,40 @@ function openUploadDialog(): void {
     return;
   }
   uploadForm.category_id = activeCategoryId.value || categoryOptions.value.find((item) => !item.disabled)?.value || null;
+  uploadForm.security_level = project.value.security_level || 'internal';
   selectedUploadFile.value = null;
   uploadDialogVisible.value = true;
+}
+
+function openProjectDialog(): void {
+  if (!project.value) return;
+  Object.assign(projectForm, {
+    name: project.value.name,
+    code: project.value.code,
+    client: project.value.client || '',
+    manager: project.value.manager || '',
+    description: project.value.description || '',
+    status: project.value.status,
+    progress: project.value.progress,
+    security_level: project.value.security_level,
+  });
+  projectDialogVisible.value = true;
+}
+
+async function confirmProjectDialog(): Promise<void> {
+  if (!project.value) return;
+  await updateProject(project.value.id, {
+    name: projectForm.name.trim(),
+    client: projectForm.client.trim(),
+    manager: projectForm.manager.trim(),
+    description: projectForm.description.trim(),
+    status: projectForm.status,
+    progress: Number(projectForm.progress) || 0,
+    security_level: projectForm.security_level,
+  });
+  MessagePlugin.success('项目已更新');
+  projectDialogVisible.value = false;
+  await loadData();
 }
 
 function handleFileChange(event: Event): void {
@@ -178,7 +224,7 @@ async function confirmUpload(): Promise<void> {
 
   uploading.value = true;
   try {
-    await uploadKnowledgeDocument(project.value.knowledge_base_id, selectedUploadFile.value, uploadForm.category_id);
+    await uploadKnowledgeDocument(project.value.knowledge_base_id, selectedUploadFile.value, uploadForm.category_id, uploadForm.security_level);
     MessagePlugin.success('项目资料上传成功，已进入草稿状态');
     uploadDialogVisible.value = false;
     await loadData();
@@ -292,9 +338,10 @@ onMounted(loadData);
 <template>
   <PageContainer :title="project?.name || '项目详情'" subtitle="项目资料和分类仅在当前项目内可见、可用">
     <template #actions>
-      <t-space>
-        <t-button variant="outline" @click="router.push('/projects')">返回项目中心</t-button>
-        <t-button v-permission="'knowledge:upload'" theme="primary" :loading="uploading" @click="openUploadDialog">
+        <t-space>
+          <t-button variant="outline" @click="router.push('/projects')">返回项目中心</t-button>
+          <t-button v-permission="'project:edit'" variant="outline" @click="openProjectDialog">编辑项目</t-button>
+          <t-button v-permission="'knowledge:upload'" theme="primary" :loading="uploading" @click="openUploadDialog">
           <template #icon><AddIcon /></template>
           上传资料
         </t-button>
@@ -315,6 +362,15 @@ onMounted(loadData);
           <div class="detail-item">
             <div class="detail-label">项目进度</div>
             <div class="detail-value">{{ project?.progress || 0 }}%</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">项目密级</div>
+            <div class="detail-value">
+              <t-tag v-if="project" size="small" variant="light" :theme="securityLevelTheme(project.security_level)">
+                {{ securityLevelLabel(project.security_level) }}
+              </t-tag>
+              <span v-else>-</span>
+            </div>
           </div>
         </div>
       </t-card>
@@ -391,6 +447,7 @@ onMounted(loadData);
               <tr>
                 <th>文件名</th>
                 <th>分类</th>
+                <th>密级</th>
                 <th>版本</th>
                 <th>大小</th>
                 <th>审核</th>
@@ -403,6 +460,11 @@ onMounted(loadData);
               <tr v-for="doc in filteredDocuments" :key="doc.id">
                 <td><t-link theme="primary" @click="router.push(`/documents/${doc.id}`)">{{ doc.file_name }}</t-link></td>
                 <td>{{ doc.category_path || doc.category_name || '-' }}</td>
+                <td>
+                  <t-tag size="small" variant="light" :theme="securityLevelTheme(doc.security_level)">
+                    {{ securityLevelLabel(doc.security_level) }}
+                  </t-tag>
+                </td>
                 <td>v{{ doc.version_no }}</td>
                 <td>{{ formatFileSize(doc.file_size) }}</td>
                 <td><StatusTag type="review" :value="doc.review_status" /></td>
@@ -447,10 +509,32 @@ onMounted(loadData);
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
           </t-select>
         </t-form-item>
+        <t-form-item label="文档密级">
+          <t-select v-model="uploadForm.security_level">
+            <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+          </t-select>
+        </t-form-item>
         <t-form-item label="资料文件">
           <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
           <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
         </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog v-model:visible="projectDialogVisible" header="编辑项目" width="560px" @confirm="confirmProjectDialog">
+      <t-form :data="projectForm" label-align="top">
+        <t-form-item label="项目名称"><t-input v-model="projectForm.name" /></t-form-item>
+        <t-form-item label="项目编码"><t-input v-model="projectForm.code" disabled /></t-form-item>
+        <t-form-item label="客户名称"><t-input v-model="projectForm.client" /></t-form-item>
+        <t-form-item label="项目经理"><t-input v-model="projectForm.manager" /></t-form-item>
+        <t-form-item label="项目状态"><t-input v-model="projectForm.status" /></t-form-item>
+        <t-form-item label="项目进度"><t-input v-model="projectForm.progress" type="number" /></t-form-item>
+        <t-form-item label="项目密级">
+          <t-select v-model="projectForm.security_level">
+            <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+          </t-select>
+        </t-form-item>
+        <t-form-item label="项目描述"><t-textarea v-model="projectForm.description" /></t-form-item>
       </t-form>
     </t-dialog>
 

@@ -34,6 +34,7 @@ def _evidence(content: str, retriever: str, chunk_id: int = 1) -> Evidence:
         page_number=2,
         content=content,
         retriever=retriever,
+        metadata={"security_level": "public"},
     )
 
 

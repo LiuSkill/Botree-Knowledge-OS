@@ -18,6 +18,19 @@ from app.core.exceptions import AppException
 
 logger = logging.getLogger(__name__)
 
+REQUIRED_COLLECTION_FIELDS = {
+    "id",
+    "knowledge_base_id",
+    "project_id",
+    "document_id",
+    "chunk_id",
+    "page_no",
+    "version_no",
+    "drawing_no",
+    "security_level",
+    "embedding",
+}
+
 
 class MilvusIndexer:
     """
@@ -48,6 +61,8 @@ class MilvusIndexer:
 
         collection = self._collection(load_for_search=False)
         collection_fields = {field.name for field in collection.schema.fields}
+        if any(not str(record.get("security_level") or "").strip() for record in records):
+            raise AppException("Milvus 写入记录缺少 security_level，已阻止无密级向量入库", status_code=500, code=500)
         filtered_records = [
             {key: value for key, value in record.items() if key in collection_fields}
             for record in records
@@ -76,7 +91,7 @@ class MilvusIndexer:
             param={"metric_type": "COSINE", "params": {}},
             limit=limit,
             expr=expr,
-            output_fields=["knowledge_base_id", "project_id", "document_id", "chunk_id", "version_no"],
+            output_fields=["knowledge_base_id", "project_id", "document_id", "chunk_id", "version_no", "security_level"],
         )
         hits: list[dict[str, Any]] = []
         for hit in results[0]:
@@ -89,6 +104,7 @@ class MilvusIndexer:
                     "document_id": int(hit.entity.get("document_id")),
                     "chunk_id": int(hit.entity.get("chunk_id")),
                     "version_no": int(hit.entity.get("version_no")),
+                    "security_level": str(hit.entity.get("security_level") or ""),
                 }
             )
         return hits
@@ -155,6 +171,7 @@ class MilvusIndexer:
                 FieldSchema(name="page_no", dtype=DataType.INT64),
                 FieldSchema(name="version_no", dtype=DataType.INT64),
                 FieldSchema(name="drawing_no", dtype=DataType.VARCHAR, max_length=128),
+                FieldSchema(name="security_level", dtype=DataType.VARCHAR, max_length=30),
                 FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=self.settings.embedding_dim),
             ]
             schema = CollectionSchema(fields=fields, description="Botree 文档 Chunk 向量集合")
@@ -163,6 +180,19 @@ class MilvusIndexer:
             logger.info("Milvus集合已创建: collection=%s dim=%s", self.settings.milvus_collection, self.settings.embedding_dim)
         else:
             collection = Collection(self.settings.milvus_collection, using=alias)
+        self._ensure_schema_supported(collection)
         if load_for_search:
             collection.load()
         return collection
+
+    def _ensure_schema_supported(self, collection: Any) -> None:
+        """旧 Milvus 集合缺少密级字段时必须重建，避免无密级向量继续参与检索。"""
+
+        field_names = {field.name for field in collection.schema.fields}
+        missing_fields = sorted(REQUIRED_COLLECTION_FIELDS - field_names)
+        if missing_fields:
+            raise AppException(
+                f"Milvus collection 缺少字段 {missing_fields}，请重建向量索引后再提供检索服务",
+                status_code=500,
+                code=500,
+            )

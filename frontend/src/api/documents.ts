@@ -16,6 +16,7 @@ import type {
   DocumentPreview,
   DocumentVersionInfo,
   IndexTaskInfo,
+  SecurityLevel,
 } from '@/types/api';
 
 export function listDocuments(params?: {
@@ -35,6 +36,10 @@ export function getDocument(id: number): Promise<DocumentInfo> {
 
 export function deleteDocument(id: number): Promise<DocumentDeleteResult> {
   return request.delete(`/documents/${id}`) as Promise<DocumentDeleteResult>;
+}
+
+export function updateDocumentSecurityLevel(id: number, securityLevel: SecurityLevel): Promise<DocumentInfo> {
+  return request.put(`/documents/${id}/security-level`, { security_level: securityLevel }) as Promise<DocumentInfo>;
 }
 
 export function listDocumentChunks(id: number, versionNo?: number | null): Promise<DocumentChunk[]> {

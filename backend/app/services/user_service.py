@@ -21,6 +21,7 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.minio import get_minio_client
 from app.core.rbac import filter_bound_action_codes, menu_permission_codes, sync_menu_action_permission_codes
+from app.core.security_levels import DEFAULT_SECURITY_LEVEL, normalize_security_level, user_max_security_level
 from app.core.security import hash_password, verify_password
 from app.models.user import Permission, Role, User
 from app.repositories.user_repository import RoleRepository, UserRepository
@@ -233,9 +234,16 @@ class UserService:
             "avatar_url": avatar_url_for_user(user),
             "avatar_updated_at": user.avatar_updated_at.isoformat() if user.avatar_updated_at else None,
             "roles": [
-                {"id": role.id, "name": role.name, "code": role.code, "enabled": role.enabled}
+                {
+                    "id": role.id,
+                    "name": role.name,
+                    "code": role.code,
+                    "enabled": role.enabled,
+                    "security_level": role.security_level,
+                }
                 for role in user.roles
             ],
+            "max_security_level": user_max_security_level(user),
             "permission_codes": sorted(permission_codes),
             "permissions": {
                 "menus": sorted(permission_codes & MENU_PERMISSION_CODES),
@@ -321,7 +329,13 @@ class RoleService:
 
         if self.role_repository.get_by_code(payload.code):
             raise AppException("角色编码已存在")
-        role = Role(name=payload.name, code=payload.code, description=payload.description, enabled=True)
+        role = Role(
+            name=payload.name,
+            code=payload.code,
+            description=payload.description,
+            enabled=True,
+            security_level=normalize_security_level(payload.security_level, default=DEFAULT_SECURITY_LEVEL),
+        )
         role.permissions = self._resolve_bound_permissions(payload.permission_ids)
         self.role_repository.add(role)
         SystemService(self.db).record_operation(operator, "新增角色", "role", role.id, f"新增角色 {role.name}")
@@ -338,6 +352,8 @@ class RoleService:
             value = getattr(payload, field)
             if value is not None:
                 setattr(role, field, value)
+        if payload.security_level is not None:
+            role.security_level = normalize_security_level(payload.security_level, default=DEFAULT_SECURITY_LEVEL)
         if payload.permission_ids is not None:
             role.permissions = self._resolve_bound_permissions(payload.permission_ids)
         SystemService(self.db).record_operation(operator, "编辑角色", "role", role.id, f"编辑角色 {role.name}")
