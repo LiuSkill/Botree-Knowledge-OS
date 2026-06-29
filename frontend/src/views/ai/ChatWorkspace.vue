@@ -9,6 +9,7 @@
 <script setup lang="ts">
 import { ChatContent as TChatContent, ChatMessage as TChatMessage, ChatSender as TChatSender } from '@tdesign-vue-next/chat';
 import {
+  AddIcon,
   CloseIcon,
   DeleteIcon,
   EditIcon,
@@ -23,7 +24,8 @@ import {
   ThumbUpIcon,
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
 
 import {
   deleteChatSession,
@@ -79,9 +81,12 @@ const props = defineProps<{
 }>();
 
 const authStore = useAuthStore();
+const route = useRoute();
+const router = useRouter();
 const sessions = ref<ChatSession[]>([]);
 const messages = ref<UiChatMessage[]>([]);
 const projects = ref<ProjectInfo[]>([]);
+const projectsLoaded = ref(false);
 const activeSessionId = ref<number | null>(null);
 const projectId = ref<number | null>(null);
 const question = ref('');
@@ -116,9 +121,27 @@ const senderDisabled = computed(
     (props.requireProject && !projectId.value) ||
     (props.chatType === 'base_chat' && isExternalUser.value),
 );
-const sessionEmptyDescription = computed(() =>
-  props.chatType === 'project_chat' && !projectId.value ? '请先选择项目' : '暂无会话',
+const newSessionDisabled = computed(
+  () =>
+    streaming.value ||
+    !authStore.hasActionPermission('ai:chat') ||
+    (props.requireProject && !projectId.value),
 );
+const sessionEmptyDescription = computed(() => {
+  if (props.chatType === 'project_chat' && !projectsLoaded.value) return '正在加载项目';
+  if (props.chatType === 'project_chat' && !projects.value.length) return '暂无可访问项目';
+  if (props.chatType === 'project_chat' && !projectId.value) return '请先选择项目';
+  return '暂无会话';
+});
+const chatEmptyDescription = computed(() => {
+  if (props.chatType === 'project_chat' && !projectsLoaded.value) return '正在加载项目问答';
+  if (props.chatType === 'project_chat' && !projects.value.length) return '暂无可访问项目，无法发起项目问答';
+  return '当前入口只会基于有权限、已审核、已索引资料回答';
+});
+const projectSelectPlaceholder = computed(() => {
+  if (!projectsLoaded.value) return '正在加载项目';
+  return projects.value.length ? '请选择项目' : '暂无可访问项目';
+});
 const userAvatarLabel = computed(() => authStore.user?.real_name || authStore.user?.username || 'User');
 const activeDetailMessage = computed(
   () => messages.value.find((item) => item.role === 'assistant' && item.id === activeDetailMessageId.value) || null,
@@ -374,10 +397,86 @@ function syncAssistantContext(items: UiChatMessage[]): void {
   trace.value = latestAssistant?.progressEvents || [];
 }
 
-async function loadSessionsForCurrentProject(): Promise<void> {
+function resetConversationState(): void {
+  closeDetailPanel();
+  closeSessionMenu();
+  activeSessionId.value = null;
+  messages.value = [];
+  citations.value = [];
+  trace.value = [];
+  queryScope.value = '';
+}
+
+function projectOptionLabel(project: ProjectInfo): string {
+  return project.project_name || project.name || `项目 #${project.id}`;
+}
+
+function parseProjectIdValue(value: unknown): number | null {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  if (rawValue === null || rawValue === undefined || rawValue === '') return null;
+  const numericValue = Number(rawValue);
+  return Number.isInteger(numericValue) && numericValue > 0 ? numericValue : null;
+}
+
+function routeProjectId(): number | null {
+  return parseProjectIdValue(route.query.projectId ?? route.query.project_id);
+}
+
+function hasRouteProjectQuery(): boolean {
+  return route.query.projectId !== undefined || route.query.project_id !== undefined;
+}
+
+function resolveAccessibleProjectId(requestedProjectId: number | null): number | null {
+  if (!projects.value.length) return null;
+  if (requestedProjectId && projects.value.some((project) => project.id === requestedProjectId)) return requestedProjectId;
+  return projects.value[0].id;
+}
+
+function replaceProjectQuery(nextProjectId: number | null): void {
+  const nextQuery: LocationQueryRaw = { ...route.query };
+  delete nextQuery.project_id;
+  if (nextProjectId) {
+    nextQuery.projectId = String(nextProjectId);
+  } else {
+    delete nextQuery.projectId;
+  }
+  void router.replace({ path: route.path, query: nextQuery });
+}
+
+async function applyProjectSelection(nextProjectId: number | null, forceReload = false): Promise<void> {
+  if (props.chatType !== 'project_chat') return;
+  if (!forceReload && projectId.value === nextProjectId) return;
+
+  projectId.value = nextProjectId;
+  resetConversationState();
+  const loadedSessions = await loadSessionsForCurrentProject();
+  if (loadedSessions.length) {
+    await selectSession(loadedSessions[0]);
+    return;
+  }
+  await focusQuestionInput();
+}
+
+async function applyRouteProjectSelection(forceReload = false): Promise<void> {
+  const requestedProjectId = routeProjectId();
+  const routeHasProject = hasRouteProjectQuery();
+  const nextProjectId = resolveAccessibleProjectId(requestedProjectId);
+  const shouldWarnFallback = routeHasProject && nextProjectId !== null && nextProjectId !== requestedProjectId;
+
+  if (shouldWarnFallback) {
+    MessagePlugin.info('当前项目无权限或不存在，已切换到第一个可访问项目');
+  }
+
+  await applyProjectSelection(nextProjectId, forceReload);
+  if (routeHasProject && nextProjectId !== requestedProjectId) {
+    replaceProjectQuery(nextProjectId);
+  }
+}
+
+async function loadSessionsForCurrentProject(): Promise<ChatSession[]> {
   if (props.chatType === 'project_chat' && projectId.value === null) {
     sessions.value = [];
-    return;
+    return sessions.value;
   }
 
   const params: { chat_type: 'project_chat' | 'base_chat'; project_id?: number } = { chat_type: props.chatType };
@@ -385,11 +484,17 @@ async function loadSessionsForCurrentProject(): Promise<void> {
     params.project_id = projectId.value;
   }
   sessions.value = sortSessions(await listChatSessions(params));
+  return sessions.value;
 }
 
 async function loadBaseData(): Promise<void> {
   projects.value = props.requireProject ? await listProjects() : [];
-  await loadSessionsForCurrentProject();
+  projectsLoaded.value = true;
+  if (props.chatType === 'project_chat') {
+    await applyRouteProjectSelection(true);
+  } else {
+    await loadSessionsForCurrentProject();
+  }
   if (props.chatType === 'base_chat' && !activeSessionId.value && sessions.value.length) {
     await selectSession(sessions.value[0]);
   }
@@ -400,7 +505,11 @@ async function selectSession(session: ChatSession): Promise<void> {
   closeDetailPanel();
   closeSessionMenu();
   activeSessionId.value = session.id;
-  projectId.value = session.project_id || null;
+  if (props.chatType === 'project_chat') {
+    projectId.value = session.project_id || projectId.value;
+  } else {
+    projectId.value = session.project_id || null;
+  }
   const fetchedMessages = await listChatMessages(session.id);
   messages.value = fetchedMessages.map(toUiMessage);
   syncAssistantContext(messages.value);
@@ -410,13 +519,11 @@ async function selectSession(session: ChatSession): Promise<void> {
 
 function startNewSession(): void {
   if (streaming.value) return;
-  closeDetailPanel();
-  closeSessionMenu();
-  activeSessionId.value = null;
-  messages.value = [];
-  citations.value = [];
-  trace.value = [];
-  queryScope.value = '';
+  if (props.requireProject && !projectId.value) {
+    MessagePlugin.warning(projects.value.length ? '请先选择项目' : '暂无可访问项目');
+    return;
+  }
+  resetConversationState();
   void focusQuestionInput();
 }
 
@@ -525,13 +632,12 @@ async function confirmRemoveSession(session: ChatSession): Promise<void> {
   }
 }
 
-async function onProjectChange(value: number | string | Array<number | string> | undefined): Promise<void> {
+async function onProjectChange(value: number | string | Array<number | string> | null | undefined): Promise<void> {
   if (Array.isArray(value)) return;
-  const nextProjectId = typeof value === 'number' ? value : value ? Number(value) : null;
-  projectId.value = nextProjectId !== null && Number.isFinite(nextProjectId) ? nextProjectId : null;
   if (props.chatType !== 'project_chat') return;
-  startNewSession();
-  await loadSessionsForCurrentProject();
+  const nextProjectId = resolveAccessibleProjectId(parseProjectIdValue(value));
+  await applyProjectSelection(nextProjectId);
+  replaceProjectQuery(nextProjectId);
 }
 
 function stopStreaming(): void {
@@ -550,7 +656,8 @@ async function refreshSessionState(sessionId: number): Promise<void> {
 
 async function submitQuestion(): Promise<void> {
   const content = question.value.trim();
-  if (props.requireProject && !projectId.value) {
+  const currentProjectId = props.chatType === 'project_chat' ? projectId.value : null;
+  if (props.requireProject && !currentProjectId) {
     MessagePlugin.warning('请先选择项目');
     return;
   }
@@ -596,7 +703,7 @@ async function submitQuestion(): Promise<void> {
       {
         chat_type: props.chatType,
         mode: 'auto',
-        project_id: props.chatType === 'project_chat' ? projectId.value : null,
+        project_id: currentProjectId,
         session_id: activeSessionId.value,
         message: originalQuestion,
         agent_enabled: true,
@@ -681,6 +788,14 @@ onMounted(() => {
   document.addEventListener('click', closeSessionMenu);
 });
 
+watch(
+  () => [route.query.projectId, route.query.project_id],
+  () => {
+    if (props.chatType !== 'project_chat' || !projectsLoaded.value) return;
+    void applyRouteProjectSelection();
+  },
+);
+
 onBeforeUnmount(() => {
   document.removeEventListener('click', closeSessionMenu);
 });
@@ -695,7 +810,27 @@ onBeforeUnmount(() => {
       <aside class="agent-sidebar surface">
         <div class="sidebar-header">
           <div class="agent-title">{{ chatType === 'project_chat' ? '项目问答会话' : '基础问答会话' }}</div>
-          <t-button v-permission="'ai:chat'" block theme="primary" variant="outline" :disabled="streaming" @click="startNewSession">新建对话</t-button>
+          <t-select
+            v-if="requireProject"
+            :model-value="projectId"
+            :placeholder="projectSelectPlaceholder"
+            class="sidebar-project-select"
+            :disabled="streaming || !projects.length"
+            @change="onProjectChange"
+          >
+            <t-option v-for="project in projects" :key="project.id" :value="project.id" :label="projectOptionLabel(project)" />
+          </t-select>
+          <t-button
+            v-permission="'ai:chat'"
+            block
+            theme="primary"
+            class="new-session-button"
+            :disabled="newSessionDisabled"
+            @click="startNewSession"
+          >
+            <template #icon><AddIcon /></template>
+            新建对话
+          </t-button>
         </div>
         <div class="session-list">
           <template v-for="group in sessionGroups" :key="group.key">
@@ -746,23 +881,8 @@ onBeforeUnmount(() => {
       </aside>
 
       <main class="chat-panel surface">
-        <div class="chat-toolbar">
-          <t-select
-            v-if="requireProject"
-            :model-value="projectId"
-            clearable
-            placeholder="请选择项目"
-            class="project-select"
-            :disabled="streaming"
-            @change="onProjectChange"
-          >
-            <t-option v-for="project in projects" :key="project.id" :value="project.id" :label="project.name" />
-          </t-select>
-  
-        </div>
-
         <div ref="chatHistoryRef" class="chat-history">
-          <t-empty v-if="!messages.length" description="当前入口只会基于有权限、已审核、已索引资料回答" />
+          <t-empty v-if="!messages.length" :description="chatEmptyDescription" />
           <div v-for="message in messages" :key="message.id" class="chat-item-row" :class="message.role">
             <div v-if="message.role === 'assistant'" class="assistant-chat-row">
               <span class="chat-avatar assistant" aria-label="Botree AI" role="img">
@@ -979,6 +1099,11 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.sidebar-project-select,
+.new-session-button {
+  width: 100%;
+}
+
 .session-list {
   display: flex;
   flex: 1;
@@ -1143,19 +1268,6 @@ onBeforeUnmount(() => {
 .chat-panel {
   display: flex;
   flex-direction: column;
-}
-
-.chat-toolbar {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 12px;
-}
-
-.project-select {
-  width: 280px;
-  flex: 0 0 280px;
 }
 
 .notice {
