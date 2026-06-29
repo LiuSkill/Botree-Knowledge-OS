@@ -9,6 +9,10 @@
 
 import type { SystemMenuNode } from '@/types/api';
 
+const KNOWLEDGE_QA_MENU_ID = 'ai';
+const KNOWLEDGE_QA_CHILD_IDS = new Set(['ai:project-chat', 'ai:base-chat']);
+const DASHBOARD_PATH = '/dashboard';
+
 export function filterAuthorizedMenuTree(
   nodes: SystemMenuNode[],
   hasMenuPermission: (menuId: string) => boolean,
@@ -21,6 +25,53 @@ export function filterAuthorizedMenuTree(
       return { ...node, children };
     })
     .filter((node): node is SystemMenuNode => Boolean(node));
+}
+
+export function normalizeAuthorizedMenuTree(nodes: SystemMenuNode[]): SystemMenuNode[] {
+  const result: SystemMenuNode[] = [];
+  const qaChildren: SystemMenuNode[] = [];
+  let existingQaMenu: SystemMenuNode | null = null;
+
+  for (const node of nodes) {
+    if (node.id === KNOWLEDGE_QA_MENU_ID) {
+      existingQaMenu = node;
+      continue;
+    }
+    if (KNOWLEDGE_QA_CHILD_IDS.has(node.id)) {
+      qaChildren.push(node);
+      continue;
+    }
+    result.push(node);
+  }
+
+  const mergedQaChildren = [
+    ...(existingQaMenu?.children || []),
+    ...qaChildren.filter((child) => !(existingQaMenu?.children || []).some((item) => item.id === child.id)),
+  ];
+  if (!existingQaMenu && mergedQaChildren.length === 0) {
+    return result;
+  }
+
+  const qaMenu: SystemMenuNode = existingQaMenu
+    ? { ...existingQaMenu, path: null, children: mergedQaChildren }
+    : {
+        id: KNOWLEDGE_QA_MENU_ID,
+        name: '知识问答',
+        path: null,
+        permission_id: null,
+        children: mergedQaChildren,
+      };
+
+  const insertIndex = result.findIndex((node) => node.id === 'system');
+  if (insertIndex >= 0) {
+    result.splice(insertIndex, 0, qaMenu);
+    return result;
+  }
+  return [...result, qaMenu];
+}
+
+export function preferredFirstMenuPath(nodes: SystemMenuNode[]): string | null {
+  return hasMenuPath(nodes, DASHBOARD_PATH) ? DASHBOARD_PATH : firstMenuPath(nodes);
 }
 
 export function firstMenuPath(nodes: SystemMenuNode[]): string | null {
@@ -37,6 +88,10 @@ export function firstMenuPath(nodes: SystemMenuNode[]): string | null {
 export function collectMenuPaths(node: SystemMenuNode): string[] {
   const paths = node.path ? [node.path] : [];
   return paths.concat((node.children || []).flatMap((child) => collectMenuPaths(child)));
+}
+
+export function hasMenuPath(nodes: SystemMenuNode[], path: string): boolean {
+  return nodes.some((node) => node.path === path || hasMenuPath(node.children || [], path));
 }
 
 export function findMenuNode(nodes: SystemMenuNode[], menuId: string): SystemMenuNode | null {

@@ -16,6 +16,7 @@ from app.repositories.graph_repository import GraphRepository
 from app.retrieval.base import BaseRetriever
 from app.retrieval.retrievers.keyword_retriever import KeywordRetriever
 from app.retrieval.schemas import Evidence
+from app.services.project_document_policy_service import ProjectDocumentPolicyService
 from app.services.project_service import ProjectService
 
 
@@ -45,12 +46,15 @@ class GraphRAGRetriever(BaseRetriever):
         relations = self.graph_repository.relations_for_entities([entity.id for entity in entities], limit=limit * 3)
         evidences: list[Evidence] = []
         project_service = ProjectService(self.db)
+        project_document_policy = ProjectDocumentPolicyService(self.db)
         allowed_levels = set(self.keyword_policy._allowed_security_levels(user))
         for relation in relations:
             if relation.chunk_id is None or relation.document_id is None:
                 continue
             document = self.db.get(Document, relation.document_id)
-            if not document or document.review_status != "approved" or document.index_status != "indexed":
+            if not document or document.index_status != "indexed" or bool(getattr(document, "is_deleted", False)):
+                continue
+            if document.project_id is None and document.review_status != "approved":
                 continue
             if document.version_no != relation.version_no:
                 continue
@@ -59,12 +63,26 @@ class GraphRAGRetriever(BaseRetriever):
             if not self.keyword_policy._scope_allowed(document.knowledge_type, document.project_id, document.knowledge_base_id, mode, project_id, user):
                 continue
             if document.project_id is not None:
+                if project_document_policy.project_chat_document_reject_reason(
+                    document,
+                    user=user,
+                    project_id=project_id,
+                    require_chat_permission=mode == "project_chat",
+                ):
+                    continue
                 try:
                     project_service.ensure_project_access(document.project_id, user)
                 except Exception:
                     continue
             chunk = self.document_repository.get_chunk(relation.chunk_id)
             if not chunk or chunk.chunk_status != "active":
+                continue
+            if document.project_id is not None and project_document_policy.project_chat_chunk_reject_reason(
+                chunk,
+                document,
+                user=user,
+                project_id=project_id,
+            ):
                 continue
             if chunk.security_level not in allowed_levels:
                 continue

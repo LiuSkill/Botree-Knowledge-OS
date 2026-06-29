@@ -42,6 +42,14 @@ export function updateDocumentSecurityLevel(id: number, securityLevel: SecurityL
   return request.put(`/documents/${id}/security-level`, { security_level: securityLevel }) as Promise<DocumentInfo>;
 }
 
+export function publishDocument(id: number): Promise<DocumentInfo> {
+  return request.post(`/documents/${id}/publish`) as Promise<DocumentInfo>;
+}
+
+export function updateDocumentAiEnabled(id: number, aiEnabled: boolean): Promise<DocumentInfo> {
+  return request.post(`/documents/${id}/ai-toggle`, { ai_enabled: aiEnabled }) as Promise<DocumentInfo>;
+}
+
 export function listDocumentChunks(id: number, versionNo?: number | null): Promise<DocumentChunk[]> {
   return request.get(`/documents/${id}/chunks`, { params: versionNo ? { version_no: versionNo } : undefined }) as Promise<DocumentChunk[]>;
 }
@@ -108,6 +116,10 @@ export function createDocumentVersion(
 
 export function listDocumentVersions(id: number): Promise<DocumentVersionInfo[]> {
   return request.get(`/documents/${id}/versions`) as Promise<DocumentVersionInfo[]>;
+}
+
+export function setDocumentCurrentVersion(id: number, versionId: number): Promise<DocumentInfo> {
+  return request.post(`/documents/${id}/versions/${versionId}/set-current`) as Promise<DocumentInfo>;
 }
 
 export function downloadDocumentVersion(id: number, versionNo: number): Promise<Blob> {

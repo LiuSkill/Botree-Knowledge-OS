@@ -18,10 +18,15 @@ export const SECURITY_LEVEL_THEMES: Record<SecurityLevel, 'success' | 'warning' 
   confidential: 'danger',
 };
 
+function normalizeSecurityLevel(level?: string | null): SecurityLevel {
+  if (level === 'public' || level === 'internal' || level === 'confidential') return level;
+  return 'internal';
+}
+
 export function securityLevelLabel(level?: string | null): string {
-  return SECURITY_LEVEL_LABELS[(level as SecurityLevel) || 'internal'] || '内部';
+  return SECURITY_LEVEL_LABELS[normalizeSecurityLevel(level)];
 }
 
 export function securityLevelTheme(level?: string | null): 'success' | 'warning' | 'danger' {
-  return SECURITY_LEVEL_THEMES[(level as SecurityLevel) || 'internal'] || 'warning';
+  return SECURITY_LEVEL_THEMES[normalizeSecurityLevel(level)];
 }

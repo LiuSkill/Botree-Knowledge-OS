@@ -26,6 +26,7 @@ from app.retrieval.base import BaseRetriever
 from app.retrieval.query_utils import expand_search_phrases, score_text_relevance
 from app.retrieval.retrievers.keyword_retriever import KeywordRetriever
 from app.retrieval.schemas import Evidence
+from app.services.project_document_policy_service import ProjectDocumentPolicyService
 from app.services.project_service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -95,7 +96,7 @@ class RipgrepRetriever(BaseRetriever):
             page_index = path_map.get(hit["path"])
             if not page_index or page_index.chunk_id in seen_chunks:
                 continue
-            evidence = self._to_evidence(page_index, hit["line"], query, mode)
+            evidence = self._to_evidence(page_index, hit["line"], query, mode, project_id, user)
             if evidence:
                 evidences.append(evidence)
                 seen_chunks.add(page_index.chunk_id)
@@ -108,10 +109,13 @@ class RipgrepRetriever(BaseRetriever):
 
         result: list[PageIndex] = []
         project_service = ProjectService(self.db)
+        project_document_policy = ProjectDocumentPolicyService(self.db)
         allowed_levels = set(self.keyword_policy._allowed_security_levels(user))
         for page_index in self.page_repository.list_published_indexes(list(allowed_levels)):
             document = self.db.get(Document, page_index.document_id)
-            if not document or document.review_status != "approved" or document.index_status != "indexed":
+            if not document or document.index_status != "indexed":
+                continue
+            if document.project_id is None and document.review_status != "approved":
                 continue
             if document.version_no != page_index.version_no:
                 continue
@@ -120,6 +124,13 @@ class RipgrepRetriever(BaseRetriever):
             if not self.keyword_policy._scope_allowed(document.knowledge_type, document.project_id, document.knowledge_base_id, mode, project_id, user):
                 continue
             if document.project_id is not None:
+                if project_document_policy.project_chat_document_reject_reason(
+                    document,
+                    user=user,
+                    project_id=project_id,
+                    require_chat_permission=mode == "project_chat",
+                ):
+                    continue
                 try:
                     project_service.ensure_project_access(document.project_id, user)
                 except Exception:
@@ -143,13 +154,30 @@ class RipgrepRetriever(BaseRetriever):
             return None
         return {"path": path, "line": text}
 
-    def _to_evidence(self, page_index: PageIndex, hit_line: str, query: str, mode: str) -> Evidence | None:
+    def _to_evidence(
+        self,
+        page_index: PageIndex,
+        hit_line: str,
+        query: str,
+        mode: str,
+        project_id: int | None,
+        user: User,
+    ) -> Evidence | None:
         """将 rg 命中转换为 Evidence。"""
 
         document = self.db.get(Document, page_index.document_id)
         chunk = self.document_repository.get_chunk(page_index.chunk_id) if page_index.chunk_id else None
         if not document or not chunk or chunk.chunk_status != "active":
             return None
+        if document.project_id is not None:
+            project_document_policy = ProjectDocumentPolicyService(self.db)
+            if project_document_policy.project_chat_chunk_reject_reason(
+                chunk,
+                document,
+                user=user,
+                project_id=project_id,
+            ):
+                return None
         if chunk.security_level != page_index.security_level or document.security_level != page_index.security_level:
             return None
         score = 10.0 + score_text_relevance(chunk.content, query)

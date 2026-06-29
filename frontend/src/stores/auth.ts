@@ -13,7 +13,7 @@ import { changeMyPassword, currentPermissionsApi, deleteMyAvatar, loginApi, logo
 import { getSystemMenus } from '@/api/system';
 import type { CurrentPermissions, SystemMenuNode, UserInfo } from '@/types/api';
 import { clearToken, getToken, setToken } from '@/utils/auth';
-import { filterAuthorizedMenuTree, firstMenuPath } from '@/utils/rbacMenus';
+import { filterAuthorizedMenuTree, normalizeAuthorizedMenuTree, preferredFirstMenuPath } from '@/utils/rbacMenus';
 
 const EMPTY_PERMISSIONS: CurrentPermissions = {
   menus: [],
@@ -63,7 +63,7 @@ export const useAuthStore = defineStore('auth', {
        */
       const isAdmin = Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled));
       const menuCodes = new Set(state.permissions.menus);
-      return filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || menuCodes.has(menuId));
+      return normalizeAuthorizedMenuTree(filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || menuCodes.has(menuId)));
     },
     firstAccessiblePath: (state): string | null => {
       /**
@@ -71,7 +71,8 @@ export const useAuthStore = defineStore('auth', {
        */
       const isAdmin = Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled));
       const menuCodes = new Set(state.permissions.menus);
-      return firstMenuPath(filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || menuCodes.has(menuId)));
+      const authorizedTree = normalizeAuthorizedMenuTree(filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || menuCodes.has(menuId)));
+      return preferredFirstMenuPath(authorizedTree);
     },
   },
   actions: {

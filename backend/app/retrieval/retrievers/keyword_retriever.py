@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security_levels import allowed_security_levels, user_max_security_level
 from app.models.document import Document, DocumentChunk
+from app.models.knowledge_category import KnowledgeCategory
 from app.models.knowledge_base import KnowledgeBase
 from app.models.project import Project
 from app.models.user import User
@@ -16,6 +17,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.retrieval.base import BaseRetriever
 from app.retrieval.query_utils import extract_query_terms, score_text_relevance
 from app.retrieval.schemas import Evidence
+from app.services.project_document_policy_service import ProjectDocumentPolicyService
 from app.services.project_service import ProjectService
 
 
@@ -31,12 +33,21 @@ class KeywordRetriever(BaseRetriever):
         terms = self._terms(query)
         evidences: list[Evidence] = []
         project_service = ProjectService(self.db)
+        project_document_policy = ProjectDocumentPolicyService(self.db)
         allowed_levels = self._allowed_security_levels(user)
 
         for chunk, document in DocumentRepository(self.db).searchable_chunks(security_levels=allowed_levels):
             if not self._scope_allowed(document.knowledge_type, document.project_id, document.knowledge_base_id, mode, project_id, user):
                 continue
             if document.project_id is not None:
+                if project_document_policy.project_chat_evidence_reject_reason(
+                    document=document,
+                    chunk=chunk,
+                    user=user,
+                    project_id=project_id,
+                    require_chat_permission=mode == "project_chat",
+                ):
+                    continue
                 try:
                     project_service.ensure_project_access(document.project_id, user)
                 except Exception:
@@ -131,14 +142,36 @@ class KeywordRetriever(BaseRetriever):
             "project_security_level": self._project_security_level(document),
             "review_status": document.review_status,
             "document_status": document.document_status,
+            "status": getattr(document, "status", None),
+            "ai_enabled": bool(getattr(document, "ai_enabled", False)),
             "index_status": document.index_status,
             "chunk_status": chunk.chunk_status,
             "current_version": chunk.version_no == document.version_no and bool(document.current_version),
+            "is_current_version": bool(getattr(document, "is_current_version", False)),
+            "is_deleted": bool(getattr(document, "is_deleted", False)),
             "version_no": chunk.version_no,
             "document_version_no": document.version_no,
+            "document_name": getattr(document, "document_name", None) or document.file_name,
+            **self._directory_metadata(document),
         }
         if extra:
             metadata.update(extra)
+        return metadata
+
+    def _directory_metadata(self, document: Document) -> dict[str, Any]:
+        directory_id = getattr(document, "directory_id", None) or getattr(document, "category_id", None)
+        metadata: dict[str, Any] = {"directory_id": directory_id}
+        if self.db is None or directory_id is None:
+            return metadata
+        category = self.db.get(KnowledgeCategory, directory_id)
+        if category is None:
+            return metadata
+        metadata.update(
+            {
+                "directory_name": category.name,
+                "directory_code": category.code,
+            }
+        )
         return metadata
 
     def _project_security_level(self, document: Document) -> str | None:

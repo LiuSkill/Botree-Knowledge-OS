@@ -41,6 +41,7 @@ from app.knowledge.parsing.parser_service import ParserService
 from app.models.document_asset import DocumentAsset
 from app.models.document import Document, DocumentChunk, DocumentVersion
 from app.models.index_task import IndexTask
+from app.models.knowledge_category import KnowledgeCategory
 from app.models.page_index import DocumentPage, DocumentPageBlock, PageIndex
 from app.services.document_asset_service import DocumentAssetService
 from app.services.libreoffice_conversion_service import LibreOfficeConversionService
@@ -52,10 +53,13 @@ from app.repositories.index_task_repository import IndexTaskRepository
 from app.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.repositories.retrieval_trace_repository import RetrievalTraceRepository
 from app.repositories.review_repository import ReviewRepository
+from app.repositories.user_repository import UserRepository
+from app.schemas.document import DocumentMetadataUpdate
 from app.services.index_pipeline_service import IndexPipelineService
 from app.services.index_task_service import IndexTaskService
 from app.services.knowledge_category_service import KnowledgeCategoryService
 from app.services.page_index_service import PageIndexService
+from app.services.project_access_service import ProjectAccessService
 from app.services.project_service import ProjectService
 from app.services.system_service import SystemService
 from app.utils.file_utils import file_type
@@ -77,6 +81,8 @@ DOCUMENT_STATUS_REVIEWED = "reviewed"
 DOCUMENT_STATUS_ACTIVE = "active"
 DOCUMENT_STATUS_INACTIVE = "inactive"
 DOCUMENT_STATUS_ARCHIVED = "archived"
+PROJECT_DOCUMENT_STATUS_PENDING = "待审核"
+PROJECT_DOCUMENT_STATUS_PUBLISHED = "已发布"
 
 PARSE_STATUS_UNPARSED = "unparsed"
 PARSE_STATUS_PARSING = "parsing"
@@ -102,6 +108,8 @@ INDEX_STATUS_INVALID = "invalid"
 
 CHUNK_STATUS_ACTIVE = "active"
 RESULT_FAILED = "failed"
+DEFAULT_DOCUMENT_TYPE = "其他"
+DEFAULT_DISCIPLINE = "其他"
 
 ASSET_TYPE_CONVERTED_PDF = "converted_pdf"
 ASSET_TYPE_MINERU_RESULT = "mineru_result"
@@ -159,6 +167,7 @@ class DocumentService:
         self.index_task_repository = IndexTaskRepository(db)
         self.review_repository = ReviewRepository(db)
         self.retrieval_trace_repository = RetrievalTraceRepository(db)
+        self.access_service = ProjectAccessService(db)
 
     def _user_allowed_levels(self, user: User) -> list[str]:
         """根据用户启用角色推导可访问密级集合，用户自身不保存密级。"""
@@ -169,6 +178,23 @@ class DocumentService:
         """文档内容访问必须叠加三层密级强制门禁。"""
 
         ensure_security_level_access(user, document.security_level)
+
+    def _ensure_project_document_access(
+        self,
+        document: Document,
+        user: User,
+        *permission_codes: str,
+    ) -> None:
+        """项目资料叠加 RBAC、数据范围、项目密级和文档密级；基础知识仅校验文档密级。"""
+
+        if document.project_id is not None:
+            self.access_service.ensure_document_access(
+                document,
+                user,
+                permission_codes=tuple(permission_codes or ("project_document:view",)),
+            )
+            return
+        self._ensure_document_security_access(document, user)
 
     def _default_document_security_level(self, knowledge_base_project_id: int | None) -> str:
         """项目资料默认继承项目密级，基础知识默认 internal。"""
@@ -225,10 +251,14 @@ class DocumentService:
             if not knowledge_base:
                 raise AppException("知识库不存在", status_code=404, code=404)
             if knowledge_base.type == "project" and knowledge_base.project_id is not None:
-                ProjectService(self.db).ensure_project_access(knowledge_base.project_id, user)
+                self.access_service.ensure_project_access(
+                    knowledge_base.project_id,
+                    user,
+                    permission_codes=("project_document:view",),
+                )
 
         if project_id is not None:
-            ProjectService(self.db).ensure_project_access(project_id, user)
+            self.access_service.ensure_project_access(project_id, user, permission_codes=("project_document:view",))
 
         category_ids = self.category_service.descendant_ids(category_id) if category_id is not None else None
         documents = self.repository.list(
@@ -243,11 +273,23 @@ class DocumentService:
 
         result: list[Document] = []
         for document in documents:
-            if document.security_level not in self._user_allowed_levels(user):
+            if project_id is not None:
+                try:
+                    ensure_security_level_access(user, document.security_level, message="无权访问该文档密级")
+                except AppException:
+                    continue
+                result.append(document)
+                continue
+
+            if not self.access_service.can_access_document(document, user, permission_codes=("project_document:view",)):
                 continue
             if document.project_id is not None:
                 try:
-                    ProjectService(self.db).ensure_project_access(document.project_id, user)
+                    self.access_service.ensure_project_access(
+                        document.project_id,
+                        user,
+                        permission_codes=("project_document:view",),
+                    )
                 except AppException:
                     logger.info(
                         "文档列表过滤无权项目资料: document_id=%s project_id=%s user_id=%s",
@@ -256,9 +298,68 @@ class DocumentService:
                         getattr(user, "id", None),
                     )
                     continue
-            self._enrich_category_fields(document)
             result.append(document)
+        self._enrich_category_fields_bulk(result)
+        self._enrich_uploader_fields(result)
         return result
+
+    def list_project_documents_page(
+        self,
+        user: User,
+        *,
+        project_id: int,
+        page: int,
+        page_size: int,
+        category_id: int | None = None,
+        keyword: str | None = None,
+        status: str | None = None,
+        security_level: str | None = None,
+        ai_enabled: bool | None = None,
+        parse_status: str | None = None,
+        index_status: str | None = None,
+        document_type: str | None = None,
+        discipline: str | None = None,
+        upload_user_id: int | None = None,
+    ) -> dict[str, object]:
+        """项目资料管理页分页查询，数量统计由数据库聚合返回，前端只负责展示。"""
+
+        self.access_service.ensure_project_access(project_id, user, permission_codes=("project_document:view",))
+        category_ids = self.category_service.descendant_ids(category_id) if category_id is not None else None
+        result = self.repository.list_project_page(
+            project_id=project_id,
+            security_levels=self._user_allowed_levels(user),
+            page=page,
+            page_size=page_size,
+            category_ids=category_ids,
+            keyword=keyword,
+            status=status,
+            security_level=security_level,
+            ai_enabled=ai_enabled,
+            parse_status=parse_status,
+            index_status=index_status,
+            document_type=document_type,
+            discipline=discipline,
+            upload_user_id=upload_user_id,
+        )
+        documents = list(result["items"])
+        self._enrich_category_fields_bulk(documents)
+        self._enrich_uploader_fields(documents)
+        return {**result, "items": documents}
+
+    def _enrich_uploader_fields(self, documents: list[Document]) -> None:
+        """批量补充上传人展示字段，避免列表接口逐条查询用户。"""
+
+        uploader_ids = {
+            uploader_id
+            for document in documents
+            if (uploader_id := document.upload_user_id or document.created_by) is not None
+        }
+        user_by_id = {user.id: user for user in UserRepository(self.db).list_by_ids(uploader_ids)}
+        for document in documents:
+            uploader_id = document.upload_user_id or document.created_by
+            uploader = user_by_id.get(uploader_id) if uploader_id is not None else None
+            setattr(document, "uploader_name", uploader.real_name if uploader else None)
+            setattr(document, "uploader_username", uploader.username if uploader else None)
 
     def get_document(self, document_id: int, user: User) -> Document:
         """
@@ -275,9 +376,7 @@ class DocumentService:
         document = self.repository.get(document_id)
         if not document:
             raise AppException("文档不存在", status_code=404, code=404)
-        if document.project_id is not None:
-            ProjectService(self.db).ensure_project_access(document.project_id, user)
-        self._ensure_document_security_access(document, user)
+        self._ensure_project_document_access(document, user, "project_document:view")
         self._enrich_category_fields(document)
         return document
 
@@ -306,36 +405,52 @@ class DocumentService:
         if not knowledge_base:
             raise AppException("知识库不存在", status_code=404, code=404)
         if knowledge_base.type == "project" and knowledge_base.project_id is not None:
-            ProjectService(self.db).ensure_project_access(knowledge_base.project_id, operator)
-        resolved_security_level = self._resolve_document_security_level(
-            operator=operator,
-            knowledge_base_project_id=knowledge_base.project_id,
-            requested_level=security_level,
-        )
-
+            self.access_service.ensure_project_access(
+                knowledge_base.project_id,
+                operator,
+                permission_codes=("project_document:upload",),
+            )
         category = self.category_service.validate_for_document(
             category_id,
             knowledge_base.type,
             knowledge_base.project_id,
             operator,
         )
+        resolved_security_level = self._resolve_document_security_level(
+            operator=operator,
+            knowledge_base_project_id=knowledge_base.project_id,
+            requested_level=security_level or category.default_security_level,
+        )
         file_info = await UploadService().save(upload_file)
+        version_label = "v1"
+        document_type = self._infer_document_type(category, file_info["file_name"])
+        discipline = self._infer_discipline(category)
 
         document = Document(
             knowledge_base_id=knowledge_base.id,
             knowledge_type=knowledge_base.type,
             project_id=knowledge_base.project_id,
+            directory_id=category.id,
+            document_name=file_info["file_name"],
+            document_type=document_type,
+            discipline=discipline,
+            version=version_label,
+            status=PROJECT_DOCUMENT_STATUS_PENDING,
+            ai_enabled=False,
+            upload_user_id=operator.id,
             category_id=category.id,
             file_name=file_info["file_name"],
             file_type=file_info["file_type"],
             file_size=file_info["file_size"],
             storage_path=file_info["storage_path"],
+            file_path=file_info["storage_path"],
             document_status=DOCUMENT_STATUS_PENDING_REVIEW,
             parse_status=PARSE_STATUS_UNPARSED,
             review_status=REVIEW_STATUS_DRAFT,
             index_status=INDEX_STATUS_NOT_INDEXED,
             version_no=1,
             current_version=False,
+            is_current_version=True,
             security_level=resolved_security_level,
             created_by=operator.id,
         )
@@ -343,20 +458,28 @@ class DocumentService:
         version = self.repository.add_version(
             DocumentVersion(
                 document_id=document.id,
+                project_id=document.project_id,
                 version_no=1,
+                version=version_label,
                 category_id=document.category_id,
                 file_name=document.file_name,
                 file_type=document.file_type,
                 file_size=document.file_size,
                 storage_path=document.storage_path,
+                file_path=document.file_path,
                 change_summary="初始上传",
+                version_note="初始上传",
                 version_status=VERSION_STATUS_DRAFT,
+                status=PROJECT_DOCUMENT_STATUS_PENDING,
                 parse_status=PARSE_STATUS_UNPARSED,
                 review_status=REVIEW_STATUS_DRAFT,
                 index_status=document.index_status,
                 is_current=False,
+                is_current_version=True,
+                ai_enabled=False,
                 security_level=document.security_level,
                 created_by=operator.id,
+                upload_user_id=operator.id,
             )
         )
         SystemService(self.db).record_operation(
@@ -405,6 +528,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:version:create")
         target_category_id = category_id or document.category_id
         if target_category_id is None:
             raise AppException("上传新版本前必须指定文档分类")
@@ -419,26 +543,70 @@ class DocumentService:
 
         latest_version = self.repository.latest_version(document.id)
         next_version_no = (latest_version.version_no if latest_version else document.version_no) + 1
+        version_label = f"v{next_version_no}"
+        activate_new_version = document.project_id is not None
+        if activate_new_version:
+            for existing_version in self.repository.list_versions(document.id):
+                existing_version.is_current = False
+                existing_version.is_current_version = False
+                existing_version.ai_enabled = False
+                if existing_version.version_status == VERSION_STATUS_CURRENT:
+                    existing_version.version_status = VERSION_STATUS_HISTORICAL
 
         version = self.repository.add_version(
             DocumentVersion(
                 document_id=document.id,
+                project_id=document.project_id,
                 version_no=next_version_no,
+                version=version_label,
                 category_id=category.id,
                 file_name=file_info["file_name"],
                 file_type=file_info["file_type"],
                 file_size=file_info["file_size"],
                 storage_path=file_info["storage_path"],
+                file_path=file_info["storage_path"],
                 change_summary=change_summary,
+                version_note=change_summary,
                 version_status=VERSION_STATUS_DRAFT,
+                status=PROJECT_DOCUMENT_STATUS_PENDING,
                 parse_status=PARSE_STATUS_UNPARSED,
                 review_status=REVIEW_STATUS_DRAFT,
                 index_status=INDEX_STATUS_NOT_INDEXED,
-                is_current=False,
+                is_current=activate_new_version,
+                is_current_version=activate_new_version,
+                ai_enabled=False,
                 security_level=document.security_level,
                 created_by=operator.id,
+                upload_user_id=operator.id,
             )
         )
+        if activate_new_version:
+            document.version_no = next_version_no
+            document.version = version_label
+            document.document_name = file_info["file_name"]
+            document.file_name = file_info["file_name"]
+            document.file_type = file_info["file_type"]
+            document.file_size = file_info["file_size"]
+            document.storage_path = file_info["storage_path"]
+            document.file_path = file_info["storage_path"]
+            document.directory_id = category.id
+            document.category_id = category.id
+            document.status = PROJECT_DOCUMENT_STATUS_PENDING
+            document.ai_enabled = False
+            document.document_status = DOCUMENT_STATUS_PENDING_REVIEW
+            document.review_status = REVIEW_STATUS_DRAFT
+            document.parse_status = PARSE_STATUS_UNPARSED
+            document.index_status = INDEX_STATUS_NOT_INDEXED
+            document.current_version = True
+            document.is_current_version = True
+            document.parse_started_at = None
+            document.parse_finished_at = None
+            document.parse_error = None
+            document.parse_log = None
+            document.build_started_at = None
+            document.build_finished_at = None
+            document.build_error = None
+            document.built_by = None
         SystemService(self.db).record_operation(
             operator,
             ACTION_UPLOAD_NEW_VERSION,
@@ -462,6 +630,70 @@ class DocumentService:
         )
         return version
 
+    def update_document_metadata(self, document_id: int, payload: DocumentMetadataUpdate, operator: User) -> Document:
+        document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:update")
+        fields_set = payload.model_fields_set
+        changed_fields: list[str] = []
+
+        if "directory_id" in fields_set:
+            if payload.directory_id is None:
+                raise AppException("项目资料目录不能为空")
+            category = self.category_service.validate_for_document(
+                payload.directory_id,
+                document.knowledge_type,
+                document.project_id,
+                operator,
+            )
+            if document.category_id != category.id or document.directory_id != category.id:
+                document.category_id = category.id
+                document.directory_id = category.id
+                current_version = self.repository.get_current_version(document.id)
+                if current_version:
+                    current_version.category_id = category.id
+                changed_fields.append("directory_id")
+
+        for field in ("document_name", "document_type", "discipline", "version", "preview_url", "remark"):
+            if field in fields_set:
+                value = getattr(payload, field)
+                if getattr(document, field) != value:
+                    setattr(document, field, value)
+                    changed_fields.append(field)
+
+        if "security_level" in fields_set and payload.security_level is not None:
+            self._ensure_project_document_access(document, operator, "project_document:security_update")
+            if self._apply_document_security_level(document, payload.security_level, operator):
+                changed_fields.append("security_level")
+
+        if "status" in fields_set and payload.status is not None:
+            if self._apply_project_document_status(document, payload.status, operator):
+                changed_fields.append("status")
+
+        if "ai_enabled" in fields_set and payload.ai_enabled is not None:
+            self._ensure_project_document_access(document, operator, "project_document:ai_toggle")
+            if payload.ai_enabled and document.status != PROJECT_DOCUMENT_STATUS_PUBLISHED:
+                raise AppException("仅已发布文档允许开启 AI 问答")
+            old_ai_enabled = bool(document.ai_enabled)
+            document.ai_enabled = bool(payload.ai_enabled)
+            current_version = self.repository.get_current_version(document.id)
+            if current_version:
+                current_version.ai_enabled = document.ai_enabled
+            if old_ai_enabled != document.ai_enabled:
+                changed_fields.append("ai_enabled")
+
+        if changed_fields:
+            SystemService(self.db).record_operation(
+                operator,
+                "编辑文件元数据",
+                TARGET_TYPE_DOCUMENT,
+                document.id,
+                json.dumps({"changed_fields": changed_fields}, ensure_ascii=False),
+                project_id=document.project_id,
+            )
+            self.db.commit()
+        self._enrich_category_fields(document)
+        return document
+
     def delete_document(self, document_id: int, operator: User) -> dict[str, int | bool]:
         """
         删除文档。
@@ -472,50 +704,182 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
-        versions = self.repository.list_versions(document.id)
+        self._ensure_project_document_access(document, operator, "project_document:delete")
+        if document.project_id is None:
+            return self._delete_base_document(document, operator)
         all_chunks = self.repository.list_chunks(document.id, include_obsolete=True)
         vector_ids = [chunk.vector_id for chunk in all_chunks if chunk.vector_id]
         page_indexes = PageIndexService(self.db).repository.list_document_indexes(document.id)
-        text_mirror_paths = sorted({item.text_mirror_path for item in page_indexes if item.text_mirror_path})
-        source_storage_paths = sorted({path for path in [document.storage_path, *(version.storage_path for version in versions if version.storage_path)] if path})
-        asset_service = DocumentAssetService(self.db)
-        assets = asset_service.list_document_assets(document.id)
-        asset_storage_paths = sorted({asset.storage_path for asset in assets if asset.storage_path})
-        asset_object_keys = sorted({asset.object_key for asset in assets if asset.object_key})
-        citation_message_ids = self.chat_repository.list_citation_message_ids_by_document(document.id)
-
-        cleanup_summary = self._delete_document_retrieval_artifacts(
-            document=document,
-            vector_ids=vector_ids,
-            citation_message_ids=citation_message_ids,
-            document_asset_count=len(assets),
+        invalidated_chunk_count = self.repository.deactivate_chunks(document.id)
+        obsolete_page_index_count = 0
+        for page_index in page_indexes:
+            if page_index.status in {"staging", "published"}:
+                page_index.status = "obsolete"
+                obsolete_page_index_count += 1
+        deleted_at = now_utc()
+        document.is_deleted = True
+        document.deleted_at = deleted_at
+        document.ai_enabled = False
+        if document.index_status == INDEX_STATUS_INDEXED:
+            document.index_status = INDEX_STATUS_INVALID
+        for version in self.repository.list_versions(document.id):
+            version.ai_enabled = False
+            if version.index_status == INDEX_STATUS_INDEXED:
+                version.index_status = INDEX_STATUS_INVALID
+        SystemService(self.db).record_operation(
+            operator,
+            ACTION_DELETE_DOCUMENT,
+            TARGET_TYPE_DOCUMENT,
+            document_id,
+            json.dumps(
+                {
+                    "soft_delete": True,
+                    "deleted_at": deleted_at.isoformat(),
+                    "vector_count": len(vector_ids),
+                    "invalidated_chunks": invalidated_chunk_count,
+                    "obsolete_page_indexes": obsolete_page_index_count,
+                },
+                ensure_ascii=False,
+            ),
         )
+        self.db.commit()
+        logger.info(
+            "文档软删除完成: document_id=%s vector_count=%s invalidated_chunks=%s obsolete_page_indexes=%s",
+            document_id,
+            len(vector_ids),
+            invalidated_chunk_count,
+            obsolete_page_index_count,
+        )
+        return {
+            "deleted": True,
+            "vector_count": len(vector_ids),
+            "retrieval_traces": 0,
+            "chat_citations": 0,
+            "graph_entities": 0,
+            "document_pages": 0,
+            "document_chunks": invalidated_chunk_count,
+            "document_versions": 0,
+            "index_tasks": 0,
+            "review_tasks": 0,
+            "review_logs": 0,
+            "document_assets": 0,
+            "deleted_asset_files": 0,
+            "deleted_asset_objects": 0,
+            "external_cleanup_queued": False,
+            "pending_vector_count": len(vector_ids),
+            "pending_file_count": 0,
+            "pending_asset_object_count": 0,
+        }
+
+    def _delete_base_document(self, document: Document, operator: User) -> dict[str, int | bool]:
+        """Delete a base knowledge document with the legacy physical cleanup flow."""
+
+        all_chunks = self.repository.list_chunks(document.id, include_obsolete=True)
+        vector_ids = [chunk.vector_id for chunk in all_chunks if chunk.vector_id]
+        citation_message_ids = self.chat_repository.list_citation_message_ids_by_document(document.id)
+        versions = self.repository.list_versions(document.id)
+        assets = DocumentAssetService(self.db).list_document_assets(document.id)
+        page_indexes = PageIndexService(self.db).repository.list_document_indexes(document.id)
+        source_storage_paths = [document.storage_path]
+        source_storage_paths.extend(version.storage_path for version in versions if version.storage_path)
+        source_storage_paths = [path for path in source_storage_paths if path]
+        asset_storage_paths = [asset.storage_path for asset in assets if asset.storage_path]
+        asset_object_keys = [asset.object_key for asset in assets if asset.object_key]
+        text_mirror_paths = [page_index.text_mirror_path for page_index in page_indexes if page_index.text_mirror_path]
+        cleanup_summary = self._delete_document_retrieval_artifacts(
+            document,
+            vector_ids,
+            citation_message_ids,
+            len(assets),
+        )
+        document_id = document.id
         self.repository.delete(document)
         SystemService(self.db).record_operation(
             operator,
             ACTION_DELETE_DOCUMENT,
             TARGET_TYPE_DOCUMENT,
             document_id,
-            json.dumps(cleanup_summary, ensure_ascii=False),
+            json.dumps({"soft_delete": False, **cleanup_summary}, ensure_ascii=False),
         )
         self.db.commit()
-        self._schedule_document_external_cleanup(
-            document_id=document_id,
-            vector_ids=vector_ids,
-            source_storage_paths=source_storage_paths,
-            asset_storage_paths=asset_storage_paths,
-            text_mirror_paths=text_mirror_paths,
-            asset_object_keys=asset_object_keys,
+        external_cleanup_queued = bool(
+            vector_ids or source_storage_paths or asset_storage_paths or text_mirror_paths or asset_object_keys
         )
-        logger.info("文档删除完成: document_id=%s cleanup=%s", document_id, cleanup_summary)
+        if external_cleanup_queued:
+            self._schedule_document_external_cleanup(
+                document_id,
+                vector_ids,
+                source_storage_paths,
+                asset_storage_paths,
+                text_mirror_paths,
+                asset_object_keys,
+            )
         return {
             "deleted": True,
             **cleanup_summary,
-            "external_cleanup_queued": bool(vector_ids or source_storage_paths or asset_storage_paths or text_mirror_paths or asset_object_keys),
+            "external_cleanup_queued": external_cleanup_queued,
             "pending_vector_count": len(vector_ids),
-            "pending_file_count": len(source_storage_paths) + len(asset_storage_paths) + len(text_mirror_paths),
+            "pending_file_count": len(source_storage_paths) + len(text_mirror_paths),
             "pending_asset_object_count": len(asset_object_keys),
         }
+
+    def publish_document(self, document_id: int, operator: User) -> Document:
+        """发布项目资料，同时写入旧审核字段以兼容现有解析和索引链路。"""
+
+        document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:publish")
+        current_version = self.repository.get_current_version(document.id) or self.repository.get_version(document.id, document.version_no)
+        reviewed_at = now_utc()
+        document.status = PROJECT_DOCUMENT_STATUS_PUBLISHED
+        document.review_status = REVIEW_STATUS_APPROVED
+        document.document_status = DOCUMENT_STATUS_REVIEWED
+        document.reviewed_by = operator.id
+        document.reviewed_at = reviewed_at
+        document.current_version = True
+        document.is_current_version = True
+        if current_version:
+            current_version.is_current = True
+            current_version.status = PROJECT_DOCUMENT_STATUS_PUBLISHED
+            current_version.review_status = REVIEW_STATUS_APPROVED
+            current_version.version_status = VERSION_STATUS_APPROVED
+            current_version.reviewed_by = operator.id
+            current_version.reviewed_at = reviewed_at
+            current_version.is_current_version = document.is_current_version
+        SystemService(self.db).record_operation(
+            operator,
+            "发布文件",
+            TARGET_TYPE_DOCUMENT,
+            document.id,
+            json.dumps({"status": document.status, "version_no": document.version_no}, ensure_ascii=False),
+        )
+        self.db.commit()
+        self._enrich_category_fields(document)
+        logger.info("文档发布完成: document_id=%s project_id=%s operator_id=%s", document.id, document.project_id, operator.id)
+        return document
+
+    def toggle_document_ai(self, document_id: int, ai_enabled: bool, operator: User) -> Document:
+        """开启或关闭文档参与项目问答；开启前必须已发布且未删除。"""
+
+        document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:ai_toggle")
+        if ai_enabled and document.status != PROJECT_DOCUMENT_STATUS_PUBLISHED:
+            raise AppException("仅已发布文档允许开启 AI 问答")
+        old_value = bool(document.ai_enabled)
+        document.ai_enabled = bool(ai_enabled)
+        current_version = self.repository.get_current_version(document.id) or self.repository.get_version(document.id, document.version_no)
+        if current_version:
+            current_version.ai_enabled = document.ai_enabled
+        SystemService(self.db).record_operation(
+            operator,
+            "修改 AI 问答开关",
+            TARGET_TYPE_DOCUMENT,
+            document.id,
+            json.dumps({"old": old_value, "new": document.ai_enabled}, ensure_ascii=False),
+        )
+        self.db.commit()
+        self._enrich_category_fields(document)
+        logger.info("文档 AI 问答开关更新: document_id=%s old=%s new=%s", document.id, old_value, document.ai_enabled)
+        return document
 
     def download_url(self, document_id: int, user: User) -> dict:
         """
@@ -530,6 +894,16 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:download")
+        SystemService(self.db).record_operation(
+            user,
+            "下载文件",
+            TARGET_TYPE_DOCUMENT,
+            document.id,
+            json.dumps({"version_no": document.version_no, "file_name": document.file_name}, ensure_ascii=False),
+            project_id=document.project_id,
+            auto_commit=True,
+        )
         return {
             "file_name": document.file_name,
             "storage_path": document.storage_path,
@@ -545,7 +919,25 @@ class DocumentService:
         """获取 PDF 预览源，并将并发删除/处理中导致的锁等待转换为业务提示。"""
 
         try:
-            return self._get_document_pdf_preview(document_id, user, version_no)
+            preview_source = self._get_document_pdf_preview(document_id, user, version_no)
+            document = self.repository.get(document_id)
+            SystemService(self.db).record_operation(
+                user,
+                "预览文件",
+                TARGET_TYPE_DOCUMENT,
+                document_id,
+                json.dumps(
+                    {
+                        "version_no": version_no,
+                        "source_kind": preview_source.source_kind,
+                        "file_name": preview_source.file_name,
+                    },
+                    ensure_ascii=False,
+                ),
+                project_id=document.project_id if document else None,
+                auto_commit=True,
+            )
+            return preview_source
         except OperationalError as exc:
             self.db.rollback()
             if is_database_lock_error(exc):
@@ -576,6 +968,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:preview")
         target_version_no = version_no if version_no is not None else document.version_no
         version = self.repository.get_version(document.id, target_version_no)
         if version_no is not None and version is None:
@@ -636,7 +1029,8 @@ class DocumentService:
             Chunk 列表
         """
 
-        self.get_document(document_id, user)
+        document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:view")
         return self.repository.list_chunks(document_id, version_no=version_no)
 
     def _resolve_index_build_version(self, document: Document, version_no: int | None = None) -> DocumentVersion:
@@ -733,23 +1127,32 @@ class DocumentService:
             was_current = version.is_current
             if version.id == target_version.id:
                 version.is_current = True
+                version.is_current_version = True
                 version.version_status = VERSION_STATUS_CURRENT
+                version.status = PROJECT_DOCUMENT_STATUS_PUBLISHED
                 version.index_status = INDEX_STATUS_INDEXED
             else:
                 version.is_current = False
+                version.is_current_version = False
+                version.ai_enabled = False
                 if was_current or version.version_status == VERSION_STATUS_CURRENT or version.index_status == INDEX_STATUS_INDEXED:
                     version.version_status = VERSION_STATUS_HISTORICAL
                 if version.index_status == INDEX_STATUS_INDEXED:
                     version.index_status = INDEX_STATUS_INVALID
 
         document.version_no = target_version.version_no
+        document.version = target_version.version or f"v{target_version.version_no}"
+        document.document_name = target_version.file_name
         document.file_name = target_version.file_name
         document.file_type = target_version.file_type or file_type(target_version.file_name)
         document.file_size = target_version.file_size
         document.storage_path = target_version.storage_path
+        document.file_path = target_version.file_path or target_version.storage_path
+        document.directory_id = target_version.category_id
         document.category_id = target_version.category_id
         document.security_level = target_version.security_level
         document.document_status = DOCUMENT_STATUS_ACTIVE
+        document.status = PROJECT_DOCUMENT_STATUS_PUBLISHED
         document.parse_status = target_version.parse_status
         document.parse_started_at = target_version.parse_started_at
         document.parse_finished_at = target_version.parse_finished_at
@@ -758,6 +1161,8 @@ class DocumentService:
         document.review_status = REVIEW_STATUS_APPROVED
         document.index_status = INDEX_STATUS_INDEXED
         document.current_version = True
+        document.is_current_version = True
+        document.ai_enabled = target_version.ai_enabled
         document.reviewed_by = target_version.reviewed_by
         document.reviewed_at = target_version.reviewed_at
         document.review_comment = target_version.review_comment
@@ -785,6 +1190,7 @@ class DocumentService:
         """构建目标版本索引；成功后切换当前版本，失败时保持旧版本生效。"""
 
         document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:retry_index")
         version = self._resolve_index_build_version(document, version_no)
         self._ensure_version_review_approved(version, "解析并构建索引")
         self._ensure_no_active_index_build(
@@ -982,6 +1388,7 @@ class DocumentService:
         return self._build_document_version_index(document_id, operator, version_no, active_task_id)
 
         document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:retry_index")
         self._ensure_document_is_approved(document)
 
         document.build_started_at = now_utc()
@@ -1038,6 +1445,7 @@ class DocumentService:
         """兼容旧手动解析接口，默认解析当前主文档版本。"""
 
         document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:retry_parse")
         return self.parse_document_version(document.id, document.version_no, operator)
 
     def parse_document_version(self, document_id: int, version_no: int, operator: User) -> dict:
@@ -1049,6 +1457,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:retry_parse")
         version = self.repository.get_version(document.id, version_no)
         if not version:
             raise AppException("目标版本不存在", status_code=404, code=404)
@@ -1098,6 +1507,21 @@ class DocumentService:
                 document.parse_finished_at = finished_at
                 document.parse_error = None
                 document.parse_log = parse_log
+            SystemService(self.db).record_operation(
+                operator,
+                "解析失败重试",
+                TARGET_TYPE_DOCUMENT,
+                document.id,
+                json.dumps(
+                    {
+                        "version_id": version.id,
+                        "version_no": version.version_no,
+                        "chunk_count": len(chunks),
+                    },
+                    ensure_ascii=False,
+                ),
+                project_id=document.project_id,
+            )
             self.db.commit()
             logger.info(
                 "MinerU 解析成功: document_id=%s version_id=%s version_no=%s project_id=%s file_name=%s operation=%s status=%s error_message=%s timestamp=%s chunks=%s",
@@ -1130,6 +1554,22 @@ class DocumentService:
                 document.parse_finished_at = finished_at
                 document.parse_error = error_message
                 document.parse_log = version.parse_log
+            SystemService(self.db).record_operation(
+                operator,
+                "解析失败重试",
+                TARGET_TYPE_DOCUMENT,
+                document.id,
+                json.dumps(
+                    {
+                        "version_id": version.id,
+                        "version_no": version.version_no,
+                        "error_message": error_message,
+                    },
+                    ensure_ascii=False,
+                ),
+                result=RESULT_FAILED,
+                project_id=document.project_id,
+            )
             self.db.commit()
             logger.exception(
                 "MinerU 解析失败: document_id=%s version_id=%s version_no=%s project_id=%s file_name=%s operation=%s status=%s error_message=%s timestamp=%s",
@@ -1214,7 +1654,8 @@ class DocumentService:
             版本记录列表
         """
 
-        self.get_document(document_id, user)
+        document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:version:view")
         return self.repository.list_versions(document_id)
 
     def get_version_file(self, document_id: int, version_no: int, user: User) -> DocumentVersion:
@@ -1230,7 +1671,8 @@ class DocumentService:
             版本记录
         """
 
-        self.get_document(document_id, user)
+        document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:download")
         version = self.repository.get_version(document_id, version_no)
         if not version:
             raise AppException("目标版本不存在", status_code=404, code=404)
@@ -1244,6 +1686,15 @@ class DocumentService:
                 version.storage_path,
             )
             raise AppException("版本文件不存在", status_code=404, code=404)
+        SystemService(self.db).record_operation(
+            user,
+            "下载文件",
+            TARGET_TYPE_DOCUMENT,
+            document.id,
+            json.dumps({"version_no": version.version_no, "file_name": version.file_name}, ensure_ascii=False),
+            project_id=document.project_id,
+            auto_commit=True,
+        )
         return version
 
     def rollback_document(self, document_id: int, operator: User, version_no: int | None = None) -> Document:
@@ -1260,6 +1711,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:version:create")
         versions = self.repository.list_versions(document.id)
         if not versions:
             raise AppException("文档没有可回滚版本")
@@ -1277,22 +1729,37 @@ class DocumentService:
         # 回滚后必须让当前有效索引失效，确保重新审核和重建后再参与检索。
         self._deactivate_document_index_artifacts(document)
         for version in versions:
-            version.is_current = version.id == target.id
+            is_target = version.id == target.id
+            version.is_current = is_target
+            version.is_current_version = is_target
+            if not is_target:
+                version.ai_enabled = False
 
         document.version_no = target.version_no
+        document.version = target.version or f"v{target.version_no}"
+        document.document_name = target.file_name
         document.file_name = target.file_name
         document.file_type = file_type(target.file_name)
         document.storage_path = target.storage_path
+        document.file_path = target.file_path or target.storage_path
         document.file_size = self._resolve_file_size(target.storage_path)
+        document.directory_id = target.category_id
         document.category_id = target.category_id
         document.security_level = target.security_level
+        document.status = target.status or PROJECT_DOCUMENT_STATUS_PENDING
+        document.ai_enabled = False
         document.review_status = target.review_status
+        document.document_status = DOCUMENT_STATUS_REVIEWED if document.status == PROJECT_DOCUMENT_STATUS_PUBLISHED else DOCUMENT_STATUS_PENDING_REVIEW
+        document.parse_status = target.parse_status
         document.index_status = INDEX_STATUS_NOT_INDEXED
+        document.current_version = True
+        document.is_current_version = True
         document.build_started_at = None
         document.build_finished_at = None
         document.build_error = None
         document.built_by = None
         target.index_status = INDEX_STATUS_NOT_INDEXED
+        target.ai_enabled = False
 
         SystemService(self.db).record_operation(
             operator,
@@ -1305,6 +1772,16 @@ class DocumentService:
         self._enrich_category_fields(document)
         logger.info("文档版本回滚完成: document_id=%s target_version=%s", document.id, target.version_no)
         return document
+
+    def set_current_version(self, document_id: int, version_id: int, operator: User) -> Document:
+        """按版本记录 ID 标记当前版本，供项目资料版本管理 API 使用。"""
+
+        document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:version:create")
+        target = self.repository.get_version_by_id(version_id)
+        if target is None or target.document_id != document.id:
+            raise AppException("目标版本不存在", status_code=404, code=404)
+        return self.rollback_document(document_id, operator, target.version_no)
 
     def _build_version_context(
         self,
@@ -1600,6 +2077,110 @@ class DocumentService:
         setattr(document, "category_name", self.category_service.category_name(document.category_id))
         setattr(document, "category_path", self.category_service.category_path(document.category_id))
 
+    def _enrich_category_fields_bulk(self, documents: list[Document]) -> None:
+        """
+        批量补充分类展示字段，避免资料列表在大项目下逐条查询目录。
+        """
+
+        category_ids = {
+            category_id
+            for document in documents
+            if (category_id := document.category_id or document.directory_id) is not None
+        }
+        if not category_ids:
+            for document in documents:
+                setattr(document, "category_name", None)
+                setattr(document, "category_path", None)
+            return
+
+        category_by_id: dict[int, KnowledgeCategory] = {}
+        pending_ids = set(category_ids)
+        while pending_ids:
+            rows = list(self.db.scalars(select(KnowledgeCategory).where(KnowledgeCategory.id.in_(pending_ids))).all())
+            pending_ids = set()
+            for category in rows:
+                if category.id in category_by_id:
+                    continue
+                category_by_id[category.id] = category
+                if category.parent_id is not None and category.parent_id not in category_by_id:
+                    pending_ids.add(category.parent_id)
+
+        path_cache: dict[int, str | None] = {}
+
+        def category_path(category_id: int | None) -> str | None:
+            if category_id is None:
+                return None
+            if category_id in path_cache:
+                return path_cache[category_id]
+            names: list[str] = []
+            current = category_by_id.get(category_id)
+            visited: set[int] = set()
+            while current and current.id not in visited:
+                visited.add(current.id)
+                names.append(current.name)
+                current = category_by_id.get(current.parent_id) if current.parent_id is not None else None
+            path_cache[category_id] = " / ".join(reversed(names)) if names else None
+            return path_cache[category_id]
+
+        for document in documents:
+            category_id = document.category_id or document.directory_id
+            category = category_by_id.get(category_id) if category_id is not None else None
+            setattr(document, "category_name", category.name if category else None)
+            setattr(document, "category_path", category_path(category_id))
+
+    def _infer_document_type(self, category: object, file_name: str) -> str:
+        """根据目录和文件名保守推断文档类型，匹配不到时统一归为“其他”。"""
+
+        category_text = f"{getattr(category, 'code', '')} {getattr(category, 'name', '')} {file_name}"
+        type_rules = (
+            ("合同", "合同文件"),
+            ("程序", "程序文件"),
+            ("组织", "组织通讯录"),
+            ("通讯录", "组织通讯录"),
+            ("WBS", "WBS文件"),
+            ("进度", "进度计划"),
+            ("月报", "月报"),
+            ("会议", "会议纪要"),
+            ("设计输入", "设计输入"),
+            ("设计基础", "设计基础"),
+            ("设计成品", "设计成品"),
+            ("厂商", "厂商资料"),
+            ("图纸", "图纸"),
+            ("设备", "设备资料"),
+            ("采购", "采购文件"),
+        )
+        for keyword, document_type in type_rules:
+            if keyword in category_text:
+                return document_type
+        return DEFAULT_DOCUMENT_TYPE
+
+    def _infer_discipline(self, category: object) -> str:
+        """根据目录编码和名称推断专业字段，避免上传时元数据完全为空。"""
+
+        code = str(getattr(category, "code", "") or "")
+        name = str(getattr(category, "name", "") or "")
+        text = f"{code} {name}"
+        discipline_rules = (
+            ("工艺", "工艺"),
+            ("管道", "管道"),
+            ("设备", "设备"),
+            ("仪表", "仪表"),
+            ("电气", "电气"),
+            ("结构", "结构"),
+            ("造价", "造价"),
+            ("拆解", "拆解"),
+            ("采购", "采购"),
+            ("项目", "项目管理"),
+        )
+        for keyword, discipline in discipline_rules:
+            if keyword in text:
+                return discipline
+        if code.startswith("A"):
+            return "项目管理"
+        if code.startswith("P"):
+            return "采购"
+        return DEFAULT_DISCIPLINE
+
     def list_pages(self, document_id: int, user: User, version_no: int | None = None) -> list[DocumentPage]:
         """
         查询文档页级解析结果。
@@ -1612,6 +2193,8 @@ class DocumentService:
             页级解析结果列表
         """
 
+        document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:view")
         return PageIndexService(self.db).list_pages(document_id, user, version_no)
 
     def preview_document(self, document_id: int, user: User, version_no: int | None = None) -> dict[str, object]:
@@ -1627,6 +2210,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:preview")
         version = self.repository.get_version(document.id, version_no) if version_no is not None else None
         if version_no is not None and version is None:
             raise AppException("目标版本不存在", status_code=404, code=404)
@@ -1702,6 +2286,22 @@ class DocumentService:
             )
 
         markdown_content, markdown_source = self._build_preview_markdown(mineru_result_asset, preview_pages)
+        SystemService(self.db).record_operation(
+            user,
+            "预览文件",
+            TARGET_TYPE_DOCUMENT,
+            document.id,
+            json.dumps(
+                {
+                    "version_no": active_version_no,
+                    "page_count": len(preview_pages),
+                    "source": markdown_source,
+                },
+                ensure_ascii=False,
+            ),
+            project_id=document.project_id,
+            auto_commit=True,
+        )
         return {
             "document": {
                 "id": document.id,
@@ -1736,7 +2336,8 @@ class DocumentService:
         asset = DocumentAssetService(self.db).get_asset(asset_id)
         if asset is None:
             raise AppException("派生资产不存在", status_code=404, code=404)
-        self.get_document(asset.document_id, user)
+        document = self.get_document(asset.document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:preview")
         return asset
 
     def correct_page(
@@ -1763,6 +2364,8 @@ class DocumentService:
             更新后的页记录
         """
 
+        document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:update")
         return PageIndexService(self.db).correct_page(
             document_id,
             page_no,
@@ -1786,6 +2389,8 @@ class DocumentService:
             质量检查结果
         """
 
+        document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:retry_index")
         return PageIndexService(self.db).quality_check(document_id, user, passed, comment)
 
     def create_index_build_task(self, document_id: int, user: User, version_no: int | None = None) -> IndexTask:
@@ -1801,11 +2406,27 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:retry_index")
         version = self._resolve_index_build_version(document, version_no)
         self._ensure_version_review_approved(version, "解析并构建索引")
         self._ensure_no_active_index_build(document, version)
         task = IndexTaskService(self.db).create_build_task(document.id, version.version_no, user, version.id)
         self._mark_index_build_started(document, version, user.id)
+        SystemService(self.db).record_operation(
+            user,
+            "索引失败重试",
+            TARGET_TYPE_DOCUMENT,
+            document.id,
+            json.dumps(
+                {
+                    "task_id": task.id,
+                    "version_id": version.id,
+                    "version_no": version.version_no,
+                },
+                ensure_ascii=False,
+            ),
+            project_id=document.project_id,
+        )
         self.db.commit()
         self.db.refresh(task)
         return task
@@ -1823,6 +2444,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project_document:retry_index")
         version = self.repository.get_current_version(document.id) or self.repository.get_version(document.id, document.version_no)
         return IndexTaskService(self.db).create_publish_task(document.id, document.version_no, user, version.id if version else None)
 
@@ -1873,6 +2495,7 @@ class DocumentService:
         """修改文档密级，并让依赖旧向量 metadata 的索引失效后重建。"""
 
         document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project_document:security_update")
         target_level = normalize_security_level(security_level, default=document.security_level)
         ensure_security_level_access(operator, target_level, message="无权修改为超出自身最高密级的文档")
         if document.security_level == target_level:
@@ -1915,6 +2538,70 @@ class DocumentService:
             len(page_indexes),
         )
         return document
+
+    def _apply_project_document_status(self, document: Document, status: str, operator: User) -> bool:
+        if status not in {PROJECT_DOCUMENT_STATUS_PENDING, PROJECT_DOCUMENT_STATUS_PUBLISHED}:
+            raise AppException("文件状态仅支持待审核和已发布")
+        old_status = document.status
+        if status == PROJECT_DOCUMENT_STATUS_PUBLISHED:
+            self._ensure_project_document_access(document, operator, "project_document:publish")
+            self._apply_published_status(document, operator)
+        else:
+            document.status = PROJECT_DOCUMENT_STATUS_PENDING
+            document.document_status = DOCUMENT_STATUS_PENDING_REVIEW
+            document.review_status = REVIEW_STATUS_DRAFT
+            document.ai_enabled = False
+            current_version = self.repository.get_current_version(document.id)
+            if current_version:
+                current_version.status = PROJECT_DOCUMENT_STATUS_PENDING
+                current_version.review_status = REVIEW_STATUS_DRAFT
+                current_version.version_status = VERSION_STATUS_DRAFT
+                current_version.ai_enabled = False
+        return old_status != document.status
+
+    def _apply_published_status(self, document: Document, operator: User) -> None:
+        current_version = self.repository.get_current_version(document.id) or self.repository.get_version(document.id, document.version_no)
+        reviewed_at = now_utc()
+        document.status = PROJECT_DOCUMENT_STATUS_PUBLISHED
+        document.review_status = REVIEW_STATUS_APPROVED
+        document.document_status = DOCUMENT_STATUS_REVIEWED
+        document.reviewed_by = operator.id
+        document.reviewed_at = reviewed_at
+        document.current_version = True
+        document.is_current_version = True
+        if current_version:
+            current_version.is_current = True
+            current_version.status = PROJECT_DOCUMENT_STATUS_PUBLISHED
+            current_version.review_status = REVIEW_STATUS_APPROVED
+            current_version.version_status = VERSION_STATUS_APPROVED
+            current_version.reviewed_by = operator.id
+            current_version.reviewed_at = reviewed_at
+            current_version.is_current_version = document.is_current_version
+
+    def _apply_document_security_level(self, document: Document, security_level: str, operator: User) -> bool:
+        target_level = normalize_security_level(security_level, default=document.security_level)
+        ensure_security_level_access(operator, target_level, message="无权修改为超过自身最高密级的文档")
+        if document.security_level == target_level:
+            return False
+
+        document.security_level = target_level
+        if document.index_status == INDEX_STATUS_INDEXED:
+            document.index_status = INDEX_STATUS_INVALID
+        for version in self.repository.list_versions(document.id):
+            version.security_level = target_level
+            if version.index_status == INDEX_STATUS_INDEXED:
+                version.index_status = INDEX_STATUS_INVALID
+        for chunk in self.repository.list_chunks(document.id, include_obsolete=True):
+            chunk.security_level = target_level
+        pages = list(self.db.scalars(select(DocumentPage).where(DocumentPage.document_id == document.id)).all())
+        for page in pages:
+            page.security_level = target_level
+        page_indexes = list(self.db.scalars(select(PageIndex).where(PageIndex.document_id == document.id)).all())
+        for page_index in page_indexes:
+            page_index.security_level = target_level
+            if page_index.status in {"staging", "published"}:
+                page_index.status = "obsolete"
+        return True
 
     def _delete_document_retrieval_artifacts(
         self,

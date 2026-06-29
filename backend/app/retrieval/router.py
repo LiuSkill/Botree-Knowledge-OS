@@ -36,6 +36,7 @@ from app.retrieval.retrievers.page_index_retriever import PageIndexRetriever
 from app.retrieval.retrievers.project_metadata_retriever import ProjectMetadataRetriever
 from app.retrieval.retrievers.ripgrep_retriever import RipgrepRetriever
 from app.retrieval.schemas import Evidence
+from app.services.project_access_service import ProjectAccessService
 from app.services.project_service import ProjectService
 from app.services.qwen_orchestration_service import QwenOrchestrationService
 from app.services.evidence_access_guard_service import EvidenceAccessGuardService
@@ -1129,7 +1130,10 @@ class RetrievalRouter:
         if effective_mode in {"project_only", "hybrid", "project_chat", "project_with_industry"}:
             if project_id is None:
                 raise AppException("项目知识问答必须选择项目")
-            ProjectService(self.db).ensure_project_access(project_id, user)
+            if effective_mode == "project_chat":
+                ProjectAccessService(self.db).ensure_project_access(project_id, user, permission_codes=("project_chat:ask",))
+            else:
+                ProjectService(self.db).ensure_project_access(project_id, user)
         if effective_mode == "base_chat" and self._is_external_user(user):
             raise AppException("外部用户默认不能访问基础问答", status_code=403, code=403)
         return effective_mode

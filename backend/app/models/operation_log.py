@@ -31,6 +31,8 @@ class OperationLog(TimestampMixin, Base):
     action: Mapped[str] = mapped_column(String(100), nullable=False, comment="操作动作")
     target_type: Mapped[str] = mapped_column(String(100), nullable=False, comment="操作对象类型")
     target_id: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="操作对象ID")
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True, comment="项目ID")
     detail: Mapped[str | None] = mapped_column(Text, nullable=True, comment="操作详情")
     ip_address: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="IP地址")
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="User-Agent")
     result: Mapped[str] = mapped_column(String(30), default="success", nullable=False, comment="执行结果：success/failed")

@@ -11,7 +11,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.retrieval.base import BaseRetriever
 from app.retrieval.schemas import Evidence
-from app.services.project_service import ProjectService
+from app.services.project_access_service import ProjectAccessService
 
 
 class ProjectMetadataRetriever(BaseRetriever):
@@ -26,7 +26,7 @@ class ProjectMetadataRetriever(BaseRetriever):
         if mode != "project_chat" or project_id is None:
             return []
 
-        ProjectService(self.db).ensure_project_access(project_id, user)
+        ProjectAccessService(self.db).ensure_project_access(project_id, user, permission_codes=("project_chat:ask",))
         project = self.db.get(Project, project_id)
         if project is None:
             return []

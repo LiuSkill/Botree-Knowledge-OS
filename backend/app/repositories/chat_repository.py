@@ -172,6 +172,20 @@ class ChatRepository:
 
         return list(self.db.scalars(select(ChatMessage).where(ChatMessage.role == "assistant").order_by(ChatMessage.id.desc())).all())
 
+    def count_project_answers(self, project_id: int) -> int:
+        """统计项目问答已产生的助手回答数，作为项目详情页的问答次数。"""
+
+        stmt = (
+            select(func.count(ChatMessage.id))
+            .join(ChatSession, ChatSession.id == ChatMessage.session_id)
+            .where(
+                ChatSession.project_id == project_id,
+                ChatSession.chat_type == "project_chat",
+                ChatMessage.role == "assistant",
+            )
+        )
+        return int(self.db.scalar(stmt) or 0)
+
     def list_qa_audit_details(
         self,
         user_id: int | None = None,

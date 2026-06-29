@@ -14,6 +14,8 @@ export interface ApiResponse<T> {
 }
 
 export type SecurityLevel = 'public' | 'internal' | 'confidential';
+export type DataScope = 'all' | 'department' | 'own' | 'public_only';
+export type ProjectStatus = '待启动' | '进行中' | '已完成' | '已暂停';
 
 export interface RoleBrief {
   id: number;
@@ -21,6 +23,7 @@ export interface RoleBrief {
   code: string;
   enabled: boolean;
   security_level: SecurityLevel;
+  data_scope: DataScope;
 }
 
 export interface UserInfo {
@@ -57,17 +60,74 @@ export interface ProjectInfo {
   id: number;
   name: string;
   code: string;
+  project_name?: string;
+  project_code?: string;
+  project_short_name?: string | null;
+  project_english_name?: string | null;
   description?: string | null;
   client?: string | null;
+  customer_name?: string | null;
   manager?: string | null;
+  owner_id?: number | null;
+  owner_name?: string | null;
   status: string;
+  project_status?: ProjectStatus | string;
   progress: number;
   security_level: SecurityLevel;
+  project_type?: string | null;
+  project_stage?: string | null;
+  raw_material_type?: string | null;
+  capacity?: string | null;
+  process_route?: string | null;
+  main_products?: string | null;
+  scope_description?: string | null;
+  deliverables?: string | null;
+  department_id?: number | null;
+  created_by?: number | null;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
   knowledge_base_id?: number | null;
   document_count: number;
   knowledge_count: number;
+  parsed_document_count: number;
+  indexed_document_count: number;
+  pending_review_document_count: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectDirectoryStat {
+  directory_id: number;
+  directory_code: string;
+  directory_name: string;
+  document_count: number;
+}
+
+export interface ProjectRecentDocumentSummary {
+  id: number;
+  document_name?: string | null;
+  file_name: string;
+  file_type?: string | null;
+  file_size: number;
+  directory_id?: number | null;
+  directory_name?: string | null;
+  status?: string | null;
+  security_level: SecurityLevel;
+  ai_enabled?: boolean;
+  parse_status?: string | null;
+  index_status?: string | null;
+  upload_user_id?: number | null;
+  uploader_name?: string | null;
+  uploader_username?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectOverviewInfo extends ProjectInfo {
+  qa_count: number;
+  first_level_directory_stats: ProjectDirectoryStat[];
+  recent_documents: ProjectRecentDocumentSummary[];
+  project_chat_enabled: boolean;
 }
 
 export interface KnowledgeBaseInfo {
@@ -94,6 +154,9 @@ export interface KnowledgeCategory {
   description?: string | null;
   sort_order: number;
   enabled: boolean;
+  default_security_level?: SecurityLevel;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
   document_count: number;
   total_document_count: number;
   children: KnowledgeCategory[];
@@ -107,6 +170,20 @@ export interface DocumentInfo {
   knowledge_base_id: number;
   knowledge_type: 'base' | 'project';
   project_id?: number | null;
+  directory_id?: number | null;
+  document_name?: string | null;
+  document_type?: string | null;
+  discipline?: string | null;
+  version?: string | null;
+  status?: string | null;
+  ai_enabled?: boolean;
+  upload_user_id?: number | null;
+  uploader_name?: string | null;
+  uploader_username?: string | null;
+  is_current_version?: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
+  remark?: string | null;
   file_name: string;
   file_type: string;
   file_size: number;
@@ -129,6 +206,7 @@ export interface DocumentInfo {
   build_finished_at?: string | null;
   build_error?: string | null;
   built_by?: number | null;
+  created_by?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -136,7 +214,9 @@ export interface DocumentInfo {
 export interface DocumentVersionInfo {
   id: number;
   document_id: number;
+  project_id?: number | null;
   version_no: number;
+  version?: string | null;
   category_id?: number | null;
   file_name: string;
   file_type?: string;
@@ -152,6 +232,8 @@ export interface DocumentVersionInfo {
   review_status: string;
   index_status: string;
   is_current: boolean;
+  is_current_version?: boolean;
+  ai_enabled?: boolean;
   security_level: SecurityLevel;
   reviewed_by?: number | null;
   reviewed_at?: string | null;
@@ -160,6 +242,8 @@ export interface DocumentVersionInfo {
   build_finished_at?: string | null;
   build_error?: string | null;
   created_by?: number | null;
+  upload_user_id?: number | null;
+  version_note?: string | null;
   created_at: string;
   updated_at: string;
 }

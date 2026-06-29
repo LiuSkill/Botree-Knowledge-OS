@@ -1,11 +1,12 @@
 """
-User Schemas
+User Schemas.
 """
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.core.data_scope import DEFAULT_DATA_SCOPE
 from app.core.security_levels import DEFAULT_SECURITY_LEVEL, user_max_security_level
 from app.utils.user_avatar import avatar_url_for_user
 
@@ -20,6 +21,7 @@ class RoleBrief(BaseModel):
     code: str = Field(..., description="角色编码")
     enabled: bool = Field(..., description="角色是否启用")
     security_level: str = Field(default=DEFAULT_SECURITY_LEVEL, description="角色最高密级")
+    data_scope: str = Field(default=DEFAULT_DATA_SCOPE, description="角色项目数据范围")
 
 
 class UserCreate(BaseModel):

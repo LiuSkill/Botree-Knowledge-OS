@@ -1,26 +1,18 @@
-"""
-Knowledge Category Models
+"""Knowledge category models."""
 
-负责：
-1. 定义企业知识和项目资料的动态分类树
-2. 通过 scope_type 与 project_id 隔离企业分类和项目分类
-3. 为文档上传、筛选和审核后构建进度提供分类来源
-"""
+from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.security_levels import DEFAULT_SECURITY_LEVEL
 from app.models.base import Base, TimestampMixin
 
 
 class KnowledgeCategory(TimestampMixin, Base):
-    """
-    知识分类表
+    """知识分类/项目资料目录表。
 
-    职责：
-    - 使用邻接表结构支持无限层级分类
-    - 企业分类使用 scope_type=base 且 project_id 为空
-    - 项目分类使用 scope_type=project 且 project_id 指向所属项目
+    项目目录继续复用现有 knowledge_categories，以保持上传、筛选和资料树链路兼容。
     """
 
     __tablename__ = "knowledge_categories"
@@ -41,8 +33,16 @@ class KnowledgeCategory(TimestampMixin, Base):
         comment="父分类ID，关联knowledge_categories.id",
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="分类名称")
-    code: Mapped[str] = mapped_column(String(100), nullable=False, comment="分类编码，同一范围内唯一")
+    code: Mapped[str] = mapped_column(String(100), nullable=False, comment="分类/目录编码，项目目录按同一父目录唯一")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="分类说明")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值，数值越小越靠前")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="是否启用")
+    default_security_level: Mapped[str] = mapped_column(
+        String(30),
+        default=DEFAULT_SECURITY_LEVEL,
+        nullable=False,
+        comment="目录默认密级",
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否删除")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="删除时间")
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, comment="创建人ID，关联users.id")

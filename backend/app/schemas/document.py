@@ -18,10 +18,21 @@ class DocumentOut(BaseModel):
     knowledge_base_id: int
     knowledge_type: str
     project_id: int | None = None
+    directory_id: int | None = None
+    document_name: str | None = None
+    document_type: str | None = None
+    discipline: str | None = None
+    version: str | None = None
+    status: str = "待审核"
+    ai_enabled: bool = False
+    upload_user_id: int | None = None
+    uploader_name: str | None = None
+    uploader_username: str | None = None
     file_name: str
     file_type: str
     file_size: int
     storage_path: str
+    file_path: str | None = None
     category_id: int | None = None
     category_name: str | None = None
     category_path: str | None = None
@@ -35,6 +46,7 @@ class DocumentOut(BaseModel):
     index_status: str
     version_no: int
     current_version: bool
+    is_current_version: bool = True
     drawing_no: str | None = None
     drawing_name: str | None = None
     security_level: str = DEFAULT_SECURITY_LEVEL
@@ -48,6 +60,10 @@ class DocumentOut(BaseModel):
     build_finished_at: datetime | None = None
     build_error: str | None = None
     built_by: int | None = None
+    preview_url: str | None = None
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
+    remark: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -173,6 +189,27 @@ class DocumentSecurityLevelUpdate(BaseModel):
     security_level: str = Field(..., description="public/internal/confidential")
 
 
+class DocumentMetadataUpdate(BaseModel):
+    """Project document metadata update request."""
+
+    document_name: str | None = None
+    directory_id: int | None = None
+    document_type: str | None = None
+    discipline: str | None = None
+    version: str | None = None
+    status: str | None = None
+    security_level: str | None = None
+    ai_enabled: bool | None = None
+    preview_url: str | None = None
+    remark: str | None = None
+
+
+class DocumentAiToggleRequest(BaseModel):
+    """Document AI Q&A toggle request."""
+
+    ai_enabled: bool = Field(..., description="是否参与AI问答")
+
+
 class DocumentPreviewOut(BaseModel):
     """Document preview response."""
 
@@ -252,14 +289,18 @@ class DocumentVersionOut(BaseModel):
 
     id: int
     document_id: int
+    project_id: int | None = None
     version_no: int
+    version: str | None = None
     category_id: int | None = None
     file_name: str
     file_type: str = ""
     file_size: int = 0
     storage_path: str
+    file_path: str | None = None
     change_summary: str | None = None
     version_status: str = "draft"
+    status: str = "待审核"
     parse_status: str = "unparsed"
     parse_started_at: datetime | None = None
     parse_finished_at: datetime | None = None
@@ -268,6 +309,8 @@ class DocumentVersionOut(BaseModel):
     review_status: str
     index_status: str
     is_current: bool
+    is_current_version: bool = True
+    ai_enabled: bool = False
     security_level: str = DEFAULT_SECURITY_LEVEL
     reviewed_by: int | None = None
     reviewed_at: datetime | None = None
@@ -276,6 +319,8 @@ class DocumentVersionOut(BaseModel):
     build_finished_at: datetime | None = None
     build_error: str | None = None
     created_by: int | None = None
+    upload_user_id: int | None = None
+    version_note: str | None = None
     created_at: datetime
     updated_at: datetime
 

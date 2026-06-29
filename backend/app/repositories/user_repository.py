@@ -9,6 +9,8 @@ User Repository
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -50,6 +52,14 @@ class UserRepository:
         """按 ID 查询用户。"""
 
         return self.db.scalar(select(User).options(selectinload(User.roles).selectinload(Role.permissions)).where(User.id == user_id))
+
+    def list_by_ids(self, user_ids: Iterable[int]) -> list[User]:
+        """按 ID 批量查询用户，用于概览类接口补充展示名称。"""
+
+        ids = list({int(user_id) for user_id in user_ids})
+        if not ids:
+            return []
+        return list(self.db.scalars(select(User).where(User.id.in_(ids))).all())
 
     def get_by_username(self, username: str) -> User | None:
         """按用户名查询用户。"""

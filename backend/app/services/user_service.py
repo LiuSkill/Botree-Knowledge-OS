@@ -21,6 +21,7 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.minio import get_minio_client
 from app.core.rbac import filter_bound_action_codes, menu_permission_codes, sync_menu_action_permission_codes
+from app.core.data_scope import DEFAULT_DATA_SCOPE, normalize_data_scope
 from app.core.security_levels import DEFAULT_SECURITY_LEVEL, normalize_security_level, user_max_security_level
 from app.core.security import hash_password, verify_password
 from app.models.user import Permission, Role, User
@@ -240,6 +241,7 @@ class UserService:
                     "code": role.code,
                     "enabled": role.enabled,
                     "security_level": role.security_level,
+                    "data_scope": role.data_scope,
                 }
                 for role in user.roles
             ],
@@ -335,6 +337,7 @@ class RoleService:
             description=payload.description,
             enabled=True,
             security_level=normalize_security_level(payload.security_level, default=DEFAULT_SECURITY_LEVEL),
+            data_scope=normalize_data_scope(payload.data_scope, default=DEFAULT_DATA_SCOPE),
         )
         role.permissions = self._resolve_bound_permissions(payload.permission_ids)
         self.role_repository.add(role)
@@ -354,6 +357,8 @@ class RoleService:
                 setattr(role, field, value)
         if payload.security_level is not None:
             role.security_level = normalize_security_level(payload.security_level, default=DEFAULT_SECURITY_LEVEL)
+        if payload.data_scope is not None:
+            role.data_scope = normalize_data_scope(payload.data_scope, default=DEFAULT_DATA_SCOPE)
         if payload.permission_ids is not None:
             role.permissions = self._resolve_bound_permissions(payload.permission_ids)
         SystemService(self.db).record_operation(operator, "编辑角色", "role", role.id, f"编辑角色 {role.name}")

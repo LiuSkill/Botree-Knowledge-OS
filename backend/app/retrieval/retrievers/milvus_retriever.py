@@ -19,6 +19,7 @@ from app.retrieval.base import BaseRetriever
 from app.retrieval.retrievers.keyword_retriever import KeywordRetriever
 from app.retrieval.schemas import Evidence
 from app.services.embedding_service import EmbeddingService
+from app.services.project_document_policy_service import ProjectDocumentPolicyService
 from app.services.project_service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ class MilvusHybridRetriever(BaseRetriever):
         hits = self.milvus_indexer.search(query_vector, limit * 3, expr=milvus_expr)
         evidences: list[Evidence] = []
         project_service = ProjectService(self.db)
+        project_document_policy = ProjectDocumentPolicyService(self.db)
         filter_stats = {
             "missing_or_inactive_chunk": 0,
             "document_unavailable": 0,
@@ -79,7 +81,10 @@ class MilvusHybridRetriever(BaseRetriever):
                 filter_stats["missing_or_inactive_chunk"] += 1
                 continue
             document = self.db.get(Document, chunk.document_id)
-            if not document or document.review_status != "approved" or document.index_status != "indexed":
+            if not document or document.index_status != "indexed" or bool(getattr(document, "is_deleted", False)):
+                filter_stats["document_unavailable"] += 1
+                continue
+            if document.project_id is None and document.review_status != "approved":
                 filter_stats["document_unavailable"] += 1
                 continue
             if chunk.version_no != document.version_no:
@@ -92,6 +97,16 @@ class MilvusHybridRetriever(BaseRetriever):
                 filter_stats["scope_denied"] += 1
                 continue
             if document.project_id is not None:
+                reject_reason = project_document_policy.project_chat_evidence_reject_reason(
+                    document=document,
+                    chunk=chunk,
+                    user=user,
+                    project_id=project_id,
+                    require_chat_permission=mode == "project_chat",
+                )
+                if reject_reason:
+                    filter_stats[reject_reason] = filter_stats.get(reject_reason, 0) + 1
+                    continue
                 try:
                     project_service.ensure_project_access(document.project_id, user)
                 except Exception:

@@ -14,9 +14,12 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.audit_context import current_audit_context
 from app.core.exceptions import AppException
 from app.core.rbac import ACTION_GROUPS, MENU_TREE, ActionGroup, MenuNode
 from app.models.chat import ChatCitation
+from app.models.document import Document
+from app.models.knowledge_category import KnowledgeCategory
 from app.models.operation_log import OperationLog
 from app.models.user import Permission, User
 from app.repositories.chat_repository import ChatRepository
@@ -56,6 +59,8 @@ class SystemService:
         detail: str | None = None,
         result: str = "success",
         ip_address: str | None = None,
+        project_id: int | None = None,
+        user_agent: str | None = None,
         auto_commit: bool = False,
     ) -> OperationLog:
         """
@@ -75,21 +80,45 @@ class SystemService:
             操作日志对象。
         """
 
+        request_context = current_audit_context()
+        resolved_project_id = project_id if project_id is not None else self._infer_project_id(target_type, target_id)
         log = OperationLog(
             user_id=user.id if user else None,
             username=user.username if user else None,
             action=action,
             target_type=target_type,
             target_id=str(target_id) if target_id is not None else None,
+            project_id=resolved_project_id,
             detail=detail,
             result=result,
-            ip_address=ip_address,
+            ip_address=ip_address or (request_context.ip_address if request_context else None),
+            user_agent=user_agent or (request_context.user_agent if request_context else None),
         )
         self.repository.add_log(log)
         if auto_commit:
             self.db.commit()
         logger.info("操作日志: action=%s target=%s target_id=%s result=%s", action, target_type, target_id, result)
         return log
+
+    def _infer_project_id(self, target_type: str, target_id: str | int | None) -> int | None:
+        """根据审计对象补齐项目 ID，避免业务层重复查询。"""
+
+        if target_id is None:
+            return None
+        normalized_target_type = target_type.lower()
+        try:
+            numeric_target_id = int(target_id)
+        except (TypeError, ValueError):
+            return None
+        if normalized_target_type == "project":
+            return numeric_target_id
+        if normalized_target_type in {"document", "project_document"}:
+            document = self.db.get(Document, numeric_target_id)
+            return document.project_id if document else None
+        if normalized_target_type in {"knowledge_category", "project_directory"}:
+            category = self.db.get(KnowledgeCategory, numeric_target_id)
+            return category.project_id if category and category.scope_type == "project" else None
+        return None
 
     def dashboard(self, current_user: User | None = None) -> dict:
         """

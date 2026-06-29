@@ -202,12 +202,18 @@ class ReviewService:
         task.reviewed_at = now_utc()
         version.review_status = "approved"
         version.version_status = "approved"
+        version.status = "已发布"
         version.reviewed_by = operator.id
         version.reviewed_at = task.reviewed_at
         version.review_comment = comment
         if not self.document_repository.get_current_version(document.id) or document.version_no == version.version_no:
             document.review_status = "approved"
             document.document_status = "reviewed"
+            document.status = "已发布"
+            document.current_version = True
+            document.is_current_version = True
+            version.is_current = True
+            version.is_current_version = True
             document.reviewed_by = operator.id
             document.reviewed_at = task.reviewed_at
             document.review_comment = comment

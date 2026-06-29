@@ -88,6 +88,37 @@ a {
   margin-bottom: 16px;
 }
 
+.system-filter-form,
+.audit-filter-form,
+.filter-bar,
+.document-toolbar {
+  border: 1px solid #e5e7eb !important;
+  border-radius: 6px !important;
+  background: #fff !important;
+  padding: 14px 16px !important;
+}
+
+.system-filter-form,
+.audit-filter-form {
+  gap: 12px 14px;
+}
+
+.system-filter-form .t-form__item,
+.audit-filter-form .t-form__item {
+  margin: 0;
+}
+
+.system-filter-form .t-form__label,
+.audit-filter-form .t-form__label {
+  width: auto !important;
+  padding-right: 8px;
+}
+
+.system-filter-form .t-form__controls,
+.audit-filter-form .t-form__controls {
+  margin-left: 0 !important;
+}
+
 .page-body {
   flex: 1;
   min-height: 0;

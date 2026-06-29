@@ -93,6 +93,7 @@ class AuthService:
                     "code": role.code,
                     "enabled": role.enabled,
                     "security_level": role.security_level,
+                    "data_scope": role.data_scope,
                 }
                 for role in user.roles
             ],

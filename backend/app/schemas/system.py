@@ -43,8 +43,10 @@ class OperationLogOut(BaseModel):
     action: str
     target_type: str
     target_id: str | None = None
+    project_id: int | None = None
     detail: str | None = None
     ip_address: str | None = None
+    user_agent: str | None = None
     result: str
     created_at: datetime
     updated_at: datetime

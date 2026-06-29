@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_permission
+from app.api.deps import get_current_user, require_any_permission, require_permission
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import AppException
@@ -24,8 +24,10 @@ from app.core.response import success
 from app.models.user import User
 from app.schemas.document import (
     ArchiveRequest,
+    DocumentAiToggleRequest,
     DocumentChunkOut,
     DocumentDeleteOut,
+    DocumentMetadataUpdate,
     DocumentOut,
     DocumentPageOut,
     DocumentPreviewOut,
@@ -134,11 +136,24 @@ def get_document(document_id: int, current_user: User = Depends(get_current_user
     return success(DocumentOut.model_validate(document).model_dump(mode="json"))
 
 
+@router.put("/{document_id}", summary="Update document metadata")
+def update_document_metadata(
+    document_id: int,
+    payload: DocumentMetadataUpdate,
+    current_user: User = Depends(require_any_permission("knowledge:edit", "project_document:update")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Update document metadata; sensitive fields are rechecked in the service layer."""
+
+    document = DocumentService(db).update_document_metadata(document_id, payload, current_user)
+    return success(DocumentOut.model_validate(document).model_dump(mode="json"))
+
+
 @router.put("/{document_id}/security-level", summary="修改文档密级")
 def update_document_security_level(
     document_id: int,
     payload: DocumentSecurityLevelUpdate,
-    current_user: User = Depends(require_permission("knowledge:edit")),
+    current_user: User = Depends(require_any_permission("knowledge:edit", "project_document:security_update")),
     db: Session = Depends(get_db),
 ) -> dict:
     """修改文档密级，并让依赖旧向量 metadata 的索引失效后重建。"""
@@ -150,13 +165,38 @@ def update_document_security_level(
 @router.delete("/{document_id}", summary="删除文档")
 def delete_document(
     document_id: int,
-    current_user: User = Depends(require_permission("knowledge:delete")),
+    current_user: User = Depends(require_any_permission("knowledge:delete", "project_document:delete")),
     db: Session = Depends(get_db),
 ) -> dict:
     """删除文档及其检索相关数据。"""
 
     result = DocumentService(db).delete_document(document_id, current_user)
     return success(DocumentDeleteOut.model_validate(result).model_dump(mode="json"))
+
+
+@router.post("/{document_id}/publish", summary="发布文档")
+def publish_document(
+    document_id: int,
+    current_user: User = Depends(require_any_permission("review:approve", "project_document:publish")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """轻量发布文档，发布后文档状态为“已发布”。"""
+
+    document = DocumentService(db).publish_document(document_id, current_user)
+    return success(DocumentOut.model_validate(document).model_dump(mode="json"))
+
+
+@router.post("/{document_id}/ai-toggle", summary="修改文档 AI 问答开关")
+def toggle_document_ai(
+    document_id: int,
+    payload: DocumentAiToggleRequest,
+    current_user: User = Depends(require_any_permission("knowledge:edit", "project_document:ai_toggle")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """开启或关闭文档是否参与项目问答。"""
+
+    document = DocumentService(db).toggle_document_ai(document_id, payload.ai_enabled, current_user)
+    return success(DocumentOut.model_validate(document).model_dump(mode="json"))
 
 
 @router.get("/{document_id}/download-url", summary="下载地址")
@@ -229,7 +269,7 @@ def correct_page(
     document_id: int,
     page_no: int,
     payload: PageCorrectionRequest,
-    current_user: User = Depends(require_permission("review:build-index")),
+    current_user: User = Depends(require_any_permission("review:build-index", "project_document:update")),
     db: Session = Depends(get_db),
 ) -> dict:
     """人工修正文档页级文本、图纸号和页标题。"""
@@ -249,7 +289,7 @@ def correct_page(
 def quality_check(
     document_id: int,
     payload: QualityCheckRequest | None = None,
-    current_user: User = Depends(require_permission("review:build-index")),
+    current_user: User = Depends(require_any_permission("review:build-index", "project_document:retry_index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """确认页级解析质量，通过后才允许进入索引构建。"""
@@ -283,7 +323,7 @@ def submit_review(
 def parse_document(
     document_id: int,
     version_no: int | None = None,
-    current_user: User = Depends(require_permission("review:build-index")),
+    current_user: User = Depends(require_any_permission("review:build-index", "project_document:retry_parse")),
     db: Session = Depends(get_db),
 ) -> dict:
     """解析文档并生成 Chunk。"""
@@ -294,7 +334,7 @@ def parse_document(
 
 
 @router.post("/{document_id}/index", summary="构建索引")
-def index_document(document_id: int, current_user: User = Depends(require_permission("review:build-index")), db: Session = Depends(get_db)) -> dict:
+def index_document(document_id: int, current_user: User = Depends(require_any_permission("review:build-index", "project_document:retry_index")), db: Session = Depends(get_db)) -> dict:
     """构建文档索引。"""
 
     return success(DocumentService(db).index_document(document_id, current_user))
@@ -304,7 +344,7 @@ def index_document(document_id: int, current_user: User = Depends(require_permis
 def build_document_index(
     document_id: int,
     version_no: int | None = None,
-    current_user: User = Depends(require_permission("review:build-index")),
+    current_user: User = Depends(require_any_permission("review:build-index", "project_document:retry_index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """同步执行文档解析和索引构建。"""
@@ -334,7 +374,7 @@ def document_indexes(document_id: int, current_user: User = Depends(get_current_
 def create_index_build_task(
     document_id: int,
     version_no: int | None = None,
-    current_user: User = Depends(require_permission("review:build-index")),
+    current_user: User = Depends(require_any_permission("review:build-index", "project_document:retry_index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """创建 RQ 异步索引构建任务。"""
@@ -346,7 +386,7 @@ def create_index_build_task(
 @router.post("/{document_id}/indexes/publish", summary="创建索引发布任务")
 def create_index_publish_task(
     document_id: int,
-    current_user: User = Depends(require_permission("review:build-index")),
+    current_user: User = Depends(require_any_permission("review:build-index", "project_document:retry_index")),
     db: Session = Depends(get_db),
 ) -> dict:
     """发布当前文档版本的 staging 索引。"""
@@ -369,7 +409,7 @@ async def create_version(
     file: UploadFile = File(...),
     change_summary: str | None = Form(default=None),
     category_id: int | None = Form(default=None),
-    current_user: User = Depends(require_permission("knowledge:upload")),
+    current_user: User = Depends(require_any_permission("knowledge:upload", "project_document:version:create")),
     db: Session = Depends(get_db),
 ) -> dict:
     """上传文档新版本。"""
@@ -384,6 +424,19 @@ def list_versions(document_id: int, current_user: User = Depends(get_current_use
 
     versions = DocumentService(db).list_versions(document_id, current_user)
     return success([DocumentVersionOut.model_validate(item).model_dump(mode="json") for item in versions])
+
+
+@router.post("/{document_id}/versions/{version_id}/set-current", summary="设为当前版本")
+def set_current_version(
+    document_id: int,
+    version_id: int,
+    current_user: User = Depends(require_any_permission("knowledge:upload", "project_document:version:create")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """将指定版本标记为当前版本。"""
+
+    document = DocumentService(db).set_current_version(document_id, version_id, current_user)
+    return success(DocumentOut.model_validate(document).model_dump(mode="json"))
 
 
 @router.get("/{document_id}/versions/{version_no}/download", summary="下载指定版本文件")

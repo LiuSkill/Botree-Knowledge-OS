@@ -231,7 +231,7 @@ const backPath = computed(() => {
    * 根据知识范围返回对应的上级页面，保证删除或返回时回到正确上下文。
    */
   if (documentInfo.value?.knowledge_type === 'project' && documentInfo.value.project_id) {
-    return `/projects/${documentInfo.value.project_id}`;
+    return `/projects/${documentInfo.value.project_id}/documents`;
   }
   return '/knowledge';
 });

@@ -14,8 +14,10 @@ from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+from app.core.project_directory_template import DEFAULT_PROJECT_DIRECTORY_TEMPLATE
 from app.core.rbac import permission_catalog
 from app.core.security import hash_password
+from app.core.security_levels import DEFAULT_SECURITY_LEVEL
 from app.models import Base
 from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_category import KnowledgeCategory
@@ -135,6 +137,7 @@ def migrate_database() -> None:
         if "roles" in table_names:
             role_columns = {column["name"] for column in inspector.get_columns("roles")}
             _add_security_level_column(connection, role_columns, "roles", "角色最高密级")
+            _add_role_data_scope_column(connection, role_columns)
             connection.execute(
                 text(
                     """
@@ -151,14 +154,66 @@ def migrate_database() -> None:
                     """
                 )
             )
+            connection.execute(
+                text(
+                    """
+                    UPDATE roles
+                    SET data_scope = CASE
+                        WHEN code = 'admin' THEN 'all'
+                        WHEN code = 'engineer' THEN 'all'
+                        WHEN code = 'viewer' THEN 'public_only'
+                        ELSE COALESCE(NULLIF(data_scope, ''), 'own')
+                    END
+                    WHERE data_scope IS NULL
+                       OR data_scope = ''
+                       OR code IN ('admin', 'engineer', 'viewer')
+                    """
+                )
+            )
 
         if "projects" in table_names:
             project_columns = {column["name"] for column in inspector.get_columns("projects")}
             _add_security_level_column(connection, project_columns, "projects", "项目密级")
+            _add_project_basic_columns(connection, project_columns)
             connection.execute(
                 text("UPDATE projects SET security_level = COALESCE(NULLIF(security_level, ''), 'internal') WHERE security_level IS NULL OR security_level = ''")
             )
+            connection.execute(
+                text(
+                    """
+                    UPDATE projects
+                    SET
+                        customer_name = COALESCE(NULLIF(customer_name, ''), client),
+                        owner_name = COALESCE(NULLIF(owner_name, ''), manager),
+                        project_status = CASE
+                            WHEN project_status IS NOT NULL AND project_status != '' THEN project_status
+                            WHEN status = 'pending' THEN '待启动'
+                            WHEN status = 'completed' THEN '已完成'
+                            WHEN status = 'archived' THEN '已暂停'
+                            ELSE '进行中'
+                        END,
+                        is_deleted = COALESCE(is_deleted, 0)
+                    """
+                )
+            )
             _create_index_if_missing(connection, inspector, "projects", "idx_projects_security_level", "security_level")
+            _create_index_if_missing(connection, inspector, "projects", "idx_projects_is_deleted", "is_deleted")
+
+        if "knowledge_categories" in table_names:
+            category_columns = {column["name"] for column in inspector.get_columns("knowledge_categories")}
+            _add_project_directory_columns(connection, category_columns)
+            connection.execute(
+                text(
+                    """
+                    UPDATE knowledge_categories
+                    SET
+                        default_security_level = COALESCE(NULLIF(default_security_level, ''), 'internal'),
+                        default_ai_enabled = COALESCE(default_ai_enabled, 0),
+                        is_deleted = COALESCE(is_deleted, 0)
+                    """
+                )
+            )
+            _create_index_if_missing(connection, inspector, "knowledge_categories", "idx_knowledge_categories_deleted", "is_deleted")
 
         if "users" in table_names:
             user_columns = {column["name"] for column in inspector.get_columns("users")}
@@ -276,11 +331,17 @@ def migrate_database() -> None:
             connection.execute(
                 text("UPDATE documents SET security_level = COALESCE(NULLIF(security_level, ''), 'internal') WHERE security_level IS NULL OR security_level = ''")
             )
+            _add_document_metadata_columns(connection, document_columns)
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_category_id", "category_id")
+            _create_index_if_missing(connection, inspector, "documents", "idx_documents_directory_id", "directory_id")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_build_status", "index_status")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_document_status", "document_status")
+            _create_index_if_missing(connection, inspector, "documents", "idx_documents_status", "status")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_parse_status", "parse_status")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_security_level", "security_level")
+            _create_index_if_missing(connection, inspector, "documents", "idx_documents_ai_enabled", "ai_enabled")
+            _create_index_if_missing(connection, inspector, "documents", "idx_documents_is_current_version", "is_current_version")
+            _create_index_if_missing(connection, inspector, "documents", "idx_documents_is_deleted", "is_deleted")
 
         if "document_versions" in table_names:
             version_columns = {column["name"] for column in inspector.get_columns("document_versions")}
@@ -333,10 +394,14 @@ def migrate_database() -> None:
                     """
                 )
             )
+            _add_document_version_metadata_columns(connection, version_columns)
             _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_category_id", "category_id")
+            _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_project_id", "project_id")
             _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_version_status", "version_status")
+            _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_status", "status")
             _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_parse_status", "parse_status")
             _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_security_level", "security_level")
+            _create_index_if_missing(connection, inspector, "document_versions", "idx_document_versions_current", "is_current_version")
 
         if "review_tasks" in table_names:
             review_task_columns = {column["name"] for column in inspector.get_columns("review_tasks")}
@@ -578,6 +643,19 @@ def migrate_database() -> None:
             _create_index_if_missing(connection, inspector, "graph_relations", "idx_graph_relations_page_number", "page_number")
             _create_index_if_missing(connection, inspector, "graph_relations", "idx_graph_relations_status", "status")
 
+        if "operation_logs" in table_names:
+            operation_log_columns = {column["name"] for column in inspector.get_columns("operation_logs")}
+            _add_column_if_missing(connection, operation_log_columns, "operation_logs", "project_id", "INTEGER COMMENT '项目ID'", "INTEGER")
+            _add_column_if_missing(
+                connection,
+                operation_log_columns,
+                "operation_logs",
+                "user_agent",
+                "VARCHAR(500) COMMENT 'User-Agent'",
+                "VARCHAR(500)",
+            )
+            _create_index_if_missing(connection, inspector, "operation_logs", "idx_operation_logs_project_id", "project_id")
+
 
 def _add_column_if_missing(
     connection,
@@ -617,6 +695,175 @@ def _add_security_level_column(connection, existing_columns: set[str], table_nam
         "security_level",
         f"VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '{comment}: public/internal/confidential'",
         "VARCHAR(30) NOT NULL DEFAULT 'internal'",
+    )
+
+
+def _add_role_data_scope_column(connection, existing_columns: set[str]) -> None:
+    """为角色补齐项目数据范围字段。"""
+
+    _add_column_if_missing(
+        connection,
+        existing_columns,
+        "roles",
+        "data_scope",
+        "VARCHAR(30) NOT NULL DEFAULT 'own' COMMENT '角色项目数据范围: all/department/own/public_only'",
+        "VARCHAR(30) NOT NULL DEFAULT 'own'",
+    )
+
+
+def _add_project_basic_columns(connection, existing_columns: set[str]) -> None:
+    """为项目基本信息补齐兼容扩展字段。"""
+
+    column_definitions = [
+        ("project_short_name", "VARCHAR(100) COMMENT '项目简称'", "VARCHAR(100)"),
+        ("project_english_name", "VARCHAR(255) COMMENT '项目英文名称'", "VARCHAR(255)"),
+        ("customer_name", "VARCHAR(255) COMMENT '客户名称'", "VARCHAR(255)"),
+        ("project_type", "VARCHAR(100) COMMENT '项目类型'", "VARCHAR(100)"),
+        ("project_status", "VARCHAR(30) NOT NULL DEFAULT '进行中' COMMENT '项目状态: 待启动/进行中/已完成/已暂停'", "VARCHAR(30) NOT NULL DEFAULT '进行中'"),
+        ("project_stage", "VARCHAR(100) COMMENT '项目阶段'", "VARCHAR(100)"),
+        ("raw_material_type", "VARCHAR(255) COMMENT '原料类型'", "VARCHAR(255)"),
+        ("capacity", "VARCHAR(255) COMMENT '处理能力'", "VARCHAR(255)"),
+        ("process_route", "TEXT COMMENT '工艺路线'", "TEXT"),
+        ("main_products", "TEXT COMMENT '主要产品'", "TEXT"),
+        ("scope_description", "TEXT COMMENT '项目范围'", "TEXT"),
+        ("deliverables", "TEXT COMMENT '交付成果'", "TEXT"),
+        ("owner_id", "INTEGER COMMENT '项目负责人ID'", "INTEGER"),
+        ("owner_name", "VARCHAR(100) COMMENT '项目负责人姓名'", "VARCHAR(100)"),
+        ("department_id", "INTEGER COMMENT '所属部门ID'", "INTEGER"),
+        ("is_deleted", "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否删除'", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("deleted_at", "DATETIME COMMENT '删除时间'", "DATETIME"),
+    ]
+    for column_name, mysql_definition, sqlite_definition in column_definitions:
+        _add_column_if_missing(connection, existing_columns, "projects", column_name, mysql_definition, sqlite_definition)
+
+
+def _add_project_directory_columns(connection, existing_columns: set[str]) -> None:
+    """为项目资料目录补齐默认密级、AI 开关和软删除字段。"""
+
+    column_definitions = [
+        (
+            "default_ai_enabled",
+            "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '目录默认AI问答开关'",
+            "BOOLEAN NOT NULL DEFAULT 0",
+        ),
+        (
+            "default_security_level",
+            "VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '目录默认密级'",
+            "VARCHAR(30) NOT NULL DEFAULT 'internal'",
+        ),
+        ("is_deleted", "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否删除'", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("deleted_at", "DATETIME COMMENT '删除时间'", "DATETIME"),
+    ]
+    for column_name, mysql_definition, sqlite_definition in column_definitions:
+        _add_column_if_missing(
+            connection,
+            existing_columns,
+            "knowledge_categories",
+            column_name,
+            mysql_definition,
+            sqlite_definition,
+        )
+
+
+def _add_document_metadata_columns(connection, existing_columns: set[str]) -> None:
+    """为项目资料补齐轻量元数据字段，并从旧字段回填兼容值。"""
+
+    column_definitions = [
+        ("directory_id", "INTEGER COMMENT '所属项目资料目录ID'", "INTEGER"),
+        ("document_name", "VARCHAR(255) COMMENT '文件名称'", "VARCHAR(255)"),
+        ("document_type", "VARCHAR(50) COMMENT '文档类型'", "VARCHAR(50)"),
+        ("discipline", "VARCHAR(50) COMMENT '所属专业'", "VARCHAR(50)"),
+        ("version", "VARCHAR(50) COMMENT '版本号'", "VARCHAR(50)"),
+        ("status", "VARCHAR(30) NOT NULL DEFAULT '待审核' COMMENT '文件状态: 待审核/已发布'", "VARCHAR(30) NOT NULL DEFAULT '待审核'"),
+        ("ai_enabled", "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否参与AI问答'", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("upload_user_id", "INTEGER COMMENT '上传人ID'", "INTEGER"),
+        ("file_path", "VARCHAR(500) COMMENT '文件路径'", "VARCHAR(500)"),
+        ("preview_url", "VARCHAR(500) COMMENT '预览地址'", "VARCHAR(500)"),
+        ("is_current_version", "BOOLEAN NOT NULL DEFAULT TRUE COMMENT '是否当前版本'", "BOOLEAN NOT NULL DEFAULT 1"),
+        ("is_deleted", "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否删除'", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("deleted_at", "DATETIME COMMENT '删除时间'", "DATETIME"),
+        ("remark", "TEXT COMMENT '备注'", "TEXT"),
+    ]
+    for column_name, mysql_definition, sqlite_definition in column_definitions:
+        _add_column_if_missing(
+            connection,
+            existing_columns,
+            "documents",
+            column_name,
+            mysql_definition,
+            sqlite_definition,
+        )
+
+    version_expr = "CONCAT('v', COALESCE(version_no, 1))" if database_url.startswith("mysql") else "'v' || COALESCE(version_no, 1)"
+    connection.execute(
+        text(
+            f"""
+            UPDATE documents
+            SET
+                document_name = COALESCE(NULLIF(document_name, ''), file_name),
+                directory_id = COALESCE(directory_id, category_id),
+                file_path = COALESCE(NULLIF(file_path, ''), storage_path),
+                version = COALESCE(NULLIF(version, ''), {version_expr}),
+                status = CASE
+                    WHEN review_status = 'approved' OR document_status IN ('active', 'reviewed') THEN '已发布'
+                    WHEN status IN ('待审核', '已发布') THEN status
+                    ELSE '待审核'
+                END,
+                ai_enabled = COALESCE(ai_enabled, FALSE),
+                upload_user_id = COALESCE(upload_user_id, created_by),
+                is_current_version = COALESCE(is_current_version, current_version, TRUE),
+                is_deleted = COALESCE(is_deleted, FALSE)
+            """
+        )
+    )
+
+
+def _add_document_version_metadata_columns(connection, existing_columns: set[str]) -> None:
+    """为文档版本补齐项目资料版本字段，并从旧版本字段回填。"""
+
+    column_definitions = [
+        ("project_id", "INTEGER COMMENT '所属项目ID'", "INTEGER"),
+        ("version", "VARCHAR(50) COMMENT '版本号'", "VARCHAR(50)"),
+        ("file_path", "VARCHAR(500) COMMENT '文件路径'", "VARCHAR(500)"),
+        ("status", "VARCHAR(30) NOT NULL DEFAULT '待审核' COMMENT '文件状态: 待审核/已发布'", "VARCHAR(30) NOT NULL DEFAULT '待审核'"),
+        ("is_current_version", "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否当前版本'", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("ai_enabled", "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否参与AI问答'", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("upload_user_id", "INTEGER COMMENT '上传人ID'", "INTEGER"),
+        ("version_note", "TEXT COMMENT '版本备注'", "TEXT"),
+    ]
+    for column_name, mysql_definition, sqlite_definition in column_definitions:
+        _add_column_if_missing(
+            connection,
+            existing_columns,
+            "document_versions",
+            column_name,
+            mysql_definition,
+            sqlite_definition,
+        )
+
+    version_expr = "CONCAT('v', COALESCE(version_no, 1))" if database_url.startswith("mysql") else "'v' || COALESCE(version_no, 1)"
+    connection.execute(
+        text(
+            f"""
+            UPDATE document_versions
+            SET
+                project_id = COALESCE(
+                    project_id,
+                    (SELECT documents.project_id FROM documents WHERE documents.id = document_versions.document_id)
+                ),
+                version = COALESCE(NULLIF(version, ''), {version_expr}),
+                file_path = COALESCE(NULLIF(file_path, ''), storage_path),
+                status = CASE
+                    WHEN review_status = 'approved' OR version_status IN ('approved', 'current') THEN '已发布'
+                    WHEN status IN ('待审核', '已发布') THEN status
+                    ELSE '待审核'
+                END,
+                is_current_version = CASE WHEN is_current = TRUE THEN TRUE ELSE FALSE END,
+                ai_enabled = COALESCE(ai_enabled, FALSE),
+                upload_user_id = COALESCE(upload_user_id, created_by),
+                version_note = COALESCE(version_note, change_summary)
+            """
+        )
     )
 
 
@@ -706,18 +953,27 @@ def seed_roles(db: Session) -> Role:
         db.flush()
     else:
         admin_role.security_level = "confidential"
+    admin_role.data_scope = "all"
 
     engineer_role = db.scalar(select(Role).where(Role.code == "engineer"))
     if not engineer_role:
         db.add(Role(name="知识工程师", code="engineer", description="管理知识库和项目资料", enabled=True, security_level="internal"))
     else:
         engineer_role.security_level = "internal"
+    db.flush()
+    engineer_role = db.scalar(select(Role).where(Role.code == "engineer"))
+    if engineer_role:
+        engineer_role.data_scope = "all"
 
     viewer_role = db.scalar(select(Role).where(Role.code == "viewer"))
     if not viewer_role:
         db.add(Role(name="只读用户", code="viewer", description="查看已授权知识和项目", enabled=True, security_level="public"))
     else:
         viewer_role.security_level = "public"
+    db.flush()
+    viewer_role = db.scalar(select(Role).where(Role.code == "viewer"))
+    if viewer_role:
+        viewer_role.data_scope = "public_only"
 
     # 管理员角色默认绑定全部权限，便于系统管理页展示完整矩阵。
     permissions = db.scalars(select(Permission)).all()
@@ -811,17 +1067,42 @@ def seed_project_categories(db: Session) -> None:
         exists = db.scalar(select(KnowledgeCategory).where(KnowledgeCategory.scope_type == "project", KnowledgeCategory.project_id == project.id))
         if exists:
             continue
-        _seed_category_tree(
-            db,
-            "project",
-            project.id,
-            {
-                "设计资料": ["设计输入", "设计计算", "设计评审"],
-                "实施资料": ["会议纪要", "现场记录", "变更资料"],
-                "交付资料": ["验收资料", "运维手册", "归档文件"],
-            },
-            created_by=project.created_by,
+        _seed_project_directory_template(db, project.id, created_by=project.created_by)
+
+
+def _seed_project_directory_template(db: Session, project_id: int, created_by: int | None = None) -> None:
+    """按统一项目资料目录模板为项目写入默认目录。"""
+
+    for group_index, (group_code, group_name, child_items) in enumerate(DEFAULT_PROJECT_DIRECTORY_TEMPLATE, start=1):
+        parent = KnowledgeCategory(
+            scope_type="project",
+            project_id=project_id,
+            parent_id=None,
+            name=group_name,
+            code=group_code,
+            sort_order=group_index * 100,
+            enabled=True,
+            default_security_level=DEFAULT_SECURITY_LEVEL,
+            is_deleted=False,
+            created_by=created_by,
         )
+        db.add(parent)
+        db.flush()
+        for child_index, (child_code, child_name) in enumerate(child_items, start=1):
+            db.add(
+                KnowledgeCategory(
+                    scope_type="project",
+                    project_id=project_id,
+                    parent_id=parent.id,
+                    name=child_name,
+                    code=child_code,
+                    sort_order=group_index * 100 + child_index,
+                    enabled=True,
+                    default_security_level=DEFAULT_SECURITY_LEVEL,
+                    is_deleted=False,
+                    created_by=created_by,
+                )
+            )
 
 
 def _seed_category_tree(

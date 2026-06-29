@@ -10,7 +10,7 @@ Knowledge Bases API
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_permission
+from app.api.deps import get_current_user, require_any_permission, require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
@@ -83,7 +83,7 @@ async def upload_document(
     file: UploadFile = File(...),
     category_id: int = Form(...),
     security_level: str | None = Form(default=None),
-    current_user: User = Depends(require_permission("knowledge:upload")),
+    current_user: User = Depends(require_any_permission("knowledge:upload", "project_document:upload")),
     db: Session = Depends(get_db),
 ) -> dict:
     """上传资料到知识库。"""

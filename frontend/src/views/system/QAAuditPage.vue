@@ -598,8 +598,9 @@ onMounted(async () => {
   flex-wrap: nowrap;
   align-items: center;
   margin-bottom: 18px;
+  border: 1px solid #e5e7eb;
   border-radius: 6px;
-  background: #f7f9fc;
+  background: #fff;
   padding: 14px 16px;
   overflow-x: auto;
   overflow-y: hidden;

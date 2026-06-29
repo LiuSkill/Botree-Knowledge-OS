@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.data_scope import DEFAULT_DATA_SCOPE
 from app.core.security_levels import DEFAULT_SECURITY_LEVEL
 from app.models.base import Base, TimestampMixin
 
@@ -70,6 +71,13 @@ class Role(TimestampMixin, Base):
         default=DEFAULT_SECURITY_LEVEL,
         nullable=False,
         comment="角色可访问的最高密级：public/internal/confidential",
+    )
+
+    data_scope: Mapped[str] = mapped_column(
+        String(30),
+        default=DEFAULT_DATA_SCOPE,
+        nullable=False,
+        comment="角色项目数据范围：all/department/own/public_only",
     )
 
     users: Mapped[list[User]] = relationship("User", secondary=user_roles, back_populates="roles")

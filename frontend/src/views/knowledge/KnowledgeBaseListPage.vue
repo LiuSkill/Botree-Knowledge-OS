@@ -771,6 +771,10 @@ onMounted(loadEnterpriseKnowledge);
   display: flex;
   align-items: center;
   gap: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  padding: 8px;
 }
 
 .file-type-tab {
@@ -792,6 +796,10 @@ onMounted(loadEnterpriseKnowledge);
   display: flex;
   align-items: center;
   gap: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  padding: 8px;
 }
 
 .search-box {
@@ -814,7 +822,7 @@ onMounted(loadEnterpriseKnowledge);
   height: 100%;
   border: 1px solid #d8dee8;
   border-radius: 9px;
-  background: #f8fafc;
+  background: #fff;
   color: #1f2937;
   font-size: 13px;
   outline: none;

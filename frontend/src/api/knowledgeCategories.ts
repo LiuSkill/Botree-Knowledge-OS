@@ -8,7 +8,7 @@
  */
 
 import { request } from '@/api/request';
-import type { KnowledgeCategory } from '@/types/api';
+import type { KnowledgeCategory, SecurityLevel } from '@/types/api';
 
 export interface KnowledgeCategoryPayload {
   scope_type: 'base' | 'project';
@@ -19,6 +19,7 @@ export interface KnowledgeCategoryPayload {
   description?: string | null;
   sort_order?: number;
   enabled?: boolean;
+  default_security_level?: SecurityLevel;
 }
 
 export interface KnowledgeCategoryUpdatePayload {
@@ -28,6 +29,7 @@ export interface KnowledgeCategoryUpdatePayload {
   description?: string | null;
   sort_order?: number;
   enabled?: boolean;
+  default_security_level?: SecurityLevel;
 }
 
 export function listKnowledgeCategories(params: { scope_type: 'base' | 'project'; project_id?: number | null }): Promise<KnowledgeCategory[]> {

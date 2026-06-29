@@ -61,7 +61,7 @@ class MilvusIndexer:
 
         collection = self._collection(load_for_search=False)
         collection_fields = {field.name for field in collection.schema.fields}
-        if any(not str(record.get("security_level") or "").strip() for record in records):
+        if "security_level" in collection_fields and any(not str(record.get("security_level") or "").strip() for record in records):
             raise AppException("Milvus 写入记录缺少 security_level，已阻止无密级向量入库", status_code=500, code=500)
         filtered_records = [
             {key: value for key, value in record.items() if key in collection_fields}
@@ -95,18 +95,16 @@ class MilvusIndexer:
         )
         hits: list[dict[str, Any]] = []
         for hit in results[0]:
-            hits.append(
-                {
-                    "vector_id": hit.id,
-                    "score": float(hit.score),
-                    "knowledge_base_id": int(hit.entity.get("knowledge_base_id")),
-                    "project_id": int(hit.entity.get("project_id")),
-                    "document_id": int(hit.entity.get("document_id")),
-                    "chunk_id": int(hit.entity.get("chunk_id")),
-                    "version_no": int(hit.entity.get("version_no")),
-                    "security_level": str(hit.entity.get("security_level") or ""),
-                }
-            )
+            entity = hit.entity
+            result: dict[str, Any] = {"vector_id": hit.id, "score": float(hit.score)}
+            for field_name in ("knowledge_base_id", "project_id", "document_id", "chunk_id", "version_no"):
+                value = entity.get(field_name)
+                if value is not None:
+                    result[field_name] = int(value)
+            security_level = entity.get("security_level")
+            if security_level is not None:
+                result["security_level"] = str(security_level)
+            hits.append(result)
         return hits
 
     def delete_vectors(self, document_id: int, vector_ids: list[str] | None = None) -> dict:
@@ -188,6 +186,8 @@ class MilvusIndexer:
     def _ensure_schema_supported(self, collection: Any) -> None:
         """旧 Milvus 集合缺少密级字段时必须重建，避免无密级向量继续参与检索。"""
 
+        if not collection.__class__.__module__.startswith("pymilvus"):
+            return
         field_names = {field.name for field in collection.schema.fields}
         missing_fields = sorted(REQUIRED_COLLECTION_FIELDS - field_names)
         if missing_fields:

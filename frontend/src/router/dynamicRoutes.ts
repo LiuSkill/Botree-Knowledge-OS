@@ -39,6 +39,7 @@ const extraRoutesByMenuId: Record<string, Array<{ path: string; name: string; co
   ],
   project: [
     { path: '/projects/:id', name: 'project-detail', component: () => import('@/views/project/ProjectDetailPage.vue') },
+    { path: '/projects/:id/documents', name: 'project-document-manage', component: () => import('@/views/project/ProjectDocumentManagePage.vue') },
   ],
   review: [
     { path: '/reviews/:id', name: 'review-detail', component: () => import('@/views/review/ReviewDetailPage.vue') },

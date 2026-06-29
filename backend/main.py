@@ -10,10 +10,11 @@ Botree Knowledge OS FastAPI Application
 import logging
 import sys
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, chat, documents, knowledge_bases, knowledge_categories, model_configs, projects, retrieval, reviews, roles, system, users
+from app.core.audit_context import RequestAuditContext, reset_request_audit_context, set_request_audit_context
 from app.core.config import get_settings
 from app.core.database import SessionLocal, init_database
 from app.core.exceptions import AppException, register_exception_handlers
@@ -54,6 +55,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _request_ip(request: Request) -> str | None:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return request.client.host if request.client else None
+
+
+@app.middleware("http")
+async def audit_context_middleware(request: Request, call_next):
+    token = set_request_audit_context(
+        RequestAuditContext(
+            ip_address=_request_ip(request),
+            user_agent=request.headers.get("user-agent"),
+            method=request.method,
+            path=request.url.path,
+        )
+    )
+    try:
+        return await call_next(request)
+    finally:
+        reset_request_audit_context(token)
 
 register_exception_handlers(app)
 

@@ -24,6 +24,8 @@ from app.core.exceptions import AppException
 from app.langgraph import RetrievalGraph
 from app.langgraph.retrieval_graph import GENERAL_ANSWER_PREFIX
 from app.models.chat import ChatCitation, ChatMessage, ChatSession
+from app.models.document import Document
+from app.models.knowledge_category import KnowledgeCategory
 from app.models.user import User
 from app.repositories.chat_repository import ChatRepository
 from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate, ChatSessionUpdate
@@ -179,9 +181,11 @@ class ChatService:
         if chat_type == "project_chat" and project_id is None:
             return []
         if project_id is not None:
+            from app.services.project_access_service import ProjectAccessService
             from app.services.project_service import ProjectService
 
-            ProjectService(self.db).ensure_project_access(project_id, user)
+            if not ProjectAccessService(self.db).is_admin(user):
+                ProjectService(self.db).ensure_project_access(project_id, user)
         return self.repository.list_sessions(user.id, chat_type, project_id)
 
     def create_session(self, payload: ChatSessionCreate, user: User) -> ChatSession:
@@ -873,6 +877,26 @@ class ChatService:
             evidences=agent_result["evidences"],
             trace_steps=agent_result["agent_trace"],
         )
+        audit_action = "项目问答" if agent_result["chat_type"] == "project_chat" else "基础问答"
+        SystemService(self.db).record_operation(
+            user,
+            audit_action,
+            "chat_message",
+            assistant_message.id,
+            json.dumps(
+                {
+                    "session_id": session.id,
+                    "chat_type": agent_result["chat_type"],
+                    "mode": agent_result["mode"],
+                    "citation_count": len(citations),
+                    "evidence_count": len(agent_result["evidences"]),
+                    "answer_policy": agent_result.get("answer_policy"),
+                    "evidence_status": agent_result.get("evidence_status"),
+                },
+                ensure_ascii=False,
+            ),
+            project_id=payload.project_id,
+        )
         SystemService(self.db).record_operation(
             user,
             "LLM调用",
@@ -954,6 +978,7 @@ class ChatService:
             "chunk_id": citation.chunk_id,
             "drawing_no": citation.drawing_no,
             "file_name": citation.file_name,
+            **self._citation_directory_metadata(citation),
             "page_number": citation.page_number,
             "content": citation.content,
             "assets": self._load_assets_json(citation.assets_json),
@@ -973,12 +998,30 @@ class ChatService:
                     "chunk_id": evidence.chunk_id,
                     "drawing_no": evidence.drawing_no,
                     "file_name": evidence.file_name,
+                    "directory_id": (evidence.metadata or {}).get("directory_id"),
+                    "directory": self._evidence_directory_name(evidence),
+                    "directory_name": self._evidence_directory_name(evidence),
                     "page_number": evidence.page_number,
                     "content": evidence.content,
                     "assets": self._evidence_assets_to_dicts(evidence),
                 }
             )
         return citations
+
+    def _evidence_directory_name(self, evidence: Any) -> str | None:
+        metadata = getattr(evidence, "metadata", None) or {}
+        return metadata.get("directory_name") or metadata.get("directory_code")
+
+    def _citation_directory_metadata(self, citation: ChatCitation) -> dict[str, Any]:
+        document = self.db.get(Document, citation.document_id)
+        directory_id = None
+        if document is not None:
+            directory_id = getattr(document, "directory_id", None) or getattr(document, "category_id", None)
+        if directory_id is None:
+            return {"directory_id": None, "directory": None, "directory_name": None}
+        category = self.db.get(KnowledgeCategory, directory_id)
+        directory_name = category.name if category is not None else None
+        return {"directory_id": directory_id, "directory": directory_name, "directory_name": directory_name}
 
     def _build_chat_citations(self, message_id: int, evidences: list[Any]) -> list[ChatCitation]:
         """将检索证据转换为可持久化的 ChatCitation。"""
@@ -1065,9 +1108,9 @@ class ChatService:
         if chat_type == "project_chat":
             if project_id is None:
                 raise AppException("项目问答必须选择项目", status_code=400, code=400)
-            from app.services.project_service import ProjectService
+            from app.services.project_access_service import ProjectAccessService
 
-            ProjectService(self.db).ensure_project_access(project_id, user)
+            ProjectAccessService(self.db).ensure_project_access(project_id, user, permission_codes=("project_chat:ask",))
             return
         if self._is_external_user(user):
             raise AppException("外部用户默认不能访问基础问答", status_code=403, code=403)

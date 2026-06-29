@@ -32,6 +32,18 @@ class KnowledgeBaseService:
             result.append(self._kb_to_dict(kb, len(documents), sum(len(doc_repo.list_chunks(doc.id)) for doc in documents)))
         return result
 
+    def get_project_base(
+        self,
+        project_id: int,
+        user: User,
+        permission_codes: tuple[str, ...] = ("project:view", "project"),
+    ) -> KnowledgeBase:
+        ProjectService(self.db).ensure_project_access(project_id, user, permission_codes)
+        knowledge_base = self.repository.get_project_base(project_id)
+        if not knowledge_base:
+            raise AppException("项目知识库不存在", status_code=404, code=404)
+        return knowledge_base
+
     def get_base(self, kb_id: int, user: User) -> dict:
         kb = self.repository.get(kb_id)
         if not kb:

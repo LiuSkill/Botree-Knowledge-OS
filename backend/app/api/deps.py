@@ -8,18 +8,20 @@ API Dependencies
 """
 
 from collections.abc import Callable
+import json
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
-from app.core.rbac import action_page_bindings
+from app.core.rbac import sync_menu_action_permission_codes
 from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
+from app.services.system_service import SystemService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -103,10 +105,7 @@ def has_permission(user: User, permission_code: str) -> bool:
 
     if is_admin(user):
         return True
-    permission_codes = user_permission_codes(user)
-    bound_menu_codes = action_page_bindings().get(permission_code)
-    if bound_menu_codes is not None:
-        return bool(bound_menu_codes & permission_codes)
+    permission_codes = sync_menu_action_permission_codes(user_permission_codes(user))
     return permission_code in permission_codes
 
 
@@ -121,10 +120,15 @@ def require_permission(permission_code: str) -> Callable[[User], User]:
         FastAPI 依赖函数。
     """
 
-    def dependency(current_user: User = Depends(get_current_user)) -> User:
+    def dependency(
+        request: Request,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
         """校验当前用户是否拥有指定权限。"""
 
         if not has_permission(current_user, permission_code):
+            _record_permission_denied(db, current_user, request, (permission_code,))
             raise AppException("无权执行该操作", status_code=403, code=403)
         return current_user
 
@@ -140,14 +144,43 @@ def require_any_permission(*permission_codes: str) -> Callable[[User], User]:
         权限矩阵也需要读取角色列表，此时满足任一页面权限即可访问。
     """
 
-    def dependency(current_user: User = Depends(get_current_user)) -> User:
+    def dependency(
+        request: Request,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
         """校验当前用户是否拥有任一指定权限。"""
 
         if not any(has_permission(current_user, code) for code in permission_codes):
+            _record_permission_denied(db, current_user, request, permission_codes)
             raise AppException("无权执行该操作", status_code=403, code=403)
         return current_user
 
     return dependency
+
+
+def _record_permission_denied(db: Session, user: User, request: Request, permission_codes: tuple[str, ...]) -> None:
+    """记录 API 层 RBAC 拒绝，不包含请求体和敏感参数。"""
+
+    try:
+        SystemService(db).record_operation(
+            user,
+            "API权限拒绝",
+            "api",
+            request.url.path,
+            json.dumps(
+                {
+                    "method": request.method,
+                    "path": request.url.path,
+                    "required_permissions": list(permission_codes),
+                },
+                ensure_ascii=False,
+            ),
+            result="denied",
+            auto_commit=True,
+        )
+    except Exception:  # noqa: BLE001
+        db.rollback()
 
 
 def is_admin(user: User) -> bool:

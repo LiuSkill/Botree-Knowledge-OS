@@ -553,6 +553,10 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  padding: 14px 16px;
 }
 
 .status-stack {

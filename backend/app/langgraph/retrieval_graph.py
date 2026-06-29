@@ -1898,6 +1898,14 @@ class RetrievalGraph:
 
             merged = self.merger.merge(evidence_groups, merge_limit)
             rerank_candidates = merged[:rerank_top_k]
+            pre_rerank_guard = self.evidence_access_guard.filter_evidences(
+                evidences=rerank_candidates,
+                chat_type=str(state.get("chat_type") or ""),
+                project_id=state.get("project_id"),
+                user=state.get("user"),
+                audit_action="RAG证据权限过滤",
+            )
+            rerank_candidates = pre_rerank_guard.evidences
             raw_before_doc_ids = [self._evidence_debug_id(evidence) for evidence in rerank_candidates]
             raw_before_scores = [float(evidence.score) for evidence in rerank_candidates]
             rerank_started_at = time.perf_counter()
@@ -1962,6 +1970,7 @@ class RetrievalGraph:
             state["raw"]["eval_top_k"] = eval_top_k
             state["raw"]["retrieval_before_rerank_doc_ids"] = raw_before_doc_ids
             state["raw"]["retrieval_before_rerank_scores"] = raw_before_scores
+            state["raw"]["pre_rerank_evidence_guard"] = pre_rerank_guard.to_dict()
             state["raw"]["rerank_after_doc_ids"] = [self._evidence_debug_id(evidence) for evidence in evidences]
             state["raw"]["rerank_after_scores"] = [float(evidence.score) for evidence in evidences]
             state["raw"]["reranker_runtime"] = getattr(self.reranker, "last_runtime", {})
@@ -2314,6 +2323,7 @@ class RetrievalGraph:
             chat_type=str(state.get("chat_type") or ""),
             project_id=state.get("project_id"),
             user=state.get("user"),
+            audit_action="AnswerGenerator证据断言失败",
         )
         raw["final_evidence_guard"] = guard_result.to_dict()
         if not guard_result.rejected:

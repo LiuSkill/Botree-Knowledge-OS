@@ -1,10 +1,10 @@
 """
-RBAC Permission Registry
+RBAC Permission Registry.
 
-负责：
-1. 维护系统真实菜单路由与按钮级操作权限的统一注册表
-2. 为数据库种子、权限矩阵接口和登录态权限拆分提供同一数据源
-3. 避免前端静态配置权限点导致权限控制与实际功能脱节
+职责：
+1. 统一维护后端权限种子、前端动态菜单和按钮级权限点。
+2. 菜单权限控制路由与导航可见性，操作权限控制按钮与 API。
+3. 操作权限必须挂靠在已授权菜单下，避免孤立按钮权限绕过页面访问控制。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Iterable
 
 @dataclass(frozen=True)
 class MenuNode:
-    """菜单权限节点，叶子节点必须绑定前端真实路由 path。"""
+    """菜单权限节点，叶子节点需要绑定真实前端路由 path。"""
 
     id: str
     name: str
@@ -25,7 +25,7 @@ class MenuNode:
 
 @dataclass(frozen=True)
 class ActionPermission:
-    """按钮级操作权限定义，对应前端 v-permission 权限码。"""
+    """按钮/API 级操作权限定义，对应前端 v-permission 与后端 require_permission。"""
 
     action: str
     name: str
@@ -34,7 +34,7 @@ class ActionPermission:
 
 @dataclass(frozen=True)
 class ActionGroup:
-    """按业务模块分组的按钮级权限。"""
+    """按业务模块分组的按钮/API 权限。"""
 
     module: str
     module_name: str
@@ -48,8 +48,15 @@ MENU_TREE: tuple[MenuNode, ...] = (
     MenuNode("project", "项目中心", "/projects"),
     MenuNode("authorization", "知识授权中心", "/authorization"),
     MenuNode("review", "审核中心", "/reviews"),
-    MenuNode("ai:project-chat", "项目问答", "/ai/project-chat"),
-    MenuNode("ai:base-chat", "基础问答", "/ai/base-chat"),
+    MenuNode(
+        "ai",
+        "知识问答",
+        None,
+        (
+            MenuNode("ai:project-chat", "项目问答", "/ai/project-chat"),
+            MenuNode("ai:base-chat", "基础问答", "/ai/base-chat"),
+        ),
+    ),
     MenuNode(
         "system",
         "系统管理",
@@ -122,9 +129,64 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         ("project",),
         (
             ActionPermission("view", "查看项目列表", "project:view"),
+            ActionPermission("manage", "进入项目管理", "project:manage"),
             ActionPermission("create", "新建项目", "project:create"),
-            ActionPermission("edit", "编辑项目信息", "project:edit"),
+            ActionPermission("update", "编辑项目基本信息", "project:update"),
+            ActionPermission("edit", "编辑项目基本信息（兼容旧权限）", "project:edit"),
             ActionPermission("delete", "删除项目", "project:delete"),
+            ActionPermission("detail-view", "查看项目详情", "project:detail:view"),
+            ActionPermission("document-view", "查看项目资料页", "project:document:view"),
+            ActionPermission("chat-view", "查看项目问答页", "project:chat:view"),
+        ),
+    ),
+    ActionGroup(
+        "project_directory",
+        "项目资料目录",
+        ("project",),
+        (
+            ActionPermission("view", "查看项目目录", "project_directory:view"),
+            ActionPermission("create", "新建项目目录", "project_directory:create"),
+            ActionPermission("update", "编辑项目目录", "project_directory:update"),
+            ActionPermission("delete", "删除项目目录", "project_directory:delete"),
+            ActionPermission("init-template", "初始化默认目录模板", "project_directory:init_template"),
+        ),
+    ),
+    ActionGroup(
+        "project_document",
+        "项目资料",
+        ("project",),
+        (
+            ActionPermission("view", "查看项目资料", "project_document:view"),
+            ActionPermission("upload", "上传项目资料", "project_document:upload"),
+            ActionPermission("update", "编辑项目资料", "project_document:update"),
+            ActionPermission("delete", "删除项目资料", "project_document:delete"),
+            ActionPermission("download", "下载项目资料", "project_document:download"),
+            ActionPermission("preview", "预览项目资料", "project_document:preview"),
+            ActionPermission("publish", "发布项目资料", "project_document:publish"),
+            ActionPermission("version-create", "上传项目资料新版本", "project_document:version:create"),
+            ActionPermission("version-view", "查看项目资料版本", "project_document:version:view"),
+            ActionPermission("retry-parse", "重试项目资料解析", "project_document:retry_parse"),
+            ActionPermission("retry-index", "重试项目资料索引", "project_document:retry_index"),
+            ActionPermission("ai-toggle", "设置项目资料 AI 问答开关", "project_document:ai_toggle"),
+            ActionPermission("security-update", "修改项目资料密级", "project_document:security_update"),
+        ),
+    ),
+    ActionGroup(
+        "project_chat",
+        "项目问答",
+        ("ai:project-chat",),
+        (
+            ActionPermission("ask", "发起项目问答", "project_chat:ask"),
+            ActionPermission("view-history", "查看项目问答历史", "project_chat:view_history"),
+            ActionPermission("view-sources", "查看项目问答引用来源", "project_chat:view_sources"),
+        ),
+    ),
+    ActionGroup(
+        "project_audit",
+        "项目审计",
+        ("system:operation-log",),
+        (
+            ActionPermission("view", "查看项目审计日志", "project_audit:view"),
         ),
     ),
     ActionGroup(
@@ -158,19 +220,19 @@ def iter_menu_nodes(nodes: Iterable[MenuNode] = MENU_TREE) -> Iterable[MenuNode]
 
 
 def menu_permission_codes() -> set[str]:
-    """返回需要进入当前权限矩阵的菜单权限编码。"""
+    """返回需要进入权限矩阵的菜单权限编码。"""
 
     return {node.id for node in iter_menu_nodes() if node.path and not node.children}
 
 
 def action_permission_codes() -> set[str]:
-    """返回需要进入当前权限矩阵的按钮级权限编码。"""
+    """返回需要进入权限矩阵的按钮/API 权限编码。"""
 
     return {action.code for group in ACTION_GROUPS for action in group.actions}
 
 
 def action_page_bindings() -> dict[str, set[str]]:
-    """返回按钮权限与页面菜单权限的绑定关系。"""
+    """返回操作权限与页面菜单权限的绑定关系。"""
 
     bindings: dict[str, set[str]] = {}
     for group in ACTION_GROUPS:
@@ -180,7 +242,7 @@ def action_page_bindings() -> dict[str, set[str]]:
 
 
 def linked_action_codes(menu_codes: set[str]) -> set[str]:
-    """根据已选菜单权限返回应自动联动的按钮权限。"""
+    """根据已授权菜单返回可挂靠在这些页面下的操作权限码。"""
 
     return {
         action.code
@@ -192,29 +254,40 @@ def linked_action_codes(menu_codes: set[str]) -> set[str]:
 
 def sync_menu_action_permission_codes(permission_codes: set[str]) -> set[str]:
     """
-    按菜单权限同步按钮权限。
+    修剪角色权限，保留菜单权限和已挂靠到授权菜单下的显式操作权限。
 
     业务规则：
-        权限矩阵以菜单权限为主控项，选中菜单时自动拥有该菜单下的操作权限；
-        取消菜单时同步移除对应操作权限，避免出现孤立按钮权限。
+    - 菜单权限控制路由和导航；
+    - 按钮/API 权限需要显式授予；
+    - 未授权页面下的按钮/API 权限会被移除，避免孤立操作权限。
     """
 
     menu_codes = permission_codes & menu_permission_codes()
-    return (permission_codes - action_permission_codes()) | linked_action_codes(menu_codes)
+    explicit_action_codes = {
+        code
+        for code in permission_codes & action_permission_codes()
+        if action_page_bindings().get(code, set()) & menu_codes
+    }
+    return menu_codes | explicit_action_codes | linked_action_codes(menu_codes)
 
 
 def filter_bound_action_codes(permission_codes: set[str]) -> set[str]:
-    """返回由已授权菜单联动得到的按钮权限。"""
+    """返回当前角色显式拥有且已挂靠到授权菜单下的按钮/API 权限。"""
 
-    return linked_action_codes(permission_codes & menu_permission_codes())
+    menu_codes = permission_codes & menu_permission_codes()
+    explicit_action_codes = {
+        code
+        for code in permission_codes & action_permission_codes()
+        if action_page_bindings().get(code, set()) & menu_codes
+    }
+    return explicit_action_codes | linked_action_codes(menu_codes)
 
 
 def permission_catalog() -> list[dict[str, str]]:
     """
     生成可写入 permissions 表的权限定义。
 
-    说明：
-        菜单权限负责路由和导航可见性，按钮权限负责 v-permission 显隐。
+    说明：菜单权限负责路由和导航可见性，操作权限负责按钮/API 控制。
     """
 
     records: list[dict[str, str]] = []

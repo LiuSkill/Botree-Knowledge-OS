@@ -1,30 +1,15 @@
 <!--
   System Layout Page
 
-  负责：
-  1. 组织系统管理子页面导航
-  2. 承载用户管理、权限矩阵、模型配置、操作日志和问答审计
-  3. 保持后台管理区域的统一工作台样式
+  系统管理二级页面承载布局；具体功能由动态子路由页面提供。
 -->
 <script setup lang="ts">
-import { useRoute, useRouter } from 'vue-router';
 import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 
-import { useAuthStore } from '@/stores/auth';
-
-const router = useRouter();
 const route = useRoute();
-const authStore = useAuthStore();
 
-const visibleTabs = computed(() => {
-  /**
-   * 系统管理 Tab 来源于后端授权菜单树，不再维护前端静态 Tab。
-   */
-  const systemMenu = authStore.authorizedMenuTree.find((item) => item.id === 'system');
-  return (systemMenu?.children || [])
-    .filter((item) => item.path)
-    .map((item) => ({ value: item.path as string, label: item.name }));
-});
+const pageTitle = computed(() => (route.meta.title as string | undefined) || '系统管理');
 </script>
 
 <template>
@@ -32,13 +17,10 @@ const visibleTabs = computed(() => {
     <t-card class="system-workspace">
       <div class="system-workspace-header">
         <div>
-          <h1>系统管理</h1>
-          <p>维护用户、角色、权限矩阵、模型配置、操作日志与问答审计</p>
+          <h1>{{ pageTitle }}</h1>
+          <p>维护用户、角色权限、模型配置、操作日志与问答审计。</p>
         </div>
       </div>
-      <t-tabs class="system-top-tabs" :value="route.path" @change="(value) => router.push(String(value))">
-        <t-tab-panel v-for="tab in visibleTabs" :key="tab.value" :value="tab.value" :label="tab.label" />
-      </t-tabs>
       <div class="system-content">
         <router-view />
       </div>
@@ -105,27 +87,6 @@ const visibleTabs = computed(() => {
   color: #64748b;
   font-size: 13px;
   line-height: 1.5;
-}
-
-.system-top-tabs {
-  flex: 0 0 auto;
-  margin-top: 22px;
-}
-
-.system-top-tabs :deep(.t-tabs__nav-container) {
-  min-height: 40px;
-}
-
-.system-top-tabs :deep(.t-tabs__nav-item) {
-  min-width: 86px;
-  padding: 0 10px;
-  color: #475569;
-  font-size: 14px;
-}
-
-.system-top-tabs :deep(.t-tabs__nav-item.t-is-active) {
-  color: #0052d9;
-  font-weight: 600;
 }
 
 .system-content {

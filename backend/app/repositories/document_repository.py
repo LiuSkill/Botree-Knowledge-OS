@@ -9,7 +9,7 @@ Document Repository
 
 from __future__ import annotations
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentChunk, DocumentVersion
@@ -40,7 +40,7 @@ class DocumentRepository:
     ) -> list[Document]:
         """查询文档列表。"""
 
-        stmt = select(Document).order_by(Document.id.desc())
+        stmt = select(Document).where(Document.is_deleted.is_(False)).order_by(Document.id.desc())
         if knowledge_type:
             stmt = stmt.where(Document.knowledge_type == knowledge_type)
         if knowledge_base_id is not None:
@@ -54,8 +54,124 @@ class DocumentRepository:
         if index_status:
             stmt = stmt.where(Document.index_status == index_status)
         if keyword:
-            stmt = stmt.where(Document.file_name.like(f"%{keyword}%"))
+            stmt = stmt.where((Document.file_name.like(f"%{keyword}%")) | (Document.document_name.like(f"%{keyword}%")))
         return list(self.db.scalars(stmt).all())
+
+    def list_project_page(
+        self,
+        *,
+        project_id: int,
+        security_levels: list[str],
+        page: int,
+        page_size: int,
+        category_ids: list[int] | None = None,
+        keyword: str | None = None,
+        status: str | None = None,
+        security_level: str | None = None,
+        ai_enabled: bool | None = None,
+        parse_status: str | None = None,
+        index_status: str | None = None,
+        document_type: str | None = None,
+        discipline: str | None = None,
+        upload_user_id: int | None = None,
+    ) -> dict[str, object]:
+        """按项目资料查询条件返回分页结果和总数，避免前端加载全量数据后再统计。"""
+
+        safe_page = max(page, 1)
+        safe_size = max(min(page_size, 100), 1)
+        offset = (safe_page - 1) * safe_size
+        filters = self._project_document_filters(
+            project_id=project_id,
+            security_levels=security_levels,
+            category_ids=category_ids,
+            keyword=keyword,
+            status=status,
+            security_level=security_level,
+            ai_enabled=ai_enabled,
+            parse_status=parse_status,
+            index_status=index_status,
+            document_type=document_type,
+            discipline=discipline,
+            upload_user_id=upload_user_id,
+        )
+        total = int(self.db.scalar(select(func.count(Document.id)).where(*filters)) or 0)
+        items = list(
+            self.db.scalars(
+                select(Document)
+                .where(*filters)
+                .order_by(Document.id.desc())
+                .offset(offset)
+                .limit(safe_size)
+            ).all()
+        )
+        return {"items": items, "total": total, "page": safe_page, "page_size": safe_size}
+
+    def _project_document_filters(
+        self,
+        *,
+        project_id: int,
+        security_levels: list[str],
+        category_ids: list[int] | None,
+        keyword: str | None,
+        status: str | None,
+        security_level: str | None,
+        ai_enabled: bool | None,
+        parse_status: str | None,
+        index_status: str | None,
+        document_type: str | None,
+        discipline: str | None,
+        upload_user_id: int | None,
+    ) -> list[object]:
+        filters: list[object] = [
+            Document.is_deleted.is_(False),
+            Document.project_id == project_id,
+            Document.knowledge_type == "project",
+            Document.security_level.in_(security_levels),
+        ]
+        if category_ids:
+            filters.append(or_(Document.category_id.in_(category_ids), Document.directory_id.in_(category_ids)))
+        if keyword:
+            like = f"%{keyword}%"
+            filters.append(
+                or_(
+                    Document.file_name.like(like),
+                    Document.document_name.like(like),
+                    Document.document_type.like(like),
+                    Document.discipline.like(like),
+                )
+            )
+        if status:
+            filters.append(self._project_document_status_filter(status))
+        if security_level:
+            filters.append(Document.security_level == security_level)
+        if ai_enabled is not None:
+            filters.append(Document.ai_enabled.is_(ai_enabled))
+        if parse_status:
+            filters.append(Document.parse_status == parse_status)
+        if index_status:
+            filters.append(Document.index_status == index_status)
+        if document_type:
+            filters.append(Document.document_type == document_type)
+        if discipline:
+            filters.append(Document.discipline == discipline)
+        if upload_user_id is not None:
+            filters.append(or_(Document.upload_user_id == upload_user_id, Document.created_by == upload_user_id))
+        return filters
+
+    def _project_document_status_filter(self, status: str) -> object:
+        if status == "published":
+            return or_(
+                Document.status.in_(("已发布", "published", "active")),
+                Document.document_status.in_(("reviewed", "active")),
+                Document.review_status == "approved",
+            )
+        if status == "pending_review":
+            return or_(
+                Document.status.in_(("待审核", "pending", "pending_review")),
+                Document.document_status == "pending_review",
+                Document.review_status.in_(("draft", "reviewing", "rejected")),
+            )
+        return Document.status == status
 
     def get(self, document_id: int) -> Document | None:
         """按 ID 查询文档。"""
@@ -113,10 +229,12 @@ class DocumentRepository:
         """查询当前生效版本记录。"""
 
         return self.db.scalar(
-            select(DocumentVersion).where(
+            select(DocumentVersion)
+            .where(
                 DocumentVersion.document_id == document_id,
-                DocumentVersion.is_current.is_(True),
+                or_(DocumentVersion.is_current.is_(True), DocumentVersion.is_current_version.is_(True)),
             )
+            .order_by(DocumentVersion.version_no.desc())
         )
 
     def latest_version(self, document_id: int) -> DocumentVersion | None:
@@ -256,6 +374,7 @@ class DocumentRepository:
             .join(Document, Document.id == DocumentChunk.document_id)
             .where(Document.review_status == "approved", Document.index_status == "indexed")
             .where(Document.review_status != "archived")
+            .where(Document.is_deleted.is_(False), Document.is_current_version.is_(True))
             .where(DocumentChunk.chunk_status == "active", DocumentChunk.version_no == Document.version_no)
         )
         if security_levels is not None:

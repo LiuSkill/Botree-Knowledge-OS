@@ -17,12 +17,18 @@ import { getActionPermissions, getSystemMenus } from '@/api/system';
 import PermissionMenuTree from '@/components/PermissionMenuTree.vue';
 import { syncAuthorizedRoutes } from '@/router/dynamicRoutes';
 import { useAuthStore } from '@/stores/auth';
-import type { ActionPermissionGroup, ActionPermissionInfo, RoleInfo, SecurityLevel, SystemMenuNode } from '@/types/api';
+import type { ActionPermissionGroup, ActionPermissionInfo, DataScope, RoleInfo, SecurityLevel, SystemMenuNode } from '@/types/api';
 import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 type RoleDialogMode = 'create' | 'edit';
 
 const DEFAULT_ROLE_PAGE_SIZE = 200;
+const DATA_SCOPE_OPTIONS: Array<{ value: DataScope; label: string }> = [
+  { value: 'all', label: '全部项目' },
+  { value: 'department', label: '本部门项目' },
+  { value: 'own', label: '自己创建或负责' },
+  { value: 'public_only', label: '仅公开项目' },
+];
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -42,7 +48,12 @@ const roleForm = reactive({
   description: '',
   enabled: true,
   security_level: 'internal' as SecurityLevel,
+  data_scope: 'own' as DataScope,
 });
+
+function dataScopeLabel(scope: DataScope): string {
+  return DATA_SCOPE_OPTIONS.find((item) => item.value === scope)?.label || scope;
+}
 
 const selectedRole = computed(() => roles.value.find((role) => role.id === selectedRoleId.value) || null);
 const selectedIdSet = computed(() => new Set(selectedPermissionIds.value));
@@ -210,6 +221,7 @@ function resetRoleForm(): void {
     description: '',
     enabled: true,
     security_level: 'internal' as SecurityLevel,
+    data_scope: 'own' as DataScope,
   });
   editingRoleId.value = null;
 }
@@ -229,6 +241,7 @@ function openEditRoleDialog(role: RoleInfo): void {
     description: role.description || '',
     enabled: role.enabled,
     security_level: role.security_level,
+    data_scope: role.data_scope,
   });
   roleDialogVisible.value = true;
 }
@@ -248,6 +261,7 @@ async function submitRole(): Promise<void> {
       code: roleForm.code.trim(),
       description: roleForm.description.trim() || null,
       security_level: roleForm.security_level,
+      data_scope: roleForm.data_scope,
       permission_ids: [],
     });
     selectedRoleId.value = role.id;
@@ -258,6 +272,7 @@ async function submitRole(): Promise<void> {
       description: roleForm.description.trim() || null,
       enabled: roleForm.enabled,
       security_level: roleForm.security_level,
+      data_scope: roleForm.data_scope,
     });
     MessagePlugin.success('角色已更新');
   }
@@ -356,6 +371,9 @@ onMounted(loadMatrix);
               </t-tag>
               <t-tag size="small" variant="light" :theme="securityLevelTheme(role.security_level)">
                 {{ securityLevelLabel(role.security_level) }}
+              </t-tag>
+              <t-tag size="small" variant="light">
+                {{ dataScopeLabel(role.data_scope) }}
               </t-tag>
             </div>
             <p>{{ role.description || '未填写角色说明' }}</p>
@@ -478,6 +496,11 @@ onMounted(loadMatrix);
           </t-select>
         </t-form-item>
         <t-form-item v-if="roleDialogMode === 'edit'" label="状态"><t-switch v-model="roleForm.enabled" /></t-form-item>
+        <t-form-item label="项目数据范围">
+          <t-select v-model="roleForm.data_scope">
+            <t-option v-for="item in DATA_SCOPE_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+          </t-select>
+        </t-form-item>
       </t-form>
     </t-dialog>
   </div>
