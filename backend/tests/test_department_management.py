@@ -87,6 +87,22 @@ def test_department_api_requires_backend_permission(api_db_session: Session) -> 
     assert response.status_code == 403
 
 
+def test_user_list_api_requires_backend_permission(api_db_session: Session) -> None:
+    """Direct user list API calls without user view permission return 403."""
+
+    operator = seed_operator(api_db_session)
+
+    def override_db() -> Session:
+        return api_db_session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user] = lambda: operator
+
+    response = TestClient(app).get("/api/users")
+
+    assert response.status_code == 403
+
+
 def test_department_tree_and_validation_rules(db_session: Session) -> None:
     """Departments are tree-shaped and enforce code/name/parent rules."""
 
@@ -175,3 +191,27 @@ def test_disabled_department_user_binding_rules(db_session: Session) -> None:
 
     assert updated_user.department_id == department["id"]
     assert updated_user.department == "Root"
+
+
+def test_user_list_department_filter_can_include_children(db_session: Session) -> None:
+    """User list department filtering can include descendant departments."""
+
+    operator = seed_operator(db_session)
+    department_service = DepartmentService(db_session)
+    user_service = UserService(db_session)
+
+    root = department_service.create_department(DepartmentCreate(name="Root", code="ROOT"), operator)
+    child = department_service.create_department(DepartmentCreate(name="Child", code="CHILD", parent_id=root["id"]), operator)
+    sibling = department_service.create_department(DepartmentCreate(name="Sibling", code="SIBLING"), operator)
+    root_user = user_service.create_user(UserCreate(username="root-user", real_name="Root User", department_id=root["id"]), operator)
+    child_user = user_service.create_user(UserCreate(username="child-user", real_name="Child User", department_id=child["id"]), operator)
+    sibling_user = user_service.create_user(UserCreate(username="sibling-user", real_name="Sibling User", department_id=sibling["id"]), operator)
+
+    direct_result = user_service.list_users(department_id=root["id"], include_children=False)
+    include_children_result = user_service.list_users(department_id=root["id"], include_children=True)
+    include_children_names = {user.username for user in include_children_result["items"]}
+
+    assert [user.id for user in direct_result["items"]] == [root_user.id]
+    assert include_children_names == {root_user.username, child_user.username}
+    assert sibling_user.username not in include_children_names
+    assert {user.department_name for user in include_children_result["items"]} == {"Root", "Child"}

@@ -15,6 +15,7 @@ export interface UserListParams extends ListQueryParams {
   status?: string;
   role_id?: number;
   department_id?: number;
+  include_children?: boolean;
 }
 
 export interface UserAvatarSubmitOptions {

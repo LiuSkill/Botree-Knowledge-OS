@@ -99,13 +99,14 @@ function navigate(path: string): void {
 
 function handleMenuClick(item: MenuItem): void {
   if (item.children.length) {
-    expandMenu(item.id);
+    toggleMenu(item);
+    return;
   }
   navigate(item.path);
 }
 
 function toggleMenu(item: MenuItem): void {
-  if (isExpanded(item) && !isActiveBranch(item)) {
+  if (isExpanded(item)) {
     expandedMenuIds.value = expandedMenuIds.value.filter((id) => id !== item.id);
     return;
   }

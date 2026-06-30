@@ -10,6 +10,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { DeleteIcon, EditIcon, RefreshIcon, UserCheckedIcon, UserLockedIcon, UserPasswordIcon } from 'tdesign-icons-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import { createUser, deleteUser, listUserDepartmentTree, listUsers, resetUserPassword, updateUser } from '@/api/users';
 import type { UserAvatarSubmitOptions, UserListParams } from '@/api/users';
@@ -20,6 +21,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DepartmentInfo, PageResult, RoleInfo, SecurityLevel, UserInfo } from '@/types/api';
 import { securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
+import DepartmentTreePanel from './components/DepartmentTreePanel.vue';
 
 interface PaginationInfo {
   current: number;
@@ -28,6 +30,10 @@ interface PaginationInfo {
 
 type UserDialogMode = 'create' | 'edit';
 type TagTheme = 'default' | 'primary' | 'success' | 'warning' | 'danger';
+
+interface LoadUsersOptions {
+  clearBeforeLoad?: boolean;
+}
 
 interface DepartmentTreeOption {
   label: string;
@@ -48,6 +54,8 @@ const SECURITY_LEVEL_RANK: Record<SecurityLevel, number> = {
 };
 
 const authStore = useAuthStore();
+const route = useRoute();
+const router = useRouter();
 const users = ref<PageResult<UserInfo>>(createEmptyPageResult<UserInfo>());
 const roles = ref<RoleInfo[]>([]);
 const departments = ref<DepartmentInfo[]>([]);
@@ -55,6 +63,8 @@ const loading = ref(false);
 const submitting = ref(false);
 const optionLoading = ref(false);
 const departmentOptionLoading = ref(false);
+const departmentLoadError = ref('');
+const selectedDepartmentId = ref<number | null>(null);
 const dialogVisible = ref(false);
 const dialogMode = ref<UserDialogMode>('create');
 const editingUserId = ref<number | null>(null);
@@ -74,7 +84,6 @@ const filters = reactive({
   keyword: '',
   status: '',
   role_id: null as number | null,
-  department_id: null as number | null,
 });
 const form = reactive({
   username: '',
@@ -90,8 +99,8 @@ const form = reactive({
 const dialogTitle = computed(() => (dialogMode.value === 'create' ? '新建用户' : '编辑用户'));
 const avatarDisplayName = computed(() => form.real_name || form.username || '用户');
 const selectedAvatarName = computed(() => selectedAvatarFile.value?.name || '');
-const departmentFilterOptions = computed(() => toDepartmentOptions(departments.value, false));
 const departmentFormOptions = computed(() => toDepartmentOptions(departments.value, true, editingOriginalDepartmentId.value));
+const canViewUsers = computed(() => authStore.hasActionPermission(PERMISSIONS.SYSTEM_USER_VIEW));
 const canMaintainAvatar = computed(() =>
   dialogMode.value === 'create'
     ? authStore.hasActionPermission(PERMISSIONS.SYSTEM_USER_CREATE)
@@ -119,6 +128,8 @@ function createEmptyPageResult<T>(): PageResult<T> {
   };
 }
 
+let userRequestSeq = 0;
+
 function buildListParams(): UserListParams {
   const params: UserListParams = {
     page: page.value,
@@ -127,19 +138,33 @@ function buildListParams(): UserListParams {
   if (filters.keyword.trim()) params.keyword = filters.keyword.trim();
   if (filters.status) params.status = filters.status;
   if (filters.role_id) params.role_id = filters.role_id;
-  if (filters.department_id) params.department_id = filters.department_id;
+  if (selectedDepartmentId.value) {
+    params.department_id = selectedDepartmentId.value;
+    params.include_children = true;
+  }
   return params;
 }
 
-async function loadUsers(): Promise<void> {
+async function loadUsers(options: LoadUsersOptions = {}): Promise<void> {
+  const requestSeq = ++userRequestSeq;
   loading.value = true;
+  if (options.clearBeforeLoad) {
+    users.value = {
+      ...createEmptyPageResult<UserInfo>(),
+      page: page.value,
+      page_size: pageSize.value,
+    };
+  }
   try {
     const result = await listUsers(buildListParams());
+    if (requestSeq !== userRequestSeq) return;
     users.value = result;
     page.value = result.page;
     pageSize.value = result.page_size;
   } finally {
-    loading.value = false;
+    if (requestSeq === userRequestSeq) {
+      loading.value = false;
+    }
   }
 }
 
@@ -154,18 +179,33 @@ async function loadRoleOptions(): Promise<void> {
 
 async function loadDepartmentOptions(): Promise<void> {
   departmentOptionLoading.value = true;
+  departmentLoadError.value = '';
   try {
     departments.value = await listUserDepartmentTree();
+  } catch {
+    departments.value = [];
+    departmentLoadError.value = '部门加载失败';
   } finally {
     departmentOptionLoading.value = false;
   }
 }
 
 async function reloadAfterMutation(): Promise<void> {
-  if (users.value.items.length === 1 && page.value > 1) {
-    page.value -= 1;
-  }
   await loadUsers();
+  if (!users.value.items.length && users.value.total > 0 && page.value > 1) {
+    page.value -= 1;
+    await loadUsers();
+  }
+}
+
+async function refreshDepartments(): Promise<void> {
+  await loadDepartmentOptions();
+}
+
+function handleDepartmentSelect(departmentId: number | null): void {
+  selectedDepartmentId.value = departmentId;
+  page.value = 1;
+  void loadUsers({ clearBeforeLoad: true });
 }
 
 function revokeAvatarPreview(): void {
@@ -268,6 +308,10 @@ function resetForm(): void {
 function openCreateDialog(): void {
   dialogMode.value = 'create';
   resetForm();
+  const selectedDepartment = selectedDepartmentId.value ? findDepartmentById(selectedDepartmentId.value, departments.value) : null;
+  if (selectedDepartment?.status === 'enabled') {
+    form.department_id = selectedDepartment.id;
+  }
   dialogVisible.value = true;
 }
 
@@ -327,7 +371,7 @@ async function handleSubmit(): Promise<void> {
     }
     dialogVisible.value = false;
     resetAvatarState();
-    await loadUsers();
+    await reloadAfterMutation();
   } finally {
     submitting.value = false;
   }
@@ -339,7 +383,7 @@ async function toggleStatus(user: UserInfo): Promise<void> {
     status: nextStatus,
   });
   MessagePlugin.success(nextStatus === 'enabled' ? '用户已启用' : '用户已停用');
-  await loadUsers();
+  await reloadAfterMutation();
 }
 
 async function handleResetPassword(user: UserInfo): Promise<void> {
@@ -359,9 +403,10 @@ function handleSearch(): void {
 }
 
 function clearFilters(): void {
-  Object.assign(filters, { keyword: '', status: '', role_id: null, department_id: null });
+  Object.assign(filters, { keyword: '', status: '', role_id: null });
+  selectedDepartmentId.value = null;
   page.value = 1;
-  void loadUsers();
+  void loadUsers({ clearBeforeLoad: true });
 }
 
 function handlePaginationChange(pageInfo: PaginationInfo): void {
@@ -390,9 +435,10 @@ function userMaxSecurityLevel(user: UserInfo): SecurityLevel {
 }
 
 function departmentDisplay(user: UserInfo): string {
+  if (user.department_name) return user.department_name;
   if (user.department) return user.department;
-  if (!user.department_id) return '-';
-  return findDepartmentName(user.department_id, departments.value) || '-';
+  if (!user.department_id) return '未分配';
+  return findDepartmentName(user.department_id, departments.value) || '未分配';
 }
 
 function findDepartmentName(departmentId: number, items: DepartmentInfo[]): string | null {
@@ -400,6 +446,15 @@ function findDepartmentName(departmentId: number, items: DepartmentInfo[]): stri
     if (item.id === departmentId) return item.name;
     const childName = item.children?.length ? findDepartmentName(departmentId, item.children) : null;
     if (childName) return childName;
+  }
+  return null;
+}
+
+function findDepartmentById(departmentId: number, items: DepartmentInfo[]): DepartmentInfo | null {
+  for (const item of items) {
+    if (item.id === departmentId) return item;
+    const child = item.children?.length ? findDepartmentById(departmentId, item.children) : null;
+    if (child) return child;
   }
   return null;
 }
@@ -414,6 +469,13 @@ function toDepartmentOptions(items: DepartmentInfo[], disableDisabled: boolean, 
 }
 
 onMounted(async () => {
+  if (!canViewUsers.value) {
+    const fallbackPath = authStore.firstAccessiblePath;
+    if (fallbackPath && fallbackPath !== route.path) {
+      await router.replace(fallbackPath);
+    }
+    return;
+  }
   await Promise.all([loadRoleOptions(), loadDepartmentOptions(), loadUsers()]);
 });
 
@@ -423,7 +485,18 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="system-card scroll-card">
+  <div v-if="canViewUsers" class="user-manage-layout">
+    <DepartmentTreePanel
+      :departments="departments"
+      :selected-department-id="selectedDepartmentId"
+      :loading="departmentOptionLoading"
+      :error="departmentLoadError"
+      :refreshable="canViewUsers"
+      @select="handleDepartmentSelect"
+      @refresh="refreshDepartments"
+    />
+
+    <div class="system-card scroll-card user-list-card">
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
       <t-form-item label="关键字">
         <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="用户名 / 姓名 / 邮箱 / 部门" @enter="handleSearch" />
@@ -447,22 +520,10 @@ onBeforeUnmount(() => {
           <t-option v-for="role in roles" :key="role.id" :value="role.id" :label="role.name" />
         </t-select>
       </t-form-item>
-      <t-form-item label="所属部门">
-        <t-tree-select
-          v-model="filters.department_id"
-          class="filter-tree-select"
-          :data="departmentFilterOptions"
-          clearable
-          filterable
-          :loading="departmentOptionLoading"
-          placeholder="全部部门"
-          @change="handleSearch"
-        />
-      </t-form-item>
       <t-form-item>
         <t-space>
-          <t-button theme="primary" @click="handleSearch">查询</t-button>
-          <t-button @click="clearFilters">重置</t-button>
+          <t-button v-permission="PERMISSIONS.SYSTEM_USER_VIEW" theme="primary" @click="handleSearch">查询</t-button>
+          <t-button v-permission="PERMISSIONS.SYSTEM_USER_VIEW" @click="clearFilters">重置</t-button>
         </t-space>
       </t-form-item>
     </t-form>
@@ -473,7 +534,7 @@ onBeforeUnmount(() => {
         <span>共 {{ users.total }} 条数据</span>
       </div>
       <t-space>
-        <t-button theme="default" variant="outline" @click="loadUsers">
+        <t-button v-permission="PERMISSIONS.SYSTEM_USER_VIEW" theme="default" variant="outline" @click="loadUsers()">
           <template #icon><RefreshIcon /></template>
           刷新
         </t-button>
@@ -630,10 +691,23 @@ onBeforeUnmount(() => {
         </t-form-item>
       </t-form>
     </t-dialog>
+    </div>
+  </div>
+  <div v-else class="system-card user-no-permission">
+    <t-empty description="无权限访问用户管理" />
   </div>
 </template>
 
 <style scoped>
+.user-manage-layout {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  gap: 16px;
+  overflow: hidden;
+}
+
 .system-card {
   display: flex;
   flex: 1 1 0;
@@ -643,6 +717,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   margin-top: 0;
   overflow: hidden;
+}
+
+.user-list-card {
+  min-width: 0;
 }
 
 .table-scroll {
@@ -721,10 +799,6 @@ onBeforeUnmount(() => {
 
 .filter-select {
   width: 160px;
-}
-
-.filter-tree-select {
-  width: 220px;
 }
 
 .system-section-head {
