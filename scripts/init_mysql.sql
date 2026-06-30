@@ -29,6 +29,7 @@ DROP TABLE IF EXISTS user_roles;
 DROP TABLE IF EXISTS role_permissions;
 DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS operation_logs;
+DROP TABLE IF EXISTS departments;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS system_configs;
 DROP TABLE IF EXISTS roles;
@@ -96,12 +97,36 @@ CREATE TABLE IF NOT EXISTS users (
 	email VARCHAR(255) COMMENT '邮箱', 
 	phone VARCHAR(50) COMMENT '手机号', 
 	department VARCHAR(100) COMMENT '所属部门', 
+	department_id INTEGER COMMENT '所属部门ID',
 	status VARCHAR(30) NOT NULL COMMENT '状态：enabled/disabled', 
 	created_at DATETIME NOT NULL COMMENT '创建时间', 
 	updated_at DATETIME NOT NULL COMMENT '更新时间', 
 	PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户主表';
 CREATE UNIQUE INDEX uk_users_username ON users (username);
+CREATE INDEX idx_users_department_id ON users (department_id);
+
+CREATE TABLE IF NOT EXISTS departments (
+	id INTEGER NOT NULL COMMENT '主键ID' AUTO_INCREMENT,
+	name VARCHAR(100) NOT NULL COMMENT '部门名称',
+	code VARCHAR(100) NOT NULL COMMENT '部门编码',
+	parent_id INTEGER COMMENT '上级部门ID，关联departments.id',
+	leader_user_id INTEGER COMMENT '部门负责人用户ID，关联users.id',
+	sort_order INTEGER NOT NULL DEFAULT 0 COMMENT '排序值，数值越小越靠前',
+	status VARCHAR(30) NOT NULL DEFAULT 'enabled' COMMENT '状态：enabled/disabled',
+	description TEXT COMMENT '备注',
+	is_deleted BOOL NOT NULL DEFAULT 0 COMMENT '是否删除',
+	deleted_at DATETIME COMMENT '删除时间',
+	created_at DATETIME NOT NULL COMMENT '创建时间',
+	updated_at DATETIME NOT NULL COMMENT '更新时间',
+	PRIMARY KEY (id),
+	UNIQUE KEY uk_departments_code (code),
+	FOREIGN KEY(parent_id) REFERENCES departments (id),
+	FOREIGN KEY(leader_user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='部门表';
+CREATE INDEX idx_departments_parent_id ON departments (parent_id);
+CREATE INDEX idx_departments_status ON departments (status);
+CREATE INDEX idx_departments_is_deleted ON departments (is_deleted);
 
 CREATE TABLE IF NOT EXISTS operation_logs (
 	id INTEGER NOT NULL COMMENT '主键ID' AUTO_INCREMENT, 
@@ -660,6 +685,7 @@ INSERT INTO permissions (module, action, code, description, created_at, updated_
 ('ai', 'project-chat', 'ai:project-chat', '菜单访问：项目问答', NOW(), NOW()),
 ('ai', 'base-chat', 'ai:base-chat', '菜单访问：基础问答', NOW(), NOW()),
 ('system', 'user', 'system:user', '菜单访问：用户管理', NOW(), NOW()),
+('system:department', 'view', 'system:department:view', '菜单访问：部门管理', NOW(), NOW()),
 ('system', 'permission', 'system:permission', '菜单访问：权限矩阵', NOW(), NOW()),
 ('system', 'model-config', 'system:model-config', '菜单访问：模型配置', NOW(), NOW()),
 ('system', 'operation-log', 'system:operation-log', '菜单访问：操作日志', NOW(), NOW()),
@@ -715,6 +741,12 @@ INSERT INTO permissions (module, action, code, description, created_at, updated_
 ('system:user', 'disable', 'system:user:disable', '用户管理：启用/停用用户', NOW(), NOW()),
 ('system:user', 'reset-password', 'system:user:reset-password', '用户管理：重置用户密码', NOW(), NOW()),
 ('system:user', 'delete', 'system:user:delete', '用户管理：删除用户账号', NOW(), NOW()),
+('system:department', 'create', 'system:department:create', '部门管理：新增部门', NOW(), NOW()),
+('system:department', 'edit', 'system:department:edit', '部门管理：编辑部门', NOW(), NOW()),
+('system:department', 'delete', 'system:department:delete', '部门管理：删除部门', NOW(), NOW()),
+('system:department', 'enable', 'system:department:enable', '部门管理：启用部门', NOW(), NOW()),
+('system:department', 'disable', 'system:department:disable', '部门管理：停用部门', NOW(), NOW()),
+('system:department', 'view-detail', 'system:department:view-detail', '部门管理：查看部门详情', NOW(), NOW()),
 ('system:permission', 'view', 'system:permission:view', '权限矩阵：查看权限矩阵', NOW(), NOW()),
 ('system:permission', 'create-role', 'system:permission:create-role', '权限矩阵：新增角色', NOW(), NOW()),
 ('system:permission', 'edit-role', 'system:permission:edit-role', '权限矩阵：编辑角色', NOW(), NOW()),
@@ -742,6 +774,11 @@ INSERT IGNORE INTO role_permissions (role_id, permission_id, created_at, updated
 SELECT r.id, p.id, NOW(), NOW() FROM roles r CROSS JOIN permissions p WHERE r.code = 'admin';
 
 -- 默认管理员由应用启动时根据 DEFAULT_ADMIN_USERNAME/DEFAULT_ADMIN_PASSWORD 创建，初始化SQL不写入固定密码。
+
+-- 默认部门
+INSERT INTO departments (name, code, parent_id, leader_user_id, sort_order, status, description, is_deleted, created_at, updated_at) VALUES
+('默认部门', 'DEFAULT', NULL, NULL, 0, 'enabled', '系统初始化默认部门', 0, NOW(), NOW())
+ON DUPLICATE KEY UPDATE name = VALUES(name), parent_id = VALUES(parent_id), status = VALUES(status), is_deleted = 0, deleted_at = NULL, updated_at = NOW();
 
 -- 默认基础知识库
 INSERT INTO knowledge_bases (name, code, type, project_id, description, enabled, created_by, created_at, updated_at) VALUES

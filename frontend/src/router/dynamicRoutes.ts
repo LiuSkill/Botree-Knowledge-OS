@@ -26,6 +26,7 @@ const pageComponents: Record<string, RouteComponent> = {
   '/ai/project-chat': () => import('@/views/ai/ProjectChatPage.vue'),
   '/ai/base-chat': () => import('@/views/ai/BaseChatPage.vue'),
   '/system/users': () => import('@/views/system/UserManagePage.vue'),
+  '/system/departments': () => import('@/views/system/DepartmentManagePage.vue'),
   '/system/permissions': () => import('@/views/system/PermissionMatrixPage.vue'),
   '/system/model-configs': () => import('@/views/system/ModelConfigPage.vue'),
   '/system/logs': () => import('@/views/system/OperationLogPage.vue'),

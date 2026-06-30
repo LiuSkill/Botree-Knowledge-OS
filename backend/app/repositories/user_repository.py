@@ -14,6 +14,7 @@ from collections.abc import Iterable
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.department import Department
 from app.models.user import Permission, Role, User
 
 
@@ -30,10 +31,21 @@ class UserRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list(self, keyword: str | None = None, status: str | None = None, role_id: int | None = None) -> list[User]:
+    def list(
+        self,
+        keyword: str | None = None,
+        status: str | None = None,
+        role_id: int | None = None,
+        department_id: int | None = None,
+        department_ids: Iterable[int] | None = None,
+    ) -> list[User]:
         """查询用户列表。"""
 
-        stmt = select(User).options(selectinload(User.roles).selectinload(Role.permissions)).order_by(User.id.desc())
+        stmt = (
+            select(User)
+            .options(selectinload(User.roles).selectinload(Role.permissions), selectinload(User.department_ref))
+            .order_by(User.id.desc())
+        )
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(
@@ -41,17 +53,29 @@ class UserRepository:
                 | (User.real_name.like(like))
                 | (User.email.like(like))
                 | (User.department.like(like))
+                | (User.department_ref.has(Department.name.like(like)))
             )
         if status:
             stmt = stmt.where(User.status == status)
         if role_id:
             stmt = stmt.where(User.roles.any(Role.id == role_id))
+        if department_ids is not None:
+            ids = list({int(item) for item in department_ids})
+            if not ids:
+                return []
+            stmt = stmt.where(User.department_id.in_(ids))
+        elif department_id:
+            stmt = stmt.where(User.department_id == department_id)
         return list(self.db.scalars(stmt).all())
 
     def get_by_id(self, user_id: int) -> User | None:
         """按 ID 查询用户。"""
 
-        return self.db.scalar(select(User).options(selectinload(User.roles).selectinload(Role.permissions)).where(User.id == user_id))
+        return self.db.scalar(
+            select(User)
+            .options(selectinload(User.roles).selectinload(Role.permissions), selectinload(User.department_ref))
+            .where(User.id == user_id)
+        )
 
     def list_by_ids(self, user_ids: Iterable[int]) -> list[User]:
         """按 ID 批量查询用户，用于概览类接口补充展示名称。"""
@@ -64,7 +88,11 @@ class UserRepository:
     def get_by_username(self, username: str) -> User | None:
         """按用户名查询用户。"""
 
-        return self.db.scalar(select(User).options(selectinload(User.roles).selectinload(Role.permissions)).where(User.username == username))
+        return self.db.scalar(
+            select(User)
+            .options(selectinload(User.roles).selectinload(Role.permissions), selectinload(User.department_ref))
+            .where(User.username == username)
+        )
 
     def add(self, user: User) -> User:
         """新增用户。"""

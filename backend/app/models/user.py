@@ -46,6 +46,7 @@ class User(TimestampMixin, Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="邮箱")
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="手机号")
     department: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="所属部门")
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), nullable=True, index=True, comment="所属部门ID")
     status: Mapped[str] = mapped_column(String(30), default="enabled", nullable=False, comment="状态：enabled/disabled")
     avatar_object_key: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="头像 MinIO 对象 Key")
     avatar_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="头像原始文件名")
@@ -53,6 +54,13 @@ class User(TimestampMixin, Base):
     avatar_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="头像更新时间")
 
     roles: Mapped[list["Role"]] = relationship("Role", secondary=user_roles, back_populates="users")
+    department_ref: Mapped["Department | None"] = relationship("Department", foreign_keys=[department_id], back_populates="users")
+
+    @property
+    def department_name(self) -> str | None:
+        """优先返回真实部门名称，兼容历史冗余 department 文本。"""
+
+        return self.department_ref.name if self.department_ref else self.department
 
 
 class Role(TimestampMixin, Base):

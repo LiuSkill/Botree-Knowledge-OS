@@ -19,6 +19,7 @@ from app.core.rbac import permission_catalog
 from app.core.security import hash_password
 from app.core.security_levels import DEFAULT_SECURITY_LEVEL
 from app.models import Base
+from app.models.department import Department
 from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_category import KnowledgeCategory
 from app.models.model_config import ModelConfig
@@ -102,6 +103,7 @@ def init_database() -> None:
     with SessionLocal() as db:
         seed_permissions(db)
         admin_role = seed_roles(db)
+        seed_default_department(db)
         seed_admin_user(db, admin_role)
         seed_base_knowledge(db)
         seed_base_categories(db)
@@ -220,6 +222,14 @@ def migrate_database() -> None:
                 connection,
                 user_columns,
                 "users",
+                "department_id",
+                "INTEGER COMMENT '所属部门ID，关联departments.id'",
+                "INTEGER",
+            )
+            _add_column_if_missing(
+                connection,
+                user_columns,
+                "users",
                 "avatar_object_key",
                 "VARCHAR(500) COMMENT '头像MinIO对象Key'",
                 "VARCHAR(500)",
@@ -248,6 +258,7 @@ def migrate_database() -> None:
                 "DATETIME COMMENT '头像更新时间'",
                 "DATETIME",
             )
+            _create_index_if_missing(connection, inspector, "users", "idx_users_department_id", "department_id")
 
         if "chat_sessions" not in table_names:
             return
@@ -982,6 +993,31 @@ def seed_roles(db: Session) -> Role:
     permissions = db.scalars(select(Permission)).all()
     admin_role.permissions = permissions
     return admin_role
+
+
+def seed_default_department(db: Session) -> None:
+    """初始化默认部门。"""
+
+    department = db.scalar(select(Department).where(Department.code == "DEFAULT"))
+    if department:
+        department.name = "默认部门"
+        department.parent_id = None
+        department.status = "enabled"
+        department.is_deleted = False
+        department.deleted_at = None
+        return
+    db.add(
+        Department(
+            name="默认部门",
+            code="DEFAULT",
+            parent_id=None,
+            leader_user_id=None,
+            sort_order=0,
+            status="enabled",
+            description="系统初始化默认部门",
+            is_deleted=False,
+        )
+    )
 
 
 def seed_admin_user(db: Session, admin_role: Role) -> None:

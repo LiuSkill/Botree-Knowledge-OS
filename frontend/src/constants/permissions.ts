@@ -9,6 +9,7 @@ export const MENU_PERMISSIONS = {
   AI_PROJECT_CHAT: 'ai:project-chat',
   AI_BASE_CHAT: 'ai:base-chat',
   SYSTEM_USER: 'system:user',
+  SYSTEM_DEPARTMENT: 'system:department:view',
   SYSTEM_PERMISSION: 'system:permission',
   SYSTEM_MODEL: 'system:model-config',
   SYSTEM_LOG: 'system:operation-log',
@@ -75,6 +76,13 @@ export const ACTION_PERMISSIONS = {
   SYSTEM_USER_RESET_PASSWORD: 'system:user:reset-password',
   SYSTEM_USER_DELETE: 'system:user:delete',
 
+  SYSTEM_DEPARTMENT_CREATE: 'system:department:create',
+  SYSTEM_DEPARTMENT_EDIT: 'system:department:edit',
+  SYSTEM_DEPARTMENT_DELETE: 'system:department:delete',
+  SYSTEM_DEPARTMENT_ENABLE: 'system:department:enable',
+  SYSTEM_DEPARTMENT_DISABLE: 'system:department:disable',
+  SYSTEM_DEPARTMENT_VIEW_DETAIL: 'system:department:view-detail',
+
   SYSTEM_PERMISSION_VIEW: 'system:permission:view',
   SYSTEM_PERMISSION_CREATE_ROLE: 'system:permission:create-role',
   SYSTEM_PERMISSION_EDIT_ROLE: 'system:permission:edit-role',
@@ -135,6 +143,7 @@ export const MENU_PERMISSION_TREE: MenuDefinition[] = [
     path: '/system',
     children: [
       { id: MENU_PERMISSIONS.SYSTEM_USER, name: '用户管理', path: '/system/users', children: [] },
+      { id: MENU_PERMISSIONS.SYSTEM_DEPARTMENT, name: '部门管理', path: '/system/departments', children: [] },
       { id: MENU_PERMISSIONS.SYSTEM_PERMISSION, name: '权限矩阵', path: '/system/permissions', children: [] },
       { id: MENU_PERMISSIONS.SYSTEM_MODEL, name: '模型配置', path: '/system/model-configs', children: [] },
       { id: MENU_PERMISSIONS.SYSTEM_LOG, name: '操作日志', path: '/system/logs', children: [] },
@@ -259,6 +268,19 @@ export const ACTION_PERMISSION_GROUPS: ActionGroupDefinition[] = [
       { action: 'disable', name: '启用/停用用户', code: ACTION_PERMISSIONS.SYSTEM_USER_DISABLE },
       { action: 'reset-password', name: '重置用户密码', code: ACTION_PERMISSIONS.SYSTEM_USER_RESET_PASSWORD },
       { action: 'delete', name: '删除用户账号', code: ACTION_PERMISSIONS.SYSTEM_USER_DELETE },
+    ],
+  },
+  {
+    module: 'system-department',
+    module_name: '部门管理',
+    menu_ids: [MENU_PERMISSIONS.SYSTEM_DEPARTMENT],
+    actions: [
+      { action: 'create', name: '新增部门', code: ACTION_PERMISSIONS.SYSTEM_DEPARTMENT_CREATE },
+      { action: 'edit', name: '编辑部门', code: ACTION_PERMISSIONS.SYSTEM_DEPARTMENT_EDIT },
+      { action: 'delete', name: '删除部门', code: ACTION_PERMISSIONS.SYSTEM_DEPARTMENT_DELETE },
+      { action: 'enable', name: '启用部门', code: ACTION_PERMISSIONS.SYSTEM_DEPARTMENT_ENABLE },
+      { action: 'disable', name: '停用部门', code: ACTION_PERMISSIONS.SYSTEM_DEPARTMENT_DISABLE },
+      { action: 'view-detail', name: '查看部门详情', code: ACTION_PERMISSIONS.SYSTEM_DEPARTMENT_VIEW_DETAIL },
     ],
   },
   {

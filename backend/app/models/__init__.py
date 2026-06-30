@@ -9,6 +9,7 @@ Model Registry
 
 from app.models.base import Base
 from app.models.chat import ChatCitation, ChatMessage, ChatSession
+from app.models.department import Department
 from app.models.document_asset import DocumentAsset
 from app.models.document import Document, DocumentChunk, DocumentVersion
 from app.models.graph import GraphEntity, GraphRelation
@@ -29,6 +30,7 @@ __all__ = [
     "ChatCitation",
     "ChatMessage",
     "ChatSession",
+    "Department",
     "DocumentAsset",
     "Document",
     "DocumentChunk",

@@ -21,7 +21,7 @@ from app.core.exceptions import AppException  # noqa: E402
 from app.core.security import hash_password, verify_password  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.models.user import Role, User  # noqa: E402
-from app.schemas.user import RoleBrief, UserOut  # noqa: E402
+from app.schemas.user import RoleBrief, UserCreate, UserOut, UserUpdate  # noqa: E402
 from app.services.auth_service import AuthService  # noqa: E402
 from app.services.user_service import UserService  # noqa: E402
 
@@ -202,6 +202,90 @@ def test_upload_avatar_writes_minio_and_updates_metadata(
     assert user.avatar_file_name == "avatar.png"
     assert user.avatar_content_type == "image/png"
     assert profile["avatar_url"] == f"/api/users/{user.id}/avatar"
+
+
+def test_create_user_with_avatar_reuses_avatar_storage(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_settings: SimpleNamespace,
+) -> None:
+    """用户管理新增用户时应复用既有头像存储规则。"""
+
+    operator = seed_user(db_session)
+    fake_client = FakeMinioClient()
+    monkeypatch.setattr("app.services.user_service.get_minio_client", lambda: fake_client)
+    monkeypatch.setattr("app.services.user_service.get_settings", lambda: fake_settings)
+    monkeypatch.setattr("app.utils.user_avatar.get_settings", lambda: fake_settings)
+
+    user = asyncio.run(
+        UserService(db_session).create_user_with_avatar(
+            UserCreate(username="managed-user", password="Password123", real_name="Managed User"),
+            operator,
+            FakeUploadFile(b"managed-avatar", filename="managed.webp", content_type="image/webp"),
+        )
+    )
+
+    assert user.avatar_object_key is not None
+    assert user.avatar_object_key.startswith(f"avatars/{user.id}/")
+    assert fake_client.objects[(fake_settings.minio_bucket, user.avatar_object_key)] == (
+        b"managed-avatar",
+        "image/webp",
+    )
+    assert UserOut.model_validate(user).model_dump(mode="json")["avatar_url"] == f"/api/users/{user.id}/avatar"
+
+
+def test_update_user_with_avatar_can_replace_and_clear(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_settings: SimpleNamespace,
+) -> None:
+    """用户管理编辑用户时应支持替换和清除头像。"""
+
+    operator = seed_user(db_session)
+    target = User(username="avatar-target", password_hash="x", real_name="Avatar Target", status="enabled")
+    db_session.add(target)
+    db_session.commit()
+    db_session.refresh(target)
+    target.avatar_object_key = f"avatars/{target.id}/old.png"
+    target.avatar_file_name = "old.png"
+    target.avatar_content_type = "image/png"
+    db_session.commit()
+
+    fake_client = FakeMinioClient()
+    fake_client.objects[(fake_settings.minio_bucket, target.avatar_object_key)] = (b"old-avatar", "image/png")
+    monkeypatch.setattr("app.services.user_service.get_minio_client", lambda: fake_client)
+    monkeypatch.setattr("app.services.user_service.get_settings", lambda: fake_settings)
+
+    updated = asyncio.run(
+        UserService(db_session).update_user_with_avatar(
+            target.id,
+            UserUpdate(real_name="Avatar Target Updated"),
+            operator,
+            avatar_file=FakeUploadFile(b"new-avatar", filename="new.jpg", content_type="image/jpeg"),
+        )
+    )
+
+    assert updated.real_name == "Avatar Target Updated"
+    assert updated.avatar_object_key is not None
+    assert updated.avatar_object_key.startswith(f"avatars/{target.id}/")
+    assert fake_client.removed == [(fake_settings.minio_bucket, f"avatars/{target.id}/old.png")]
+    assert fake_client.objects[(fake_settings.minio_bucket, updated.avatar_object_key)] == (
+        b"new-avatar",
+        "image/jpeg",
+    )
+
+    cleared = asyncio.run(
+        UserService(db_session).update_user_with_avatar(
+            target.id,
+            UserUpdate(),
+            operator,
+            clear_avatar=True,
+        )
+    )
+
+    assert cleared.avatar_object_key is None
+    assert cleared.avatar_file_name is None
+    assert cleared.avatar_content_type is None
 
 
 def test_avatar_stream_returns_minio_object_for_self(

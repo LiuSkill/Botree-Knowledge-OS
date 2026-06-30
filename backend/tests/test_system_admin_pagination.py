@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
-from app.models import Base, ModelConfig, OperationLog, Permission, Role, User  # noqa: E402
+from app.models import Base, Department, ModelConfig, OperationLog, Permission, Role, User  # noqa: E402
 from app.services.model_service import ModelService  # noqa: E402
 from app.services.system_service import SystemService  # noqa: E402
 from app.services.user_service import RoleService, UserService  # noqa: E402
@@ -38,7 +38,10 @@ def seed_users_and_roles(db: Session) -> dict[str, Role]:
     admin_role = Role(name="System Admin", code="admin", description="Administrator role", enabled=True)
     engineer_role = Role(name="Engineer", code="engineer", description="Quality engineer role", enabled=False)
     admin_role.permissions = [permission]
-    db.add_all([admin_role, engineer_role])
+    management = Department(name="Management", code="MGMT", status="enabled", sort_order=1)
+    quality = Department(name="Quality", code="QA", status="enabled", sort_order=2)
+    inspection = Department(name="Inspection", code="QA-INSPECT", parent=quality, status="enabled", sort_order=3)
+    db.add_all([admin_role, engineer_role, management, quality, inspection])
     db.flush()
 
     db.add_all(
@@ -49,6 +52,7 @@ def seed_users_and_roles(db: Session) -> dict[str, Role]:
                 real_name="Alice Manager",
                 email="alice@example.com",
                 department="Management",
+                department_id=management.id,
                 status="enabled",
                 roles=[admin_role],
             ),
@@ -58,6 +62,7 @@ def seed_users_and_roles(db: Session) -> dict[str, Role]:
                 real_name="Bob Engineer",
                 email="bob@example.com",
                 department="Quality",
+                department_id=quality.id,
                 status="disabled",
                 roles=[engineer_role],
             ),
@@ -66,13 +71,14 @@ def seed_users_and_roles(db: Session) -> dict[str, Role]:
                 password_hash="x",
                 real_name="Carol Analyst",
                 email="carol@example.com",
-                department="Quality",
+                department="Inspection",
+                department_id=inspection.id,
                 status="enabled",
             ),
         ]
     )
     db.commit()
-    return {"admin_role": admin_role, "engineer_role": engineer_role}
+    return {"admin_role": admin_role, "engineer_role": engineer_role, "quality": quality}
 
 
 def seed_model_configs(db: Session) -> None:
@@ -157,6 +163,8 @@ def test_user_list_filters_and_paginates(db_session: Session) -> None:
     enabled_result = UserService(db_session).list_users(status="enabled", page=1, page_size=1)
     role_result = UserService(db_session).list_users(role_id=roles["engineer_role"].id)
     keyword_result = UserService(db_session).list_users(keyword="Quality")
+    department_result = UserService(db_session).list_users(department_id=roles["quality"].id)
+    department_tree_result = UserService(db_session).list_users(department_id=roles["quality"].id, include_children=True)
 
     assert enabled_result["total"] == 2
     assert enabled_result["page"] == 1
@@ -164,7 +172,9 @@ def test_user_list_filters_and_paginates(db_session: Session) -> None:
     assert len(enabled_result["items"]) == 1
     assert role_result["total"] == 1
     assert role_result["items"][0].username == "bob"
-    assert {user.username for user in keyword_result["items"]} == {"bob", "carol"}
+    assert {user.username for user in keyword_result["items"]} == {"bob"}
+    assert {user.username for user in department_result["items"]} == {"bob"}
+    assert {user.username for user in department_tree_result["items"]} == {"bob", "carol"}
 
 
 def test_role_list_filters_and_paginates(db_session: Session) -> None:

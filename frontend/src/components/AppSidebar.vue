@@ -22,6 +22,7 @@ import {
   ServerIcon,
   Setting1Icon,
   SettingIcon,
+  SitemapIcon,
   TableIcon,
   UserIcon,
 } from 'tdesign-icons-vue-next';
@@ -54,6 +55,7 @@ const iconByMenuId: Record<string, Component> = {
   'ai:base-chat': ChatIcon,
   system: Setting1Icon,
   'system:user': UserIcon,
+  'system:department:view': SitemapIcon,
   'system:permission': TableIcon,
   'system:model-config': ServerIcon,
   'system:operation-log': HistoryIcon,

@@ -142,7 +142,7 @@ class ProjectAccessService:
 
     def _same_department(self, project: Project, user: User) -> bool:
         project_department = getattr(project, "department", None) or getattr(project, "department_id", None)
-        user_department = getattr(user, "department", None) or getattr(user, "department_id", None)
+        user_department = getattr(user, "department_id", None) or getattr(user, "department", None)
         return bool(project_department and user_department and str(project_department) == str(user_department))
 
     def _is_own_project(self, project: Project, user: User, member: ProjectMember | None) -> bool:

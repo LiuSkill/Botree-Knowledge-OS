@@ -63,6 +63,7 @@ MENU_TREE: tuple[MenuNode, ...] = (
         "/system",
         (
             MenuNode("system:user", "用户管理", "/system/users"),
+            MenuNode("system:department:view", "部门管理", "/system/departments"),
             MenuNode("system:permission", "权限矩阵", "/system/permissions"),
             MenuNode("system:model-config", "模型配置", "/system/model-configs"),
             MenuNode("system:operation-log", "操作日志", "/system/logs"),
@@ -192,6 +193,19 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
             ActionPermission("disable", "启用/停用用户", "system:user:disable"),
             ActionPermission("reset-password", "重置用户密码", "system:user:reset-password"),
             ActionPermission("delete", "删除用户账号", "system:user:delete"),
+        ),
+    ),
+    ActionGroup(
+        "system-department",
+        "部门管理",
+        ("system:department:view",),
+        (
+            ActionPermission("create", "新增部门", "system:department:create"),
+            ActionPermission("edit", "编辑部门", "system:department:edit"),
+            ActionPermission("delete", "删除部门", "system:department:delete"),
+            ActionPermission("enable", "启用部门", "system:department:enable"),
+            ActionPermission("disable", "停用部门", "system:department:disable"),
+            ActionPermission("view-detail", "查看部门详情", "system:department:view-detail"),
         ),
     ),
     ActionGroup(

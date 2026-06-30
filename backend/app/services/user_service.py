@@ -24,7 +24,9 @@ from app.core.rbac import filter_bound_action_codes, menu_permission_codes, sync
 from app.core.data_scope import DEFAULT_DATA_SCOPE, normalize_data_scope
 from app.core.security_levels import DEFAULT_SECURITY_LEVEL, normalize_security_level, user_max_security_level
 from app.core.security import hash_password, verify_password
+from app.models.department import Department
 from app.models.user import Permission, Role, User
+from app.repositories.department_repository import DepartmentRepository
 from app.repositories.user_repository import RoleRepository, UserRepository
 from app.schemas.role import RoleCreate, RoleUpdate
 from app.schemas.user import UserCreate, UserUpdate
@@ -57,37 +59,60 @@ class UserService:
         self.db = db
         self.user_repository = UserRepository(db)
         self.role_repository = RoleRepository(db)
+        self.department_repository = DepartmentRepository(db)
 
     def list_users(
         self,
         keyword: str | None = None,
         status: str | None = None,
         role_id: int | None = None,
+        department_id: int | None = None,
+        include_children: bool = False,
         page: int = 1,
         page_size: int = 10,
     ) -> dict:
         """查询用户列表。"""
 
-        return paginate(self.user_repository.list(keyword=keyword, status=status, role_id=role_id), page, page_size)
+        department_ids = self._resolve_department_filter_ids(department_id, include_children)
+        return paginate(
+            self.user_repository.list(
+                keyword=keyword,
+                status=status,
+                role_id=role_id,
+                department_id=department_id,
+                department_ids=department_ids,
+            ),
+            page,
+            page_size,
+        )
 
     def create_user(self, payload: UserCreate, operator: User) -> User:
         """创建用户。"""
 
         if self.user_repository.get_by_username(payload.username):
             raise AppException("用户名已存在")
-        user = User(
-            username=payload.username,
-            password_hash=hash_password(payload.password),
-            real_name=payload.real_name,
-            email=payload.email,
-            phone=payload.phone,
-            department=payload.department,
-            status="enabled",
-        )
-        user.roles = [role for role_id in payload.role_ids if (role := self.role_repository.get_by_id(role_id))]
+        user = self._new_user_from_payload(payload)
         self.user_repository.add(user)
         SystemService(self.db).record_operation(operator, "新增用户", "user", user.id, f"新增用户 {user.username}")
         self.db.commit()
+        return user
+
+    async def create_user_with_avatar(self, payload: UserCreate, operator: User, avatar_file: UploadFile) -> User:
+        """创建用户并复用现有头像规则写入头像。"""
+
+        if self.user_repository.get_by_username(payload.username):
+            raise AppException("用户名已存在")
+        user = self._new_user_from_payload(payload)
+        self.user_repository.add(user)
+        _client, object_key = await self._store_avatar_file(user, avatar_file, remove_previous=False)
+        SystemService(self.db).record_operation(operator, "新增用户", "user", user.id, f"新增用户 {user.username}")
+        self.db.commit()
+        logger.info(
+            "用户头像已在新增时上传: operator_id=%s user_id=%s object_key=%s",
+            operator.id,
+            user.id,
+            object_key,
+        )
         return user
 
     def update_user(self, user_id: int, payload: UserUpdate, operator: User) -> User:
@@ -96,12 +121,35 @@ class UserService:
         user = self.user_repository.get_by_id(user_id)
         if not user:
             raise AppException("用户不存在", status_code=404, code=404)
-        for field in ["real_name", "email", "phone", "department", "status"]:
-            value = getattr(payload, field)
-            if value is not None:
-                setattr(user, field, value)
-        if payload.role_ids is not None:
-            user.roles = [role for role_id in payload.role_ids if (role := self.role_repository.get_by_id(role_id))]
+        self._apply_user_update(user, payload)
+        SystemService(self.db).record_operation(operator, "编辑用户", "user", user.id, f"编辑用户 {user.username}")
+        self.db.commit()
+        return user
+
+    async def update_user_with_avatar(
+        self,
+        user_id: int,
+        payload: UserUpdate,
+        operator: User,
+        avatar_file: UploadFile | None = None,
+        clear_avatar: bool = False,
+    ) -> User:
+        """更新用户信息，可选同步维护头像。"""
+
+        user = self.user_repository.get_by_id(user_id)
+        if not user:
+            raise AppException("用户不存在", status_code=404, code=404)
+        self._apply_user_update(user, payload)
+        if clear_avatar and avatar_file is None:
+            self._clear_avatar_metadata(user)
+        if avatar_file is not None:
+            _client, object_key = await self._store_avatar_file(user, avatar_file)
+            logger.info(
+                "管理端用户头像已上传: operator_id=%s user_id=%s object_key=%s",
+                operator.id,
+                user.id,
+                object_key,
+            )
         SystemService(self.db).record_operation(operator, "编辑用户", "user", user.id, f"编辑用户 {user.username}")
         self.db.commit()
         return user
@@ -135,37 +183,7 @@ class UserService:
             未配置对象存储时直接返回业务错误，避免悄悄落盘导致环境不一致。
         """
 
-        content_type = (upload_file.content_type or "").lower()
-        extension = AVATAR_CONTENT_TYPES.get(content_type)
-        if not extension:
-            raise AppException("头像仅支持 PNG、JPG、JPEG、WEBP 格式")
-
-        content = await upload_file.read(AVATAR_MAX_BYTES + 1)
-        if not content:
-            raise AppException("头像文件不能为空")
-        if len(content) > AVATAR_MAX_BYTES:
-            raise AppException("头像文件不能超过 2MB")
-
-        client = get_minio_client()
-        if client is None:
-            raise AppException("对象存储未启用，无法上传头像", status_code=503, code=503)
-
-        settings = get_settings()
-        object_key = f"avatars/{user.id}/{uuid4().hex}.{extension}"
-        previous_object_key = user.avatar_object_key
-        client.put_object(
-            settings.minio_bucket,
-            object_key,
-            BytesIO(content),
-            length=len(content),
-            content_type=content_type,
-        )
-        self._remove_avatar_object(client, previous_object_key)
-
-        user.avatar_object_key = object_key
-        user.avatar_file_name = Path(upload_file.filename or f"avatar.{extension}").name
-        user.avatar_content_type = content_type
-        user.avatar_updated_at = datetime.utcnow()
+        _client, object_key = await self._store_avatar_file(user, upload_file)
         SystemService(self.db).record_operation(user, "更新头像", "user", user.id, "当前用户更新头像")
         self.db.commit()
         logger.info("用户头像已上传: user_id=%s object_key=%s", user.id, object_key)
@@ -174,15 +192,7 @@ class UserService:
     def delete_own_avatar(self, user: User) -> dict:
         """删除当前用户头像。"""
 
-        client = get_minio_client()
-        if client is None:
-            raise AppException("对象存储未启用，无法删除头像", status_code=503, code=503)
-
-        self._remove_avatar_object(client, user.avatar_object_key)
-        user.avatar_object_key = None
-        user.avatar_file_name = None
-        user.avatar_content_type = None
-        user.avatar_updated_at = None
+        self._clear_avatar_metadata(user)
         SystemService(self.db).record_operation(user, "删除头像", "user", user.id, "当前用户删除头像")
         self.db.commit()
         logger.info("用户头像已删除: user_id=%s", user.id)
@@ -220,6 +230,61 @@ class UserService:
             "content_type": target.avatar_content_type or "application/octet-stream",
         }
 
+    async def _store_avatar_file(
+        self,
+        user: User,
+        upload_file: UploadFile,
+        remove_previous: bool = True,
+    ) -> tuple[object, str]:
+        """复用当前头像上传校验、MinIO 路径和用户头像元数据写入规则。"""
+
+        content_type = (upload_file.content_type or "").lower()
+        extension = AVATAR_CONTENT_TYPES.get(content_type)
+        if not extension:
+            raise AppException("头像仅支持 PNG、JPG、JPEG、WEBP 格式")
+
+        content = await upload_file.read(AVATAR_MAX_BYTES + 1)
+        if not content:
+            raise AppException("头像文件不能为空")
+        if len(content) > AVATAR_MAX_BYTES:
+            raise AppException("头像文件不能超过 2MB")
+
+        client = get_minio_client()
+        if client is None:
+            raise AppException("对象存储未启用，无法上传头像", status_code=503, code=503)
+
+        settings = get_settings()
+        object_key = f"avatars/{user.id}/{uuid4().hex}.{extension}"
+        previous_object_key = user.avatar_object_key
+        client.put_object(
+            settings.minio_bucket,
+            object_key,
+            BytesIO(content),
+            length=len(content),
+            content_type=content_type,
+        )
+        if remove_previous:
+            self._remove_avatar_object(client, previous_object_key)
+
+        user.avatar_object_key = object_key
+        user.avatar_file_name = Path(upload_file.filename or f"avatar.{extension}").name
+        user.avatar_content_type = content_type
+        user.avatar_updated_at = datetime.utcnow()
+        return client, object_key
+
+    def _clear_avatar_metadata(self, user: User) -> None:
+        """复用当前头像删除规则清理对象存储和用户头像元数据。"""
+
+        if user.avatar_object_key:
+            client = get_minio_client()
+            if client is None:
+                raise AppException("对象存储未启用，无法删除头像", status_code=503, code=503)
+            self._remove_avatar_object(client, user.avatar_object_key)
+        user.avatar_object_key = None
+        user.avatar_file_name = None
+        user.avatar_content_type = None
+        user.avatar_updated_at = None
+
     def _current_user_profile(self, user: User) -> dict:
         """返回与 /auth/me 一致的当前用户资料。"""
 
@@ -231,6 +296,8 @@ class UserService:
             "email": user.email,
             "phone": user.phone,
             "department": user.department,
+            "department_id": user.department_id,
+            "department_name": user.department_name,
             "status": user.status,
             "avatar_url": avatar_url_for_user(user),
             "avatar_updated_at": user.avatar_updated_at.isoformat() if user.avatar_updated_at else None,
@@ -271,6 +338,67 @@ class UserService:
             if role.enabled
             for permission in role.permissions
         }
+
+    def _new_user_from_payload(self, payload: UserCreate) -> User:
+        """按用户管理新增规则构造用户对象。"""
+
+        department = self._resolve_department_for_user(payload.department_id, current_department_id=None)
+        user = User(
+            username=payload.username,
+            password_hash=hash_password(payload.password),
+            real_name=payload.real_name,
+            email=payload.email,
+            phone=payload.phone,
+            department=department.name if department else payload.department,
+            department_id=department.id if department else None,
+            status="enabled",
+        )
+        user.roles = [role for role_id in payload.role_ids if (role := self.role_repository.get_by_id(role_id))]
+        return user
+
+    def _apply_user_update(self, user: User, payload: UserUpdate) -> None:
+        """按用户管理编辑规则更新用户基础信息和角色。"""
+
+        for field in ["real_name", "email", "phone", "status"]:
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(user, field, value)
+        if "department_id" in payload.model_fields_set:
+            department = self._resolve_department_for_user(
+                payload.department_id,
+                current_department_id=user.department_id,
+            )
+            user.department_id = department.id if department else None
+            user.department = department.name if department else None
+        elif "department" in payload.model_fields_set:
+            user.department = payload.department
+        if payload.role_ids is not None:
+            user.roles = [role for role_id in payload.role_ids if (role := self.role_repository.get_by_id(role_id))]
+
+    def _resolve_department_for_user(self, department_id: int | None, current_department_id: int | None) -> Department | None:
+        """
+        校验用户可绑定的部门。
+
+        业务规则：
+        - 新增用户或变更用户部门时只能选择启用部门；
+        - 已有用户绑定的部门停用后允许原样保留，避免编辑其他字段时被迫清空组织归属。
+        """
+
+        if department_id is None:
+            return None
+        department = self.department_repository.get_by_id(department_id)
+        if not department:
+            raise AppException("所属部门不存在")
+        if department.status != "enabled" and department.id != current_department_id:
+            raise AppException("只能选择启用状态的部门")
+        return department
+
+    def _resolve_department_filter_ids(self, department_id: int | None, include_children: bool) -> list[int] | None:
+        """解析用户列表部门筛选范围，include_children=true 时包含所有子孙部门。"""
+
+        if department_id is None or not include_children:
+            return None
+        return [department_id, *self.department_repository.list_descendant_ids(department_id)]
 
     def _remove_avatar_object(self, client, object_key: str | None) -> None:
         """删除 MinIO 头像对象，旧对象不存在时仅记录告警。"""

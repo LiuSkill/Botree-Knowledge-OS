@@ -9,7 +9,15 @@ import { useRoute } from 'vue-router';
 
 const route = useRoute();
 
+const descriptionByMenuId: Record<string, string> = {
+  'system:department:view': '维护组织部门、上下级关系和部门成员归属。',
+};
+
 const pageTitle = computed(() => (route.meta.title as string | undefined) || '系统管理');
+const pageDescription = computed(() => {
+  const menuId = route.meta.menuId as string | undefined;
+  return (menuId && descriptionByMenuId[menuId]) || '维护用户、角色权限、模型配置、操作日志与问答审计。';
+});
 </script>
 
 <template>
@@ -18,7 +26,7 @@ const pageTitle = computed(() => (route.meta.title as string | undefined) || '�
       <div class="system-workspace-header">
         <div>
           <h1>{{ pageTitle }}</h1>
-          <p>维护用户、角色权限、模型配置、操作日志与问答审计。</p>
+          <p>{{ pageDescription }}</p>
         </div>
       </div>
       <div class="system-content">

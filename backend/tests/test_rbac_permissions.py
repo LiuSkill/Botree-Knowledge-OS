@@ -64,13 +64,26 @@ def test_system_menu_and_action_catalog_use_registered_permissions(db_session: S
     actions = SystemService(db_session).list_action_permissions()
     system_menu = next(menu for menu in menus if menu["id"] == "system")
     user_menu = next(child for child in system_menu["children"] if child["id"] == "system:user")
+    department_menu = next(child for child in system_menu["children"] if child["id"] == "system:department:view")
     user_group = next(group for group in actions if group["module"] == "system-user")
+    department_group = next(group for group in actions if group["module"] == "system-department")
     create_action = next(action for action in user_group["actions"] if action["code"] == "system:user:create")
 
     assert user_menu["path"] == "/system/users"
+    assert department_menu["path"] == "/system/departments"
     assert isinstance(user_menu["permission_id"], int)
+    assert isinstance(department_menu["permission_id"], int)
     assert all(len(group["menu_ids"]) == 1 for group in actions)
     assert user_group["menu_ids"] == ["system:user"]
+    assert department_group["menu_ids"] == ["system:department:view"]
+    assert {action["code"] for action in department_group["actions"]} == {
+        "system:department:create",
+        "system:department:edit",
+        "system:department:delete",
+        "system:department:enable",
+        "system:department:disable",
+        "system:department:view-detail",
+    }
     assert isinstance(create_action["permission_id"], int)
 
 

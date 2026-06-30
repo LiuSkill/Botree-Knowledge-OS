@@ -16,6 +16,7 @@ export interface ApiResponse<T> {
 export type SecurityLevel = 'public' | 'internal' | 'confidential';
 export type DataScope = 'all' | 'department' | 'own' | 'public_only';
 export type ProjectStatus = '待启动' | '进行中' | '已完成' | '已暂停';
+export type DepartmentStatus = 'enabled' | 'disabled';
 
 export interface RoleBrief {
   id: number;
@@ -33,6 +34,8 @@ export interface UserInfo {
   email?: string | null;
   phone?: string | null;
   department?: string | null;
+  department_id?: number | null;
+  department_name?: string | null;
   status: 'enabled' | 'disabled' | string;
   avatar_url?: string | null;
   avatar_updated_at?: string | null;
@@ -54,6 +57,29 @@ export interface PermissionInfo {
   action: string;
   code: string;
   description?: string | null;
+}
+
+export interface DepartmentInfo {
+  id: number;
+  name: string;
+  code: string;
+  parent_id?: number | null;
+  parent_name?: string | null;
+  leader_user_id?: number | null;
+  leader_name?: string | null;
+  sort_order: number;
+  status: DepartmentStatus;
+  description?: string | null;
+  is_deleted?: boolean;
+  created_at: string;
+  updated_at: string;
+  children?: DepartmentInfo[];
+}
+
+export interface DepartmentUserOption {
+  id: number;
+  username: string;
+  real_name: string;
 }
 
 export interface ProjectInfo {

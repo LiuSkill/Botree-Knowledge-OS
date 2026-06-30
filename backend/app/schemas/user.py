@@ -33,6 +33,7 @@ class UserCreate(BaseModel):
     email: str | None = Field(default=None, description="邮箱")
     phone: str | None = Field(default=None, description="手机号")
     department: str | None = Field(default=None, description="部门")
+    department_id: int | None = Field(default=None, description="部门ID")
     role_ids: list[int] = Field(default_factory=list, description="角色ID列表")
 
 
@@ -43,6 +44,7 @@ class UserUpdate(BaseModel):
     email: str | None = Field(default=None, description="邮箱")
     phone: str | None = Field(default=None, description="手机号")
     department: str | None = Field(default=None, description="部门")
+    department_id: int | None = Field(default=None, description="部门ID")
     status: str | None = Field(default=None, description="状态")
     role_ids: list[int] | None = Field(default=None, description="角色ID列表")
 
@@ -58,6 +60,8 @@ class UserOut(BaseModel):
     email: str | None = None
     phone: str | None = None
     department: str | None = None
+    department_id: int | None = None
+    department_name: str | None = None
     status: str
     avatar_object_key: str | None = Field(default=None, exclude=True)
     avatar_updated_at: datetime | None = None

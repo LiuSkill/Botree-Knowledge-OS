@@ -83,6 +83,8 @@ class AuthService:
             "email": user.email,
             "phone": user.phone,
             "department": user.department,
+            "department_id": user.department_id,
+            "department_name": user.department_name,
             "status": user.status,
             "avatar_url": avatar_url_for_user(user),
             "avatar_updated_at": user.avatar_updated_at.isoformat() if user.avatar_updated_at else None,

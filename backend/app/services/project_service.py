@@ -81,7 +81,7 @@ class ProjectService:
         target_security = normalize_security_level(security_level, default="") if security_level else None
         max_security_level = user_max_security_level(user)
         accessible_security_levels = allowed_security_levels(max_security_level)
-        user_department = getattr(user, "department", None) or getattr(user, "department_id", None)
+        user_department = getattr(user, "department_id", None) or getattr(user, "department", None)
         rows = self.project_repository.list_with_stats(
             user_id=user.id,
             user_department=str(user_department) if user_department else None,
