@@ -130,7 +130,6 @@ export function listProjectDocuments(
     category_id?: number | null;
     status?: string;
     security_level?: SecurityLevel;
-    ai_enabled?: boolean;
     parse_status?: string;
     index_status?: string;
     document_type?: string;
@@ -151,7 +150,6 @@ export function listProjectDocumentsPage(
     category_id?: number | null;
     status?: string;
     security_level?: SecurityLevel;
-    ai_enabled?: boolean;
     parse_status?: string;
     index_status?: string;
     document_type?: string;
@@ -196,10 +194,6 @@ export function retryIndexProjectDocument(projectId: number, documentId: number,
     undefined,
     { params: versionNo ? { version_no: versionNo } : undefined },
   ) as Promise<IndexTaskInfo>;
-}
-
-export function updateProjectDocumentAiEnabled(projectId: number, documentId: number, aiEnabled: boolean): Promise<DocumentInfo> {
-  return request.post(`/projects/${projectId}/documents/${documentId}/ai-toggle`, { ai_enabled: aiEnabled }) as Promise<DocumentInfo>;
 }
 
 export function updateProjectDocumentSecurityLevel(projectId: number, documentId: number, securityLevel: SecurityLevel): Promise<DocumentInfo> {

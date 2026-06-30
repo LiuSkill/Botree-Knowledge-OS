@@ -17,7 +17,7 @@ router = APIRouter(prefix="/knowledge-categories", tags=["知识分类"])
 def list_categories(
     scope_type: str,
     project_id: int | None = None,
-    current_user: User = Depends(require_any_permission("knowledge", "project", "review", "project_directory:view")),
+    current_user: User = Depends(require_any_permission("knowledge:view", "project:view", "review:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询企业或项目范围内的知识分类树。"""
@@ -29,7 +29,7 @@ def list_categories(
 @router.post("", summary="创建知识分类")
 def create_category(
     payload: KnowledgeCategoryCreate,
-    current_user: User = Depends(require_any_permission("knowledge:create", "project_directory:create")),
+    current_user: User = Depends(require_any_permission("knowledge:create", "project:directory:create")),
     db: Session = Depends(get_db),
 ) -> dict:
     """创建知识分类或项目目录。"""
@@ -43,7 +43,7 @@ def create_category(
 def update_category(
     category_id: int,
     payload: KnowledgeCategoryUpdate,
-    current_user: User = Depends(require_any_permission("knowledge:edit", "project_directory:update")),
+    current_user: User = Depends(require_any_permission("knowledge:edit", "project:directory:edit")),
     db: Session = Depends(get_db),
 ) -> dict:
     """编辑知识分类或项目目录。"""
@@ -56,7 +56,7 @@ def update_category(
 @router.delete("/{category_id}", summary="删除知识分类")
 def delete_category(
     category_id: int,
-    current_user: User = Depends(require_any_permission("knowledge:delete", "project_directory:delete")),
+    current_user: User = Depends(require_any_permission("knowledge:delete", "project:directory:delete")),
     db: Session = Depends(get_db),
 ) -> dict:
     """软删除知识分类或项目目录。"""

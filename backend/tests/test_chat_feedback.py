@@ -15,7 +15,7 @@ sys.path.insert(0, str(BASE_DIR))
 from app.core.exceptions import AppException  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.models.chat import ChatMessage, ChatSession  # noqa: E402
-from app.models.user import User  # noqa: E402
+from app.models.user import Role, User  # noqa: E402
 from app.schemas.chat import ChatMessageFeedbackUpdate  # noqa: E402
 from app.services.chat_service import ChatService  # noqa: E402
 
@@ -32,6 +32,7 @@ def db_session() -> Session:
 
 def _create_chat_fixture(db: Session) -> tuple[User, ChatMessage, ChatMessage]:
     user = User(username="feedback-user", password_hash="hashed", real_name="Feedback User")
+    user.roles = [Role(name="Feedback Admin", code="admin", enabled=True)]
     db.add(user)
     db.flush()
     chat_session = ChatSession(user_id=user.id, title="feedback", chat_type="base_chat", mode="auto")

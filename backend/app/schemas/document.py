@@ -24,7 +24,6 @@ class DocumentOut(BaseModel):
     discipline: str | None = None
     version: str | None = None
     status: str = "待审核"
-    ai_enabled: bool = False
     upload_user_id: int | None = None
     uploader_name: str | None = None
     uploader_username: str | None = None
@@ -199,15 +198,8 @@ class DocumentMetadataUpdate(BaseModel):
     version: str | None = None
     status: str | None = None
     security_level: str | None = None
-    ai_enabled: bool | None = None
     preview_url: str | None = None
     remark: str | None = None
-
-
-class DocumentAiToggleRequest(BaseModel):
-    """Document AI Q&A toggle request."""
-
-    ai_enabled: bool = Field(..., description="是否参与AI问答")
 
 
 class DocumentPreviewOut(BaseModel):
@@ -310,7 +302,6 @@ class DocumentVersionOut(BaseModel):
     index_status: str
     is_current: bool
     is_current_version: bool = True
-    ai_enabled: bool = False
     security_level: str = DEFAULT_SECURITY_LEVEL
     reviewed_by: int | None = None
     reviewed_at: datetime | None = None

@@ -4,13 +4,13 @@ RBAC Permission Registry.
 职责：
 1. 统一维护后端权限种子、前端动态菜单和按钮级权限点。
 2. 菜单权限控制路由与导航可见性，操作权限控制按钮与 API。
-3. 操作权限必须挂靠在已授权菜单下，避免孤立按钮权限绕过页面访问控制。
+3. 操作权限必须显式授予，并且只能挂靠在已授权菜单下，避免孤立按钮权限绕过页面访问控制。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Any, Iterable
 
 
 @dataclass(frozen=True)
@@ -71,55 +71,27 @@ MENU_TREE: tuple[MenuNode, ...] = (
     ),
 )
 
+
 ACTION_GROUPS: tuple[ActionGroup, ...] = (
     ActionGroup(
-        "user",
-        "用户管理",
-        ("system:user",),
+        "dashboard",
+        "首页",
+        ("dashboard",),
         (
-            ActionPermission("view", "查看用户列表", "user:view"),
-            ActionPermission("create", "新增用户账号", "user:create"),
-            ActionPermission("edit", "编辑用户资料", "user:edit"),
-            ActionPermission("status", "启用/停用用户", "user:status"),
-            ActionPermission("reset-password", "重置用户密码", "user:reset-password"),
-            ActionPermission("delete", "删除用户账号", "user:delete"),
-        ),
-    ),
-    ActionGroup(
-        "permission",
-        "权限矩阵",
-        ("system:permission",),
-        (
-            ActionPermission("view", "查看权限矩阵", "permission:view"),
-            ActionPermission("create", "新增角色", "permission:create"),
-            ActionPermission("edit", "编辑角色", "permission:edit"),
-            ActionPermission("delete", "删除角色", "permission:delete"),
-            ActionPermission("save", "保存角色权限", "permission:save"),
-        ),
-    ),
-    ActionGroup(
-        "model-config",
-        "模型配置",
-        ("system:model-config",),
-        (
-            ActionPermission("view", "查看模型配置", "model-config:view"),
-            ActionPermission("create", "新增模型配置", "model-config:create"),
-            ActionPermission("edit", "编辑模型配置", "model-config:edit"),
-            ActionPermission("set-default", "设为默认模型", "model-config:set-default"),
-            ActionPermission("test", "测试模型连接", "model-config:test"),
-            ActionPermission("delete", "删除模型配置", "model-config:delete"),
+            ActionPermission("view", "查看首页统计", "dashboard:view"),
         ),
     ),
     ActionGroup(
         "knowledge",
         "知识中心",
-        ("knowledge", "project"),
+        ("knowledge",),
         (
             ActionPermission("view", "查看知识资料", "knowledge:view"),
             ActionPermission("create", "新增知识分类", "knowledge:create"),
-            ActionPermission("edit", "编辑知识分类", "knowledge:edit"),
+            ActionPermission("edit", "编辑知识分类/资料", "knowledge:edit"),
             ActionPermission("upload", "上传知识文档", "knowledge:upload"),
-            ActionPermission("submit-review", "提交文档审核", "knowledge:submit-review"),
+            ActionPermission("submit-review", "提交知识资料审核", "knowledge:submit-review"),
+            ActionPermission("download", "下载知识资料", "knowledge:download"),
             ActionPermission("delete", "删除知识资料", "knowledge:delete"),
         ),
     ),
@@ -128,84 +100,139 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         "项目中心",
         ("project",),
         (
-            ActionPermission("view", "查看项目列表", "project:view"),
-            ActionPermission("manage", "进入项目管理", "project:manage"),
-            ActionPermission("create", "新建项目", "project:create"),
-            ActionPermission("update", "编辑项目基本信息", "project:update"),
-            ActionPermission("edit", "编辑项目基本信息（兼容旧权限）", "project:edit"),
+            ActionPermission("view", "查看项目/项目资料", "project:view"),
+            ActionPermission("create", "新增项目", "project:create"),
+            ActionPermission("edit", "编辑项目", "project:edit"),
             ActionPermission("delete", "删除项目", "project:delete"),
-            ActionPermission("detail-view", "查看项目详情", "project:detail:view"),
-            ActionPermission("document-view", "查看项目资料页", "project:document:view"),
-            ActionPermission("chat-view", "查看项目问答页", "project:chat:view"),
+            ActionPermission("chat", "项目问答跳转", "project:chat"),
         ),
     ),
     ActionGroup(
-        "project_directory",
+        "project-directory",
         "项目资料目录",
         ("project",),
         (
-            ActionPermission("view", "查看项目目录", "project_directory:view"),
-            ActionPermission("create", "新建项目目录", "project_directory:create"),
-            ActionPermission("update", "编辑项目目录", "project_directory:update"),
-            ActionPermission("delete", "删除项目目录", "project_directory:delete"),
-            ActionPermission("init-template", "初始化默认目录模板", "project_directory:init_template"),
+            ActionPermission("create", "新增项目资料目录", "project:directory:create"),
+            ActionPermission("edit", "编辑项目资料目录", "project:directory:edit"),
+            ActionPermission("delete", "删除项目资料目录", "project:directory:delete"),
         ),
     ),
     ActionGroup(
-        "project_document",
+        "project-document",
         "项目资料",
         ("project",),
         (
-            ActionPermission("view", "查看项目资料", "project_document:view"),
-            ActionPermission("upload", "上传项目资料", "project_document:upload"),
-            ActionPermission("update", "编辑项目资料", "project_document:update"),
-            ActionPermission("delete", "删除项目资料", "project_document:delete"),
-            ActionPermission("download", "下载项目资料", "project_document:download"),
-            ActionPermission("preview", "预览项目资料", "project_document:preview"),
-            ActionPermission("publish", "发布项目资料", "project_document:publish"),
-            ActionPermission("version-create", "上传项目资料新版本", "project_document:version:create"),
-            ActionPermission("version-view", "查看项目资料版本", "project_document:version:view"),
-            ActionPermission("retry-parse", "重试项目资料解析", "project_document:retry_parse"),
-            ActionPermission("retry-index", "重试项目资料索引", "project_document:retry_index"),
-            ActionPermission("ai-toggle", "设置项目资料 AI 问答开关", "project_document:ai_toggle"),
-            ActionPermission("security-update", "修改项目资料密级", "project_document:security_update"),
+            ActionPermission("upload", "上传项目资料", "project:upload"),
+            ActionPermission("submit-review", "提交/发布项目资料", "project:submit-review"),
+            ActionPermission("edit", "编辑项目资料元数据", "project:document:edit"),
+            ActionPermission("delete", "删除项目资料", "project:document:delete"),
+            ActionPermission("preview", "预览项目资料", "project:document:preview"),
+            ActionPermission("download", "下载项目资料", "project:document:download"),
+            ActionPermission("retry-parse", "重试项目资料解析", "project:document:retry-parse"),
+            ActionPermission("retry-index", "重试项目资料索引", "project:document:retry-index"),
+            ActionPermission("security-update", "保存项目资料密级", "project:document:security-update"),
+            ActionPermission("version-view", "查看项目资料版本", "project:document:version-view"),
+            ActionPermission("version-create", "上传项目资料新版本", "project:document:version-create"),
+            ActionPermission("version-set-current", "设置项目资料当前版本", "project:document:version-set-current"),
         ),
     ),
     ActionGroup(
-        "project_chat",
-        "项目问答",
-        ("ai:project-chat",),
+        "authorization",
+        "知识授权中心",
+        ("authorization",),
         (
-            ActionPermission("ask", "发起项目问答", "project_chat:ask"),
-            ActionPermission("view-history", "查看项目问答历史", "project_chat:view_history"),
-            ActionPermission("view-sources", "查看项目问答引用来源", "project_chat:view_sources"),
-        ),
-    ),
-    ActionGroup(
-        "project_audit",
-        "项目审计",
-        ("system:operation-log",),
-        (
-            ActionPermission("view", "查看项目审计日志", "project_audit:view"),
+            ActionPermission("view", "查看授权", "authorization:view"),
         ),
     ),
     ActionGroup(
         "review",
         "审核中心",
-        ("review", "knowledge"),
+        ("review",),
         (
-            ActionPermission("view", "查看审核任务", "review:view"),
-            ActionPermission("review", "审核文档通过/驳回", "review:review"),
-            ActionPermission("build-index", "构建文档索引", "review:build-index"),
+            ActionPermission("view", "查看审核记录", "review:view"),
+            ActionPermission("approve", "审核通过", "review:approve"),
+            ActionPermission("reject", "审核驳回", "review:reject"),
+            ActionPermission("build-index", "解析并构建索引", "review:build-index"),
         ),
     ),
     ActionGroup(
-        "ai",
-        "智能问答",
-        ("ai:project-chat", "ai:base-chat"),
+        "ai-project-chat",
+        "项目问答",
+        ("ai:project-chat",),
         (
-            ActionPermission("chat", "发起智能问答", "ai:chat"),
-            ActionPermission("delete-session", "删除问答会话", "ai:delete-session"),
+            ActionPermission("view", "进入项目问答页面", "ai:project-chat:view"),
+            ActionPermission("create-session", "新建项目问答会话", "ai:project-chat:create-session"),
+            ActionPermission("send-message", "发送项目问答消息", "ai:project-chat:send-message"),
+            ActionPermission("manage-session", "重命名/置顶/收藏项目问答会话", "ai:project-chat:manage-session"),
+            ActionPermission("delete-session", "删除项目问答会话", "ai:project-chat:delete-session"),
+            ActionPermission("feedback", "反馈项目问答答案", "ai:project-chat:feedback"),
+        ),
+    ),
+    ActionGroup(
+        "ai-base-chat",
+        "基础问答",
+        ("ai:base-chat",),
+        (
+            ActionPermission("view", "进入基础问答页面", "ai:base-chat:view"),
+            ActionPermission("create-session", "新建基础问答会话", "ai:base-chat:create-session"),
+            ActionPermission("send-message", "发送基础问答消息", "ai:base-chat:send-message"),
+            ActionPermission("manage-session", "重命名/置顶/收藏基础问答会话", "ai:base-chat:manage-session"),
+            ActionPermission("delete-session", "删除基础问答会话", "ai:base-chat:delete-session"),
+            ActionPermission("feedback", "反馈基础问答答案", "ai:base-chat:feedback"),
+        ),
+    ),
+    ActionGroup(
+        "system-user",
+        "用户管理",
+        ("system:user",),
+        (
+            ActionPermission("view", "查看用户列表", "system:user:view"),
+            ActionPermission("create", "新增用户账号", "system:user:create"),
+            ActionPermission("edit", "编辑用户资料", "system:user:edit"),
+            ActionPermission("disable", "启用/停用用户", "system:user:disable"),
+            ActionPermission("reset-password", "重置用户密码", "system:user:reset-password"),
+            ActionPermission("delete", "删除用户账号", "system:user:delete"),
+        ),
+    ),
+    ActionGroup(
+        "system-permission",
+        "权限矩阵",
+        ("system:permission",),
+        (
+            ActionPermission("view", "查看权限矩阵", "system:permission:view"),
+            ActionPermission("create-role", "新增角色", "system:permission:create-role"),
+            ActionPermission("edit-role", "编辑角色", "system:permission:edit-role"),
+            ActionPermission("delete-role", "删除角色", "system:permission:delete-role"),
+            ActionPermission("save", "保存角色权限", "system:permission:save"),
+        ),
+    ),
+    ActionGroup(
+        "system-model",
+        "模型配置",
+        ("system:model-config",),
+        (
+            ActionPermission("view", "查看模型配置", "system:model:view"),
+            ActionPermission("create", "新增模型配置", "system:model:create"),
+            ActionPermission("edit", "编辑/启停模型配置", "system:model:edit"),
+            ActionPermission("test", "测试模型连接", "system:model:test"),
+            ActionPermission("set-default", "设置默认模型", "system:model:set-default"),
+            ActionPermission("delete", "删除模型配置", "system:model:delete"),
+        ),
+    ),
+    ActionGroup(
+        "system-log",
+        "操作日志",
+        ("system:operation-log",),
+        (
+            ActionPermission("view", "查看操作日志", "system:log:view"),
+        ),
+    ),
+    ActionGroup(
+        "system-qa-audit",
+        "问答审计",
+        ("system:qa-audit",),
+        (
+            ActionPermission("view", "查看问答审计", "system:qa-audit:view"),
         ),
     ),
 )
@@ -242,7 +269,7 @@ def action_page_bindings() -> dict[str, set[str]]:
 
 
 def linked_action_codes(menu_codes: set[str]) -> set[str]:
-    """根据已授权菜单返回可挂靠在这些页面下的操作权限码。"""
+    """根据已授权菜单返回可挂靠在这些页面下的候选操作权限码。"""
 
     return {
         action.code
@@ -258,7 +285,7 @@ def sync_menu_action_permission_codes(permission_codes: set[str]) -> set[str]:
 
     业务规则：
     - 菜单权限控制路由和导航；
-    - 按钮/API 权限需要显式授予；
+    - 按钮/API 权限必须显式授予；
     - 未授权页面下的按钮/API 权限会被移除，避免孤立操作权限。
     """
 
@@ -268,19 +295,45 @@ def sync_menu_action_permission_codes(permission_codes: set[str]) -> set[str]:
         for code in permission_codes & action_permission_codes()
         if action_page_bindings().get(code, set()) & menu_codes
     }
-    return menu_codes | explicit_action_codes | linked_action_codes(menu_codes)
+    return menu_codes | explicit_action_codes
 
 
 def filter_bound_action_codes(permission_codes: set[str]) -> set[str]:
     """返回当前角色显式拥有且已挂靠到授权菜单下的按钮/API 权限。"""
 
     menu_codes = permission_codes & menu_permission_codes()
-    explicit_action_codes = {
+    return {
         code
         for code in permission_codes & action_permission_codes()
         if action_page_bindings().get(code, set()) & menu_codes
     }
-    return explicit_action_codes | linked_action_codes(menu_codes)
+
+
+def user_permission_codes(user: Any) -> set[str]:
+    """汇总用户启用角色下的原始权限编码。"""
+
+    codes: set[str] = set()
+    for role in getattr(user, "roles", []):
+        if not role.enabled:
+            continue
+        for permission in role.permissions:
+            codes.add(permission.code)
+    return codes
+
+
+def is_admin(user: Any) -> bool:
+    """系统管理员拥有当前真实权限定义中的全部权限。"""
+
+    return any(role.code == "admin" and role.enabled for role in getattr(user, "roles", []))
+
+
+def has_permission(user: Any, permission_code: str) -> bool:
+    """按当前菜单绑定关系判断用户是否拥有指定权限。"""
+
+    if is_admin(user):
+        return True
+    permission_codes = sync_menu_action_permission_codes(user_permission_codes(user))
+    return permission_code in permission_codes
 
 
 def permission_catalog() -> list[dict[str, str]]:
@@ -321,5 +374,5 @@ def _split_permission_code(code: str, default_action: str) -> tuple[str, str]:
 
     if ":" not in code:
         return code, default_action
-    module, action = code.split(":", 1)
+    module, action = code.rsplit(":", 1)
     return module, action

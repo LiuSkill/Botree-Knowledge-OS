@@ -70,6 +70,14 @@ class ReviewService:
 
         try:
             document = DocumentService(self.db).get_document(document_id, operator)
+            if document.project_id is not None:
+                from app.services.project_access_service import ProjectAccessService
+
+                ProjectAccessService(self.db).ensure_document_access(
+                    document,
+                    operator,
+                    permission_codes=("project:submit-review",),
+                )
             version = self._resolve_submit_version(document, version_no)
             if version is None:
                 if document.review_status not in SUBMITTABLE_REVIEW_STATUSES:

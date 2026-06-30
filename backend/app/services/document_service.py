@@ -191,7 +191,7 @@ class DocumentService:
             self.access_service.ensure_document_access(
                 document,
                 user,
-                permission_codes=tuple(permission_codes or ("project_document:view",)),
+                permission_codes=tuple(permission_codes or ("project:view",)),
             )
             return
         self._ensure_document_security_access(document, user)
@@ -254,11 +254,11 @@ class DocumentService:
                 self.access_service.ensure_project_access(
                     knowledge_base.project_id,
                     user,
-                    permission_codes=("project_document:view",),
+                    permission_codes=("project:view",),
                 )
 
         if project_id is not None:
-            self.access_service.ensure_project_access(project_id, user, permission_codes=("project_document:view",))
+            self.access_service.ensure_project_access(project_id, user, permission_codes=("project:view",))
 
         category_ids = self.category_service.descendant_ids(category_id) if category_id is not None else None
         documents = self.repository.list(
@@ -281,14 +281,14 @@ class DocumentService:
                 result.append(document)
                 continue
 
-            if not self.access_service.can_access_document(document, user, permission_codes=("project_document:view",)):
+            if not self.access_service.can_access_document(document, user, permission_codes=("project:view",)):
                 continue
             if document.project_id is not None:
                 try:
                     self.access_service.ensure_project_access(
                         document.project_id,
                         user,
-                        permission_codes=("project_document:view",),
+                        permission_codes=("project:view",),
                     )
                 except AppException:
                     logger.info(
@@ -314,7 +314,6 @@ class DocumentService:
         keyword: str | None = None,
         status: str | None = None,
         security_level: str | None = None,
-        ai_enabled: bool | None = None,
         parse_status: str | None = None,
         index_status: str | None = None,
         document_type: str | None = None,
@@ -323,7 +322,7 @@ class DocumentService:
     ) -> dict[str, object]:
         """项目资料管理页分页查询，数量统计由数据库聚合返回，前端只负责展示。"""
 
-        self.access_service.ensure_project_access(project_id, user, permission_codes=("project_document:view",))
+        self.access_service.ensure_project_access(project_id, user, permission_codes=("project:view",))
         category_ids = self.category_service.descendant_ids(category_id) if category_id is not None else None
         result = self.repository.list_project_page(
             project_id=project_id,
@@ -334,7 +333,6 @@ class DocumentService:
             keyword=keyword,
             status=status,
             security_level=security_level,
-            ai_enabled=ai_enabled,
             parse_status=parse_status,
             index_status=index_status,
             document_type=document_type,
@@ -376,7 +374,7 @@ class DocumentService:
         document = self.repository.get(document_id)
         if not document:
             raise AppException("文档不存在", status_code=404, code=404)
-        self._ensure_project_document_access(document, user, "project_document:view")
+        self._ensure_project_document_access(document, user, "project:view")
         self._enrich_category_fields(document)
         return document
 
@@ -408,7 +406,7 @@ class DocumentService:
             self.access_service.ensure_project_access(
                 knowledge_base.project_id,
                 operator,
-                permission_codes=("project_document:upload",),
+                permission_codes=("project:upload",),
             )
         category = self.category_service.validate_for_document(
             category_id,
@@ -436,7 +434,6 @@ class DocumentService:
             discipline=discipline,
             version=version_label,
             status=PROJECT_DOCUMENT_STATUS_PENDING,
-            ai_enabled=False,
             upload_user_id=operator.id,
             category_id=category.id,
             file_name=file_info["file_name"],
@@ -476,7 +473,6 @@ class DocumentService:
                 index_status=document.index_status,
                 is_current=False,
                 is_current_version=True,
-                ai_enabled=False,
                 security_level=document.security_level,
                 created_by=operator.id,
                 upload_user_id=operator.id,
@@ -528,7 +524,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:version:create")
+        self._ensure_project_document_access(document, operator, "project:document:version-create")
         target_category_id = category_id or document.category_id
         if target_category_id is None:
             raise AppException("上传新版本前必须指定文档分类")
@@ -549,7 +545,6 @@ class DocumentService:
             for existing_version in self.repository.list_versions(document.id):
                 existing_version.is_current = False
                 existing_version.is_current_version = False
-                existing_version.ai_enabled = False
                 if existing_version.version_status == VERSION_STATUS_CURRENT:
                     existing_version.version_status = VERSION_STATUS_HISTORICAL
 
@@ -574,7 +569,6 @@ class DocumentService:
                 index_status=INDEX_STATUS_NOT_INDEXED,
                 is_current=activate_new_version,
                 is_current_version=activate_new_version,
-                ai_enabled=False,
                 security_level=document.security_level,
                 created_by=operator.id,
                 upload_user_id=operator.id,
@@ -592,7 +586,6 @@ class DocumentService:
             document.directory_id = category.id
             document.category_id = category.id
             document.status = PROJECT_DOCUMENT_STATUS_PENDING
-            document.ai_enabled = False
             document.document_status = DOCUMENT_STATUS_PENDING_REVIEW
             document.review_status = REVIEW_STATUS_DRAFT
             document.parse_status = PARSE_STATUS_UNPARSED
@@ -632,7 +625,7 @@ class DocumentService:
 
     def update_document_metadata(self, document_id: int, payload: DocumentMetadataUpdate, operator: User) -> Document:
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:update")
+        self._ensure_project_document_access(document, operator, "project:document:edit")
         fields_set = payload.model_fields_set
         changed_fields: list[str] = []
 
@@ -661,25 +654,13 @@ class DocumentService:
                     changed_fields.append(field)
 
         if "security_level" in fields_set and payload.security_level is not None:
-            self._ensure_project_document_access(document, operator, "project_document:security_update")
+            self._ensure_project_document_access(document, operator, "project:document:security-update")
             if self._apply_document_security_level(document, payload.security_level, operator):
                 changed_fields.append("security_level")
 
         if "status" in fields_set and payload.status is not None:
             if self._apply_project_document_status(document, payload.status, operator):
                 changed_fields.append("status")
-
-        if "ai_enabled" in fields_set and payload.ai_enabled is not None:
-            self._ensure_project_document_access(document, operator, "project_document:ai_toggle")
-            if payload.ai_enabled and document.status != PROJECT_DOCUMENT_STATUS_PUBLISHED:
-                raise AppException("仅已发布文档允许开启 AI 问答")
-            old_ai_enabled = bool(document.ai_enabled)
-            document.ai_enabled = bool(payload.ai_enabled)
-            current_version = self.repository.get_current_version(document.id)
-            if current_version:
-                current_version.ai_enabled = document.ai_enabled
-            if old_ai_enabled != document.ai_enabled:
-                changed_fields.append("ai_enabled")
 
         if changed_fields:
             SystemService(self.db).record_operation(
@@ -704,7 +685,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:delete")
+        self._ensure_project_document_access(document, operator, "project:document:delete")
         if document.project_id is None:
             return self._delete_base_document(document, operator)
         all_chunks = self.repository.list_chunks(document.id, include_obsolete=True)
@@ -719,11 +700,9 @@ class DocumentService:
         deleted_at = now_utc()
         document.is_deleted = True
         document.deleted_at = deleted_at
-        document.ai_enabled = False
         if document.index_status == INDEX_STATUS_INDEXED:
             document.index_status = INDEX_STATUS_INVALID
         for version in self.repository.list_versions(document.id):
-            version.ai_enabled = False
             if version.index_status == INDEX_STATUS_INDEXED:
                 version.index_status = INDEX_STATUS_INVALID
         SystemService(self.db).record_operation(
@@ -827,7 +806,7 @@ class DocumentService:
         """发布项目资料，同时写入旧审核字段以兼容现有解析和索引链路。"""
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:publish")
+        self._ensure_project_document_access(document, operator, "project:submit-review")
         current_version = self.repository.get_current_version(document.id) or self.repository.get_version(document.id, document.version_no)
         reviewed_at = now_utc()
         document.status = PROJECT_DOCUMENT_STATUS_PUBLISHED
@@ -857,30 +836,6 @@ class DocumentService:
         logger.info("文档发布完成: document_id=%s project_id=%s operator_id=%s", document.id, document.project_id, operator.id)
         return document
 
-    def toggle_document_ai(self, document_id: int, ai_enabled: bool, operator: User) -> Document:
-        """开启或关闭文档参与项目问答；开启前必须已发布且未删除。"""
-
-        document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:ai_toggle")
-        if ai_enabled and document.status != PROJECT_DOCUMENT_STATUS_PUBLISHED:
-            raise AppException("仅已发布文档允许开启 AI 问答")
-        old_value = bool(document.ai_enabled)
-        document.ai_enabled = bool(ai_enabled)
-        current_version = self.repository.get_current_version(document.id) or self.repository.get_version(document.id, document.version_no)
-        if current_version:
-            current_version.ai_enabled = document.ai_enabled
-        SystemService(self.db).record_operation(
-            operator,
-            "修改 AI 问答开关",
-            TARGET_TYPE_DOCUMENT,
-            document.id,
-            json.dumps({"old": old_value, "new": document.ai_enabled}, ensure_ascii=False),
-        )
-        self.db.commit()
-        self._enrich_category_fields(document)
-        logger.info("文档 AI 问答开关更新: document_id=%s old=%s new=%s", document.id, old_value, document.ai_enabled)
-        return document
-
     def download_url(self, document_id: int, user: User) -> dict:
         """
         获取文档下载信息。
@@ -894,7 +849,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:download")
+        self._ensure_project_document_access(document, user, "project:document:download")
         SystemService(self.db).record_operation(
             user,
             "下载文件",
@@ -968,7 +923,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:preview")
+        self._ensure_project_document_access(document, user, "project:document:preview")
         target_version_no = version_no if version_no is not None else document.version_no
         version = self.repository.get_version(document.id, target_version_no)
         if version_no is not None and version is None:
@@ -1030,7 +985,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:view")
+        self._ensure_project_document_access(document, user, "project:view")
         return self.repository.list_chunks(document_id, version_no=version_no)
 
     def _resolve_index_build_version(self, document: Document, version_no: int | None = None) -> DocumentVersion:
@@ -1134,7 +1089,6 @@ class DocumentService:
             else:
                 version.is_current = False
                 version.is_current_version = False
-                version.ai_enabled = False
                 if was_current or version.version_status == VERSION_STATUS_CURRENT or version.index_status == INDEX_STATUS_INDEXED:
                     version.version_status = VERSION_STATUS_HISTORICAL
                 if version.index_status == INDEX_STATUS_INDEXED:
@@ -1162,7 +1116,6 @@ class DocumentService:
         document.index_status = INDEX_STATUS_INDEXED
         document.current_version = True
         document.is_current_version = True
-        document.ai_enabled = target_version.ai_enabled
         document.reviewed_by = target_version.reviewed_by
         document.reviewed_at = target_version.reviewed_at
         document.review_comment = target_version.review_comment
@@ -1190,7 +1143,7 @@ class DocumentService:
         """构建目标版本索引；成功后切换当前版本，失败时保持旧版本生效。"""
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:retry_index")
+        self._ensure_project_document_access(document, operator, "project:document:retry-index")
         version = self._resolve_index_build_version(document, version_no)
         self._ensure_version_review_approved(version, "解析并构建索引")
         self._ensure_no_active_index_build(
@@ -1388,7 +1341,7 @@ class DocumentService:
         return self._build_document_version_index(document_id, operator, version_no, active_task_id)
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:retry_index")
+        self._ensure_project_document_access(document, operator, "project:document:retry-index")
         self._ensure_document_is_approved(document)
 
         document.build_started_at = now_utc()
@@ -1445,7 +1398,7 @@ class DocumentService:
         """兼容旧手动解析接口，默认解析当前主文档版本。"""
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:retry_parse")
+        self._ensure_project_document_access(document, operator, "project:document:retry-parse")
         return self.parse_document_version(document.id, document.version_no, operator)
 
     def parse_document_version(self, document_id: int, version_no: int, operator: User) -> dict:
@@ -1457,7 +1410,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:retry_parse")
+        self._ensure_project_document_access(document, operator, "project:document:retry-parse")
         version = self.repository.get_version(document.id, version_no)
         if not version:
             raise AppException("目标版本不存在", status_code=404, code=404)
@@ -1655,7 +1608,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:version:view")
+        self._ensure_project_document_access(document, user, "project:document:version-view")
         return self.repository.list_versions(document_id)
 
     def get_version_file(self, document_id: int, version_no: int, user: User) -> DocumentVersion:
@@ -1672,7 +1625,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:download")
+        self._ensure_project_document_access(document, user, "project:document:download")
         version = self.repository.get_version(document_id, version_no)
         if not version:
             raise AppException("目标版本不存在", status_code=404, code=404)
@@ -1697,7 +1650,13 @@ class DocumentService:
         )
         return version
 
-    def rollback_document(self, document_id: int, operator: User, version_no: int | None = None) -> Document:
+    def rollback_document(
+        self,
+        document_id: int,
+        operator: User,
+        version_no: int | None = None,
+        permission_code: str = "project:document:version-create",
+    ) -> Document:
         """
         回滚文档到目标版本。
 
@@ -1711,7 +1670,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:version:create")
+        self._ensure_project_document_access(document, operator, permission_code)
         versions = self.repository.list_versions(document.id)
         if not versions:
             raise AppException("文档没有可回滚版本")
@@ -1732,9 +1691,6 @@ class DocumentService:
             is_target = version.id == target.id
             version.is_current = is_target
             version.is_current_version = is_target
-            if not is_target:
-                version.ai_enabled = False
-
         document.version_no = target.version_no
         document.version = target.version or f"v{target.version_no}"
         document.document_name = target.file_name
@@ -1747,7 +1703,6 @@ class DocumentService:
         document.category_id = target.category_id
         document.security_level = target.security_level
         document.status = target.status or PROJECT_DOCUMENT_STATUS_PENDING
-        document.ai_enabled = False
         document.review_status = target.review_status
         document.document_status = DOCUMENT_STATUS_REVIEWED if document.status == PROJECT_DOCUMENT_STATUS_PUBLISHED else DOCUMENT_STATUS_PENDING_REVIEW
         document.parse_status = target.parse_status
@@ -1759,8 +1714,6 @@ class DocumentService:
         document.build_error = None
         document.built_by = None
         target.index_status = INDEX_STATUS_NOT_INDEXED
-        target.ai_enabled = False
-
         SystemService(self.db).record_operation(
             operator,
             ACTION_ROLLBACK_DOCUMENT,
@@ -1777,11 +1730,16 @@ class DocumentService:
         """按版本记录 ID 标记当前版本，供项目资料版本管理 API 使用。"""
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:version:create")
+        self._ensure_project_document_access(document, operator, "project:document:version-set-current")
         target = self.repository.get_version_by_id(version_id)
         if target is None or target.document_id != document.id:
             raise AppException("目标版本不存在", status_code=404, code=404)
-        return self.rollback_document(document_id, operator, target.version_no)
+        return self.rollback_document(
+            document_id,
+            operator,
+            target.version_no,
+            permission_code="project:document:version-set-current",
+        )
 
     def _build_version_context(
         self,
@@ -2194,7 +2152,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:view")
+        self._ensure_project_document_access(document, user, "project:view")
         return PageIndexService(self.db).list_pages(document_id, user, version_no)
 
     def preview_document(self, document_id: int, user: User, version_no: int | None = None) -> dict[str, object]:
@@ -2210,7 +2168,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:preview")
+        self._ensure_project_document_access(document, user, "project:document:preview")
         version = self.repository.get_version(document.id, version_no) if version_no is not None else None
         if version_no is not None and version is None:
             raise AppException("目标版本不存在", status_code=404, code=404)
@@ -2337,7 +2295,7 @@ class DocumentService:
         if asset is None:
             raise AppException("派生资产不存在", status_code=404, code=404)
         document = self.get_document(asset.document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:preview")
+        self._ensure_project_document_access(document, user, "project:document:preview")
         return asset
 
     def correct_page(
@@ -2365,7 +2323,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:update")
+        self._ensure_project_document_access(document, user, "project:document:edit")
         return PageIndexService(self.db).correct_page(
             document_id,
             page_no,
@@ -2390,7 +2348,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:retry_index")
+        self._ensure_project_document_access(document, user, "project:document:retry-index")
         return PageIndexService(self.db).quality_check(document_id, user, passed, comment)
 
     def create_index_build_task(self, document_id: int, user: User, version_no: int | None = None) -> IndexTask:
@@ -2406,7 +2364,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:retry_index")
+        self._ensure_project_document_access(document, user, "project:document:retry-index")
         version = self._resolve_index_build_version(document, version_no)
         self._ensure_version_review_approved(version, "解析并构建索引")
         self._ensure_no_active_index_build(document, version)
@@ -2444,7 +2402,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project_document:retry_index")
+        self._ensure_project_document_access(document, user, "project:document:retry-index")
         version = self.repository.get_current_version(document.id) or self.repository.get_version(document.id, document.version_no)
         return IndexTaskService(self.db).create_publish_task(document.id, document.version_no, user, version.id if version else None)
 
@@ -2495,7 +2453,7 @@ class DocumentService:
         """修改文档密级，并让依赖旧向量 metadata 的索引失效后重建。"""
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project_document:security_update")
+        self._ensure_project_document_access(document, operator, "project:document:security-update")
         target_level = normalize_security_level(security_level, default=document.security_level)
         ensure_security_level_access(operator, target_level, message="无权修改为超出自身最高密级的文档")
         if document.security_level == target_level:
@@ -2544,19 +2502,17 @@ class DocumentService:
             raise AppException("文件状态仅支持待审核和已发布")
         old_status = document.status
         if status == PROJECT_DOCUMENT_STATUS_PUBLISHED:
-            self._ensure_project_document_access(document, operator, "project_document:publish")
+            self._ensure_project_document_access(document, operator, "project:submit-review")
             self._apply_published_status(document, operator)
         else:
             document.status = PROJECT_DOCUMENT_STATUS_PENDING
             document.document_status = DOCUMENT_STATUS_PENDING_REVIEW
             document.review_status = REVIEW_STATUS_DRAFT
-            document.ai_enabled = False
             current_version = self.repository.get_current_version(document.id)
             if current_version:
                 current_version.status = PROJECT_DOCUMENT_STATUS_PENDING
                 current_version.review_status = REVIEW_STATUS_DRAFT
                 current_version.version_status = VERSION_STATUS_DRAFT
-                current_version.ai_enabled = False
         return old_status != document.status
 
     def _apply_published_status(self, document: Document, operator: User) -> None:

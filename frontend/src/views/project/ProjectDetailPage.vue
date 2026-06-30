@@ -47,13 +47,13 @@ import {
   updateProject,
   updateProjectDirectory,
   updateProjectDocument,
-  updateProjectDocumentAiEnabled,
   updateProjectDocumentSecurityLevel,
   uploadProjectDocument,
   type ProjectPayload,
 } from '@/api/projects';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import { ROUTE_PATHS } from '@/shared/constants/routes';
 import { useAuthStore } from '@/stores/auth';
 import type {
@@ -144,10 +144,6 @@ const DOCUMENT_TYPE_OPTIONS = [
   '其他',
 ];
 const DISCIPLINE_OPTIONS = ['工艺', '管道', '设备', '仪表', '电气', '结构', '造价', '拆解', '采购', '项目管理', '其他'];
-const AI_ENABLED_OPTIONS = [
-  { label: 'AI 开启', value: 'true' },
-  { label: 'AI 关闭', value: 'false' },
-];
 const ACCEPTED_UPLOAD_EXTENSIONS = new Set(['txt', 'md', 'csv', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'odt', 'odp', 'ods', 'rtf', 'zip', 'rar']);
 const DEFAULT_PROJECT_DIRECTORY_TEMPLATE: DirectoryTemplateNode[] = [
   {
@@ -242,30 +238,26 @@ const editingCategoryId = ref<number | null>(null);
 
 const projectId = computed(() => Number(route.params.id));
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
-function hasAnyPermission(permissions: string[]): boolean {
-  return permissions.some((permission) => authStore.hasPermission(permission));
-}
-
-const canViewProjectDetail = computed(() => hasAnyPermission(['project:detail:view', 'project:view', 'project']));
-const canEditProject = computed(() => hasAnyPermission(['project:update', 'project:edit']));
-const canViewDocuments = computed(() => hasAnyPermission(['project_document:view', 'project:document:view', 'knowledge:view']));
-const canUploadDocuments = computed(() => hasAnyPermission(['project_document:upload', 'knowledge:upload']));
-const canPreviewDocuments = computed(() => hasAnyPermission(['project_document:preview', 'knowledge:view']));
-const canDownloadDocuments = computed(() => hasAnyPermission(['project_document:download', 'knowledge:view']));
-const canPublishDocuments = computed(() => hasAnyPermission(['project_document:publish', 'knowledge:submit-review']));
-const canDeleteDocuments = computed(() => hasAnyPermission(['project_document:delete', 'knowledge:delete']));
-const canRetryParseDocuments = computed(() => hasAnyPermission(['project_document:retry_parse', 'review:build-index']));
-const canRetryIndexDocuments = computed(() => hasAnyPermission(['project_document:retry_index', 'review:build-index']));
-const canToggleDocumentAi = computed(() => hasAnyPermission(['project_document:ai_toggle', 'knowledge:edit']));
-const canUpdateDocumentSecurity = computed(() => hasAnyPermission(['project_document:security_update', 'knowledge:edit']));
-const canUpdateDocumentMetadata = computed(() => hasAnyPermission(['project_document:update', 'knowledge:edit']));
-const canCreateDocumentVersion = computed(() => hasAnyPermission(['project_document:version:create', 'knowledge:upload']));
-const canViewDocumentVersions = computed(() => hasAnyPermission(['project_document:version:view']));
-const canViewDirectories = computed(() => hasAnyPermission(['project_directory:view', 'project:document:view', 'project_document:view']));
-const canCreateCategories = computed(() => hasAnyPermission(['project_directory:create', 'knowledge:create']));
-const canEditCategories = computed(() => hasAnyPermission(['project_directory:update', 'knowledge:edit']));
-const canDeleteCategories = computed(() => hasAnyPermission(['project_directory:delete', 'knowledge:delete']));
-const canAskProjectChat = computed(() => hasAnyPermission(['project_chat:ask', 'project:chat:view']));
+const canViewProjectDetail = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
+const canEditProject = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_EDIT));
+const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
+const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_UPLOAD));
+const canPreviewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_PREVIEW));
+const canDownloadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_DOWNLOAD));
+const canPublishDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_SUBMIT_REVIEW));
+const canDeleteDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_DELETE));
+const canRetryParseDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_RETRY_PARSE));
+const canRetryIndexDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_RETRY_INDEX));
+const canUpdateDocumentSecurity = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_SECURITY_UPDATE));
+const canUpdateDocumentMetadata = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_EDIT));
+const canCreateDocumentVersion = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_VERSION_CREATE));
+const canSetCurrentDocumentVersion = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_VERSION_SET_CURRENT));
+const canViewDocumentVersions = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_VERSION_VIEW));
+const canViewDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
+const canCreateCategories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_CREATE));
+const canEditCategories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_EDIT));
+const canDeleteCategories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_DELETE));
+const canAskProjectChat = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_CHAT));
 const canUseProjectChat = computed(() => canAskProjectChat.value && (project.value?.project_chat_enabled ?? true));
 
 const uploadForm = reactive({
@@ -284,7 +276,6 @@ const documentFilters = reactive({
   index_status: '',
   document_type: '',
   discipline: '',
-  ai_enabled: '' as '' | 'true' | 'false',
   version: '',
   upload_user_id: '',
   updated_range: [] as string[],
@@ -292,7 +283,6 @@ const documentFilters = reactive({
 
 const batchForm = reactive({
   security_level: 'internal' as SecurityLevel,
-  ai_enabled: false,
 });
 
 const metadataForm = reactive({
@@ -366,7 +356,6 @@ const filteredDocuments = computed(() => {
     if (documentFilters.index_status && documentIndexStatus(document) !== documentFilters.index_status) return false;
     if (documentFilters.document_type && document.document_type !== documentFilters.document_type) return false;
     if (documentFilters.discipline && document.discipline !== documentFilters.discipline) return false;
-    if (documentFilters.ai_enabled && String(Boolean(document.ai_enabled)) !== documentFilters.ai_enabled) return false;
     if (documentFilters.version) {
       const version = String(document.version || document.version_no || '').toLowerCase();
       if (!version.includes(documentFilters.version.trim().toLowerCase())) return false;
@@ -825,7 +814,7 @@ async function confirmVersionUpload(): Promise<void> {
 
 async function setCurrentVersion(version: DocumentVersionInfo): Promise<void> {
   if (!selectedDocument.value) return;
-  if (!canCreateDocumentVersion.value) {
+  if (!canSetCurrentDocumentVersion.value) {
     MessagePlugin.warning('无权限切换当前版本');
     return;
   }
@@ -942,18 +931,6 @@ async function updateSelectedDocumentSecurity(): Promise<void> {
   await loadData();
 }
 
-async function updateSelectedDocumentAiEnabled(value: boolean): Promise<void> {
-  if (!selectedDocument.value) return;
-  if (!canToggleDocumentAi.value) {
-    MessagePlugin.warning('无权限修改 AI 问答开关');
-    return;
-  }
-  const document = await updateProjectDocumentAiEnabled(projectId.value, selectedDocument.value.id, value);
-  selectedDocument.value = document;
-  MessagePlugin.success(value ? 'AI 问答已开启' : 'AI 问答已关闭');
-  await loadData();
-}
-
 async function applyBatchSecurityLevel(): Promise<void> {
   if (!selectedDocumentIds.value.length) {
     MessagePlugin.warning('请选择文件');
@@ -965,20 +942,6 @@ async function applyBatchSecurityLevel(): Promise<void> {
   }
   await Promise.all(selectedDocumentIds.value.map((id) => updateProjectDocumentSecurityLevel(projectId.value, id, batchForm.security_level)));
   MessagePlugin.success('批量密级已更新');
-  await loadData();
-}
-
-async function applyBatchAiEnabled(): Promise<void> {
-  if (!selectedDocumentIds.value.length) {
-    MessagePlugin.warning('请选择文件');
-    return;
-  }
-  if (!canToggleDocumentAi.value) {
-    MessagePlugin.warning('无权限修改 AI 问答开关');
-    return;
-  }
-  await Promise.all(selectedDocumentIds.value.map((id) => updateProjectDocumentAiEnabled(projectId.value, id, batchForm.ai_enabled)));
-  MessagePlugin.success(batchForm.ai_enabled ? '批量 AI 问答已开启' : '批量 AI 问答已关闭');
   await loadData();
 }
 
@@ -1588,8 +1551,6 @@ onMounted(loadData);
               <div><span>索引状态</span><StatusTag type="index" :value="documentIndexStatus(selectedDocument)" /></div>
               <div><span>Embedding</span><strong>{{ documentEmbeddingStatus(selectedDocument) }}</strong></div>
               <div><span>Chunk 数量</span><strong>{{ documentChunkCount(selectedDocument) }}</strong></div>
-              <div><span>AI 问答</span><strong>{{ selectedDocument.ai_enabled ? '开启' : '关闭' }}</strong></div>
-              <div><span>检索资格</span><strong>{{ isPublishedDocument(selectedDocument) && selectedDocument.ai_enabled && documentIndexStatus(selectedDocument) === 'indexed' ? '可进入问答' : '不可进入问答' }}</strong></div>
             </div>
           </section>
 
@@ -1631,15 +1592,6 @@ onMounted(loadData);
               </div>
               <t-form-item label="备注">
                 <t-textarea v-model="metadataForm.remark" :disabled="!canUpdateDocumentMetadata" :autosize="{ minRows: 3, maxRows: 4 }" />
-              </t-form-item>
-              <t-form-item label="AI 问答开关">
-                <t-switch
-                  v-if="canToggleDocumentAi"
-                  v-model="selectedDocument.ai_enabled"
-                  :disabled="!isPublishedDocument(selectedDocument)"
-                  @change="(value) => updateSelectedDocumentAiEnabled(Boolean(value))"
-                />
-                <span v-else class="muted">无权限修改</span>
               </t-form-item>
               <t-space class="document-form-actions">
                 <t-button v-if="canUpdateDocumentMetadata" variant="outline" @click="saveSelectedDocumentMetadata">保存元数据</t-button>
@@ -1685,7 +1637,7 @@ onMounted(loadData);
                     <td>{{ version.version_note || version.change_summary || '-' }}</td>
                     <td>
                       <t-button
-                        v-if="canCreateDocumentVersion && !(version.is_current || version.is_current_version)"
+                        v-if="canSetCurrentDocumentVersion && !(version.is_current || version.is_current_version)"
                         size="small"
                         variant="outline"
                         @click="setCurrentVersion(version)"
@@ -1740,7 +1692,6 @@ onMounted(loadData);
               <div><span>索引状态</span><strong>{{ documentIndexStatus(selectedDocument) }}</strong></div>
               <div><span>Embedding</span><strong>{{ documentEmbeddingStatus(selectedDocument) }}</strong></div>
               <div><span>Chunk 数量</span><strong>{{ documentChunkCount(selectedDocument) }}</strong></div>
-              <div><span>AI 问答</span><strong>{{ selectedDocument.ai_enabled ? '开启' : '关闭' }}</strong></div>
               <div><span>构建开始</span><strong>{{ formatDateTime(selectedDocument.build_started_at || '') }}</strong></div>
               <div><span>构建完成</span><strong>{{ formatDateTime(selectedDocument.build_finished_at || '') }}</strong></div>
               <div class="drawer-info-wide"><span>构建错误</span><strong>{{ selectedDocument.build_error || '-' }}</strong></div>

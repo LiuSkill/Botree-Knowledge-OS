@@ -33,6 +33,7 @@ import {
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type {
   DocumentAssetInfo,
@@ -221,11 +222,39 @@ const markdownRenderer = new MarkdownIt({
 });
 
 const documentId = computed(() => Number(route.params.id));
-const canUploadVersion = computed(() => authStore.hasActionPermission('knowledge:upload'));
-const canDeleteDocument = computed(() => authStore.hasActionPermission('knowledge:delete'));
-const canReviewDocument = computed(() => authStore.hasActionPermission('review:review'));
-const canBuildDocumentIndex = computed(() => authStore.hasActionPermission('review:build-index'));
-const canEditDocumentSecurity = computed(() => authStore.hasActionPermission('knowledge:edit'));
+const isProjectDocument = computed(() => documentInfo.value?.knowledge_type === 'project');
+const viewDocumentPermission = computed(() => (isProjectDocument.value ? PERMISSIONS.PROJECT_VIEW : PERMISSIONS.KNOWLEDGE_VIEW));
+const previewDocumentPermission = computed(() =>
+  isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_PREVIEW : PERMISSIONS.KNOWLEDGE_VIEW,
+);
+const downloadDocumentPermission = computed(() =>
+  isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_DOWNLOAD : PERMISSIONS.KNOWLEDGE_DOWNLOAD,
+);
+const submitReviewPermission = computed(() =>
+  isProjectDocument.value ? PERMISSIONS.PROJECT_SUBMIT_REVIEW : PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW,
+);
+const deleteDocumentPermission = computed(() =>
+  isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_DELETE : PERMISSIONS.KNOWLEDGE_DELETE,
+);
+const uploadVersionPermission = computed(() =>
+  isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_VERSION_CREATE : PERMISSIONS.KNOWLEDGE_UPLOAD,
+);
+const editSecurityPermission = computed(() =>
+  isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_SECURITY_UPDATE : PERMISSIONS.KNOWLEDGE_EDIT,
+);
+const parseDocumentPermission = computed(() =>
+  isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_RETRY_PARSE : PERMISSIONS.REVIEW_BUILD_INDEX,
+);
+const buildIndexPermission = computed(() =>
+  isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_RETRY_INDEX : PERMISSIONS.REVIEW_BUILD_INDEX,
+);
+const canPreviewDocument = computed(() => authStore.hasActionPermission(previewDocumentPermission.value));
+const canDownloadDocument = computed(() => authStore.hasActionPermission(downloadDocumentPermission.value));
+const canUploadVersion = computed(() => authStore.hasActionPermission(uploadVersionPermission.value));
+const canDeleteDocument = computed(() => authStore.hasActionPermission(deleteDocumentPermission.value));
+const canParseDocument = computed(() => authStore.hasActionPermission(parseDocumentPermission.value));
+const canBuildDocumentIndex = computed(() => authStore.hasActionPermission(buildIndexPermission.value));
+const canEditDocumentSecurity = computed(() => authStore.hasActionPermission(editSecurityPermission.value));
 const backPath = computed(() => {
   /**
    * 根据知识范围返回对应的上级页面，保证删除或返回时回到正确上下文。
@@ -264,7 +293,7 @@ const activeBuildTask = computed(() =>
   ) || null,
 );
 const canParseVersion = computed(() =>
-  canBuildDocumentIndex.value &&
+  canParseDocument.value &&
   Boolean(documentInfo.value) &&
   viewedParseStatus.value !== 'parsing' &&
   !parsing.value,
@@ -896,6 +925,10 @@ async function openDocumentPdfPreview(version?: DocumentVersionInfo): Promise<vo
    * 在弹窗中预览当前版本 PDF：PDF 原文件直接展示，非 PDF 展示后端转换后的 PDF。
    */
   if (!documentInfo.value || pdfPreviewLoading.value) return;
+  if (!canPreviewDocument.value) {
+    MessagePlugin.warning('无权限预览文档');
+    return;
+  }
 
   const versionNo = version?.version_no ?? viewedVersionNo.value;
   const fileName = version?.file_name || viewedFileName.value;
@@ -1041,7 +1074,7 @@ function handleVersionFileChange(event: Event): void {
 }
 
 function canSubmitVersion(version: DocumentVersionInfo): boolean {
-  return SUBMITTABLE_REVIEW_STATUSES.has(version.review_status);
+  return authStore.hasActionPermission(submitReviewPermission.value) && SUBMITTABLE_REVIEW_STATUSES.has(version.review_status);
 }
 
 async function submitReview(versionNo: number | null = viewedVersionNo.value): Promise<void> {
@@ -1049,6 +1082,10 @@ async function submitReview(versionNo: number | null = viewedVersionNo.value): P
    * 将当前查看版本送审；新版本送审前不会影响旧版本检索。
    */
   if (!documentInfo.value) return;
+  if (!authStore.hasActionPermission(submitReviewPermission.value)) {
+    MessagePlugin.warning('无权限提交审核');
+    return;
+  }
   await submitDocumentReview(documentInfo.value.id, '提交审核', versionNo);
   MessagePlugin.success('已提交审核');
   await loadData(true);
@@ -1059,6 +1096,10 @@ async function runParse(versionNo: number | null = viewedVersionNo.value): Promi
    * 审核前允许解析，供审核人员查看预览、页级内容和知识分块。
    */
   if (!documentInfo.value || parsing.value) return;
+  if (!canParseDocument.value) {
+    MessagePlugin.warning('无权限执行解析');
+    return;
+  }
   parsing.value = true;
   try {
     await parseDocument(documentInfo.value.id, versionNo);
@@ -1077,6 +1118,10 @@ async function createIndexBuild(versionNo: number | null = viewedVersionNo.value
    * 审核通过后创建后台任务；任务会按需先解析再发布索引。
    */
   if (!documentInfo.value || buildingIndex.value) return;
+  if (!canBuildDocumentIndex.value) {
+    MessagePlugin.warning('无权限构建索引');
+    return;
+  }
   buildingIndex.value = true;
   try {
     const task = await createDocumentIndexBuildTask(documentInfo.value.id, versionNo);
@@ -1095,6 +1140,10 @@ async function uploadNewVersion(): Promise<void> {
    * 上传新版本原始文件，并刷新当前详情页的版本、状态和预览。
    */
   if (!documentInfo.value) return;
+  if (!canUploadVersion.value) {
+    MessagePlugin.warning('无权限上传新版本');
+    return;
+  }
   if (!selectedVersionFile.value) {
     MessagePlugin.warning('请先选择新版本文件');
     return;
@@ -1122,11 +1171,19 @@ async function downloadVersion(version: DocumentVersionInfo): Promise<void> {
   /**
    * 下载指定版本的原始文件，便于与解析预览结果进行对照。
    */
+  if (!canDownloadDocument.value) {
+    MessagePlugin.warning('无权限下载文档');
+    return;
+  }
   const blob = await downloadDocumentVersion(version.document_id, version.version_no);
   triggerBlobDownload(blob, version.file_name);
 }
 
 async function viewVersion(version: DocumentVersionInfo): Promise<void> {
+  if (!authStore.hasActionPermission(viewDocumentPermission.value)) {
+    MessagePlugin.warning('无权限查看文档版本');
+    return;
+  }
   selectedVersionNo.value = version.version_no;
   activeTab.value = 'preview';
   chunks.value = [];
@@ -1143,12 +1200,20 @@ function openSecurityDialog(): void {
    * 文档密级是文档及其版本、分块、页索引的统一上限，前端只允许在文档维度修改。
    */
   if (!documentInfo.value) return;
+  if (!canEditDocumentSecurity.value) {
+    MessagePlugin.warning('无权限修改文档密级');
+    return;
+  }
   securityForm.security_level = documentInfo.value.security_level;
   securityDialogVisible.value = true;
 }
 
 async function confirmSecurityDialog(): Promise<void> {
   if (!documentInfo.value || securitySaving.value) return;
+  if (!canEditDocumentSecurity.value) {
+    MessagePlugin.warning('无权限修改文档密级');
+    return;
+  }
   securitySaving.value = true;
   try {
     await updateDocumentSecurityLevel(documentInfo.value.id, securityForm.security_level);
@@ -1254,7 +1319,7 @@ onBeforeUnmount(() => {
           返回
         </t-button>
         <t-button
-          v-permission="'knowledge:edit'"
+          v-permission="editSecurityPermission"
           v-if="canEditDocumentSecurity"
           variant="outline"
           :disabled="!documentInfo"
@@ -1262,8 +1327,8 @@ onBeforeUnmount(() => {
         >
           修改密级
         </t-button>
-        <t-button v-permission="'knowledge:submit-review'" v-if="canSubmitReview" theme="primary" @click="submitReview()">提交审核</t-button>
-        <t-button v-permission="'knowledge:delete'" v-if="canDeleteDocument" theme="danger" variant="outline" :loading="deleting" @click="removeDocument">删除文档</t-button>
+        <t-button v-permission="submitReviewPermission" v-if="canSubmitReview" theme="primary" @click="submitReview()">提交审核</t-button>
+        <t-button v-permission="deleteDocumentPermission" v-if="canDeleteDocument" theme="danger" variant="outline" :loading="deleting" @click="removeDocument">删除文档</t-button>
       </t-space>
     </template>
 
@@ -1273,7 +1338,7 @@ onBeforeUnmount(() => {
           <div class="summary-item">
             <div class="summary-label">文件名</div>
             <div class="summary-value file-name-value">
-              <t-link theme="primary" :disabled="!documentInfo" @click="openDocumentPdfPreview()">{{ viewedFileName }}</t-link>
+              <t-link theme="primary" :disabled="!documentInfo || !canPreviewDocument" @click="openDocumentPdfPreview()">{{ viewedFileName }}</t-link>
             </div>
           </div>
           <div class="summary-item">
@@ -1332,7 +1397,7 @@ onBeforeUnmount(() => {
                 回到当前版本
               </t-button>
               <t-button
-                v-if="documentInfo"
+                v-if="documentInfo && canPreviewDocument"
                 size="small"
                 variant="outline"
                 :loading="pdfPreviewLoading"
@@ -1472,7 +1537,7 @@ onBeforeUnmount(() => {
                 <tbody>
                   <tr v-for="version in versions" :key="version.id">
                     <td>v{{ version.version_no }}</td>
-                    <td><t-link theme="primary" @click="openDocumentPdfPreview(version)">{{ version.file_name }}</t-link></td>
+                    <td><t-link theme="primary" :disabled="!canPreviewDocument" @click="openDocumentPdfPreview(version)">{{ version.file_name }}</t-link></td>
                     <td>
                       <t-tag size="small" variant="light" :theme="securityLevelTheme(version.security_level)">
                         {{ securityLevelLabel(version.security_level) }}
@@ -1493,16 +1558,16 @@ onBeforeUnmount(() => {
                         <TableActionButton
                           v-if="canSubmitVersion(version)"
                           label="提交审核"
-                          permission="knowledge:submit-review"
+                          :permission="submitReviewPermission"
                           theme="primary"
                           @click="submitReview(version.version_no)"
                         >
                           <AssignmentCheckedIcon />
                         </TableActionButton>
-                        <TableActionButton label="查看" @click="viewVersion(version)">
+                        <TableActionButton label="查看" :permission="viewDocumentPermission" @click="viewVersion(version)">
                           <FileSearchIcon />
                         </TableActionButton>
-                        <TableActionButton label="下载" @click="downloadVersion(version)">
+                        <TableActionButton label="下载" :permission="downloadDocumentPermission" @click="downloadVersion(version)">
                           <DownloadIcon />
                         </TableActionButton>
                       </div>
@@ -1534,7 +1599,7 @@ onBeforeUnmount(() => {
             <div v-if="activeBuildTask" class="muted-text">当前版本已有构建任务 #{{ activeBuildTask.id }}，{{ taskStatusText(activeBuildTask) }}</div>
             <div class="tool-actions">
               <t-button
-                v-permission="'review:build-index'"
+                v-permission="parseDocumentPermission"
                 class="tool-action-button secondary"
                 block
                 variant="outline"
@@ -1546,7 +1611,7 @@ onBeforeUnmount(() => {
                 {{ viewedParseStatus === 'success' ? '重新解析' : '执行解析' }}
               </t-button>
               <t-button
-                v-permission="'review:build-index'"
+                v-permission="buildIndexPermission"
                 class="tool-action-button primary"
                 block
                 theme="primary"
@@ -1585,7 +1650,7 @@ onBeforeUnmount(() => {
               <t-textarea v-model="versionForm.change_summary" :autosize="{ minRows: 3, maxRows: 5 }" />
             </div>
             <t-button
-              v-permission="'knowledge:upload'"
+              v-permission="uploadVersionPermission"
               class="tool-action-button primary"
               theme="primary"
               block

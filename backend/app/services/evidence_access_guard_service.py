@@ -169,9 +169,6 @@ class EvidenceAccessGuardService:
             status = str(metadata.get("status") or "").strip()
             if status and status not in PUBLISHED_DOCUMENT_STATUSES:
                 return "document_not_published"
-            ai_enabled = self._metadata_bool(metadata.get("ai_enabled"))
-            if ai_enabled is False:
-                return "ai_disabled"
             is_current_version = self._metadata_bool(metadata.get("is_current_version"))
             if is_current_version is False:
                 return "version_not_current"
@@ -259,7 +256,6 @@ class EvidenceAccessGuardService:
             "document_deleted",
             "document_not_published",
             "document_not_approved",
-            "ai_disabled",
             "version_not_current",
             "index_not_current",
             "chunk_inactive",
@@ -274,7 +270,7 @@ class EvidenceAccessGuardService:
             return "permission_limited"
         if reason in {"project_mismatch", "document_missing", "chunk_missing"}:
             return "irrelevant"
-        if reason in {"document_deleted", "document_not_published", "ai_disabled", "version_not_current", "index_not_current"}:
+        if reason in {"document_deleted", "document_not_published", "version_not_current", "index_not_current"}:
             return "insufficient_coverage"
         if reason:
             return "insufficient_coverage"

@@ -121,11 +121,6 @@ interface AppActions {
   removeKnowledgeDocument: (id: EntityId) => void;
 
   /**
-   * 切换知识文档是否参与 AI 问答
-   */
-  toggleKnowledgeDocumentAiEnabled: (id: EntityId) => void;
-
-  /**
    * 新增项目
    */
   addProject: (project: Omit<Project, 'id'>) => EntityId;
@@ -314,12 +309,6 @@ export const useAppStore = create<AppState>((set) => ({
   removeKnowledgeDocument: (id) =>
     set((state) => ({
       knowledgeDocuments: removeById(state.knowledgeDocuments, id),
-    })),
-  toggleKnowledgeDocumentAiEnabled: (id) =>
-    set((state) => ({
-      knowledgeDocuments: state.knowledgeDocuments.map((document) =>
-        document.id === id ? { ...document, aiEnabled: !document.aiEnabled } : document,
-      ),
     })),
   addProject: (project) => {
     const id = createMockId('project');

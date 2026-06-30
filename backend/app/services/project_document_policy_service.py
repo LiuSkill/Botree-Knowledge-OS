@@ -48,7 +48,7 @@ class ProjectDocumentPolicyService:
         if user is None:
             return "permission_denied"
         try:
-            permission_codes = ("project_chat:ask",) if require_chat_permission else ("project:view", "project")
+            permission_codes = ("project:chat",) if require_chat_permission else ("project:view", "project")
             self.project_access.ensure_project_access(int(project_id), user, permission_codes=permission_codes)
         except AppException:
             return "permission_denied"
@@ -57,8 +57,6 @@ class ProjectDocumentPolicyService:
             return "permission_denied"
         if str(getattr(document, "status", "") or "").strip() != PUBLISHED_DOCUMENT_STATUS:
             return "document_not_published"
-        if not bool(getattr(document, "ai_enabled", False)):
-            return "ai_disabled"
         if str(getattr(document, "index_status", "") or "").strip() != INDEX_STATUS_INDEXED:
             return "index_not_current"
         if not bool(getattr(document, "is_current_version", False)):

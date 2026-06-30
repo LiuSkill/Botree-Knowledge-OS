@@ -44,6 +44,7 @@ import ChatRichContent from '@/components/ChatRichContent.vue';
 import CitationList from '@/components/CitationList.vue';
 import ProcessingProgressPanel from '@/components/ProcessingProgressPanel.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type {
   AgentTraceStep,
@@ -111,20 +112,47 @@ const traceDetailErrorMap = ref<Record<number, string>>({});
 // 正文通过插槽渲染，外层 TChatMessage 保持空状态，避免底层加载态替换插槽内容。
 const chatMessageStatus = '';
 
+const chatPermissionSet = computed(() => {
+  if (props.chatType === 'project_chat') {
+    return {
+      view: PERMISSIONS.AI_PROJECT_CHAT_VIEW,
+      createSession: PERMISSIONS.AI_PROJECT_CHAT_CREATE_SESSION,
+      sendMessage: PERMISSIONS.AI_PROJECT_CHAT_SEND_MESSAGE,
+      manageSession: PERMISSIONS.AI_PROJECT_CHAT_MANAGE_SESSION,
+      deleteSession: PERMISSIONS.AI_PROJECT_CHAT_DELETE_SESSION,
+      feedback: PERMISSIONS.AI_PROJECT_CHAT_FEEDBACK,
+    };
+  }
+  return {
+    view: PERMISSIONS.AI_BASE_CHAT_VIEW,
+    createSession: PERMISSIONS.AI_BASE_CHAT_CREATE_SESSION,
+    sendMessage: PERMISSIONS.AI_BASE_CHAT_SEND_MESSAGE,
+    manageSession: PERMISSIONS.AI_BASE_CHAT_MANAGE_SESSION,
+    deleteSession: PERMISSIONS.AI_BASE_CHAT_DELETE_SESSION,
+    feedback: PERMISSIONS.AI_BASE_CHAT_FEEDBACK,
+  };
+});
+
 const isExternalUser = computed(() =>
   Boolean(authStore.user?.roles.some((role) => role.code === 'external' || role.name.includes('外部'))),
 );
+const canViewChat = computed(() => authStore.hasActionPermission(chatPermissionSet.value.view));
+const canCreateSession = computed(() => authStore.hasActionPermission(chatPermissionSet.value.createSession));
+const canSendMessage = computed(() => authStore.hasActionPermission(chatPermissionSet.value.sendMessage));
+const canManageSession = computed(() => authStore.hasActionPermission(chatPermissionSet.value.manageSession));
+const canDeleteSession = computed(() => authStore.hasActionPermission(chatPermissionSet.value.deleteSession));
+const canFeedbackMessage = computed(() => authStore.hasActionPermission(chatPermissionSet.value.feedback));
 const senderDisabled = computed(
   () =>
     streaming.value ||
-    !authStore.hasActionPermission('ai:chat') ||
+    !canSendMessage.value ||
     (props.requireProject && !projectId.value) ||
     (props.chatType === 'base_chat' && isExternalUser.value),
 );
 const newSessionDisabled = computed(
   () =>
     streaming.value ||
-    !authStore.hasActionPermission('ai:chat') ||
+    !canCreateSession.value ||
     (props.requireProject && !projectId.value),
 );
 const sessionEmptyDescription = computed(() => {
@@ -357,6 +385,10 @@ function isFeedbackUpdating(message: UiChatMessage): boolean {
 
 async function handleFeedbackClick(message: UiChatMessage, feedbackStatus: Exclude<ChatFeedbackStatus, null>): Promise<void> {
   if (!shouldShowAssistantActions(message) || typeof message.id !== 'number' || isFeedbackUpdating(message)) return;
+  if (!canFeedbackMessage.value) {
+    MessagePlugin.warning('无权限反馈答案');
+    return;
+  }
   const nextStatus: ChatFeedbackStatus = message.feedback_status === feedbackStatus ? null : feedbackStatus;
   const previousStatus = message.feedback_status || null;
   feedbackUpdatingMap.value = { ...feedbackUpdatingMap.value, [message.id]: true };
@@ -474,6 +506,10 @@ async function applyRouteProjectSelection(forceReload = false): Promise<void> {
 }
 
 async function loadSessionsForCurrentProject(): Promise<ChatSession[]> {
+  if (!canViewChat.value) {
+    sessions.value = [];
+    return sessions.value;
+  }
   if (props.chatType === 'project_chat' && projectId.value === null) {
     sessions.value = [];
     return sessions.value;
@@ -488,6 +524,12 @@ async function loadSessionsForCurrentProject(): Promise<ChatSession[]> {
 }
 
 async function loadBaseData(): Promise<void> {
+  if (!canViewChat.value) {
+    projects.value = [];
+    projectsLoaded.value = true;
+    sessions.value = [];
+    return;
+  }
   projects.value = props.requireProject ? await listProjects() : [];
   projectsLoaded.value = true;
   if (props.chatType === 'project_chat') {
@@ -502,6 +544,10 @@ async function loadBaseData(): Promise<void> {
 }
 
 async function selectSession(session: ChatSession): Promise<void> {
+  if (!canViewChat.value) {
+    MessagePlugin.warning('无权限查看会话');
+    return;
+  }
   closeDetailPanel();
   closeSessionMenu();
   activeSessionId.value = session.id;
@@ -519,6 +565,10 @@ async function selectSession(session: ChatSession): Promise<void> {
 
 function startNewSession(): void {
   if (streaming.value) return;
+  if (!canCreateSession.value) {
+    MessagePlugin.warning('无权限新建会话');
+    return;
+  }
   if (props.requireProject && !projectId.value) {
     MessagePlugin.warning(projects.value.length ? '请先选择项目' : '暂无可访问项目');
     return;
@@ -548,10 +598,15 @@ function closeSessionMenu(): void {
 }
 
 function toggleSessionMenu(sessionId: number): void {
+  if (!canManageSession.value && !canDeleteSession.value) return;
   openSessionMenuId.value = openSessionMenuId.value === sessionId ? null : sessionId;
 }
 
 async function togglePinnedSession(session: ChatSession): Promise<void> {
+  if (!canManageSession.value) {
+    MessagePlugin.warning('无权限管理会话');
+    return;
+  }
   closeSessionMenu();
   try {
     replaceSession(await updateChatSession(session.id, { is_pinned: !session.is_pinned }));
@@ -563,6 +618,10 @@ async function togglePinnedSession(session: ChatSession): Promise<void> {
 }
 
 async function toggleFavoriteSession(session: ChatSession): Promise<void> {
+  if (!canManageSession.value) {
+    MessagePlugin.warning('无权限管理会话');
+    return;
+  }
   closeSessionMenu();
   try {
     replaceSession(await updateChatSession(session.id, { is_favorite: !session.is_favorite }));
@@ -574,6 +633,10 @@ async function toggleFavoriteSession(session: ChatSession): Promise<void> {
 }
 
 function openRenameSessionDialog(session: ChatSession): void {
+  if (!canManageSession.value) {
+    MessagePlugin.warning('无权限管理会话');
+    return;
+  }
   closeSessionMenu();
   renamingSession.value = session;
   renameTitle.value = session.title;
@@ -582,6 +645,10 @@ function openRenameSessionDialog(session: ChatSession): void {
 
 async function confirmRenameSession(): Promise<void> {
   if (!renamingSession.value || renameSubmitting.value) return;
+  if (!canManageSession.value) {
+    MessagePlugin.warning('无权限管理会话');
+    return;
+  }
   const title = renameTitle.value.trim();
   if (!title) {
     MessagePlugin.warning('会话名称不能为空');
@@ -604,6 +671,10 @@ async function confirmRenameSession(): Promise<void> {
 
 async function confirmRemoveSession(session: ChatSession): Promise<void> {
   closeSessionMenu();
+  if (!canDeleteSession.value) {
+    MessagePlugin.warning('无权限删除会话');
+    return;
+  }
   if (streaming.value && session.id === activeSessionId.value) {
     MessagePlugin.warning('当前会话正在回答中，暂不能删除');
     return;
@@ -657,6 +728,10 @@ async function refreshSessionState(sessionId: number): Promise<void> {
 async function submitQuestion(): Promise<void> {
   const content = question.value.trim();
   const currentProjectId = props.chatType === 'project_chat' ? projectId.value : null;
+  if (!canSendMessage.value) {
+    MessagePlugin.warning('无权限发送消息');
+    return;
+  }
   if (props.requireProject && !currentProjectId) {
     MessagePlugin.warning('请先选择项目');
     return;
@@ -803,7 +878,10 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="chat-workspace-page">
-    <div v-if="chatType === 'base_chat' && isExternalUser" class="surface no-access">
+    <div v-if="!canViewChat" class="surface no-access">
+      无权限访问当前问答入口。
+    </div>
+    <div v-else-if="chatType === 'base_chat' && isExternalUser" class="surface no-access">
       外部用户默认不能访问基础问答，请从项目问答入口进入已授权项目。
     </div>
     <div v-else class="agent-layout" :class="{ 'with-detail': isDetailOpen }">
@@ -821,7 +899,7 @@ onBeforeUnmount(() => {
             <t-option v-for="project in projects" :key="project.id" :value="project.id" :label="projectOptionLabel(project)" />
           </t-select>
           <t-button
-            v-permission="'ai:chat'"
+            v-permission="chatPermissionSet.createSession"
             block
             theme="primary"
             class="new-session-button"
@@ -847,27 +925,27 @@ onBeforeUnmount(() => {
               @keydown.space.prevent="selectSession(session)"
             >
               <span class="session-title-text">{{ session.title }}</span>
-              <div class="session-actions" @click.stop>
-                <t-tooltip :content="session.is_pinned ? '取消置顶' : '置顶'">
+              <div v-if="canManageSession || canDeleteSession" class="session-actions" @click.stop>
+                <t-tooltip v-if="canManageSession" :content="session.is_pinned ? '取消置顶' : '置顶'">
                   <button type="button" class="session-icon-button" @click.stop="togglePinnedSession(session)">
                     <PinFilledIcon v-if="session.is_pinned" />
                     <PinIcon v-else />
                   </button>
                 </t-tooltip>
-                <div class="session-menu-wrap">
+                <div v-if="canManageSession || canDeleteSession" class="session-menu-wrap">
                   <button type="button" class="session-icon-button" @click.stop="toggleSessionMenu(session.id)">
                     <EllipsisIcon />
                   </button>
                   <div v-if="openSessionMenuId === session.id" class="session-menu">
-                    <button type="button" class="session-menu-item" @click.stop="openRenameSessionDialog(session)">
+                    <button v-if="canManageSession" type="button" class="session-menu-item" @click.stop="openRenameSessionDialog(session)">
                       <EditIcon />
                       <span>重命名</span>
                     </button>
-                    <button type="button" class="session-menu-item" @click.stop="toggleFavoriteSession(session)">
+                    <button v-if="canManageSession" type="button" class="session-menu-item" @click.stop="toggleFavoriteSession(session)">
                       <component :is="session.is_favorite ? StarFilledIcon : StarIcon" />
                       <span>{{ session.is_favorite ? '取消收藏' : '收藏' }}</span>
                     </button>
-                    <button type="button" class="session-menu-item danger" @click.stop="confirmRemoveSession(session)">
+                    <button v-if="canDeleteSession" type="button" class="session-menu-item danger" @click.stop="confirmRemoveSession(session)">
                       <DeleteIcon />
                       <span>删除</span>
                     </button>
@@ -910,7 +988,7 @@ onBeforeUnmount(() => {
                 >
                   <ChatRichContent :content="normalizeMarkdownDisplay(message.content)" />
                   <div v-if="shouldShowAssistantActions(message)" class="message-action-bar">
-                    <t-tooltip content="点赞">
+                    <t-tooltip v-if="canFeedbackMessage" content="点赞">
                       <t-button
                         class="message-action-button"
                         :class="{ active: message.feedback_status === 'like' }"
@@ -922,7 +1000,7 @@ onBeforeUnmount(() => {
                         <ThumbUpIcon />
                       </t-button>
                     </t-tooltip>
-                    <t-tooltip content="点踩">
+                    <t-tooltip v-if="canFeedbackMessage" content="点踩">
                       <t-button
                         class="message-action-button"
                         :class="{ active: message.feedback_status === 'dislike' }"
@@ -989,7 +1067,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div ref="senderShellRef" v-permission="'ai:chat'" class="sender-shell">
+        <div ref="senderShellRef" v-permission="chatPermissionSet.sendMessage" class="sender-shell">
           <TChatSender
             v-model="question"
             :loading="streaming"

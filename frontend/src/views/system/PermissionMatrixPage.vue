@@ -15,8 +15,10 @@ import { useRouter } from 'vue-router';
 import { createRole, deleteRole, listRoles, updateRole } from '@/api/roles';
 import { getActionPermissions, getSystemMenus } from '@/api/system';
 import PermissionMenuTree from '@/components/PermissionMenuTree.vue';
+import { ACTION_PERMISSION_GROUPS, CURRENT_PERMISSION_CODE_SET, MENU_PERMISSION_TREE, PERMISSIONS } from '@/constants/permissions';
 import { syncAuthorizedRoutes } from '@/router/dynamicRoutes';
 import { useAuthStore } from '@/stores/auth';
+import type { ActionGroupDefinition } from '@/constants/permissions';
 import type { ActionPermissionGroup, ActionPermissionInfo, DataScope, RoleInfo, SecurityLevel, SystemMenuNode } from '@/types/api';
 import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
@@ -57,6 +59,18 @@ function dataScopeLabel(scope: DataScope): string {
 
 const selectedRole = computed(() => roles.value.find((role) => role.id === selectedRoleId.value) || null);
 const selectedIdSet = computed(() => new Set(selectedPermissionIds.value));
+const currentPermissionIdSet = computed(() => {
+  const ids = new Set<number>();
+  walkMenus((node) => {
+    if (typeof node.permission_id === 'number') {
+      ids.add(node.permission_id);
+    }
+  });
+  actionGroups.value.forEach((group) => {
+    actionPermissionIds(group).forEach((permissionId) => ids.add(permissionId));
+  });
+  return ids;
+});
 const selectedMenuIds = computed(() => {
   const menuIdMap = menuPermissionIdByCode.value;
   return new Set(
@@ -107,6 +121,48 @@ function actionPermissionIds(group: ActionPermissionGroup): number[] {
     .filter((permissionId): permissionId is number => typeof permissionId === 'number');
 }
 
+function collectMenuPermissionIdsByCode(nodes: SystemMenuNode[], result = new Map<string, number>()): Map<string, number> {
+  nodes.forEach((node) => {
+    if (typeof node.permission_id === 'number') {
+      result.set(node.id, node.permission_id);
+    }
+    collectMenuPermissionIdsByCode(node.children, result);
+  });
+  return result;
+}
+
+function collectActionPermissionIdsByCode(groups: ActionPermissionGroup[]): Map<string, number> {
+  const result = new Map<string, number>();
+  groups.forEach((group) => {
+    group.actions.forEach((action) => {
+      if (typeof action.permission_id === 'number') {
+        result.set(action.code, action.permission_id);
+      }
+    });
+  });
+  return result;
+}
+
+function hydrateMenuTree(definitions: SystemMenuNode[], permissionIds: Map<string, number>): SystemMenuNode[] {
+  return definitions.map((node) => ({
+    ...node,
+    permission_id: permissionIds.get(node.id) ?? null,
+    children: hydrateMenuTree(node.children, permissionIds),
+  }));
+}
+
+function hydrateActionGroups(definitions: ActionGroupDefinition[], permissionIds: Map<string, number>): ActionPermissionGroup[] {
+  return definitions.map((group) => ({
+    module: group.module,
+    module_name: group.module_name,
+    menu_ids: [...group.menu_ids],
+    actions: group.actions.map((action) => ({
+      ...action,
+      permission_id: permissionIds.get(action.code) ?? null,
+    })),
+  }));
+}
+
 function isActionGroupEnabled(group: ActionPermissionGroup): boolean {
   return group.menu_ids.some((menuId) => selectedMenuIds.value.has(menuId));
 }
@@ -127,10 +183,17 @@ function isActionGroupPartialChecked(group: ActionPermissionGroup): boolean {
 }
 
 function replaceSelection(nextSelection: Set<number>): void {
-  selectedPermissionIds.value = Array.from(nextSelection).sort((left, right) => left - right);
+  selectedPermissionIds.value = Array.from(nextSelection)
+    .filter((permissionId) => currentPermissionIdSet.value.has(permissionId))
+    .sort((left, right) => left - right);
 }
 
 function pruneUnboundActions(selection: Set<number>): void {
+  selection.forEach((permissionId) => {
+    if (!currentPermissionIdSet.value.has(permissionId)) {
+      selection.delete(permissionId);
+    }
+  });
   const selectedMenuCodes = new Set(
     Array.from(menuPermissionIdByCode.value.entries())
       .filter(([, permissionId]) => selection.has(permissionId))
@@ -145,7 +208,11 @@ function pruneUnboundActions(selection: Set<number>): void {
 
 function applySelectedRolePermissions(): void {
   const role = selectedRole.value;
-  const nextSelection = new Set((role?.permissions || []).map((permission) => permission.id));
+  const nextSelection = new Set(
+    (role?.permissions || [])
+      .filter((permission) => CURRENT_PERMISSION_CODE_SET.has(permission.code))
+      .map((permission) => permission.id),
+  );
   pruneUnboundActions(nextSelection);
   replaceSelection(nextSelection);
 }
@@ -156,7 +223,7 @@ function selectRole(role: RoleInfo): void {
 }
 
 function rolePermissionCount(role: RoleInfo): number {
-  return role.permissions?.length || 0;
+  return role.permissions?.filter((permission) => CURRENT_PERMISSION_CODE_SET.has(permission.code)).length || 0;
 }
 
 function boundMenuLabel(group: ActionPermissionGroup): string {
@@ -324,8 +391,8 @@ async function loadMatrix(): Promise<void> {
       getActionPermissions(),
     ]);
     roles.value = roleResult.items;
-    menus.value = menuResult;
-    actionGroups.value = actionResult;
+    menus.value = hydrateMenuTree(MENU_PERMISSION_TREE, collectMenuPermissionIdsByCode(menuResult));
+    actionGroups.value = hydrateActionGroups(ACTION_PERMISSION_GROUPS, collectActionPermissionIdsByCode(actionResult));
     if (!selectedRoleId.value || !roles.value.some((role) => role.id === selectedRoleId.value)) {
       selectedRoleId.value = roles.value[0]?.id || null;
     }
@@ -347,7 +414,7 @@ onMounted(loadMatrix);
             <h2>角色列表</h2>
             <span>{{ roles.length }} 个角色</span>
           </div>
-          <t-button v-permission="'permission:create'" size="small" theme="primary" @click="openCreateRoleDialog">
+          <t-button v-permission="PERMISSIONS.SYSTEM_PERMISSION_CREATE_ROLE" size="small" theme="primary" @click="openCreateRoleDialog">
             <template #icon><AddIcon /></template>
             新建
           </t-button>
@@ -382,11 +449,11 @@ onMounted(loadMatrix);
               <span>{{ rolePermissionCount(role) }} 个权限</span>
             </div>
             <div class="role-actions">
-              <t-button v-permission="'permission:edit'" size="small" variant="text" @click.stop="openEditRoleDialog(role)">
+              <t-button v-permission="PERMISSIONS.SYSTEM_PERMISSION_EDIT_ROLE" size="small" variant="text" @click.stop="openEditRoleDialog(role)">
                 <template #icon><EditIcon /></template>
               </t-button>
               <t-popconfirm content="确认删除该角色？" @confirm="removeRole(role)">
-                <t-button v-permission="'permission:delete'" size="small" variant="text" theme="danger" @click.stop>
+                <t-button v-permission="PERMISSIONS.SYSTEM_PERMISSION_DELETE_ROLE" size="small" variant="text" theme="danger" @click.stop>
                   <template #icon><DeleteIcon /></template>
                 </t-button>
               </t-popconfirm>
@@ -476,7 +543,7 @@ onMounted(loadMatrix);
 
           <div class="matrix-footer">
             <span>当前选择 {{ selectedPermissionIds.length }} 个权限点</span>
-            <t-button v-permission="'permission:save'" theme="primary" :loading="saving" @click="savePermissions">
+            <t-button v-permission="PERMISSIONS.SYSTEM_PERMISSION_SAVE" theme="primary" :loading="saving" @click="savePermissions">
               <template #icon><SaveIcon /></template>
               保存配置
             </t-button>

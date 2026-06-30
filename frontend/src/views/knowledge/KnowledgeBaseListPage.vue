@@ -17,6 +17,7 @@ import { createKnowledgeCategory, deleteKnowledgeCategory, listKnowledgeCategori
 import { listKnowledgeBaseDocuments, listKnowledgeBases, uploadKnowledgeDocument } from '@/api/knowledgeBases';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
@@ -74,8 +75,12 @@ const fileTypeFilters: Array<{ label: string; value: FileTypeFilter }> = [
 ];
 
 const uploadTargetBase = computed(() => enterpriseBases.value[0] || null);
-const canEditCategories = computed(() => authStore.hasActionPermission('knowledge:edit'));
-const canDeleteCategories = computed(() => authStore.hasActionPermission('knowledge:delete'));
+const canCreateCategories = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_CREATE));
+const canEditCategories = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_EDIT));
+const canDeleteCategories = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_DELETE));
+const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_VIEW));
+const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_UPLOAD));
+const canSubmitDocumentReview = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW));
 
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
 
@@ -221,6 +226,10 @@ function openUploadDialog(): void {
   /**
    * 打开上传弹窗。
    */
+  if (!canUploadDocuments.value) {
+    MessagePlugin.warning('无权限上传知识文档');
+    return;
+  }
   if (!uploadTargetBase.value) {
     MessagePlugin.warning('未找到企业基础知识库，请先完成基础知识库初始化');
     return;
@@ -247,6 +256,10 @@ async function confirmUpload(): Promise<void> {
   /**
    * 上传新的企业知识文档，后端会写入草稿状态并创建首个版本 v1。
    */
+  if (!canUploadDocuments.value) {
+    MessagePlugin.warning('无权限上传知识文档');
+    return;
+  }
   if (!selectedUploadFile.value) {
     MessagePlugin.warning('请选择需要上传的文档');
     return;
@@ -273,22 +286,41 @@ async function submitReview(document: DocumentInfo): Promise<void> {
   /**
    * 提交文档审核。
    */
+  if (!canSubmitDocumentReview.value) {
+    MessagePlugin.warning('无权限提交审核');
+    return;
+  }
   await submitDocumentReview(document.id);
   MessagePlugin.success('已提交审核');
   await loadEnterpriseKnowledge();
+}
+
+function viewDocument(document: DocumentInfo): void {
+  /**
+   * 查看知识资料详情，入口权限与后端详情接口保持一致。
+   */
+  if (!canViewDocuments.value) {
+    MessagePlugin.warning('无权限查看知识资料');
+    return;
+  }
+  router.push(`/documents/${document.id}`);
 }
 
 function canSubmitReview(document: DocumentInfo): boolean {
   /**
    * 判断文档是否允许提交审核。
    */
-  return SUBMITTABLE_REVIEW_STATUSES.has(document.review_status);
+  return canSubmitDocumentReview.value && SUBMITTABLE_REVIEW_STATUSES.has(document.review_status);
 }
 
 function openCreateCategoryDialog(): void {
   /**
    * 打开新增分类弹窗。
    */
+  if (!canCreateCategories.value) {
+    MessagePlugin.warning('无权限新增知识分类');
+    return;
+  }
   categoryDialogMode.value = 'create';
   editingCategoryId.value = null;
   categoryForm.parent_id = activeCategoryId.value;
@@ -304,6 +336,10 @@ function openEditCategoryDialog(): void {
   /**
    * 打开编辑分类弹窗。
    */
+  if (!canEditCategories.value) {
+    MessagePlugin.warning('无权限编辑知识分类');
+    return;
+  }
   const category = findCategory(categories.value, activeCategoryId.value);
   if (!category) {
     MessagePlugin.warning('请先选择需要编辑的分类');
@@ -324,6 +360,14 @@ async function confirmCategoryDialog(): Promise<void> {
   /**
    * 保存分类配置。
    */
+  if (categoryDialogMode.value === 'create' && !canCreateCategories.value) {
+    MessagePlugin.warning('无权限新增知识分类');
+    return;
+  }
+  if (categoryDialogMode.value === 'edit' && !canEditCategories.value) {
+    MessagePlugin.warning('无权限编辑知识分类');
+    return;
+  }
   if (!categoryForm.name.trim()) {
     MessagePlugin.warning('请输入分类名称');
     return;
@@ -359,6 +403,10 @@ async function removeActiveCategory(): Promise<void> {
   /**
    * 删除当前选中的分类。
    */
+  if (!canDeleteCategories.value) {
+    MessagePlugin.warning('无权限删除知识分类');
+    return;
+  }
   if (!activeCategoryId.value) {
     MessagePlugin.warning('请先选择分类');
     return;
@@ -384,7 +432,7 @@ onMounted(loadEnterpriseKnowledge);
     <aside class="knowledge-category-panel">
       <div class="category-title">
         <span>知识分类</span>
-        <t-button v-permission="'knowledge:create'" class="category-create-button" size="small" variant="text" @click="openCreateCategoryDialog">
+        <t-button v-permission="PERMISSIONS.KNOWLEDGE_CREATE" class="category-create-button" size="small" variant="text" @click="openCreateCategoryDialog">
           <template #icon><AddIcon /></template>
           新增
         </t-button>
@@ -423,7 +471,7 @@ onMounted(loadEnterpriseKnowledge);
 
       <div v-if="canEditCategories || canDeleteCategories" class="category-tools">
         <t-button
-          v-permission="'knowledge:edit'"
+          v-permission="PERMISSIONS.KNOWLEDGE_EDIT"
           class="category-tool-button"
           size="small"
           variant="outline"
@@ -434,7 +482,7 @@ onMounted(loadEnterpriseKnowledge);
           编辑
         </t-button>
         <t-button
-          v-permission="'knowledge:delete'"
+          v-permission="PERMISSIONS.KNOWLEDGE_DELETE"
           class="category-tool-button danger"
           size="small"
           variant="outline"
@@ -473,7 +521,7 @@ onMounted(loadEnterpriseKnowledge);
             <SearchIcon class="search-icon" />
             <input v-model="searchKeyword" type="search" placeholder="搜索文档..." />
           </label>
-          <t-button v-permission="'knowledge:upload'" class="upload-button" theme="primary" :loading="uploading" @click="openUploadDialog">
+          <t-button v-permission="PERMISSIONS.KNOWLEDGE_UPLOAD" class="upload-button" theme="primary" :loading="uploading" @click="openUploadDialog">
             <template #icon><AddIcon /></template>
             上传文档
           </t-button>
@@ -503,7 +551,7 @@ onMounted(loadEnterpriseKnowledge);
             <tbody>
               <tr v-for="document in pagedDocuments" :key="document.id">
                 <td>
-                  <t-link theme="primary" @click="router.push(`/documents/${document.id}`)">{{ document.file_name }}</t-link>
+                  <t-link v-permission="PERMISSIONS.KNOWLEDGE_VIEW" theme="primary" @click="viewDocument(document)">{{ document.file_name }}</t-link>
                 </td>
                 <td>{{ document.category_path || document.category_name || '-' }}</td>
                 <td>
@@ -520,7 +568,7 @@ onMounted(loadEnterpriseKnowledge);
                 <td>
                   <TableActionButton
                     label="提交审核"
-                    permission="knowledge:submit-review"
+                    :permission="PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW"
                     :disabled="!canSubmitReview(document)"
                     @click="submitReview(document)"
                   >

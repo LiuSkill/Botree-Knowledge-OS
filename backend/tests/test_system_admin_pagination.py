@@ -34,7 +34,7 @@ def db_session() -> Session:
 def seed_users_and_roles(db: Session) -> dict[str, Role]:
     """Seed users, roles and permissions for system management list queries."""
 
-    permission = Permission(module="system", action="view", code="system:view")
+    permission = Permission(module="system:user", action="view", code="system:user:view")
     admin_role = Role(name="System Admin", code="admin", description="Administrator role", enabled=True)
     engineer_role = Role(name="Engineer", code="engineer", description="Quality engineer role", enabled=False)
     admin_role.permissions = [permission]

@@ -64,8 +64,8 @@ def test_system_menu_and_action_catalog_use_registered_permissions(db_session: S
     actions = SystemService(db_session).list_action_permissions()
     system_menu = next(menu for menu in menus if menu["id"] == "system")
     user_menu = next(child for child in system_menu["children"] if child["id"] == "system:user")
-    user_group = next(group for group in actions if group["module"] == "user")
-    create_action = next(action for action in user_group["actions"] if action["code"] == "user:create")
+    user_group = next(group for group in actions if group["module"] == "system-user")
+    create_action = next(action for action in user_group["actions"] if action["code"] == "system:user:create")
 
     assert user_menu["path"] == "/system/users"
     assert isinstance(user_menu["permission_id"], int)
@@ -78,7 +78,7 @@ def test_current_permissions_filter_actions_without_bound_page(db_session: Sessi
     """Button permissions do not exist independently from their bound page."""
 
     permissions = seed_permission_catalog(db_session)
-    role = Role(name="User Operator", code="user_operator", enabled=True, permissions=[permissions["user:create"]])
+    role = Role(name="User Operator", code="user_operator", enabled=True, permissions=[permissions["system:user:create"]])
     user = User(username="operator", password_hash="x", real_name="Operator", status="enabled", roles=[role])
     db_session.add(user)
     db_session.commit()
@@ -87,7 +87,7 @@ def test_current_permissions_filter_actions_without_bound_page(db_session: Sessi
 
     assert current_permissions["menus"] == []
     assert current_permissions["actions"] == []
-    assert has_permission(user, "user:create") is False
+    assert has_permission(user, "system:user:create") is False
 
     role.permissions = [permissions["system:user"]]
     db_session.commit()
@@ -95,15 +95,17 @@ def test_current_permissions_filter_actions_without_bound_page(db_session: Sessi
     current_permissions = AuthService(db_session).current_permissions(user)
 
     assert current_permissions["menus"] == ["system:user"]
-    assert set(current_permissions["actions"]) == {
-        "user:create",
-        "user:delete",
-        "user:edit",
-        "user:reset-password",
-        "user:status",
-        "user:view",
-    }
-    assert has_permission(user, "user:create") is True
+    assert current_permissions["actions"] == []
+    assert has_permission(user, "system:user:create") is False
+
+    role.permissions = [permissions["system:user"], permissions["system:user:create"]]
+    db_session.commit()
+
+    current_permissions = AuthService(db_session).current_permissions(user)
+
+    assert current_permissions["menus"] == ["system:user"]
+    assert current_permissions["actions"] == ["system:user:create"]
+    assert has_permission(user, "system:user:create") is True
 
 
 def test_role_save_prunes_unbound_action_permissions(db_session: Session) -> None:
@@ -117,7 +119,7 @@ def test_role_save_prunes_unbound_action_permissions(db_session: Session) -> Non
 
     updated = RoleService(db_session).update_role(
         role.id,
-        RoleUpdate(permission_ids=[permissions["user:create"].id]),
+        RoleUpdate(permission_ids=[permissions["system:user:create"].id]),
         operator,
     )
 
@@ -129,12 +131,12 @@ def test_role_save_prunes_unbound_action_permissions(db_session: Session) -> Non
         operator,
     )
 
-    assert {permission.code for permission in updated.permissions} == {
-        "system:user",
-        "user:create",
-        "user:delete",
-        "user:edit",
-        "user:reset-password",
-        "user:status",
-        "user:view",
-    }
+    assert {permission.code for permission in updated.permissions} == {"system:user"}
+
+    updated = RoleService(db_session).update_role(
+        role.id,
+        RoleUpdate(permission_ids=[permissions["system:user"].id, permissions["system:user:create"].id]),
+        operator,
+    )
+
+    assert {permission.code for permission in updated.permissions} == {"system:user", "system:user:create"}

@@ -96,7 +96,7 @@ class ProjectAccessService:
         document: Document,
         user: User,
         *,
-        permission_codes: tuple[str, ...] = ("project_document:view",),
+        permission_codes: tuple[str, ...] = ("project:view",),
     ) -> None:
         """校验项目资料操作权限、项目访问权限、文档归属、软删除和文档密级。"""
 
@@ -112,7 +112,7 @@ class ProjectAccessService:
         document: Document,
         user: User,
         *,
-        permission_codes: tuple[str, ...] = ("project_document:view",),
+        permission_codes: tuple[str, ...] = ("project:view",),
     ) -> bool:
         """列表过滤使用的非抛错文档访问判断。"""
 

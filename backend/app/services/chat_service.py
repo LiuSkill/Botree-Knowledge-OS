@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.executor import AgentExecutor
 from app.core.exceptions import AppException
+from app.core.rbac import has_permission
 from app.langgraph import RetrievalGraph
 from app.langgraph.retrieval_graph import GENERAL_ANSWER_PREFIX
 from app.models.chat import ChatCitation, ChatMessage, ChatSession
@@ -178,6 +179,12 @@ class ChatService:
 
         if chat_type is not None:
             self._validate_chat_type(chat_type)
+            self._ensure_chat_action_permission(user, chat_type, "view")
+        elif not (
+            self._has_chat_action_permission(user, "base_chat", "view")
+            or self._has_chat_action_permission(user, "project_chat", "view")
+        ):
+            raise AppException("No permission for chat sessions", status_code=403, code=403)
         if chat_type == "project_chat" and project_id is None:
             return []
         if project_id is not None:
@@ -191,6 +198,7 @@ class ChatService:
     def create_session(self, payload: ChatSessionCreate, user: User) -> ChatSession:
         """创建问答会话。"""
 
+        self._ensure_chat_action_permission(user, payload.chat_type, "create-session")
         self._validate_chat_request(payload.chat_type, payload.project_id, user)
         session = ChatSession(
             user_id=user.id,
@@ -207,7 +215,8 @@ class ChatService:
     def list_messages(self, session_id: int, user: User) -> list[dict[str, Any]]:
         """查询会话消息。"""
 
-        self._ensure_session_owner(session_id, user)
+        session = self._ensure_session_owner(session_id, user)
+        self._ensure_chat_action_permission(user, session.chat_type, "view")
         messages = self.repository.list_messages(session_id)
         assistant_message_ids = [message.id for message in messages if message.role == "assistant"]
         citations_by_message_id: dict[int, list[ChatCitation]] = {}
@@ -221,7 +230,8 @@ class ChatService:
         message = self.repository.get_message(message_id)
         if not message:
             raise AppException("消息不存在", status_code=404, code=404)
-        self._ensure_session_owner(message.session_id, user)
+        session = self._ensure_session_owner(message.session_id, user)
+        self._ensure_chat_action_permission(user, session.chat_type, "view")
         trace = RetrievalTraceService(self.db).get_message_trace(message_id)
         if not trace:
             return {"message_id": message_id, "trace": None}
@@ -249,7 +259,8 @@ class ChatService:
         message = self.repository.get_message(message_id)
         if not message:
             raise AppException("消息不存在", status_code=404, code=404)
-        self._ensure_session_owner(message.session_id, user)
+        session = self._ensure_session_owner(message.session_id, user)
+        self._ensure_chat_action_permission(user, session.chat_type, "feedback")
         if message.role != "assistant":
             raise AppException("只能反馈助手回答", status_code=400, code=400)
 
@@ -267,6 +278,7 @@ class ChatService:
         """删除会话。"""
 
         session = self._ensure_session_owner(session_id, user)
+        self._ensure_chat_action_permission(user, session.chat_type, "delete-session")
         cleanup_counts = self.repository.delete_session(session)
         SystemService(self.db).record_operation(user, "删除会话", "chat_session", session_id, "删除问答会话")
         self.db.commit()
@@ -283,6 +295,7 @@ class ChatService:
         """更新会话展示属性。"""
 
         session = self._ensure_session_owner(session_id, user)
+        self._ensure_chat_action_permission(user, session.chat_type, "manage-session")
         update_data = payload.model_dump(exclude_unset=True)
         if "title" in update_data and update_data["title"] is not None:
             title = str(update_data["title"]).strip()
@@ -302,6 +315,7 @@ class ChatService:
     def complete(self, payload: ChatCompletionRequest, user: User) -> dict[str, Any]:
         """执行同步知识问答。"""
 
+        self._ensure_chat_action_permission(user, payload.chat_type, "send-message")
         self._validate_chat_request(payload.chat_type, payload.project_id, user)
         session = self._get_or_create_session(payload, user)
         self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
@@ -316,6 +330,7 @@ class ChatService:
     def complete_stream(self, payload: ChatCompletionRequest, user: User) -> Iterator[str]:
         """执行流式知识问答。"""
 
+        self._ensure_chat_action_permission(user, payload.chat_type, "send-message")
         self._validate_chat_request(payload.chat_type, payload.project_id, user)
         session = self._get_or_create_session(payload, user)
         self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
@@ -1091,6 +1106,7 @@ class ChatService:
                 raise AppException("项目问答会话必须绑定当前选择的项目", status_code=400, code=400)
             return session
         title = payload.message[:30] or "新的知识问答"
+        self._ensure_chat_action_permission(user, payload.chat_type, "create-session")
         session = ChatSession(
             user_id=user.id,
             title=title,
@@ -1110,10 +1126,22 @@ class ChatService:
                 raise AppException("项目问答必须选择项目", status_code=400, code=400)
             from app.services.project_access_service import ProjectAccessService
 
-            ProjectAccessService(self.db).ensure_project_access(project_id, user, permission_codes=("project_chat:ask",))
+            ProjectAccessService(self.db).ensure_project_access(project_id, user, permission_codes=("project:chat",))
             return
         if self._is_external_user(user):
             raise AppException("外部用户默认不能访问基础问答", status_code=403, code=403)
+
+    def _chat_permission_code(self, chat_type: str, action: str) -> str:
+        self._validate_chat_type(chat_type)
+        prefix = "ai:project-chat" if chat_type == "project_chat" else "ai:base-chat"
+        return f"{prefix}:{action}"
+
+    def _has_chat_action_permission(self, user: User, chat_type: str, action: str) -> bool:
+        return has_permission(user, self._chat_permission_code(chat_type, action))
+
+    def _ensure_chat_action_permission(self, user: User, chat_type: str, action: str) -> None:
+        if not self._has_chat_action_permission(user, chat_type, action):
+            raise AppException("No permission for chat action", status_code=403, code=403)
 
     def _validate_chat_type(self, chat_type: str) -> None:
         """校验问答类型枚举。"""

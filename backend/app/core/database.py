@@ -208,7 +208,6 @@ def migrate_database() -> None:
                     UPDATE knowledge_categories
                     SET
                         default_security_level = COALESCE(NULLIF(default_security_level, ''), 'internal'),
-                        default_ai_enabled = COALESCE(default_ai_enabled, 0),
                         is_deleted = COALESCE(is_deleted, 0)
                     """
                 )
@@ -339,7 +338,6 @@ def migrate_database() -> None:
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_status", "status")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_parse_status", "parse_status")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_security_level", "security_level")
-            _create_index_if_missing(connection, inspector, "documents", "idx_documents_ai_enabled", "ai_enabled")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_is_current_version", "is_current_version")
             _create_index_if_missing(connection, inspector, "documents", "idx_documents_is_deleted", "is_deleted")
 
@@ -738,14 +736,9 @@ def _add_project_basic_columns(connection, existing_columns: set[str]) -> None:
 
 
 def _add_project_directory_columns(connection, existing_columns: set[str]) -> None:
-    """为项目资料目录补齐默认密级、AI 开关和软删除字段。"""
+    """为项目资料目录补齐默认密级和软删除字段。"""
 
     column_definitions = [
-        (
-            "default_ai_enabled",
-            "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '目录默认AI问答开关'",
-            "BOOLEAN NOT NULL DEFAULT 0",
-        ),
         (
             "default_security_level",
             "VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '目录默认密级'",
@@ -775,7 +768,6 @@ def _add_document_metadata_columns(connection, existing_columns: set[str]) -> No
         ("discipline", "VARCHAR(50) COMMENT '所属专业'", "VARCHAR(50)"),
         ("version", "VARCHAR(50) COMMENT '版本号'", "VARCHAR(50)"),
         ("status", "VARCHAR(30) NOT NULL DEFAULT '待审核' COMMENT '文件状态: 待审核/已发布'", "VARCHAR(30) NOT NULL DEFAULT '待审核'"),
-        ("ai_enabled", "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否参与AI问答'", "BOOLEAN NOT NULL DEFAULT 0"),
         ("upload_user_id", "INTEGER COMMENT '上传人ID'", "INTEGER"),
         ("file_path", "VARCHAR(500) COMMENT '文件路径'", "VARCHAR(500)"),
         ("preview_url", "VARCHAR(500) COMMENT '预览地址'", "VARCHAR(500)"),
@@ -809,7 +801,6 @@ def _add_document_metadata_columns(connection, existing_columns: set[str]) -> No
                     WHEN status IN ('待审核', '已发布') THEN status
                     ELSE '待审核'
                 END,
-                ai_enabled = COALESCE(ai_enabled, FALSE),
                 upload_user_id = COALESCE(upload_user_id, created_by),
                 is_current_version = COALESCE(is_current_version, current_version, TRUE),
                 is_deleted = COALESCE(is_deleted, FALSE)
@@ -827,7 +818,6 @@ def _add_document_version_metadata_columns(connection, existing_columns: set[str
         ("file_path", "VARCHAR(500) COMMENT '文件路径'", "VARCHAR(500)"),
         ("status", "VARCHAR(30) NOT NULL DEFAULT '待审核' COMMENT '文件状态: 待审核/已发布'", "VARCHAR(30) NOT NULL DEFAULT '待审核'"),
         ("is_current_version", "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否当前版本'", "BOOLEAN NOT NULL DEFAULT 0"),
-        ("ai_enabled", "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否参与AI问答'", "BOOLEAN NOT NULL DEFAULT 0"),
         ("upload_user_id", "INTEGER COMMENT '上传人ID'", "INTEGER"),
         ("version_note", "TEXT COMMENT '版本备注'", "TEXT"),
     ]
@@ -859,7 +849,6 @@ def _add_document_version_metadata_columns(connection, existing_columns: set[str
                     ELSE '待审核'
                 END,
                 is_current_version = CASE WHEN is_current = TRUE THEN TRUE ELSE FALSE END,
-                ai_enabled = COALESCE(ai_enabled, FALSE),
                 upload_user_id = COALESCE(upload_user_id, created_by),
                 version_note = COALESCE(version_note, change_summary)
             """
@@ -929,10 +918,24 @@ def seed_permissions(db: Session) -> None:
         db: 数据库会话
     """
 
-    existing_codes = {item.code for item in db.scalars(select(Permission)).all()}
-    for item in permission_catalog():
-        if item["code"] not in existing_codes:
+    catalog = permission_catalog()
+    catalog_by_code = {item["code"]: item for item in catalog}
+    existing_by_code = {item.code: item for item in db.scalars(select(Permission)).all()}
+
+    for code, item in catalog_by_code.items():
+        permission = existing_by_code.get(code)
+        if permission is None:
             db.add(Permission(**item))
+            continue
+        permission.module = item["module"]
+        permission.action = item["action"]
+        permission.description = item["description"]
+
+    # 旧权限不再对应真实菜单或按钮，先断开角色关联再删除，避免权限矩阵继续写回废弃 key。
+    obsolete_permissions = [permission for code, permission in existing_by_code.items() if code not in catalog_by_code]
+    for permission in obsolete_permissions:
+        permission.roles.clear()
+        db.delete(permission)
 
 
 def seed_roles(db: Session) -> Role:

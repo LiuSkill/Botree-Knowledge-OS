@@ -10,7 +10,7 @@ Knowledge Bases API
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_any_permission, require_permission
+from app.api.deps import require_any_permission, require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/knowledge-bases", tags=["知识库"])
 def list_bases(
     type: str | None = None,
     project_id: int | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_permission("knowledge:view", "authorization:view", "project:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询知识库列表。"""
@@ -43,14 +43,14 @@ def create_base(payload: KnowledgeBaseCreate, current_user: User = Depends(requi
 
 
 @router.get("/authorization-summary", summary="授权中心摘要")
-def authorization_summary(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def authorization_summary(current_user: User = Depends(require_permission("authorization:view")), db: Session = Depends(get_db)) -> dict:
     """查询授权中心摘要。"""
 
     return success(KnowledgeBaseService(db).authorization_summary(current_user))
 
 
 @router.get("/{kb_id}", summary="知识库详情")
-def get_base(kb_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def get_base(kb_id: int, current_user: User = Depends(require_any_permission("knowledge:view", "authorization:view", "project:view")), db: Session = Depends(get_db)) -> dict:
     """查询知识库详情。"""
 
     return success(KnowledgeBaseService(db).get_base(kb_id, current_user))
@@ -83,7 +83,7 @@ async def upload_document(
     file: UploadFile = File(...),
     category_id: int = Form(...),
     security_level: str | None = Form(default=None),
-    current_user: User = Depends(require_any_permission("knowledge:upload", "project_document:upload")),
+    current_user: User = Depends(require_any_permission("knowledge:upload", "project:upload")),
     db: Session = Depends(get_db),
 ) -> dict:
     """上传资料到知识库。"""
@@ -96,7 +96,7 @@ async def upload_document(
 def list_documents(
     kb_id: int,
     category_id: int | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_permission("knowledge:view", "project:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询知识库文档。"""

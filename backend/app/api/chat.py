@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_permission
+from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
@@ -35,7 +35,7 @@ def list_sessions(
 
 
 @router.post("/sessions", summary="创建会话")
-def create_session(payload: ChatSessionCreate, current_user: User = Depends(require_permission("ai:chat")), db: Session = Depends(get_db)) -> dict:
+def create_session(payload: ChatSessionCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     """创建问答会话。"""
 
     session = ChatService(db).create_session(payload, current_user)
@@ -46,7 +46,7 @@ def create_session(payload: ChatSessionCreate, current_user: User = Depends(requ
 def update_session(
     session_id: int,
     payload: ChatSessionUpdate,
-    current_user: User = Depends(require_permission("ai:chat")),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
     """更新问答会话标题、置顶和收藏状态。"""
@@ -83,7 +83,7 @@ def update_message_feedback(
 
 
 @router.delete("/sessions/{session_id}", summary="删除会话")
-def delete_session(session_id: int, current_user: User = Depends(require_permission("ai:delete-session")), db: Session = Depends(get_db)) -> dict:
+def delete_session(session_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     """删除问答会话。"""
 
     ChatService(db).delete_session(session_id, current_user)
@@ -91,7 +91,7 @@ def delete_session(session_id: int, current_user: User = Depends(require_permiss
 
 
 @router.post("/completions", summary="知识问答")
-def completions(payload: ChatCompletionRequest, current_user: User = Depends(require_permission("ai:chat")), db: Session = Depends(get_db)) -> dict:
+def completions(payload: ChatCompletionRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     """执行同步知识问答。"""
 
     return success(ChatService(db).complete(payload, current_user))
@@ -100,7 +100,7 @@ def completions(payload: ChatCompletionRequest, current_user: User = Depends(req
 @router.post("/completions/stream", summary="知识问答流式输出")
 def completions_stream(
     payload: ChatCompletionRequest,
-    current_user: User = Depends(require_permission("ai:chat")),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """执行流式知识问答。"""

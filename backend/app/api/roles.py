@@ -10,8 +10,9 @@ Roles API
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_any_permission, require_permission
+from app.api.deps import get_current_user, has_permission, require_any_permission, require_permission
 from app.core.database import get_db
+from app.core.exceptions import AppException
 from app.core.response import success
 from app.models.user import User
 from app.schemas.role import PermissionOut, RoleCreate, RoleOut, RoleUpdate
@@ -26,7 +27,7 @@ def list_roles(
     enabled: bool | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_any_permission("system:user", "system:permission")),
+    _: User = Depends(require_any_permission("system:user:view", "system:permission:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询角色列表。"""
@@ -41,7 +42,7 @@ def list_roles(
 
 
 @router.post("", summary="新增角色")
-def create_role(payload: RoleCreate, current_user: User = Depends(require_permission("permission:create")), db: Session = Depends(get_db)) -> dict:
+def create_role(payload: RoleCreate, current_user: User = Depends(require_permission("system:permission:create-role")), db: Session = Depends(get_db)) -> dict:
     """新增角色。"""
 
     role = RoleService(db).create_role(payload, current_user)
@@ -52,17 +53,22 @@ def create_role(payload: RoleCreate, current_user: User = Depends(require_permis
 def update_role(
     role_id: int,
     payload: RoleUpdate,
-    current_user: User = Depends(require_any_permission("permission:edit", "permission:save")),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
     """编辑角色。"""
 
+    changed_fields = payload.model_fields_set
+    if "permission_ids" in changed_fields and not has_permission(current_user, "system:permission:save"):
+        raise AppException("无权限保存角色权限", status_code=403, code=403)
+    if changed_fields - {"permission_ids"} and not has_permission(current_user, "system:permission:edit-role"):
+        raise AppException("无权限编辑角色", status_code=403, code=403)
     role = RoleService(db).update_role(role_id, payload, current_user)
     return success(RoleOut.model_validate(role).model_dump(mode="json"))
 
 
 @router.delete("/{role_id}", summary="删除角色")
-def delete_role(role_id: int, current_user: User = Depends(require_permission("permission:delete")), db: Session = Depends(get_db)) -> dict:
+def delete_role(role_id: int, current_user: User = Depends(require_permission("system:permission:delete-role")), db: Session = Depends(get_db)) -> dict:
     """删除角色。"""
 
     RoleService(db).delete_role(role_id, current_user)
@@ -70,7 +76,7 @@ def delete_role(role_id: int, current_user: User = Depends(require_permission("p
 
 
 @router.get("/permissions/matrix", summary="权限矩阵")
-def permission_matrix(_: User = Depends(require_permission("system:permission")), db: Session = Depends(get_db)) -> dict:
+def permission_matrix(_: User = Depends(require_permission("system:permission:view")), db: Session = Depends(get_db)) -> dict:
     """查询权限矩阵。"""
 
     service = RoleService(db)

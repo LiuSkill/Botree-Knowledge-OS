@@ -32,6 +32,7 @@ import {
   uploadProjectDocument,
 } from '@/api/projects';
 import PageContainer from '@/components/PageContainer.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeCategory, PageResult, ProjectInfo, SecurityLevel } from '@/types/api';
 import { buildCategoryOptions, findCategory } from '@/utils/categories';
@@ -110,11 +111,11 @@ const categoryForm = reactive({
 const projectId = computed(() => Number(route.params.id));
 const projectTitle = computed(() => project.value?.project_name || project.value?.name || `项目 #${projectId.value}`);
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
-const canViewDocuments = computed(() => hasAnyPermission(['project_document:view', 'project:document:view', 'knowledge:view']));
-const canUploadDocuments = computed(() => hasAnyPermission(['project_document:upload', 'knowledge:upload']));
-const canCreateDirectories = computed(() => hasAnyPermission(['project_directory:create', 'knowledge:create']));
-const canEditDirectories = computed(() => hasAnyPermission(['project_directory:update', 'knowledge:edit']));
-const canDeleteDirectories = computed(() => hasAnyPermission(['project_directory:delete', 'knowledge:delete']));
+const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
+const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_UPLOAD));
+const canCreateDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_CREATE));
+const canEditDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_EDIT));
+const canDeleteDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_DELETE));
 
 const documentColumns = [
   { colKey: 'document_name', title: '文件名称', minWidth: 280, ellipsis: true },
@@ -181,10 +182,6 @@ const categoryById = computed(() => {
 const activeDirectory = computed(() => {
   return activeDirectoryId.value ? findCategory(categories.value, activeDirectoryId.value) : undefined;
 });
-
-function hasAnyPermission(permissions: string[]): boolean {
-  return permissions.some((permission) => authStore.hasPermission(permission));
-}
 
 async function loadData(): Promise<void> {
   if (!canViewDocuments.value) return;
@@ -550,6 +547,10 @@ async function confirmDeleteDirectory(): Promise<void> {
 }
 
 function viewDocument(document: DocumentInfo): void {
+  if (!canViewDocuments.value) {
+    MessagePlugin.warning('无权限查看项目资料');
+    return;
+  }
   router.push(`/documents/${document.id}`);
 }
 

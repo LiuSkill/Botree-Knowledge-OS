@@ -31,7 +31,7 @@ def list_users(
     role_id: int | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_permission("system:user")),
+    _: User = Depends(require_permission("system:user:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询用户列表。"""
@@ -46,7 +46,7 @@ def list_users(
 
 
 @router.post("", summary="新增用户")
-def create_user(payload: UserCreate, current_user: User = Depends(require_permission("user:create")), db: Session = Depends(get_db)) -> dict:
+def create_user(payload: UserCreate, current_user: User = Depends(require_permission("system:user:create")), db: Session = Depends(get_db)) -> dict:
     """新增用户。"""
 
     user = UserService(db).create_user(payload, current_user)
@@ -54,7 +54,7 @@ def create_user(payload: UserCreate, current_user: User = Depends(require_permis
 
 
 @router.get("/{user_id}", summary="用户详情")
-def get_user(user_id: int, _: User = Depends(require_permission("system:user")), db: Session = Depends(get_db)) -> dict:
+def get_user(user_id: int, _: User = Depends(require_permission("system:user:view")), db: Session = Depends(get_db)) -> dict:
     """查询用户详情。"""
 
     user = UserService(db).user_repository.get_by_id(user_id)
@@ -79,16 +79,16 @@ def update_user(user_id: int, payload: UserUpdate, current_user: User = Depends(
 
     changed_fields = payload.model_fields_set
     if changed_fields == {"status"}:
-        if not has_permission(current_user, "user:status"):
+        if not has_permission(current_user, "system:user:disable"):
             raise AppException("无权执行该操作", status_code=403, code=403)
-    elif not has_permission(current_user, "user:edit"):
+    elif not has_permission(current_user, "system:user:edit"):
         raise AppException("无权执行该操作", status_code=403, code=403)
     user = UserService(db).update_user(user_id, payload, current_user)
     return success(UserOut.model_validate(user).model_dump(mode="json"))
 
 
 @router.delete("/{user_id}", summary="删除用户")
-def delete_user(user_id: int, current_user: User = Depends(require_permission("user:delete")), db: Session = Depends(get_db)) -> dict:
+def delete_user(user_id: int, current_user: User = Depends(require_permission("system:user:delete")), db: Session = Depends(get_db)) -> dict:
     """删除用户。"""
 
     UserService(db).delete_user(user_id, current_user)
@@ -96,7 +96,7 @@ def delete_user(user_id: int, current_user: User = Depends(require_permission("u
 
 
 @router.post("/{user_id}/reset-password", summary="重置密码")
-def reset_password(user_id: int, current_user: User = Depends(require_permission("user:reset-password")), db: Session = Depends(get_db)) -> dict:
+def reset_password(user_id: int, current_user: User = Depends(require_permission("system:user:reset-password")), db: Session = Depends(get_db)) -> dict:
     """重置用户密码。"""
 
     UserService(db).reset_password(user_id, current_user)

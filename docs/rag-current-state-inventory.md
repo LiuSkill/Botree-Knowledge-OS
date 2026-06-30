@@ -341,7 +341,7 @@ Prompt 与模型：
 | 用户最大密级 | 根据角色密级取最大可访问级别 | `backend/app/core/security_levels.py:76` | 已实现 |
 | 项目权限校验 | 校验项目存在、未删除、权限、项目密级、数据范围 | `backend/app/services/project_access_service.py:60` | 已实现 |
 | 文档权限校验 | 校验项目访问、文档密级 | `backend/app/services/project_access_service.py:94` | 已实现 |
-| 项目文档策略 | 项目问答只允许项目文档、已发布、AI 启用、已索引、当前版本、密级可访问 | `backend/app/services/project_document_policy_service.py:27` | 已实现 |
+| 项目文档策略 | 项目问答只允许项目文档、已发布、已索引、当前版本、密级可访问且未删除 | `backend/app/services/project_document_policy_service.py:27` | 已实现 |
 | chunk 策略 | active、chunk 密级、版本一致 | `backend/app/services/project_document_policy_service.py:68` | 已实现 |
 | Evidence 策略 | evidence 级别按 source_scope、project_id、security_level、document/chunk 状态过滤 | `backend/app/services/project_document_policy_service.py:92`、`backend/app/services/evidence_access_guard_service.py:48` | 已实现 |
 | 检索前过滤 | Milvus expr、Keyword searchable_chunks、ripgrep allowed pages、PageIndex published pages | `backend/app/retrieval/retrievers/milvus_retriever.py:168`、`backend/app/retrieval/retrievers/keyword_retriever.py:32`、`backend/app/retrieval/retrievers/ripgrep_retriever.py:107`、`backend/app/retrieval/retrievers/page_index_retriever.py:41` | 已实现 |
@@ -392,7 +392,7 @@ flowchart TD
 - 文档版本创建：`DocumentService.create_version()` 会创建新版本、将旧版本标为非当前/禁用 AI，并创建解析任务；证据见 `backend/app/services/document_service.py:508`。
 - MinerU 解析入口：`ParserService.parse_document()` 在 `settings.mineru_enabled` 时使用 MinerU；证据见 `backend/app/knowledge/parsing/parser_service.py:55`、`backend/app/knowledge/parsing/mineru_parser.py:73`。
 - chunk 生成：`ChunkBuilder.build()` 固定窗口分块；证据见 `backend/app/knowledge/chunking/chunk_builder.py:13`、`backend/app/services/document_service.py:1902`。
-- 审核/发布：`publish_document()` 设置发布和审核状态，`toggle_document_ai()` 只允许已发布文档启用 AI；证据见 `backend/app/services/document_service.py:826`、`backend/app/services/document_service.py:860`。
+- 审核/发布：`publish_document()` 设置发布和审核状态；项目问答准入由项目权限、密级、发布状态、索引状态、当前版本和删除状态共同控制。
 - 索引构建总入口：`DocumentService._build_document_version_index()`，见 `backend/app/services/document_service.py:1183`。
 - PageIndex 构建：`PageIndexService.build_page_indexes()`、`publish_page_indexes()`、`_write_text_mirror()`，见 `backend/app/services/page_index_service.py:134`、`backend/app/services/page_index_service.py:259`、`backend/app/services/page_index_service.py:358`。
 - Milvus 索引：`IndexService.index_document()` 生成 embedding 并 upsert Milvus，见 `backend/app/knowledge/indexing/index_service.py:40`。

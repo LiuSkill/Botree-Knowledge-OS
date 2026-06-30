@@ -373,7 +373,7 @@ def test_list_projects_uses_single_query_for_accessible_stats() -> None:
 
 
 def test_project_document_lifecycle_controls_project_chat_access() -> None:
-    """验证项目创建、默认目录、上传、发布、AI、版本、删除和问答准入闭环。"""
+    """验证项目创建、默认目录、上传、发布、版本、删除和问答准入闭环。"""
 
     db = make_session()
     try:
@@ -449,7 +449,6 @@ def test_project_document_lifecycle_controls_project_chat_access() -> None:
         assert document.project_id == project_id
         assert document.directory_id == directory.id
         assert document.status == PROJECT_DOCUMENT_STATUS_PENDING
-        assert document.ai_enabled is False
         assert document.is_current_version is True
 
         project_session = ChatSession(
@@ -511,10 +510,8 @@ def test_project_document_lifecycle_controls_project_chat_access() -> None:
 
         document_service.publish_document(document.id, admin)
         mark_current_document_indexed(db, document.id)
-        document = document_service.toggle_document_ai(document.id, True, admin)
         db.refresh(document)
         assert document.status == PROJECT_DOCUMENT_STATUS_PUBLISHED
-        assert document.ai_enabled is True
         assert policy.project_chat_document_reject_reason(document, user=admin, project_id=project_id) is None
 
         old_chunk = DocumentChunk(
@@ -555,15 +552,13 @@ def test_project_document_lifecycle_controls_project_chat_access() -> None:
         assert new_version.version_no == 2
         assert document.version_no == 2
         assert document.status == PROJECT_DOCUMENT_STATUS_PENDING
-        assert document.ai_enabled is False
         assert versions[1].is_current_version is False
-        assert versions[1].ai_enabled is False
         assert versions[2].is_current_version is True
         assert policy.project_chat_document_reject_reason(document, user=admin, project_id=project_id) == "document_not_published"
 
         document_service.publish_document(document.id, admin)
         mark_current_document_indexed(db, document.id)
-        document = document_service.toggle_document_ai(document.id, True, admin)
+        db.refresh(document)
         new_chunk = DocumentChunk(
             knowledge_base_id=knowledge_base.id,
             document_id=document.id,
@@ -588,7 +583,6 @@ def test_project_document_lifecycle_controls_project_chat_access() -> None:
         db.refresh(document)
         assert delete_result["deleted"] is True
         assert document.is_deleted is True
-        assert document.ai_enabled is False
         assert policy.project_chat_document_reject_reason(document, user=admin, project_id=project_id) == "document_deleted"
 
         logs = list(db.scalars(select(OperationLog).where(OperationLog.project_id == project_id)).all())
@@ -598,6 +592,5 @@ def test_project_document_lifecycle_controls_project_chat_access() -> None:
         assert ACTION_DELETE_DOCUMENT in actions
         assert any(log.target_type == "project" and log.target_id == str(project_id) for log in logs)
         assert any("发布" in log.action for log in logs)
-        assert any("AI" in log.action for log in logs)
     finally:
         db.close()

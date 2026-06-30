@@ -9,6 +9,7 @@ import { useRouter } from 'vue-router';
 
 import { createProject, deleteProject, listProjects, updateProject, type ProjectPayload } from '@/api/projects';
 import PageContainer from '@/components/PageContainer.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import { ROUTE_PATHS } from '@/shared/constants/routes';
 import { useAuthStore } from '@/stores/auth';
 import type { ProjectInfo, ProjectStatus, SecurityLevel } from '@/types/api';
@@ -50,16 +51,12 @@ const filters = reactive({
   security_level: '' as SecurityLevel | '',
 });
 
-function hasAnyPermission(permissions: string[]): boolean {
-  return permissions.some((permission) => authStore.hasPermission(permission));
-}
-
-const canViewProjects = computed(() => hasAnyPermission(['project:view', 'project']));
-const canOpenProjectDetail = computed(() => hasAnyPermission(['project:detail:view', 'project:view', 'project']));
-const canOpenProjectDocuments = computed(() => hasAnyPermission(['project_document:view', 'project:document:view', 'knowledge:view']));
-const canAskProjectChat = computed(() => hasAnyPermission(['project_chat:ask', 'project:chat:view']));
-const canEditProject = computed(() => hasAnyPermission(['project:update', 'project:edit']));
-const canDeleteProject = computed(() => hasAnyPermission(['project:delete']));
+const canViewProjects = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
+const canOpenProjectDetail = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
+const canOpenProjectDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
+const canAskProjectChat = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_CHAT));
+const canEditProject = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_EDIT));
+const canDeleteProject = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DELETE));
 const pagedProjects = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value;
   return projects.value.slice(start, start + pageSize.value);
@@ -266,7 +263,7 @@ onMounted(loadProjects);
             <template #icon><RefreshIcon /></template>
             刷新
           </t-button>
-          <t-button v-permission="'project:create'" theme="primary" @click="openCreateDialog">
+          <t-button v-permission="PERMISSIONS.PROJECT_CREATE" theme="primary" @click="openCreateDialog">
             <template #icon><AddIcon /></template>
             新建项目
           </t-button>

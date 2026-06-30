@@ -19,6 +19,7 @@ import { approveReviewTask, listApprovedDocuments, listReviewTasks, rejectReview
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, IndexTaskInfo, KnowledgeCategory, ProjectInfo, ReviewTask } from '@/types/api';
 import { buildCategoryOptions } from '@/utils/categories';
@@ -56,8 +57,9 @@ const approvedFilters = reactive({
 });
 
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
-const canBuildIndex = computed(() => authStore.hasActionPermission('review:build-index'));
-const canReviewTask = computed(() => authStore.hasActionPermission('review:review'));
+const canBuildIndex = computed(() => authStore.hasActionPermission(PERMISSIONS.REVIEW_BUILD_INDEX));
+const canApproveTask = computed(() => authStore.hasActionPermission(PERMISSIONS.REVIEW_APPROVE));
+const canRejectTask = computed(() => authStore.hasActionPermission(PERMISSIONS.REVIEW_REJECT));
 
 const buildStatusOptions = computed(() => {
   /**
@@ -217,8 +219,12 @@ async function decide(action: 'approve' | 'reject', task: ReviewTask): Promise<v
   /**
    * 执行审核动作并刷新审核任务列表。
    */
-  if (!canReviewTask.value) {
-    MessagePlugin.warning('当前账号没有审核操作权限');
+  if (action === 'approve' && !canApproveTask.value) {
+    MessagePlugin.warning('当前账号没有审核通过权限');
+    return;
+  }
+  if (action === 'reject' && !canRejectTask.value) {
+    MessagePlugin.warning('当前账号没有审核驳回权限');
     return;
   }
   if (action === 'approve') await approveReviewTask(task.id);
@@ -426,18 +432,18 @@ onBeforeUnmount(() => {
                   </TableActionButton>
                   <TableActionButton
                     label="通过"
-                    permission="review:review"
+                    :permission="PERMISSIONS.REVIEW_APPROVE"
                     theme="success"
-                    :disabled="!canReviewTask || !isReviewTaskPending(task.review_status)"
+                    :disabled="!canApproveTask || !isReviewTaskPending(task.review_status)"
                     @click="decide('approve', task)"
                   >
                     <CheckCircleIcon />
                   </TableActionButton>
                   <TableActionButton
                     label="驳回"
-                    permission="review:review"
+                    :permission="PERMISSIONS.REVIEW_REJECT"
                     theme="danger"
-                    :disabled="!canReviewTask || !isReviewTaskPending(task.review_status)"
+                    :disabled="!canRejectTask || !isReviewTaskPending(task.review_status)"
                     @click="decide('reject', task)"
                   >
                     <CloseCircleIcon />
@@ -510,7 +516,7 @@ onBeforeUnmount(() => {
               <td>
                 <TableActionButton
                   :label="isBuilding(document.id) || document.index_status === 'indexing' ? '索引构建中' : document.index_status === 'indexed' ? '重新构建' : '解析并构建索引'"
-                  permission="review:build-index"
+                  :permission="PERMISSIONS.REVIEW_BUILD_INDEX"
                   theme="primary"
                   :loading="isBuilding(document.id)"
                   :disabled="!canRunBuild(document)"

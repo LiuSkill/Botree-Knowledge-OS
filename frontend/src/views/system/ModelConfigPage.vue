@@ -21,6 +21,7 @@ import {
 } from '@/api/modelConfigs';
 import type { ModelConfigListParams } from '@/api/modelConfigs';
 import TableActionButton from '@/components/TableActionButton.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import type { ModelConfig, PageResult } from '@/types/api';
 
 interface PaginationInfo {
@@ -277,7 +278,7 @@ onMounted(loadConfigs);
           <template #icon><RefreshIcon /></template>
           刷新
         </t-button>
-        <t-button v-permission="'model-config:create'" theme="primary" @click="openCreateDialog">新增模型</t-button>
+        <t-button v-permission="PERMISSIONS.SYSTEM_MODEL_CREATE" theme="primary" @click="openCreateDialog">新增模型</t-button>
       </t-space>
     </div>
 
@@ -305,22 +306,22 @@ onMounted(loadConfigs);
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <TableActionButton label="编辑" permission="model-config:edit" @click="openEditDialog(row)">
+            <TableActionButton label="编辑" :permission="PERMISSIONS.SYSTEM_MODEL_EDIT" @click="openEditDialog(row)">
               <EditIcon />
             </TableActionButton>
-            <TableActionButton :label="row.enabled ? '停用' : '启用'" permission="model-config:edit" @click="toggleEnabled(row)">
+            <TableActionButton :label="row.enabled ? '停用' : '启用'" :permission="PERMISSIONS.SYSTEM_MODEL_EDIT" @click="toggleEnabled(row)">
               <PoweroffIcon />
             </TableActionButton>
-            <TableActionButton label="设为默认" permission="model-config:set-default" :disabled="row.is_default" @click="handleSetDefault(row)">
+            <TableActionButton label="设为默认" :permission="PERMISSIONS.SYSTEM_MODEL_SET_DEFAULT" :disabled="row.is_default" @click="handleSetDefault(row)">
               <CheckCircleIcon />
             </TableActionButton>
             <t-popconfirm content="确认测试该模型配置？" @confirm="handleTest(row)">
-              <TableActionButton label="测试" permission="model-config:test">
+              <TableActionButton label="测试" :permission="PERMISSIONS.SYSTEM_MODEL_TEST">
                 <PlayCircleIcon />
               </TableActionButton>
             </t-popconfirm>
             <t-popconfirm content="确认删除该模型配置？" @confirm="handleDelete(row)">
-              <TableActionButton label="删除" permission="model-config:delete" theme="danger">
+              <TableActionButton label="删除" :permission="PERMISSIONS.SYSTEM_MODEL_DELETE" theme="danger">
                 <DeleteIcon />
               </TableActionButton>
             </t-popconfirm>

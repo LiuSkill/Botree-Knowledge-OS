@@ -106,11 +106,6 @@ export interface KnowledgeDocument {
   securityLevel: SecurityLevel;
 
   /**
-   * 是否参与 AI 问答
-   */
-  aiEnabled: boolean;
-
-  /**
    * 文档摘要
    */
   summary: string;

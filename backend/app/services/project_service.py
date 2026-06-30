@@ -91,8 +91,8 @@ class ProjectService:
             document_security_levels=accessible_security_levels,
             include_document_stats=self.access_service.has_permission(
                 user,
-                "project_document:view",
-                "project:document:view",
+                "project:view",
+                "project:view",
                 "knowledge:view",
             ),
             pending_review_statuses=REVIEW_PENDING_STATUSES,
@@ -114,18 +114,18 @@ class ProjectService:
         ]
 
     def get_project(self, project_id: int, user: User) -> dict:
-        project = self.ensure_project_access(project_id, user, ("project:detail:view", "project:view", "project"))
+        project = self.ensure_project_access(project_id, user, ("project:view", "project:view", "project"))
         kb = self.kb_repository.get_project_base(project.id)
         return self._project_to_dict(project, kb.id if kb else None, **self._project_document_stats(project.id, user))
 
     def get_project_overview(self, project_id: int, user: User) -> dict:
-        project = self.ensure_project_access(project_id, user, ("project:detail:view", "project:view", "project"))
+        project = self.ensure_project_access(project_id, user, ("project:view", "project:view", "project"))
         kb = self.kb_repository.get_project_base(project.id)
         doc_repo = DocumentRepository(self.db)
         documents = [
             item
             for item in doc_repo.list(project_id=project.id)
-            if self.access_service.can_access_document(item, user, permission_codes=("project_document:view",))
+            if self.access_service.can_access_document(item, user, permission_codes=("project:view",))
         ]
         categories = list(
             self.db.query(KnowledgeCategory)
@@ -169,7 +169,7 @@ class ProjectService:
                     self._overview_document_to_dict(document, category_by_id, uploader_by_id)
                     for document in recent_documents
                 ],
-                "project_chat_enabled": self.access_service.has_permission(user, "project_chat:ask"),
+                "project_chat_enabled": self.access_service.has_permission(user, "project:chat"),
             }
         )
         return overview
@@ -250,7 +250,7 @@ class ProjectService:
         return self._project_to_dict(project, kb.id, **self._empty_document_counts())
 
     def update_project(self, project_id: int, payload: ProjectUpdate, operator: User) -> dict:
-        project = self.ensure_project_access(project_id, operator, ("project:update", "project:edit"))
+        project = self.ensure_project_access(project_id, operator, ("project:edit", "project:edit"))
         fields_set = payload.model_fields_set
         if "code" in fields_set and payload.code and payload.code != project.code:
             existing = self.project_repository.get_by_code(payload.code)
@@ -293,11 +293,11 @@ class ProjectService:
         self.db.commit()
 
     def list_members(self, project_id: int, operator: User) -> list[ProjectMember]:
-        self.ensure_project_access(project_id, operator, ("project:detail:view", "project:view", "project"))
+        self.ensure_project_access(project_id, operator, ("project:view", "project:view", "project"))
         return self.project_repository.list_members(project_id)
 
     def add_member(self, project_id: int, payload: ProjectMemberCreate, operator: User) -> ProjectMember:
-        self.ensure_project_access(project_id, operator, ("project:update", "project:edit"))
+        self.ensure_project_access(project_id, operator, ("project:edit", "project:edit"))
         if not UserRepository(self.db).get_by_id(payload.user_id):
             raise AppException("用户不存在", status_code=404, code=404)
         existing = self.project_repository.get_member(project_id, payload.user_id)
@@ -317,7 +317,7 @@ class ProjectService:
         return member
 
     def delete_member(self, project_id: int, user_id: int, operator: User) -> None:
-        self.ensure_project_access(project_id, operator, ("project:update", "project:edit"))
+        self.ensure_project_access(project_id, operator, ("project:edit", "project:edit"))
         member = self.project_repository.get_member(project_id, user_id)
         if not member:
             raise AppException("项目成员不存在", status_code=404, code=404)
@@ -436,8 +436,8 @@ class ProjectService:
             document_security_levels=allowed_security_levels(user_max_security_level(user)),
             include_document_stats=self.access_service.has_permission(
                 user,
-                "project_document:view",
-                "project:document:view",
+                "project:view",
+                "project:view",
                 "knowledge:view",
             ),
             pending_review_statuses=REVIEW_PENDING_STATUSES,
@@ -469,7 +469,6 @@ class ProjectService:
             "directory_name": category.name if category else None,
             "status": document.status,
             "security_level": document.security_level,
-            "ai_enabled": document.ai_enabled,
             "parse_status": document.parse_status,
             "index_status": document.index_status,
             "upload_user_id": uploader_id,

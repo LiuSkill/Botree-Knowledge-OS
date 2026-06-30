@@ -24,7 +24,7 @@ health_router = APIRouter(tags=["健康检查"])
 
 
 @router.get("/dashboard", summary="首页工作台统计")
-def dashboard(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def dashboard(current_user: User = Depends(require_permission("dashboard:view")), db: Session = Depends(get_db)) -> dict:
     """查询首页统计和最近数据。"""
 
     return success(SystemService(db).dashboard(current_user))
@@ -38,7 +38,7 @@ def menus(_: User = Depends(get_current_user), db: Session = Depends(get_db)) ->
 
 
 @router.get("/permissions/actions", summary="按钮级权限清单")
-def action_permissions(_: User = Depends(require_permission("system:permission")), db: Session = Depends(get_db)) -> dict:
+def action_permissions(_: User = Depends(require_permission("system:permission:view")), db: Session = Depends(get_db)) -> dict:
     """查询当前系统所有按钮级权限。"""
 
     return success(SystemService(db).list_action_permissions())
@@ -53,7 +53,7 @@ def operation_logs(
     ended_at: datetime | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_permission("system:operation-log")),
+    _: User = Depends(require_permission("system:log:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询操作日志。"""
@@ -83,7 +83,7 @@ def qa_audit_sessions(
     ended_at: datetime | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_permission("system:qa-audit")),
+    _: User = Depends(require_permission("system:qa-audit:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询用户会话维度的问答审计。"""
@@ -109,7 +109,7 @@ def qa_audits(
     feedback_status: str | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_permission("system:qa-audit")),
+    _: User = Depends(require_permission("system:qa-audit:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询问答审计。"""
@@ -128,7 +128,7 @@ def qa_audits(
 
 
 @router.get("/retrieval-traces", summary="检索链路审计")
-def retrieval_traces(_: User = Depends(require_permission("system:qa-audit")), db: Session = Depends(get_db)) -> dict:
+def retrieval_traces(_: User = Depends(require_permission("system:qa-audit:view")), db: Session = Depends(get_db)) -> dict:
     """查询 LangGraph 检索链路审计记录。"""
 
     return success(SystemService(db).retrieval_traces())

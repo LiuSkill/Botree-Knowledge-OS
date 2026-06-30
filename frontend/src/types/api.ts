@@ -113,7 +113,6 @@ export interface ProjectRecentDocumentSummary {
   directory_name?: string | null;
   status?: string | null;
   security_level: SecurityLevel;
-  ai_enabled?: boolean;
   parse_status?: string | null;
   index_status?: string | null;
   upload_user_id?: number | null;
@@ -176,7 +175,6 @@ export interface DocumentInfo {
   discipline?: string | null;
   version?: string | null;
   status?: string | null;
-  ai_enabled?: boolean;
   upload_user_id?: number | null;
   uploader_name?: string | null;
   uploader_username?: string | null;
@@ -233,7 +231,6 @@ export interface DocumentVersionInfo {
   index_status: string;
   is_current: boolean;
   is_current_version?: boolean;
-  ai_enabled?: boolean;
   security_level: SecurityLevel;
   reviewed_by?: number | null;
   reviewed_at?: string | null;

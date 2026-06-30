@@ -143,7 +143,6 @@ class KeywordRetriever(BaseRetriever):
             "review_status": document.review_status,
             "document_status": document.document_status,
             "status": getattr(document, "status", None),
-            "ai_enabled": bool(getattr(document, "ai_enabled", False)),
             "index_status": document.index_status,
             "chunk_status": chunk.chunk_status,
             "current_version": chunk.version_no == document.version_no and bool(document.current_version),

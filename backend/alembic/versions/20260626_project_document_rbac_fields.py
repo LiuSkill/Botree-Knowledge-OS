@@ -134,7 +134,6 @@ def _add_project_fields() -> None:
 
 def _add_directory_fields() -> None:
     columns: list[Callable[[], sa.Column]] = [
-        lambda: sa.Column("default_ai_enabled", sa.Boolean(), nullable=False, server_default=sa.false(), comment="目录默认AI问答开关"),
         lambda: sa.Column("default_security_level", sa.String(length=30), nullable=False, server_default="internal", comment="目录默认密级"),
         lambda: sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default=sa.false(), comment="是否删除"),
         lambda: sa.Column("deleted_at", sa.DateTime(), nullable=True, comment="删除时间"),
@@ -145,11 +144,10 @@ def _add_directory_fields() -> None:
         op.execute(
             sa.text(
                 """
-                UPDATE knowledge_categories
-                SET
-                    default_security_level = COALESCE(NULLIF(default_security_level, ''), 'internal'),
-                    default_ai_enabled = COALESCE(default_ai_enabled, 0),
-                    is_deleted = COALESCE(is_deleted, 0)
+                    UPDATE knowledge_categories
+                    SET
+                        default_security_level = COALESCE(NULLIF(default_security_level, ''), 'internal'),
+                        is_deleted = COALESCE(is_deleted, 0)
                 """
             )
         )
@@ -172,7 +170,6 @@ def _add_document_fields() -> None:
         lambda: sa.Column("discipline", sa.String(length=50), nullable=True, comment="所属专业"),
         lambda: sa.Column("version", sa.String(length=50), nullable=True, comment="版本号"),
         lambda: sa.Column("status", sa.String(length=30), nullable=False, server_default="待审核", comment="文件状态"),
-        lambda: sa.Column("ai_enabled", sa.Boolean(), nullable=False, server_default=sa.false(), comment="是否参与AI问答"),
         lambda: sa.Column("upload_user_id", sa.Integer(), nullable=True, comment="上传人ID"),
         lambda: sa.Column("file_path", sa.String(length=500), nullable=True, comment="文件路径"),
         lambda: sa.Column("preview_url", sa.String(length=500), nullable=True, comment="预览地址"),
@@ -198,7 +195,6 @@ def _add_document_fields() -> None:
                         WHEN status IN ('待审核', '已发布') THEN status
                         ELSE '待审核'
                     END,
-                    ai_enabled = COALESCE(ai_enabled, 0),
                     upload_user_id = COALESCE(upload_user_id, created_by),
                     is_current_version = COALESCE(is_current_version, current_version, 1),
                     is_deleted = COALESCE(is_deleted, 0)
@@ -208,7 +204,6 @@ def _add_document_fields() -> None:
         for index_name, column_name in (
             ("idx_documents_directory_id", "directory_id"),
             ("idx_documents_status", "status"),
-            ("idx_documents_ai_enabled", "ai_enabled"),
             ("idx_documents_is_current_version", "is_current_version"),
             ("idx_documents_is_deleted", "is_deleted"),
         ):
@@ -229,7 +224,6 @@ def _add_document_version_fields() -> None:
         lambda: sa.Column("file_path", sa.String(length=500), nullable=True, comment="文件路径"),
         lambda: sa.Column("status", sa.String(length=30), nullable=False, server_default="待审核", comment="文件状态"),
         lambda: sa.Column("is_current_version", sa.Boolean(), nullable=False, server_default=sa.false(), comment="是否当前版本"),
-        lambda: sa.Column("ai_enabled", sa.Boolean(), nullable=False, server_default=sa.false(), comment="是否参与AI问答"),
         lambda: sa.Column("upload_user_id", sa.Integer(), nullable=True, comment="上传人ID"),
         lambda: sa.Column("version_note", sa.Text(), nullable=True, comment="版本备注"),
     ]
@@ -253,7 +247,6 @@ def _add_document_version_fields() -> None:
                         ELSE '待审核'
                     END,
                     is_current_version = CASE WHEN is_current = 1 THEN 1 ELSE 0 END,
-                    ai_enabled = COALESCE(ai_enabled, 0),
                     upload_user_id = COALESCE(upload_user_id, created_by),
                     version_note = COALESCE(version_note, change_summary)
                 """

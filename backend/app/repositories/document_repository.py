@@ -68,7 +68,6 @@ class DocumentRepository:
         keyword: str | None = None,
         status: str | None = None,
         security_level: str | None = None,
-        ai_enabled: bool | None = None,
         parse_status: str | None = None,
         index_status: str | None = None,
         document_type: str | None = None,
@@ -87,7 +86,6 @@ class DocumentRepository:
             keyword=keyword,
             status=status,
             security_level=security_level,
-            ai_enabled=ai_enabled,
             parse_status=parse_status,
             index_status=index_status,
             document_type=document_type,
@@ -115,7 +113,6 @@ class DocumentRepository:
         keyword: str | None,
         status: str | None,
         security_level: str | None,
-        ai_enabled: bool | None,
         parse_status: str | None,
         index_status: str | None,
         document_type: str | None,
@@ -144,8 +141,6 @@ class DocumentRepository:
             filters.append(self._project_document_status_filter(status))
         if security_level:
             filters.append(Document.security_level == security_level)
-        if ai_enabled is not None:
-            filters.append(Document.ai_enabled.is_(ai_enabled))
         if parse_status:
             filters.append(Document.parse_status == parse_status)
         if index_status:

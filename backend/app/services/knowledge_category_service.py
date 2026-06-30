@@ -44,13 +44,13 @@ class KnowledgeCategoryService:
             project_id,
             user,
             permission_codes=(
-                "project_directory:view",
-                "project_directory:create",
-                "project_directory:update",
-                "project_directory:delete",
-                "project_directory:init_template",
-                "project:document:view",
-                "project_document:view",
+                "project:view",
+                "project:directory:create",
+                "project:directory:edit",
+                "project:directory:delete",
+                "project:directory:create",
+                "project:view",
+                "project:view",
                 "project:view",
                 "project",
             ),
@@ -65,7 +65,7 @@ class KnowledgeCategoryService:
     def create_category(self, payload: KnowledgeCategoryCreate, operator: User) -> KnowledgeCategory:
         """创建知识分类或项目目录。"""
 
-        project_id = self._normalize_scope(payload.scope_type, payload.project_id, operator, permission_codes=("project_directory:create",))
+        project_id = self._normalize_scope(payload.scope_type, payload.project_id, operator, permission_codes=("project:directory:create",))
         self._ensure_parent_matches_scope(payload.parent_id, payload.scope_type, project_id)
         unique_parent_id = payload.parent_id if payload.scope_type == "project" else _UNSET_PARENT
         self._ensure_code_unique(payload.scope_type, payload.code, project_id, parent_id=unique_parent_id)
@@ -96,7 +96,7 @@ class KnowledgeCategoryService:
         """更新知识分类或项目目录。"""
 
         category = self.get_category(category_id)
-        self._normalize_scope(category.scope_type, category.project_id, operator, permission_codes=("project_directory:update",))
+        self._normalize_scope(category.scope_type, category.project_id, operator, permission_codes=("project:directory:edit",))
 
         parent_changed = False
         if payload.parent_id is not None:
@@ -151,7 +151,7 @@ class KnowledgeCategoryService:
         """软删除知识分类或项目目录。"""
 
         category = self.get_category(category_id)
-        self._normalize_scope(category.scope_type, category.project_id, operator, permission_codes=("project_directory:delete",))
+        self._normalize_scope(category.scope_type, category.project_id, operator, permission_codes=("project:directory:delete",))
         if self.repository.count_children(category.id) > 0:
             raise AppException("目录下存在子目录，请先调整子目录")
         if self.repository.count_documents(category.id) > 0:
@@ -168,7 +168,7 @@ class KnowledgeCategoryService:
     def init_default_project_template(self, project_id: int, operator: User) -> dict[str, int]:
         """为项目初始化默认资料目录模板，同级目录编码已存在时不会重复创建。"""
 
-        ProjectService(self.db).ensure_project_access(project_id, operator, ("project_directory:init_template",))
+        ProjectService(self.db).ensure_project_access(project_id, operator, ("project:directory:create",))
         existing = {
             (category.parent_id, category.code): category
             for category in self.repository.list_by_scope("project", project_id, include_deleted=False)

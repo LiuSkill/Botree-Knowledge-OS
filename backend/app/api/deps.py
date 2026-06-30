@@ -15,7 +15,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
-from app.core.rbac import sync_menu_action_permission_codes
+from app.core.rbac import has_permission as rbac_has_permission
+from app.core.rbac import is_admin as rbac_is_admin
 from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.core.security import decode_access_token
@@ -103,10 +104,7 @@ def has_permission(user: User, permission_code: str) -> bool:
         是否拥有权限。
     """
 
-    if is_admin(user):
-        return True
-    permission_codes = sync_menu_action_permission_codes(user_permission_codes(user))
-    return permission_code in permission_codes
+    return rbac_has_permission(user, permission_code)
 
 
 def require_permission(permission_code: str) -> Callable[[User], User]:
@@ -194,4 +192,4 @@ def is_admin(user: User) -> bool:
         是否拥有 admin 角色。
     """
 
-    return any(role.code == "admin" and role.enabled for role in user.roles)
+    return rbac_is_admin(user)

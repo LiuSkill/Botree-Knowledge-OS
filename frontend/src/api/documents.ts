@@ -46,10 +46,6 @@ export function publishDocument(id: number): Promise<DocumentInfo> {
   return request.post(`/documents/${id}/publish`) as Promise<DocumentInfo>;
 }
 
-export function updateDocumentAiEnabled(id: number, aiEnabled: boolean): Promise<DocumentInfo> {
-  return request.post(`/documents/${id}/ai-toggle`, { ai_enabled: aiEnabled }) as Promise<DocumentInfo>;
-}
-
 export function listDocumentChunks(id: number, versionNo?: number | null): Promise<DocumentChunk[]> {
   return request.get(`/documents/${id}/chunks`, { params: versionNo ? { version_no: versionNo } : undefined }) as Promise<DocumentChunk[]>;
 }

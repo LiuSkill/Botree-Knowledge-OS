@@ -285,7 +285,8 @@ def test_stream_base_chat_confirm_only_emits_compact_answering_progress(monkeypa
     )
 
     payload = SimpleNamespace(message="可以", chat_type="base_chat", mode="auto", project_id=None)
-    stream = iter(service.complete_stream(payload, SimpleNamespace(id=1)))
+    user = SimpleNamespace(id=1, roles=[SimpleNamespace(code="admin", enabled=True)])
+    stream = iter(service.complete_stream(payload, user))
 
     assert "event: meta" in next(stream)
     answering_progress = next(stream)

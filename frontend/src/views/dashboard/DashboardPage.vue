@@ -26,6 +26,7 @@ import { computed, onMounted, ref, type Component } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { getDashboardStats } from '@/api/system';
+import { PERMISSIONS } from '@/constants/permissions';
 import { ROUTE_PATHS } from '@/shared/constants/routes';
 import { useAuthStore } from '@/stores/auth';
 import type { DashboardAiQuestion, DashboardCategoryStat, DashboardDocumentSummary, DashboardStats } from '@/types/api';
@@ -48,6 +49,7 @@ interface QuickAction {
   route: string;
   icon: Component;
   tone: ToneName;
+  permission: string;
 }
 
 interface DocumentDisplayItem {
@@ -113,7 +115,7 @@ const metricCards = computed<MetricCard[]>(() => [
   },
 ]);
 
-const quickActions: QuickAction[] = [
+const quickActionDefinitions: QuickAction[] = [
   {
     key: 'upload',
     title: '上传文档',
@@ -121,6 +123,7 @@ const quickActions: QuickAction[] = [
     route: ROUTE_PATHS.knowledge,
     icon: CloudUploadIcon,
     tone: 'blue',
+    permission: PERMISSIONS.KNOWLEDGE_UPLOAD,
   },
   {
     key: 'project',
@@ -129,6 +132,7 @@ const quickActions: QuickAction[] = [
     route: ROUTE_PATHS.projects,
     icon: AddIcon,
     tone: 'green',
+    permission: PERMISSIONS.PROJECT_CREATE,
   },
   {
     key: 'base-chat',
@@ -137,6 +141,7 @@ const quickActions: QuickAction[] = [
     route: ROUTE_PATHS.aiBaseChat,
     icon: ChatBubbleHelpIcon,
     tone: 'purple',
+    permission: PERMISSIONS.AI_BASE_CHAT_VIEW,
   },
   {
     key: 'project-chat',
@@ -145,8 +150,14 @@ const quickActions: QuickAction[] = [
     route: ROUTE_PATHS.aiProjectChat,
     icon: DataBaseIcon,
     tone: 'orange',
+    permission: PERMISSIONS.AI_PROJECT_CHAT_VIEW,
   },
 ];
+
+const visibleQuickActions = computed(() => quickActionDefinitions.filter((action) => authStore.hasActionPermission(action.permission)));
+const canViewKnowledge = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_VIEW));
+const canViewBaseChat = computed(() => authStore.hasActionPermission(PERMISSIONS.AI_BASE_CHAT_VIEW));
+const canViewProjectChat = computed(() => authStore.hasActionPermission(PERMISSIONS.AI_PROJECT_CHAT_VIEW));
 
 const recentDocuments = computed<DocumentDisplayItem[]>(() => {
   /**
@@ -170,6 +181,11 @@ const recentQuestions = computed<DashboardAiQuestion[]>(() => {
    */
   return (stats.value?.recent_ai_questions || []).slice(0, 4);
 });
+const visibleRecentQuestions = computed(() =>
+  recentQuestions.value.filter((question) =>
+    question.chat_type === 'project_chat' ? canViewProjectChat.value : canViewBaseChat.value,
+  ),
+);
 
 const categoryStats = computed<DashboardCategoryStat[]>(() => {
   /**
@@ -247,6 +263,10 @@ function openDocument(documentId: number): void {
   /**
    * 打开文档详情。
    */
+  if (!canViewKnowledge.value) {
+    MessagePlugin.warning('无权限查看知识资料');
+    return;
+  }
   router.push(ROUTE_PATHS.documentDetail.replace(':id', String(documentId)));
 }
 
@@ -254,6 +274,14 @@ function openQuestion(question: DashboardAiQuestion): void {
   /**
    * 根据问答类型进入对应 AI 问答入口。
    */
+  if (question.chat_type === 'project_chat' && !canViewProjectChat.value) {
+    MessagePlugin.warning('无权限访问项目问答');
+    return;
+  }
+  if (question.chat_type === 'base_chat' && !canViewBaseChat.value) {
+    MessagePlugin.warning('无权限访问基础问答');
+    return;
+  }
   router.push(question.chat_type === 'project_chat' ? ROUTE_PATHS.aiProjectChat : ROUTE_PATHS.aiBaseChat);
 }
 
@@ -295,7 +323,7 @@ onMounted(loadData);
 
       <div class="quick-action-grid" aria-label="常用工作入口">
         <t-button
-          v-for="action in quickActions"
+          v-for="action in visibleQuickActions"
           :key="action.key"
           class="quick-action-card"
           :class="{ highlighted: action.key === 'project' }"
@@ -317,9 +345,9 @@ onMounted(loadData);
         <section class="dashboard-panel recent-documents-panel">
           <header class="panel-header">
             <h2>最近上传文档</h2>
-            <t-button size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
+            <t-button v-if="canViewKnowledge" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
           </header>
-          <div v-if="recentDocuments.length" class="document-list">
+          <div v-if="recentDocuments.length && canViewKnowledge" class="document-list">
             <t-button
               v-for="document in recentDocuments"
               :key="`${document.name}-${document.time}`"
@@ -343,11 +371,11 @@ onMounted(loadData);
         <section class="dashboard-panel recent-questions-panel">
           <header class="panel-header">
             <h2>最近 AI 问答</h2>
-            <t-button size="small" variant="text" @click="navigateTo(ROUTE_PATHS.aiBaseChat)">查看全部</t-button>
+            <t-button v-if="canViewBaseChat" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.aiBaseChat)">查看全部</t-button>
           </header>
-          <div v-if="recentQuestions.length" class="question-list">
+          <div v-if="visibleRecentQuestions.length" class="question-list">
             <t-button
-              v-for="question in recentQuestions"
+              v-for="question in visibleRecentQuestions"
               :key="`${question.id}-${question.question}`"
               class="question-card"
               block
@@ -364,7 +392,7 @@ onMounted(loadData);
         <section class="dashboard-panel category-panel">
           <header class="panel-header">
             <h2>知识分类统计</h2>
-            <t-button size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
+            <t-button v-if="canViewKnowledge" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
           </header>
           <div v-if="categoryStats.length" class="category-body">
             <svg class="donut-chart" viewBox="0 0 144 144" role="img" aria-label="知识分类统计环图">

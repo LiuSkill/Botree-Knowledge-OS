@@ -10,7 +10,6 @@ from app.core.response import success
 from app.models.user import User
 from app.schemas.chat import ChatCompletionRequest
 from app.schemas.document import (
-    DocumentAiToggleRequest,
     DocumentDeleteOut,
     DocumentMetadataUpdate,
     DocumentOut,
@@ -34,7 +33,7 @@ def list_projects(
     keyword: str | None = None,
     project_status: str | None = None,
     security_level: str | None = None,
-    current_user: User = Depends(require_any_permission("project:view", "project")),
+    current_user: User = Depends(require_any_permission("project:view", "project:chat")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询当前用户可访问项目。"""
@@ -56,7 +55,7 @@ def create_project(
 @router.get("/{project_id}", summary="项目详情")
 def get_project(
     project_id: int,
-    current_user: User = Depends(require_any_permission("project:detail:view", "project:view", "project")),
+    current_user: User = Depends(require_permission("project:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询项目详情。"""
@@ -68,7 +67,7 @@ def get_project(
 def update_project(
     project_id: int,
     payload: ProjectUpdate,
-    current_user: User = Depends(require_any_permission("project:update", "project:edit")),
+    current_user: User = Depends(require_permission("project:edit")),
     db: Session = Depends(get_db),
 ) -> dict:
     """编辑项目。"""
@@ -93,11 +92,7 @@ def list_project_directories(
     project_id: int,
     current_user: User = Depends(
         require_any_permission(
-            "project_directory:view",
-            "project:document:view",
-            "project_document:view",
             "project:view",
-            "project",
         )
     ),
     db: Session = Depends(get_db),
@@ -112,7 +107,7 @@ def list_project_directories(
 def create_project_directory(
     project_id: int,
     payload: KnowledgeCategoryCreate,
-    current_user: User = Depends(require_permission("project_directory:create")),
+    current_user: User = Depends(require_permission("project:directory:create")),
     db: Session = Depends(get_db),
 ) -> dict:
     """新建项目资料目录。"""
@@ -128,7 +123,7 @@ def update_project_directory(
     project_id: int,
     directory_id: int,
     payload: KnowledgeCategoryUpdate,
-    current_user: User = Depends(require_permission("project_directory:update")),
+    current_user: User = Depends(require_permission("project:directory:edit")),
     db: Session = Depends(get_db),
 ) -> dict:
     """编辑项目资料目录。"""
@@ -146,7 +141,7 @@ def update_project_directory(
 def delete_project_directory(
     project_id: int,
     directory_id: int,
-    current_user: User = Depends(require_permission("project_directory:delete")),
+    current_user: User = Depends(require_permission("project:directory:delete")),
     db: Session = Depends(get_db),
 ) -> dict:
     """软删除空项目资料目录。"""
@@ -162,7 +157,7 @@ def delete_project_directory(
 @router.post("/{project_id}/directories/init-template", summary="初始化项目资料目录模板")
 def init_project_directory_template(
     project_id: int,
-    current_user: User = Depends(require_permission("project_directory:init_template")),
+    current_user: User = Depends(require_permission("project:directory:create")),
     db: Session = Depends(get_db),
 ) -> dict:
     """初始化默认项目资料目录模板。"""
@@ -176,7 +171,7 @@ def init_project_directory_template(
 @router.get("/{project_id}/members", summary="项目成员")
 def list_members(
     project_id: int,
-    current_user: User = Depends(require_any_permission("project:detail:view", "project:view", "project")),
+    current_user: User = Depends(require_permission("project:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询项目成员。"""
@@ -189,7 +184,7 @@ def list_members(
 def add_member(
     project_id: int,
     payload: ProjectMemberCreate,
-    current_user: User = Depends(require_any_permission("project:update", "project:edit")),
+    current_user: User = Depends(require_permission("project:edit")),
     db: Session = Depends(get_db),
 ) -> dict:
     """新增项目成员。"""
@@ -202,7 +197,7 @@ def add_member(
 def delete_member(
     project_id: int,
     user_id: int,
-    current_user: User = Depends(require_any_permission("project:update", "project:edit")),
+    current_user: User = Depends(require_permission("project:edit")),
     db: Session = Depends(get_db),
 ) -> dict:
     """删除项目成员。"""
@@ -221,7 +216,7 @@ def _ensure_document_in_project(document_id: int, project_id: int, current_user:
 @router.get("/{project_id}/overview", summary="项目概览")
 def get_project_overview(
     project_id: int,
-    current_user: User = Depends(require_any_permission("project:detail:view", "project:view", "project")),
+    current_user: User = Depends(require_permission("project:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     return success(ProjectService(db).get_project_overview(project_id, current_user))
@@ -235,13 +230,12 @@ def list_project_documents(
     category_id: int | None = None,
     status: str | None = None,
     security_level: str | None = None,
-    ai_enabled: bool | None = None,
     parse_status: str | None = None,
     index_status: str | None = None,
     document_type: str | None = None,
     discipline: str | None = None,
     upload_user_id: int | None = None,
-    current_user: User = Depends(require_permission("project_document:view")),
+    current_user: User = Depends(require_permission("project:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     target_directory_id = directory_id or category_id
@@ -257,8 +251,6 @@ def list_project_documents(
         documents = [item for item in documents if item.status == status]
     if security_level is not None:
         documents = [item for item in documents if item.security_level == security_level]
-    if ai_enabled is not None:
-        documents = [item for item in documents if item.ai_enabled is ai_enabled]
     if parse_status is not None:
         documents = [item for item in documents if item.parse_status == parse_status]
     if document_type is not None:
@@ -280,13 +272,12 @@ def list_project_documents_page(
     category_id: int | None = None,
     status: str | None = None,
     security_level: str | None = None,
-    ai_enabled: bool | None = None,
     parse_status: str | None = None,
     index_status: str | None = None,
     document_type: str | None = None,
     discipline: str | None = None,
     upload_user_id: int | None = None,
-    current_user: User = Depends(require_permission("project_document:view")),
+    current_user: User = Depends(require_permission("project:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     target_directory_id = directory_id or category_id
@@ -299,7 +290,6 @@ def list_project_documents_page(
         keyword=keyword,
         status=status,
         security_level=security_level,
-        ai_enabled=ai_enabled,
         parse_status=parse_status,
         index_status=index_status,
         document_type=document_type,
@@ -321,13 +311,13 @@ async def upload_project_document(
     directory_id: int | None = Form(default=None),
     category_id: int | None = Form(default=None),
     security_level: str | None = Form(default=None),
-    current_user: User = Depends(require_permission("project_document:upload")),
+    current_user: User = Depends(require_permission("project:upload")),
     db: Session = Depends(get_db),
 ) -> dict:
     target_directory_id = directory_id or category_id
     if target_directory_id is None:
         raise AppException("上传项目资料必须选择目录")
-    knowledge_base = KnowledgeBaseService(db).get_project_base(project_id, current_user, ("project_document:upload",))
+    knowledge_base = KnowledgeBaseService(db).get_project_base(project_id, current_user, ("project:upload",))
     document = await DocumentService(db).upload_document(knowledge_base.id, file, current_user, target_directory_id, security_level)
     return success(DocumentOut.model_validate(document).model_dump(mode="json"))
 
@@ -336,7 +326,7 @@ async def upload_project_document(
 def get_project_document(
     project_id: int,
     document_id: int,
-    current_user: User = Depends(require_permission("project_document:view")),
+    current_user: User = Depends(require_permission("project:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     document = _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -348,7 +338,7 @@ def update_project_document(
     project_id: int,
     document_id: int,
     payload: DocumentMetadataUpdate,
-    current_user: User = Depends(require_permission("project_document:update")),
+    current_user: User = Depends(require_permission("project:document:edit")),
     db: Session = Depends(get_db),
 ) -> dict:
     _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -360,7 +350,7 @@ def update_project_document(
 def delete_project_document(
     project_id: int,
     document_id: int,
-    current_user: User = Depends(require_permission("project_document:delete")),
+    current_user: User = Depends(require_permission("project:document:delete")),
     db: Session = Depends(get_db),
 ) -> dict:
     _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -372,7 +362,7 @@ def delete_project_document(
 def publish_project_document(
     project_id: int,
     document_id: int,
-    current_user: User = Depends(require_permission("project_document:publish")),
+    current_user: User = Depends(require_permission("project:submit-review")),
     db: Session = Depends(get_db),
 ) -> dict:
     _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -385,7 +375,7 @@ def retry_parse_project_document(
     project_id: int,
     document_id: int,
     version_no: int | None = None,
-    current_user: User = Depends(require_permission("project_document:retry_parse")),
+    current_user: User = Depends(require_permission("project:document:retry-parse")),
     db: Session = Depends(get_db),
 ) -> dict:
     _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -400,7 +390,7 @@ def retry_index_project_document(
     project_id: int,
     document_id: int,
     version_no: int | None = None,
-    current_user: User = Depends(require_permission("project_document:retry_index")),
+    current_user: User = Depends(require_permission("project:document:retry-index")),
     db: Session = Depends(get_db),
 ) -> dict:
     _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -408,25 +398,12 @@ def retry_index_project_document(
     return success(IndexTaskOut.model_validate(task).model_dump(mode="json"))
 
 
-@router.post("/{project_id}/documents/{document_id}/ai-toggle", summary="修改项目资料 AI 问答开关")
-def toggle_project_document_ai(
-    project_id: int,
-    document_id: int,
-    payload: DocumentAiToggleRequest,
-    current_user: User = Depends(require_permission("project_document:ai_toggle")),
-    db: Session = Depends(get_db),
-) -> dict:
-    _ensure_document_in_project(document_id, project_id, current_user, db)
-    document = DocumentService(db).toggle_document_ai(document_id, payload.ai_enabled, current_user)
-    return success(DocumentOut.model_validate(document).model_dump(mode="json"))
-
-
 @router.post("/{project_id}/documents/{document_id}/security-level", summary="修改项目资料密级")
 def update_project_document_security_level(
     project_id: int,
     document_id: int,
     payload: DocumentSecurityLevelUpdate,
-    current_user: User = Depends(require_permission("project_document:security_update")),
+    current_user: User = Depends(require_permission("project:document:security-update")),
     db: Session = Depends(get_db),
 ) -> dict:
     _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -438,7 +415,7 @@ def update_project_document_security_level(
 def list_project_document_versions(
     project_id: int,
     document_id: int,
-    current_user: User = Depends(require_permission("project_document:version:view")),
+    current_user: User = Depends(require_permission("project:document:version-view")),
     db: Session = Depends(get_db),
 ) -> dict:
     _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -455,7 +432,7 @@ async def create_project_document_version(
     version_note: str | None = Form(default=None),
     directory_id: int | None = Form(default=None),
     category_id: int | None = Form(default=None),
-    current_user: User = Depends(require_permission("project_document:version:create")),
+    current_user: User = Depends(require_permission("project:document:version-create")),
     db: Session = Depends(get_db),
 ) -> dict:
     _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -469,7 +446,7 @@ def set_project_document_current_version(
     project_id: int,
     document_id: int,
     version_id: int,
-    current_user: User = Depends(require_permission("project_document:version:create")),
+    current_user: User = Depends(require_permission("project:document:version-set-current")),
     db: Session = Depends(get_db),
 ) -> dict:
     _ensure_document_in_project(document_id, project_id, current_user, db)
@@ -481,7 +458,7 @@ def set_project_document_current_version(
 def project_chat(
     project_id: int,
     payload: ChatCompletionRequest,
-    current_user: User = Depends(require_permission("project_chat:ask")),
+    current_user: User = Depends(require_permission("project:chat")),
     db: Session = Depends(get_db),
 ) -> dict:
     request = payload.model_copy(update={"chat_type": "project_chat", "project_id": project_id})

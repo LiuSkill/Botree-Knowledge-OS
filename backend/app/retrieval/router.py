@@ -1131,7 +1131,7 @@ class RetrievalRouter:
             if project_id is None:
                 raise AppException("项目知识问答必须选择项目")
             if effective_mode == "project_chat":
-                ProjectAccessService(self.db).ensure_project_access(project_id, user, permission_codes=("project_chat:ask",))
+                ProjectAccessService(self.db).ensure_project_access(project_id, user, permission_codes=("project:chat",))
             else:
                 ProjectService(self.db).ensure_project_access(project_id, user)
         if effective_mode == "base_chat" and self._is_external_user(user):

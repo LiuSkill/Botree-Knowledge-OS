@@ -14,6 +14,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { approveReviewTask, getReviewTask, rejectReviewTask } from '@/api/reviews';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { ReviewTask } from '@/types/api';
 import { isReviewTaskPending } from '@/utils/constants';
@@ -23,7 +24,8 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const task = ref<ReviewTask | null>(null);
-const canReviewTask = computed(() => authStore.hasActionPermission('review:review'));
+const canApproveTask = computed(() => authStore.hasActionPermission(PERMISSIONS.REVIEW_APPROVE));
+const canRejectTask = computed(() => authStore.hasActionPermission(PERMISSIONS.REVIEW_REJECT));
 
 async function loadTask(): Promise<void> {
   /**
@@ -37,8 +39,12 @@ async function decide(action: 'approve' | 'reject'): Promise<void> {
    * 执行审核动作。
    */
   if (!task.value) return;
-  if (!canReviewTask.value) {
-    MessagePlugin.warning('当前账号没有审核操作权限');
+  if (action === 'approve' && !canApproveTask.value) {
+    MessagePlugin.warning('当前账号没有审核通过权限');
+    return;
+  }
+  if (action === 'reject' && !canRejectTask.value) {
+    MessagePlugin.warning('当前账号没有审核驳回权限');
     return;
   }
   task.value = action === 'approve' ? await approveReviewTask(task.value.id) : await rejectReviewTask(task.value.id);
@@ -52,8 +58,8 @@ onMounted(loadTask);
   <PageContainer title="审核详情" subtitle="查看资料审核状态和处理结果">
     <template #actions>
       <t-button variant="outline" @click="router.push('/reviews')">返回审核中心</t-button>
-      <t-button v-permission="'review:review'" theme="success" :disabled="!canReviewTask || !isReviewTaskPending(task?.review_status)" @click="decide('approve')">审核通过</t-button>
-      <t-button v-permission="'review:review'" theme="danger" :disabled="!canReviewTask || !isReviewTaskPending(task?.review_status)" @click="decide('reject')">审核驳回</t-button>
+      <t-button v-permission="PERMISSIONS.REVIEW_APPROVE" theme="success" :disabled="!canApproveTask || !isReviewTaskPending(task?.review_status)" @click="decide('approve')">审核通过</t-button>
+      <t-button v-permission="PERMISSIONS.REVIEW_REJECT" theme="danger" :disabled="!canRejectTask || !isReviewTaskPending(task?.review_status)" @click="decide('reject')">审核驳回</t-button>
     </template>
 
     <div v-if="task" class="review-detail-scroll data-scroll">

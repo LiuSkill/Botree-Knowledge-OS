@@ -18,6 +18,8 @@ import { getKnowledgeBase, listKnowledgeBaseDocuments, uploadKnowledgeDocument }
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
+import { PERMISSIONS } from '@/constants/permissions';
+import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
@@ -27,6 +29,7 @@ const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 const loading = ref(false);
 const uploading = ref(false);
 const knowledgeBase = ref<KnowledgeBaseInfo | null>(null);
@@ -44,6 +47,9 @@ const uploadForm = reactive({
 });
 
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
+const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_VIEW));
+const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_UPLOAD));
+const canSubmitDocumentReview = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW));
 
 const filteredDocuments = computed(() => {
   /**
@@ -100,6 +106,10 @@ async function handleUpload(): Promise<void> {
   /**
    * 上传企业资料，后端会写入草稿状态和系统递增版本号。
    */
+  if (!canUploadDocuments.value) {
+    MessagePlugin.warning('无权限上传知识资料');
+    return;
+  }
   if (!selectedUploadFile.value) {
     MessagePlugin.warning('请选择需要上传的资料');
     return;
@@ -126,16 +136,31 @@ async function submitReview(document: DocumentInfo): Promise<void> {
   /**
    * 提交资料审核。
    */
+  if (!canSubmitDocumentReview.value) {
+    MessagePlugin.warning('无权限提交审核');
+    return;
+  }
   await submitDocumentReview(document.id);
   MessagePlugin.success('已提交审核');
   await loadData();
+}
+
+function viewDocument(document: DocumentInfo): void {
+  /**
+   * 查看知识资料详情，和详情接口使用相同查看权限。
+   */
+  if (!canViewDocuments.value) {
+    MessagePlugin.warning('无权限查看知识资料');
+    return;
+  }
+  router.push(`/documents/${document.id}`);
 }
 
 function canSubmitReview(document: DocumentInfo): boolean {
   /**
    * 判断资料是否允许提交审核。
    */
-  return SUBMITTABLE_REVIEW_STATUSES.has(document.review_status);
+  return canSubmitDocumentReview.value && SUBMITTABLE_REVIEW_STATUSES.has(document.review_status);
 }
 
 onMounted(loadData);
@@ -186,7 +211,7 @@ onMounted(loadData);
               <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
             </t-form-item>
           </div>
-          <t-button v-permission="'knowledge:upload'" theme="primary" :loading="uploading" @click="handleUpload">上传资料</t-button>
+          <t-button v-permission="PERMISSIONS.KNOWLEDGE_UPLOAD" theme="primary" :loading="uploading" @click="handleUpload">上传资料</t-button>
         </t-form>
       </t-card>
 
@@ -215,7 +240,7 @@ onMounted(loadData);
           </thead>
           <tbody>
             <tr v-for="doc in filteredDocuments" :key="doc.id">
-              <td><t-link theme="primary" @click="router.push(`/documents/${doc.id}`)">{{ doc.file_name }}</t-link></td>
+              <td><t-link v-permission="PERMISSIONS.KNOWLEDGE_VIEW" theme="primary" @click="viewDocument(doc)">{{ doc.file_name }}</t-link></td>
               <td>{{ doc.category_path || doc.category_name || '-' }}</td>
               <td>
                 <t-tag size="small" variant="light" :theme="securityLevelTheme(doc.security_level)">
@@ -230,7 +255,7 @@ onMounted(loadData);
               <td>
                 <TableActionButton
                   label="提交审核"
-                  permission="knowledge:submit-review"
+                  :permission="PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW"
                   :disabled="!canSubmitReview(doc)"
                   @click="submitReview(doc)"
                 >

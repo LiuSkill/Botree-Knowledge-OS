@@ -26,7 +26,7 @@ class ProjectMetadataRetriever(BaseRetriever):
         if mode != "project_chat" or project_id is None:
             return []
 
-        ProjectAccessService(self.db).ensure_project_access(project_id, user, permission_codes=("project_chat:ask",))
+        ProjectAccessService(self.db).ensure_project_access(project_id, user, permission_codes=("project:chat",))
         project = self.db.get(Project, project_id)
         if project is None:
             return []

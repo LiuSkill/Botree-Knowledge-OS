@@ -15,6 +15,7 @@ import { createUser, deleteUser, listUsers, resetUserPassword, updateUser } from
 import type { UserListParams } from '@/api/users';
 import { listRoles } from '@/api/roles';
 import TableActionButton from '@/components/TableActionButton.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import type { PageResult, RoleInfo, SecurityLevel, UserInfo } from '@/types/api';
 import { securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
@@ -289,7 +290,7 @@ onMounted(async () => {
           <template #icon><RefreshIcon /></template>
           刷新
         </t-button>
-        <t-button v-permission="'user:create'" theme="primary" @click="openCreateDialog">新建用户</t-button>
+        <t-button v-permission="PERMISSIONS.SYSTEM_USER_CREATE" theme="primary" @click="openCreateDialog">新建用户</t-button>
       </t-space>
     </div>
 
@@ -322,20 +323,20 @@ onMounted(async () => {
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <TableActionButton label="编辑" permission="user:edit" @click="openEditDialog(row)">
+            <TableActionButton label="编辑" :permission="PERMISSIONS.SYSTEM_USER_EDIT" @click="openEditDialog(row)">
               <EditIcon />
             </TableActionButton>
-            <TableActionButton :label="row.status === 'disabled' ? '启用' : '停用'" permission="user:status" @click="toggleStatus(row)">
+            <TableActionButton :label="row.status === 'disabled' ? '启用' : '停用'" :permission="PERMISSIONS.SYSTEM_USER_DISABLE" @click="toggleStatus(row)">
               <UserCheckedIcon v-if="row.status === 'disabled'" />
               <UserLockedIcon v-else />
             </TableActionButton>
             <t-popconfirm content="确认重置该用户密码？" @confirm="handleResetPassword(row)">
-              <TableActionButton label="重置密码" permission="user:reset-password">
+              <TableActionButton label="重置密码" :permission="PERMISSIONS.SYSTEM_USER_RESET_PASSWORD">
                 <UserPasswordIcon />
               </TableActionButton>
             </t-popconfirm>
             <t-popconfirm content="确认删除该用户？" @confirm="handleDelete(row)">
-              <TableActionButton label="删除" permission="user:delete" theme="danger">
+              <TableActionButton label="删除" :permission="PERMISSIONS.SYSTEM_USER_DELETE" theme="danger">
                 <DeleteIcon />
               </TableActionButton>
             </t-popconfirm>

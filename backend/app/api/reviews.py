@@ -22,7 +22,7 @@ router = APIRouter(prefix="/review-tasks", tags=["审核中心"])
 
 
 @router.get("", summary="审核任务列表")
-def list_tasks(status: str | None = None, _: User = Depends(require_permission("review")), db: Session = Depends(get_db)) -> dict:
+def list_tasks(status: str | None = None, _: User = Depends(require_permission("review:view")), db: Session = Depends(get_db)) -> dict:
     """查询审核任务列表。"""
 
     tasks = ReviewService(db).list_tasks(status)
@@ -36,7 +36,7 @@ def list_approved_documents(
     category_id: int | None = None,
     index_status: str | None = None,
     keyword: str | None = None,
-    current_user: User = Depends(require_permission("review")),
+    current_user: User = Depends(require_permission("review:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询已审核通过并可构建索引的资料。"""
@@ -46,7 +46,7 @@ def list_approved_documents(
 
 
 @router.get("/{task_id}", summary="审核任务详情")
-def get_task(task_id: int, _: User = Depends(require_permission("review")), db: Session = Depends(get_db)) -> dict:
+def get_task(task_id: int, _: User = Depends(require_permission("review:view")), db: Session = Depends(get_db)) -> dict:
     """查询审核任务详情。"""
 
     task = ReviewService(db).get_task(task_id)
@@ -54,7 +54,7 @@ def get_task(task_id: int, _: User = Depends(require_permission("review")), db: 
 
 
 @router.post("/{task_id}/approve", summary="审核通过")
-def approve(task_id: int, payload: ReviewDecisionRequest | None = None, current_user: User = Depends(require_permission("review:review")), db: Session = Depends(get_db)) -> dict:
+def approve(task_id: int, payload: ReviewDecisionRequest | None = None, current_user: User = Depends(require_permission("review:approve")), db: Session = Depends(get_db)) -> dict:
     """审核通过。"""
 
     task = ReviewService(db).approve(task_id, current_user, payload.comment if payload else None)
@@ -62,7 +62,7 @@ def approve(task_id: int, payload: ReviewDecisionRequest | None = None, current_
 
 
 @router.post("/{task_id}/reject", summary="审核驳回")
-def reject(task_id: int, payload: ReviewDecisionRequest | None = None, current_user: User = Depends(require_permission("review:review")), db: Session = Depends(get_db)) -> dict:
+def reject(task_id: int, payload: ReviewDecisionRequest | None = None, current_user: User = Depends(require_permission("review:reject")), db: Session = Depends(get_db)) -> dict:
     """审核驳回。"""
 
     task = ReviewService(db).reject(task_id, current_user, payload.comment if payload else None)

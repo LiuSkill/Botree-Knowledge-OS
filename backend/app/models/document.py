@@ -27,7 +27,6 @@ class Document(TimestampMixin, Base):
     discipline: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="所属专业")
     version: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="版本号")
     status: Mapped[str] = mapped_column(String(30), default="待审核", index=True, nullable=False, comment="轻量文件状态：待审核/已发布")
-    ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否参与AI问答")
     upload_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, comment="上传人ID")
     file_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="文件名")
     file_type: Mapped[str] = mapped_column(String(50), nullable=False, comment="文件类型")
@@ -100,7 +99,6 @@ class DocumentVersion(TimestampMixin, Base):
     index_status: Mapped[str] = mapped_column(String(30), default="not_indexed", nullable=False, comment="索引状态")
     is_current: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="是否当前版本")
     is_current_version: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否当前版本")
-    ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否参与AI问答")
     security_level: Mapped[str] = mapped_column(
         String(30),
         default=DEFAULT_SECURITY_LEVEL,
