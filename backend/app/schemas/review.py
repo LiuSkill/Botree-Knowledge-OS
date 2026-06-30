@@ -25,6 +25,7 @@ class ReviewTaskOut(BaseModel):
 
     id: int
     document_id: int
+    project_id: int | None = None
     document_file_name: str | None = None
     document_category_name: str | None = None
     document_category_path: str | None = None

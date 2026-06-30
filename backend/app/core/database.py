@@ -258,7 +258,25 @@ def migrate_database() -> None:
                 "DATETIME COMMENT '头像更新时间'",
                 "DATETIME",
             )
+            _add_column_if_missing(
+                connection,
+                user_columns,
+                "users",
+                "is_deleted",
+                "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否删除'",
+                "BOOLEAN NOT NULL DEFAULT 0",
+            )
+            _add_column_if_missing(
+                connection,
+                user_columns,
+                "users",
+                "deleted_at",
+                "DATETIME COMMENT '删除时间'",
+                "DATETIME",
+            )
+            connection.execute(text("UPDATE users SET is_deleted = COALESCE(is_deleted, 0)"))
             _create_index_if_missing(connection, inspector, "users", "idx_users_department_id", "department_id")
+            _create_index_if_missing(connection, inspector, "users", "idx_users_is_deleted", "is_deleted")
 
         if "chat_sessions" not in table_names:
             return

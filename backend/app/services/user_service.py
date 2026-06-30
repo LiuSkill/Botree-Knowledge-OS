@@ -44,6 +44,7 @@ AVATAR_CONTENT_TYPES = {
     "image/webp": "webp",
 }
 MENU_PERMISSION_CODES = menu_permission_codes()
+BUILTIN_ADMIN_ROLE_CODE = "admin"
 
 
 class UserService:
@@ -89,7 +90,7 @@ class UserService:
     def create_user(self, payload: UserCreate, operator: User) -> User:
         """创建用户。"""
 
-        if self.user_repository.get_by_username(payload.username):
+        if self.user_repository.get_by_username(payload.username, include_deleted=True):
             raise AppException("用户名已存在")
         user = self._new_user_from_payload(payload)
         self.user_repository.add(user)
@@ -100,7 +101,7 @@ class UserService:
     async def create_user_with_avatar(self, payload: UserCreate, operator: User, avatar_file: UploadFile) -> User:
         """创建用户并复用现有头像规则写入头像。"""
 
-        if self.user_repository.get_by_username(payload.username):
+        if self.user_repository.get_by_username(payload.username, include_deleted=True):
             raise AppException("用户名已存在")
         user = self._new_user_from_payload(payload)
         self.user_repository.add(user)
@@ -155,14 +156,19 @@ class UserService:
         return user
 
     def delete_user(self, user_id: int, operator: User) -> None:
-        """删除用户。"""
+        """软删除用户。"""
 
         user = self.user_repository.get_by_id(user_id)
         if not user:
             raise AppException("用户不存在", status_code=404, code=404)
-        self.user_repository.delete(user)
-        SystemService(self.db).record_operation(operator, "删除用户", "user", user_id, "删除用户")
+        user.roles.clear()
+        user.status = "disabled"
+        user.is_deleted = True
+        user.deleted_at = datetime.utcnow()
+        self.db.flush()
+        SystemService(self.db).record_operation(operator, "删除用户", "user", user_id, f"软删除用户 {user.username}")
         self.db.commit()
+        logger.info("用户软删除完成: operator_id=%s user_id=%s username=%s", operator.id, user_id, user.username)
 
     def reset_password(self, user_id: int, operator: User, password: str = "Botree@123456") -> None:
         """重置密码。"""
@@ -479,6 +485,7 @@ class RoleService:
         role = self.role_repository.get_by_id(role_id)
         if not role:
             raise AppException("角色不存在", status_code=404, code=404)
+        self._ensure_role_mutable(role, "编辑")
         for field in ["name", "description", "enabled"]:
             value = getattr(payload, field)
             if value is not None:
@@ -499,9 +506,21 @@ class RoleService:
         role = self.role_repository.get_by_id(role_id)
         if not role:
             raise AppException("角色不存在", status_code=404, code=404)
+        self._ensure_role_mutable(role, "删除")
         self.role_repository.delete(role)
         SystemService(self.db).record_operation(operator, "删除角色", "role", role_id, "删除角色")
         self.db.commit()
+
+    def _ensure_role_mutable(self, role: Role, action_name: str) -> None:
+        """
+        保护系统内置超级管理员角色。
+
+        超级管理员仍用于系统级放行，但角色本身不可被编辑、停用、改权限或删除，
+        避免权限矩阵配置与内置放行规则产生冲突。
+        """
+
+        if role.code == BUILTIN_ADMIN_ROLE_CODE:
+            raise AppException(f"超级管理员为系统内置角色，不允许{action_name}", status_code=403, code=403)
 
     def _resolve_bound_permissions(self, permission_ids: list[int]) -> list[Permission]:
         """

@@ -19,7 +19,7 @@ import {
   SearchIcon,
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import {
@@ -86,6 +86,8 @@ const editingCategoryId = ref<number | null>(null);
 const pendingDeleteDirectory = ref<KnowledgeCategory | null>(null);
 const deleteDirectoryDialogVisible = ref(false);
 const deletingDirectory = ref(false);
+const directoryPanelRef = ref<HTMLElement | null>(null);
+const directoryPanelHighlighted = ref(false);
 
 const filters = reactive({
   keyword: '',
@@ -257,6 +259,21 @@ function syncExpandedDirectories(items: KnowledgeCategory[]): void {
 function applyDirectoryTree(tree: KnowledgeCategory[]): void {
   categories.value = tree;
   syncExpandedDirectories(tree);
+}
+
+function shouldFocusDirectories(): boolean {
+  const focusValue = Array.isArray(route.query.focus) ? route.query.focus[0] : route.query.focus;
+  return focusValue === 'directories' || focusValue === 'directory';
+}
+
+async function focusDirectoryPanelIfRequested(): Promise<void> {
+  if (!shouldFocusDirectories()) return;
+  await nextTick();
+  directoryPanelRef.value?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  directoryPanelHighlighted.value = true;
+  window.setTimeout(() => {
+    directoryPanelHighlighted.value = false;
+  }, 1400);
 }
 
 function directoryKey(id: number): string {
@@ -554,7 +571,10 @@ function viewDocument(document: DocumentInfo): void {
   router.push(`/documents/${document.id}`);
 }
 
-onMounted(loadData);
+onMounted(async () => {
+  await loadData();
+  await focusDirectoryPanelIfRequested();
+});
 </script>
 
 <template>
@@ -564,7 +584,7 @@ onMounted(loadData);
     </div>
 
     <div v-else class="project-document-manager">
-      <aside class="directory-panel">
+      <aside ref="directoryPanelRef" class="directory-panel" :class="{ 'is-highlighted': directoryPanelHighlighted }">
         <div class="directory-title">
           <span>{{ projectTitle }}</span>
           <t-button
@@ -864,6 +884,14 @@ onMounted(loadData);
   overflow: hidden;
   border-right: 1px solid #e5e7eb;
   background: #fff;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.directory-panel.is-highlighted {
+  border-color: #8bb7ff;
+  box-shadow: inset 0 0 0 1px #8bb7ff;
 }
 
 .directory-title {

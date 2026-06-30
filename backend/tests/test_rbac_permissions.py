@@ -15,6 +15,7 @@ sys.path.insert(0, str(BASE_DIR))
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-rbac-permissions-32bytes")
 
 from app.api.deps import has_permission  # noqa: E402
+from app.core.exceptions import AppException  # noqa: E402
 from app.core.rbac import permission_catalog  # noqa: E402
 from app.models import Base, Permission, Role, User  # noqa: E402
 from app.schemas.role import RoleUpdate  # noqa: E402
@@ -153,3 +154,36 @@ def test_role_save_prunes_unbound_action_permissions(db_session: Session) -> Non
     )
 
     assert {permission.code for permission in updated.permissions} == {"system:user", "system:user:create"}
+
+
+def test_builtin_admin_role_cannot_be_updated_or_deleted(db_session: Session) -> None:
+    """The built-in super admin role is immutable even through service calls."""
+
+    permissions = seed_permission_catalog(db_session)
+    operator = User(username="operator", password_hash="x", real_name="Operator", status="enabled")
+    role = Role(
+        name="超级管理员",
+        code="admin",
+        enabled=True,
+        permissions=[permissions["dashboard"]],
+    )
+    db_session.add_all([operator, role])
+    db_session.commit()
+
+    with pytest.raises(AppException) as update_exc:
+        RoleService(db_session).update_role(
+            role.id,
+            RoleUpdate(name="Changed Admin", permission_ids=[]),
+            operator,
+        )
+
+    assert update_exc.value.status_code == 403
+    db_session.refresh(role)
+    assert role.name == "超级管理员"
+    assert {permission.code for permission in role.permissions} == {"dashboard"}
+
+    with pytest.raises(AppException) as delete_exc:
+        RoleService(db_session).delete_role(role.id, operator)
+
+    assert delete_exc.value.status_code == 403
+    assert db_session.get(Role, role.id) is not None

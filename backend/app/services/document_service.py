@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.core.data_scope import enabled_role_data_scopes
 from app.core.config import get_settings
 from app.core.exceptions import AppException, is_database_lock_error
 from app.core.security_levels import (
@@ -51,6 +52,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.graph_repository import GraphRepository
 from app.repositories.index_task_repository import IndexTaskRepository
 from app.repositories.knowledge_base_repository import KnowledgeBaseRepository
+from app.repositories.project_repository import ProjectRepository
 from app.repositories.retrieval_trace_repository import RetrievalTraceRepository
 from app.repositories.review_repository import ReviewRepository
 from app.repositories.user_repository import UserRepository
@@ -302,6 +304,64 @@ class DocumentService:
         self._enrich_category_fields_bulk(result)
         self._enrich_uploader_fields(result)
         return result
+
+    def list_approved_documents_page(
+        self,
+        user: User,
+        *,
+        page: int,
+        page_size: int,
+        project_id: int | None = None,
+        category_id: int | None = None,
+        index_status: str | None = None,
+        knowledge_type: str | None = None,
+        keyword: str | None = None,
+    ) -> dict[str, object]:
+        """分页查询审核通过资料，并在数据库层过滤用户可访问的项目资料。"""
+
+        if project_id is not None:
+            self.access_service.ensure_project_access(project_id, user, permission_codes=("project:view",))
+
+        category_ids = self.category_service.descendant_ids(category_id) if category_id is not None else None
+        include_base_documents = project_id is None and knowledge_type != "project"
+        include_project_documents = knowledge_type != "base" and self.access_service.has_permission(user, "project:view", "project")
+        accessible_project_ids: list[int] | None = None
+        if project_id is not None:
+            include_base_documents = False
+            include_project_documents = True
+            accessible_project_ids = [project_id]
+        elif include_project_documents:
+            accessible_project_ids = self._accessible_project_ids(user)
+
+        result = self.repository.list_approved_page(
+            page=page,
+            page_size=page_size,
+            security_levels=self._user_allowed_levels(user),
+            include_base_documents=include_base_documents,
+            include_project_documents=include_project_documents,
+            accessible_project_ids=accessible_project_ids,
+            project_id=project_id,
+            category_ids=category_ids,
+            index_status=index_status,
+            knowledge_type=knowledge_type,
+            keyword=keyword,
+        )
+        documents = list(result["items"])
+        self._enrich_category_fields_bulk(documents)
+        self._enrich_uploader_fields(documents)
+        return {**result, "items": documents}
+
+    def _accessible_project_ids(self, user: User) -> list[int]:
+        """复用项目列表的数据范围规则，生成跨项目资料查询的项目 ID 白名单。"""
+
+        user_department = getattr(user, "department_id", None) or getattr(user, "department", None)
+        return ProjectRepository(self.db).list_accessible_ids(
+            user_id=user.id,
+            user_department=str(user_department) if user_department else None,
+            is_admin=self.access_service.is_admin(user),
+            data_scopes=enabled_role_data_scopes(user),
+            project_security_levels=self._user_allowed_levels(user),
+        )
 
     def list_project_documents_page(
         self,

@@ -26,6 +26,7 @@ import { computed, onMounted, ref, type Component } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { getDashboardStats } from '@/api/system';
+import UserAvatar from '@/components/UserAvatar.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { ROUTE_PATHS } from '@/shared/constants/routes';
 import { useAuthStore } from '@/stores/auth';
@@ -158,6 +159,9 @@ const visibleQuickActions = computed(() => quickActionDefinitions.filter((action
 const canViewKnowledge = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_VIEW));
 const canViewBaseChat = computed(() => authStore.hasActionPermission(PERMISSIONS.AI_BASE_CHAT_VIEW));
 const canViewProjectChat = computed(() => authStore.hasActionPermission(PERMISSIONS.AI_PROJECT_CHAT_VIEW));
+const canViewReviews = computed(
+  () => authStore.hasMenuPermission(PERMISSIONS.REVIEW) && authStore.hasActionPermission(PERMISSIONS.REVIEW_VIEW),
+);
 
 const recentDocuments = computed<DocumentDisplayItem[]>(() => {
   /**
@@ -285,6 +289,17 @@ function openQuestion(question: DashboardAiQuestion): void {
   router.push(question.chat_type === 'project_chat' ? ROUTE_PATHS.aiProjectChat : ROUTE_PATHS.aiBaseChat);
 }
 
+function openPendingReviewTasks(): void {
+  /**
+   * 跳转到审核中心的审核任务页签，并默认筛选待审核任务。
+   */
+  if (!canViewReviews.value) {
+    MessagePlugin.warning('无权限访问审核中心');
+    return;
+  }
+  router.push({ path: ROUTE_PATHS.reviews, query: { tab: 'tasks', status: 'pending' } });
+}
+
 function navigateTo(route: string): void {
   /**
    * 统一处理工作台入口跳转。
@@ -300,7 +315,20 @@ onMounted(loadData);
     <header class="welcome-banner">
       <div class="welcome-main">
         <h1><span class="wave">👋</span> 欢迎回来，{{ userDisplayName }} <span class="wave small">👋</span></h1>
-        <p>今天是 {{ todayText }}，您有 {{ pendingTaskCount }} 个待处理任务</p>
+        <p>
+          今天是 {{ todayText }}，您有
+          <button
+            v-if="canViewReviews"
+            class="pending-task-link"
+            type="button"
+            aria-label="查看审核中心待处理任务"
+            @click="openPendingReviewTasks"
+          >
+            {{ pendingTaskCount }}
+          </button>
+          <span v-else class="pending-task-count">{{ pendingTaskCount }}</span>
+          个待处理任务
+        </p>
       </div>
       <div class="login-meta">
         <span>上次登录时间</span>
@@ -311,13 +339,13 @@ onMounted(loadData);
     <div class="dashboard-scroll data-scroll">
       <div class="metric-grid" aria-label="工作台核心指标">
         <article v-for="item in metricCards" :key="item.key" class="metric-card">
-          <div class="metric-top">
-            <span class="metric-icon" :class="`tone-${item.tone}`">
-              <component :is="item.icon" />
-            </span>
-          </div>
-          <strong>{{ formatMetricValue(item.value) }}</strong>
-          <span>{{ item.title }}</span>
+          <span class="metric-icon" :class="`tone-${item.tone}`">
+            <component :is="item.icon" />
+          </span>
+          <span class="metric-copy">
+            <strong>{{ formatMetricValue(item.value) }}</strong>
+            <span>{{ item.title }}</span>
+          </span>
         </article>
       </div>
 
@@ -379,10 +407,21 @@ onMounted(loadData);
               :key="`${question.id}-${question.question}`"
               class="question-card"
               block
-              variant="outline"
+              variant="text"
               @click="openQuestion(question)"
             >
-              <strong><span>问：</span>{{ question.question }}</strong>
+              <span class="question-main">
+                <UserAvatar
+                  class="question-avatar"
+                  :user-id="question.user_id"
+                  :avatar-url="question.avatar_url"
+                  :avatar-updated-at="question.avatar_updated_at"
+                  :name="question.real_name || question.username || 'User'"
+                  size="28px"
+                  shape="circle"
+                />
+                <strong>{{ question.question }}</strong>
+              </span>
               <small>{{ formatDateTime(question.created_at) }}</small>
             </t-button>
           </div>
@@ -477,6 +516,29 @@ onMounted(loadData);
   font-size: 15px;
 }
 
+.pending-task-link {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #2563eb;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  line-height: inherit;
+  padding: 0 2px;
+}
+
+.pending-task-link:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.pending-task-link:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 2px;
+}
+
 .wave {
   font-size: 28px;
   line-height: 1;
@@ -520,15 +582,11 @@ onMounted(loadData);
 }
 
 .metric-card {
-  min-height: 172px;
-  padding: 24px;
-}
-
-.metric-top {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 18px;
+  min-height: 128px;
+  align-items: center;
+  gap: 18px;
+  padding: 24px;
 }
 
 .metric-icon,
@@ -546,6 +604,16 @@ onMounted(loadData);
   font-size: 24px;
 }
 
+.metric-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
 .metric-card strong {
   display: block;
   color: #0f172a;
@@ -554,7 +622,7 @@ onMounted(loadData);
   line-height: 1.1;
 }
 
-.metric-card > span:last-child {
+.metric-copy > span {
   display: block;
   margin-top: 8px;
   color: #475569;
@@ -578,6 +646,7 @@ onMounted(loadData);
 .quick-action-card :deep(.t-button__text) {
   display: flex;
   width: 100%;
+  min-width: 0;
   align-items: center;
   gap: 14px;
 }
@@ -599,20 +668,31 @@ onMounted(loadData);
 
 .action-copy {
   display: flex;
+  flex: 1;
   min-width: 0;
+  align-items: center;
   flex-direction: column;
+  text-align: center;
 }
 
 .action-copy strong {
+  max-width: 100%;
+  overflow: hidden;
   color: #111827;
   font-size: 16px;
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .action-copy small {
+  max-width: 100%;
+  overflow: hidden;
   margin-top: 4px;
   color: #64748b;
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .content-grid {
@@ -652,14 +732,13 @@ onMounted(loadData);
   display: grid;
   min-height: 344px;
   place-items: center;
-  border: 1px dashed #dbe2eb;
   border-radius: 8px;
   color: #94a3b8;
   font-size: 14px;
 }
 
 .category-empty {
-  min-height: 466px;
+  min-height: 344px;
 }
 
 .document-row {
@@ -717,50 +796,68 @@ onMounted(loadData);
 .question-card {
   display: flex;
   height: auto;
-  min-height: 110px;
+  min-height: 44px;
   width: 100%;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
+  align-items: center;
+  justify-content: flex-start;
+  border: 0;
   border-radius: 8px;
+  background: transparent;
   color: #1f2937;
-  padding: 16px;
+  padding: 8px 0;
   text-align: left;
 }
 
 .question-card :deep(.t-button__text) {
   display: flex;
   width: 100%;
-  flex-direction: column;
-  align-items: flex-start;
+  min-width: 0;
+  align-items: center;
+  gap: 16px;
   justify-content: center;
 }
 
-.question-card span {
-  color: #475569;
-  font-size: 14px;
+.question-main {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+}
+
+.question-avatar {
+  flex: 0 0 28px;
 }
 
 .question-card strong {
-  margin: 8px 0 14px;
+  overflow: hidden;
+  min-width: 0;
   color: #111827;
   font-size: 14px;
   font-weight: 500;
   line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.question-card small {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .category-body {
   display: flex;
-  min-height: 466px;
+  min-height: 0;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-top: 12px;
 }
 
 .donut-chart {
   display: block;
-  width: 250px;
-  height: 250px;
-  margin: 12px auto 36px;
+  width: 220px;
+  height: 220px;
+  margin: 8px auto 20px;
 }
 
 .donut-track {

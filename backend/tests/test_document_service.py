@@ -878,6 +878,88 @@ def test_list_review_tasks_includes_document_display_fields() -> None:
         db.close()
 
 
+def test_review_task_page_returns_total_and_page_items() -> None:
+    """审核任务分页应返回总数和当前页任务。"""
+
+    db = make_session()
+    try:
+        for index in range(3):
+            document = Document(
+                knowledge_base_id=1,
+                knowledge_type="base",
+                file_name=f"task-{index + 1}.md",
+                file_type="md",
+                file_size=10,
+                storage_path=f"storage/uploads/task-{index + 1}.md",
+                review_status="reviewing",
+                index_status="not_indexed",
+                version_no=1,
+                current_version=False,
+            )
+            db.add(document)
+            db.flush()
+            db.add(ReviewTask(document_id=document.id, version_no=1, review_status="reviewing"))
+        db.commit()
+
+        result = ReviewService(db).list_tasks_page(page=2, page_size=2)
+
+        assert result["total"] == 3
+        assert result["page"] == 2
+        assert result["page_size"] == 2
+        assert [item.document_file_name for item in result["items"]] == ["task-1.md"]
+    finally:
+        db.close()
+
+
+def test_approved_document_page_returns_total_and_page_items() -> None:
+    """审核通过资料分页应只返回当前页的已通过资料。"""
+
+    db = make_session()
+    try:
+        operator = make_operator()
+        for index in range(3):
+            db.add(
+                Document(
+                    knowledge_base_id=1,
+                    knowledge_type="base",
+                    file_name=f"approved-{index + 1}.md",
+                    file_type="md",
+                    file_size=10,
+                    storage_path=f"storage/uploads/approved-{index + 1}.md",
+                    review_status="approved",
+                    index_status="not_indexed",
+                    version_no=1,
+                    current_version=True,
+                    security_level="internal",
+                )
+            )
+        db.add(
+            Document(
+                knowledge_base_id=1,
+                knowledge_type="base",
+                file_name="draft.md",
+                file_type="md",
+                file_size=10,
+                storage_path="storage/uploads/draft.md",
+                review_status="draft",
+                index_status="not_indexed",
+                version_no=1,
+                current_version=False,
+                security_level="internal",
+            )
+        )
+        db.commit()
+
+        result = ReviewService(db).list_approved_documents_page(operator, scope_type="base", page=1, page_size=2)
+
+        assert result["total"] == 3
+        assert result["page"] == 1
+        assert result["page_size"] == 2
+        assert [item.file_name for item in result["items"]] == ["approved-3.md", "approved-2.md"]
+    finally:
+        db.close()
+
+
 def test_submit_review_lock_timeout_rolls_back_and_returns_business_error() -> None:
     """提交审核遇到 MySQL 锁等待超时时，应回滚本次状态变更并返回业务异常。"""
 

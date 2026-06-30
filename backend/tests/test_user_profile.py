@@ -8,9 +8,10 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -19,7 +20,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-user-profile")
 
 from app.core.exceptions import AppException  # noqa: E402
 from app.core.security import hash_password, verify_password  # noqa: E402
-from app.models import Base  # noqa: E402
+from app.models import Base, Document, DocumentVersion, KnowledgeBase  # noqa: E402
 from app.models.user import Role, User  # noqa: E402
 from app.schemas.user import RoleBrief, UserCreate, UserOut, UserUpdate  # noqa: E402
 from app.services.auth_service import AuthService  # noqa: E402
@@ -115,6 +116,67 @@ def seed_user(db: Session, password: str = "OldPassword123") -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def test_delete_user_soft_deletes_when_document_version_references_user() -> None:
+    """用户被历史审核版本引用时应软删除，避免外键约束导致接口 500。"""
+
+    engine = create_engine("sqlite:///:memory:", future=True)
+
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection: Any, _connection_record: Any) -> None:
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    try:
+        with session_factory() as db:
+            operator = User(username="operator", password_hash="x", real_name="Operator", status="enabled")
+            target = User(username="reviewer", password_hash="x", real_name="Reviewer", status="enabled")
+            db.add_all([operator, target])
+            db.flush()
+            knowledge_base = KnowledgeBase(name="Base Knowledge", code="base-user-delete", type="base", created_by=operator.id)
+            db.add(knowledge_base)
+            db.flush()
+            document = Document(
+                knowledge_base_id=knowledge_base.id,
+                knowledge_type="base",
+                file_name="reviewed.md",
+                file_type="md",
+                file_size=10,
+                storage_path="storage/uploads/reviewed.md",
+                created_by=operator.id,
+                reviewed_by=target.id,
+            )
+            db.add(document)
+            db.flush()
+            version = DocumentVersion(
+                document_id=document.id,
+                version_no=1,
+                file_name="reviewed.md",
+                file_type="md",
+                file_size=10,
+                storage_path="storage/uploads/reviewed.md",
+                reviewed_by=target.id,
+                created_by=target.id,
+            )
+            db.add(version)
+            db.commit()
+            target_id = target.id
+            version_id = version.id
+
+            UserService(db).delete_user(target_id, operator)
+            db.expire_all()
+
+            deleted_user = UserService(db).user_repository.get_by_id(target_id, include_deleted=True)
+            assert deleted_user is not None
+            assert deleted_user.is_deleted is True
+            assert deleted_user.status == "disabled"
+            assert deleted_user.deleted_at is not None
+            assert UserService(db).user_repository.get_by_id(target_id) is None
+            assert db.scalar(select(DocumentVersion.reviewed_by).where(DocumentVersion.id == version_id)) == target_id
+    finally:
+        engine.dispose()
 
 
 def test_current_user_response_includes_avatar_url(db_session: Session, monkeypatch: pytest.MonkeyPatch, fake_settings: SimpleNamespace) -> None:

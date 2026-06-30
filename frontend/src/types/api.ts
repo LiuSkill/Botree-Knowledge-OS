@@ -397,6 +397,7 @@ export interface DocumentDeleteResult {
 export interface ReviewTask {
   id: number;
   document_id: number;
+  project_id?: number | null;
   document_file_name?: string | null;
   document_category_name?: string | null;
   document_category_path?: string | null;
@@ -605,6 +606,11 @@ export interface DashboardDocumentSummary {
 export interface DashboardAiQuestion {
   id: number;
   session_id: number;
+  user_id?: number | null;
+  username?: string | null;
+  real_name?: string | null;
+  avatar_url?: string | null;
+  avatar_updated_at?: string | null;
   question: string;
   chat_type: 'project_chat' | 'base_chat';
   created_at?: string | null;

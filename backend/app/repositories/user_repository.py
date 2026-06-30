@@ -38,6 +38,7 @@ class UserRepository:
         role_id: int | None = None,
         department_id: int | None = None,
         department_ids: Iterable[int] | None = None,
+        include_deleted: bool = False,
     ) -> list[User]:
         """查询用户列表。"""
 
@@ -46,6 +47,8 @@ class UserRepository:
             .options(selectinload(User.roles).selectinload(Role.permissions), selectinload(User.department_ref))
             .order_by(User.id.desc())
         )
+        if not include_deleted:
+            stmt = stmt.where(User.is_deleted.is_(False))
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(
@@ -68,31 +71,40 @@ class UserRepository:
             stmt = stmt.where(User.department_id == department_id)
         return list(self.db.scalars(stmt).all())
 
-    def get_by_id(self, user_id: int) -> User | None:
+    def get_by_id(self, user_id: int, include_deleted: bool = False) -> User | None:
         """按 ID 查询用户。"""
 
-        return self.db.scalar(
+        stmt = (
             select(User)
             .options(selectinload(User.roles).selectinload(Role.permissions), selectinload(User.department_ref))
             .where(User.id == user_id)
         )
+        if not include_deleted:
+            stmt = stmt.where(User.is_deleted.is_(False))
+        return self.db.scalar(stmt)
 
-    def list_by_ids(self, user_ids: Iterable[int]) -> list[User]:
+    def list_by_ids(self, user_ids: Iterable[int], include_deleted: bool = True) -> list[User]:
         """按 ID 批量查询用户，用于概览类接口补充展示名称。"""
 
         ids = list({int(user_id) for user_id in user_ids})
         if not ids:
             return []
-        return list(self.db.scalars(select(User).where(User.id.in_(ids))).all())
+        stmt = select(User).where(User.id.in_(ids))
+        if not include_deleted:
+            stmt = stmt.where(User.is_deleted.is_(False))
+        return list(self.db.scalars(stmt).all())
 
-    def get_by_username(self, username: str) -> User | None:
+    def get_by_username(self, username: str, include_deleted: bool = False) -> User | None:
         """按用户名查询用户。"""
 
-        return self.db.scalar(
+        stmt = (
             select(User)
             .options(selectinload(User.roles).selectinload(Role.permissions), selectinload(User.department_ref))
             .where(User.username == username)
         )
+        if not include_deleted:
+            stmt = stmt.where(User.is_deleted.is_(False))
+        return self.db.scalar(stmt)
 
     def add(self, user: User) -> User:
         """新增用户。"""

@@ -164,11 +164,16 @@ class SystemService:
                     {
                         "id": message.id,
                         "session_id": session.id,
+                        "user_id": user.id,
+                        "username": user.username,
+                        "real_name": user.real_name,
+                        "avatar_url": avatar_url_for_user(user),
+                        "avatar_updated_at": user.avatar_updated_at,
                         "question": message.content,
                         "chat_type": session.chat_type,
                         "created_at": message.created_at,
                     }
-                    for message, session in recent_questions
+                    for message, session, user in recent_questions
                 ],
                 "knowledge_category_stats": self._build_knowledge_category_stats(category_stats),
             }

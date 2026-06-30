@@ -19,6 +19,7 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.operation_log import OperationLog
 from app.models.project import Project
 from app.models.review import ReviewTask
+from app.models.user import User
 
 
 class SystemRepository:
@@ -88,12 +89,13 @@ class SystemRepository:
             ),
         }
 
-    def list_recent_user_questions(self, limit: int = 4) -> list[tuple[ChatMessage, ChatSession]]:
+    def list_recent_user_questions(self, limit: int = 4) -> list[tuple[ChatMessage, ChatSession, User]]:
         """查询最近用户提问及其会话上下文。"""
 
         stmt = (
-            select(ChatMessage, ChatSession)
+            select(ChatMessage, ChatSession, User)
             .join(ChatSession, ChatSession.id == ChatMessage.session_id)
+            .join(User, User.id == func.coalesce(ChatMessage.user_id, ChatSession.user_id))
             .where(ChatMessage.role == "user")
             .order_by(ChatMessage.id.desc())
             .limit(limit)

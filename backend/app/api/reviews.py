@@ -22,11 +22,23 @@ router = APIRouter(prefix="/review-tasks", tags=["审核中心"])
 
 
 @router.get("", summary="审核任务列表")
-def list_tasks(status: str | None = None, _: User = Depends(require_permission("review:view")), db: Session = Depends(get_db)) -> dict:
+def list_tasks(
+    status: str | None = None,
+    project_id: int | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_permission("review:view")),
+    db: Session = Depends(get_db),
+) -> dict:
     """查询审核任务列表。"""
 
-    tasks = ReviewService(db).list_tasks(status)
-    return success([ReviewTaskOut.model_validate(item).model_dump(mode="json") for item in tasks])
+    result = ReviewService(db).list_tasks_page(status, project_id, page, page_size)
+    return success(
+        {
+            **result,
+            "items": [ReviewTaskOut.model_validate(item).model_dump(mode="json") for item in result["items"]],
+        }
+    )
 
 
 @router.get("/approved-documents", summary="审核通过资料")
@@ -36,13 +48,29 @@ def list_approved_documents(
     category_id: int | None = None,
     index_status: str | None = None,
     keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
     current_user: User = Depends(require_permission("review:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询已审核通过并可构建索引的资料。"""
 
-    documents = ReviewService(db).list_approved_documents(current_user, scope_type, project_id, category_id, index_status, keyword)
-    return success([DocumentOut.model_validate(item).model_dump(mode="json") for item in documents])
+    result = ReviewService(db).list_approved_documents_page(
+        current_user,
+        scope_type,
+        project_id,
+        category_id,
+        index_status,
+        keyword,
+        page,
+        page_size,
+    )
+    return success(
+        {
+            **result,
+            "items": [DocumentOut.model_validate(item).model_dump(mode="json") for item in result["items"]],
+        }
+    )
 
 
 @router.get("/{task_id}", summary="审核任务详情")

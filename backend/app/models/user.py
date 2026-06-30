@@ -52,6 +52,8 @@ class User(TimestampMixin, Base):
     avatar_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="头像原始文件名")
     avatar_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="头像 MIME 类型")
     avatar_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="头像更新时间")
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否删除")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="删除时间")
 
     roles: Mapped[list["Role"]] = relationship("Role", secondary=user_roles, back_populates="users")
     department_ref: Mapped["Department | None"] = relationship("Department", foreign_keys=[department_id], back_populates="users")

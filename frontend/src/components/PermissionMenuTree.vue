@@ -14,6 +14,7 @@ defineOptions({ name: 'PermissionMenuTree' });
 const props = defineProps<{
   nodes: SystemMenuNode[];
   selectedIds: number[];
+  disabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -43,6 +44,7 @@ function isIndeterminate(node: SystemMenuNode): boolean {
       <t-checkbox
         :model-value="isChecked(node)"
         :indeterminate="isIndeterminate(node)"
+        :disabled="props.disabled"
         @change="(checked) => emit('toggleNode', node, Boolean(checked))"
       >
         <span class="node-label">{{ node.name }}</span>
@@ -53,6 +55,7 @@ function isIndeterminate(node: SystemMenuNode): boolean {
         class="tree-children"
         :nodes="node.children"
         :selected-ids="selectedIds"
+        :disabled="props.disabled"
         @toggle-node="(childNode, checked) => emit('toggleNode', childNode, checked)"
       />
     </div>

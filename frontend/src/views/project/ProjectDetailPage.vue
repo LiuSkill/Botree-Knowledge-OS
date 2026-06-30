@@ -66,6 +66,7 @@ import type {
   SecurityLevel,
 } from '@/types/api';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
+import { REVIEW_TASK_STATUS } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 import ProjectFormDrawer from '@/views/project/ProjectFormDrawer.vue';
@@ -145,6 +146,7 @@ const DOCUMENT_TYPE_OPTIONS = [
 ];
 const DISCIPLINE_OPTIONS = ['工艺', '管道', '设备', '仪表', '电气', '结构', '造价', '拆解', '采购', '项目管理', '其他'];
 const ACCEPTED_UPLOAD_EXTENSIONS = new Set(['txt', 'md', 'csv', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'odt', 'odp', 'ods', 'rtf', 'zip', 'rar']);
+const RECENT_UPLOAD_DOCUMENT_LIMIT = 5;
 const DEFAULT_PROJECT_DIRECTORY_TEMPLATE: DirectoryTemplateNode[] = [
   {
     code: 'A',
@@ -259,6 +261,21 @@ const canEditCategories = computed(() => authStore.hasActionPermission(PERMISSIO
 const canDeleteCategories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_DELETE));
 const canAskProjectChat = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_CHAT));
 const canUseProjectChat = computed(() => canAskProjectChat.value && (project.value?.project_chat_enabled ?? true));
+const currentProjectId = computed(() => normalizeProjectId(project.value?.id) ?? normalizeProjectId(projectId.value));
+const canOpenProjectDocuments = computed(() => canViewDocuments.value && authStore.hasMenuPermission(PERMISSIONS.PROJECT) && currentProjectId.value !== null);
+const canOpenProjectChat = computed(
+  () =>
+    canUseProjectChat.value &&
+    authStore.hasMenuPermission(PERMISSIONS.AI_PROJECT_CHAT) &&
+    authStore.hasActionPermission(PERMISSIONS.AI_PROJECT_CHAT_VIEW) &&
+    currentProjectId.value !== null,
+);
+const canOpenPendingReviewDocuments = computed(
+  () =>
+    authStore.hasMenuPermission(PERMISSIONS.REVIEW) &&
+    authStore.hasActionPermission(PERMISSIONS.REVIEW_VIEW) &&
+    currentProjectId.value !== null,
+);
 
 const uploadForm = reactive({
   category_id: null as number | null,
@@ -395,7 +412,7 @@ const overviewDirectoryRows = computed<OverviewDirectoryRow[]>(() => {
 });
 
 const recentUploadDocuments = computed<RecentDocumentDisplayItem[]>(() =>
-  (project.value?.recent_documents || []).slice(0, 5).map((document) => {
+  (project.value?.recent_documents || []).slice(0, RECENT_UPLOAD_DOCUMENT_LIMIT).map((document) => {
     const fileMeta = recentDocumentFileMeta(document);
     return {
       id: document.id,
@@ -411,6 +428,11 @@ const recentUploadDocuments = computed<RecentDocumentDisplayItem[]>(() =>
 );
 
 const selectedDocuments = computed(() => documents.value.filter((document) => selectedDocumentIds.value.includes(document.id)));
+
+function normalizeProjectId(value: unknown): number | null {
+  const projectIdValue = Number(value);
+  return Number.isInteger(projectIdValue) && projectIdValue > 0 ? projectIdValue : null;
+}
 
 async function loadData(): Promise<void> {
   /**
@@ -761,6 +783,14 @@ function closeDocumentDetail(): void {
 function openDocumentPreview(document: DocumentInfo): void {
   if (!canPreviewDocuments.value) {
     MessagePlugin.warning('无权限预览文件');
+    return;
+  }
+  router.push(`/documents/${document.id}`);
+}
+
+function openRecentDocument(document: RecentDocumentDisplayItem): void {
+  if (!canViewDocuments.value) {
+    MessagePlugin.warning('无权限查看项目资料');
     return;
   }
   router.push(`/documents/${document.id}`);
@@ -1200,15 +1230,55 @@ async function removeActiveCategory(): Promise<void> {
 }
 
 function openProjectChat(): void {
-  if (!canAskProjectChat.value) {
+  if (!canAskProjectChat.value || !authStore.hasActionPermission(PERMISSIONS.AI_PROJECT_CHAT_VIEW)) {
     MessagePlugin.warning('无权限使用项目问答');
     return;
   }
-  router.push({ path: ROUTE_PATHS.aiProjectChat, query: { projectId: String(projectId.value) } });
+  if (!authStore.hasMenuPermission(PERMISSIONS.AI_PROJECT_CHAT)) {
+    MessagePlugin.warning('无权限访问项目问答页面');
+    return;
+  }
+  const targetProjectId = currentProjectId.value;
+  if (!targetProjectId) {
+    MessagePlugin.warning('项目ID无效，无法进入项目问答');
+    return;
+  }
+  router.push({ path: ROUTE_PATHS.aiProjectChat, query: { projectId: String(targetProjectId) } });
 }
 
-function openProjectDocumentManagement(): void {
-  router.push(`/projects/${projectId.value}/documents`);
+function openProjectDocumentManagement(focusDirectories = false): void {
+  if (!canViewDocuments.value) {
+    MessagePlugin.warning('无权限访问项目资料管理');
+    return;
+  }
+  const targetProjectId = currentProjectId.value;
+  if (!targetProjectId) {
+    MessagePlugin.warning('项目ID无效，无法进入资料管理');
+    return;
+  }
+  router.push({
+    path: `/projects/${targetProjectId}/documents`,
+    query: focusDirectories ? { focus: 'directories' } : undefined,
+  });
+}
+
+function openPendingReviewDocuments(): void {
+  if (!authStore.hasActionPermission(PERMISSIONS.REVIEW_VIEW) || !authStore.hasMenuPermission(PERMISSIONS.REVIEW)) {
+    MessagePlugin.warning('无权限访问审核中心');
+    return;
+  }
+  const targetProjectId = currentProjectId.value;
+  if (!targetProjectId) {
+    MessagePlugin.warning('项目ID无效，无法查看待审核文档');
+    return;
+  }
+  router.push({
+    path: ROUTE_PATHS.reviews,
+    query: {
+      projectId: String(targetProjectId),
+      status: REVIEW_TASK_STATUS.reviewing,
+    },
+  });
 }
 
 onMounted(loadData);
@@ -1369,12 +1439,19 @@ onMounted(loadData);
             <h3>数据统计</h3>
             <t-space class="overview-action-group" size="small">
               <t-button variant="outline" @click="router.push('/projects')">返回项目中心</t-button>
-              <t-button v-if="canUseProjectChat" variant="outline" @click="openProjectChat">项目问答</t-button>
+              <t-button v-if="canOpenProjectChat" variant="outline" @click="openProjectChat">项目问答</t-button>
               <t-button v-if="canEditProject" theme="primary" variant="outline" @click="openProjectDialog">编辑项目</t-button>
             </t-space>
           </div>
           <div class="overview-stat-grid">
-            <div class="overview-stat-card overview-stat-card--blue">
+            <button
+              type="button"
+              class="overview-stat-card overview-stat-card--blue"
+              :class="{ 'is-clickable': canOpenProjectDocuments }"
+              :disabled="!canOpenProjectDocuments"
+              aria-label="查看当前项目资料数量"
+              @click="openProjectDocumentManagement()"
+            >
               <div class="overview-stat-icon">
                 <FolderIcon />
               </div>
@@ -1382,8 +1459,15 @@ onMounted(loadData);
                 <span>资料数量</span>
                 <strong>{{ project.document_count }}</strong>
               </div>
-            </div>
-            <div class="overview-stat-card overview-stat-card--green">
+            </button>
+            <button
+              type="button"
+              class="overview-stat-card overview-stat-card--green"
+              :class="{ 'is-clickable': canOpenProjectChat }"
+              :disabled="!canOpenProjectChat"
+              aria-label="进入当前项目问答"
+              @click="openProjectChat"
+            >
               <div class="overview-stat-icon">
                 <ChatBubbleHelpIcon />
               </div>
@@ -1391,8 +1475,15 @@ onMounted(loadData);
                 <span>问答次数</span>
                 <strong>{{ project.qa_count ?? 0 }}</strong>
               </div>
-            </div>
-            <div class="overview-stat-card overview-stat-card--blue">
+            </button>
+            <button
+              type="button"
+              class="overview-stat-card overview-stat-card--blue"
+              :class="{ 'is-clickable': canOpenPendingReviewDocuments }"
+              :disabled="!canOpenPendingReviewDocuments"
+              aria-label="查看当前项目待审核文档"
+              @click="openPendingReviewDocuments"
+            >
               <div class="overview-stat-icon">
                 <TaskCheckedIcon />
               </div>
@@ -1400,17 +1491,24 @@ onMounted(loadData);
                 <span>待审核文档</span>
                 <strong>{{ project.pending_review_document_count }}</strong>
               </div>
-            </div>
+            </button>
           </div>
         </div>
 
         <div class="overview-band overview-directory-band">
           <div class="overview-section-heading">
             <h3>资料目录结构</h3>
-            <button type="button" class="overview-heading-action" @click="openProjectDocumentManagement">
-              <span>查看全部目录</span>
-              <ChevronDownSIcon />
-            </button>
+            <t-button
+              v-if="canOpenProjectDocuments"
+              class="overview-heading-action"
+              size="small"
+              theme="default"
+              variant="outline"
+              @click="openProjectDocumentManagement(true)"
+            >
+              <template #icon><FolderIcon /></template>
+              查看全部目录
+            </t-button>
           </div>
           <div class="overview-directory-list">
             <button
@@ -1438,13 +1536,27 @@ onMounted(loadData);
         <div class="overview-band overview-recent-band">
           <div class="overview-section-heading">
             <h3>最近上传资料</h3>
-            <button type="button" class="overview-heading-action" @click="openProjectDocumentManagement">
-              <span>进入资料管理</span>
-              <ChevronDownSIcon />
-            </button>
+            <t-button
+              v-if="canOpenProjectDocuments"
+              class="overview-heading-action"
+              size="small"
+              theme="default"
+              variant="outline"
+              @click="openProjectDocumentManagement()"
+            >
+              <template #icon><FileSearchIcon /></template>
+              进入资料管理
+            </t-button>
           </div>
           <div v-if="recentUploadDocuments.length" class="recent-upload-list">
-            <div v-for="document in recentUploadDocuments" :key="document.id" class="recent-upload-row">
+            <button
+              v-for="document in recentUploadDocuments"
+              :key="document.id"
+              type="button"
+              class="recent-upload-row"
+              :disabled="!canViewDocuments"
+              @click="openRecentDocument(document)"
+            >
               <div class="recent-file-icon" :class="`recent-file-icon--${document.tone}`">
                 <component :is="document.icon" />
               </div>
@@ -1456,7 +1568,7 @@ onMounted(loadData);
                 <span>{{ document.uploadedAt }}</span>
                 <strong>{{ document.uploader }}</strong>
               </div>
-            </div>
+            </button>
           </div>
           <t-empty v-else description="暂无最近上传资料" />
         </div>
@@ -2014,26 +2126,27 @@ onMounted(loadData);
 }
 
 .overview-heading-action {
-  display: inline-flex;
-  height: 34px;
+  height: 32px;
   flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid #d6deeb;
+  border-color: #cdd8e7;
   border-radius: 6px;
   background: #fff;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
+  color: #1d4f91;
   font-size: 14px;
   font-weight: 700;
-  line-height: 1;
-  padding: 0 10px 0 12px;
+  padding: 0 12px;
   white-space: nowrap;
 }
 
 .overview-heading-action:hover {
-  background: #f7faff;
+  border-color: #80b2f5;
+  background: #f5f9ff;
+  color: #0052d9;
+}
+
+.overview-heading-action:active {
+  border-color: #4b91ed;
+  background: #eaf3ff;
 }
 
 .overview-heading-action:focus-visible {
@@ -2041,10 +2154,16 @@ onMounted(loadData);
   outline-offset: 2px;
 }
 
+.overview-heading-action :deep(.t-button__text) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .overview-heading-action :deep(svg) {
   width: 16px;
   height: 16px;
-  color: #667997;
+  color: currentcolor;
 }
 
 .overview-action-group {
@@ -2060,13 +2179,48 @@ onMounted(loadData);
 
 .overview-stat-card {
   display: grid;
+  width: 100%;
   min-height: 112px;
   grid-template-columns: 50px minmax(0, 1fr);
   align-items: center;
   gap: 20px;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: #f5f8fd;
+  color: inherit;
+  cursor: default;
+  font: inherit;
   padding: 18px 22px;
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.overview-stat-card:disabled {
+  opacity: 1;
+}
+
+.overview-stat-card.is-clickable {
+  cursor: pointer;
+}
+
+.overview-stat-card.is-clickable:hover {
+  border-color: #bbd7ff;
+  box-shadow: 0 8px 18px rgb(15 62 118 / 10%);
+  transform: translateY(-1px);
+}
+
+.overview-stat-card.is-clickable:active {
+  box-shadow: 0 4px 10px rgb(15 62 118 / 8%);
+  transform: translateY(0);
+}
+
+.overview-stat-card:focus-visible {
+  outline: 2px solid #8bb7ff;
+  outline-offset: 2px;
 }
 
 .overview-stat-card--blue {
@@ -2203,10 +2357,42 @@ onMounted(loadData);
 
 .recent-upload-row {
   display: grid;
+  width: 100%;
   min-height: 42px;
   grid-template-columns: 28px minmax(0, 1fr) minmax(170px, auto);
   align-items: center;
   gap: 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  padding: 4px 6px;
+  text-align: left;
+  transition:
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.recent-upload-row:hover {
+  background: #f7faff;
+}
+
+.recent-upload-row:active {
+  background: #eef6ff;
+}
+
+.recent-upload-row:focus-visible {
+  outline: 2px solid #8bb7ff;
+  outline-offset: 2px;
+}
+
+.recent-upload-row:disabled {
+  cursor: default;
+}
+
+.recent-upload-row:disabled:hover {
+  background: transparent;
 }
 
 .recent-file-icon {

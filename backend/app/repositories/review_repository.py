@@ -7,9 +7,10 @@ Review Repository
 3. 支持审核中心页面
 """
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from app.models.document import Document
 from app.models.review import ReviewLog, ReviewTask
 
 
@@ -25,13 +26,49 @@ class ReviewRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list_tasks(self, status: str | None = None) -> list[ReviewTask]:
+    def list_tasks(self, status: str | None = None, project_id: int | None = None) -> list[ReviewTask]:
         """查询审核任务。"""
 
         stmt = select(ReviewTask).order_by(ReviewTask.id.desc())
         if status:
             stmt = stmt.where(ReviewTask.review_status == status)
+        if project_id is not None:
+            stmt = stmt.join(Document, Document.id == ReviewTask.document_id).where(Document.project_id == project_id)
         return list(self.db.scalars(stmt).all())
+
+    def list_tasks_page(
+        self,
+        status: str | None = None,
+        project_id: int | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict[str, object]:
+        """分页查询审核任务，避免审核中心一次性加载全部历史任务。"""
+
+        safe_page = max(page, 1)
+        safe_size = max(min(page_size, 100), 1)
+        offset = (safe_page - 1) * safe_size
+        filters = []
+
+        stmt = select(ReviewTask)
+        count_stmt = select(func.count(ReviewTask.id))
+        if project_id is not None:
+            stmt = stmt.join(Document, Document.id == ReviewTask.document_id)
+            count_stmt = count_stmt.select_from(ReviewTask).join(Document, Document.id == ReviewTask.document_id)
+            filters.append(Document.project_id == project_id)
+        if status:
+            filters.append(ReviewTask.review_status == status)
+
+        total = int(self.db.scalar(count_stmt.where(*filters)) or 0)
+        items = list(
+            self.db.scalars(
+                stmt.where(*filters)
+                .order_by(ReviewTask.id.desc())
+                .offset(offset)
+                .limit(safe_size)
+            ).all()
+        )
+        return {"items": items, "total": total, "page": safe_page, "page_size": safe_size}
 
     def get_task(self, task_id: int) -> ReviewTask | None:
         """按 ID 查询审核任务。"""

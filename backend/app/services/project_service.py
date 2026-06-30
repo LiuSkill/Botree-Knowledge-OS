@@ -45,6 +45,7 @@ LEGACY_STATUS_TO_PROJECT = {
     "inactive": "已暂停",
 }
 REVIEW_PENDING_STATUSES = {"draft", "reviewing", "rejected"}
+PROJECT_OVERVIEW_RECENT_DOCUMENT_LIMIT = 5
 
 
 class ProjectService:
@@ -144,7 +145,7 @@ class ProjectService:
             if root_id is not None:
                 root_counts[root_id] = root_counts.get(root_id, 0) + 1
 
-        recent_documents = sorted(documents, key=lambda item: item.created_at, reverse=True)[:5]
+        recent_documents = sorted(documents, key=lambda item: item.created_at, reverse=True)[:PROJECT_OVERVIEW_RECENT_DOCUMENT_LIMIT]
         uploader_ids = {
             uploader_id
             for document in recent_documents

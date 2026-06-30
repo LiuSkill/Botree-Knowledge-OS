@@ -150,12 +150,26 @@ class ReviewService:
                 raise AppException("当前文档正在被其他任务处理，请稍后重试", status_code=409, code=409) from exc
             raise
 
-    def list_tasks(self, status: str | None = None) -> list[ReviewTask]:
+    def list_tasks(self, status: str | None = None, project_id: int | None = None) -> list[ReviewTask]:
         """查询审核任务。"""
 
-        tasks = self.repository.list_tasks(status)
+        tasks = self.repository.list_tasks(status, project_id)
         self._attach_task_display_fields(tasks)
         return tasks
+
+    def list_tasks_page(
+        self,
+        status: str | None = None,
+        project_id: int | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict[str, object]:
+        """分页查询审核任务。"""
+
+        result = self.repository.list_tasks_page(status, project_id, page, page_size)
+        tasks = list(result["items"])
+        self._attach_task_display_fields(tasks)
+        return {**result, "items": tasks}
 
     def get_task(self, task_id: int) -> ReviewTask:
         """查询审核任务详情。"""
@@ -174,16 +188,51 @@ class ReviewService:
         这些字段仅用于接口序列化，不回写审核任务表。
         """
 
-        for task in tasks:
-            document = self.document_repository.get(task.document_id)
-            version = self.document_repository.get_version_by_id(task.version_id) if task.version_id else None
-            if version is None and task.version_no:
-                version = self.document_repository.get_version(task.document_id, task.version_no)
+        if not tasks:
+            return
 
+        document_by_id = {
+            document.id: document
+            for document in self.document_repository.list_by_ids(task.document_id for task in tasks)
+        }
+        version_by_id = {
+            version.id: version
+            for version in self.document_repository.list_versions_by_ids(
+                task.version_id for task in tasks if task.version_id is not None
+            )
+        }
+        missing_version_keys = [
+            (task.document_id, task.version_no)
+            for task in tasks
+            if task.version_no is not None and (task.version_id is None or task.version_id not in version_by_id)
+        ]
+        version_by_key = {
+            (version.document_id, version.version_no): version
+            for version in self.document_repository.list_versions_by_document_numbers(missing_version_keys)
+        }
+
+        uploader_ids: set[int] = set()
+        for task in tasks:
+            document = document_by_id.get(task.document_id)
+            version = version_by_id.get(task.version_id) if task.version_id else None
+            if version is None and task.version_no:
+                version = version_by_key.get((task.document_id, task.version_no))
+            uploader_id = version.created_by if version and version.created_by is not None else document.created_by if document else None
+            if uploader_id is not None:
+                uploader_ids.add(uploader_id)
+
+        user_by_id = {user.id: user for user in self.user_repository.list_by_ids(uploader_ids)}
+
+        for task in tasks:
+            document = document_by_id.get(task.document_id)
+            version = version_by_id.get(task.version_id) if task.version_id else None
+            if version is None and task.version_no:
+                version = version_by_key.get((task.document_id, task.version_no))
             category_id = version.category_id if version and version.category_id is not None else document.category_id if document else None
             uploader_id = version.created_by if version and version.created_by is not None else document.created_by if document else None
-            uploader = self.user_repository.get_by_id(uploader_id) if uploader_id is not None else None
+            uploader = user_by_id.get(uploader_id) if uploader_id is not None else None
 
+            setattr(task, "project_id", document.project_id if document else None)
             setattr(task, "document_file_name", version.file_name if version else document.file_name if document else None)
             setattr(task, "document_category_name", self.category_service.category_name(category_id))
             setattr(task, "document_category_path", self.category_service.category_path(category_id))
@@ -342,6 +391,32 @@ class ReviewService:
             operator,
             project_id=project_id,
             review_status="approved",
+            category_id=category_id,
+            index_status=index_status,
+            knowledge_type=scope_type,
+            keyword=keyword,
+        )
+
+    def list_approved_documents_page(
+        self,
+        operator: User,
+        scope_type: str | None = None,
+        project_id: int | None = None,
+        category_id: int | None = None,
+        index_status: str | None = None,
+        keyword: str | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict[str, object]:
+        """分页查询审核通过资料。"""
+
+        if scope_type not in {None, "base", "project"}:
+            raise AppException("资料范围必须为 base 或 project")
+        return DocumentService(self.db).list_approved_documents_page(
+            operator,
+            page=page,
+            page_size=page_size,
+            project_id=project_id,
             category_id=category_id,
             index_status=index_status,
             knowledge_type=scope_type,

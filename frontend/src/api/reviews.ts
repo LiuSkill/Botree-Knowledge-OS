@@ -8,10 +8,23 @@
  */
 
 import { request } from '@/api/request';
-import type { DocumentInfo, ReviewTask } from '@/types/api';
+import type { DocumentInfo, ListQueryParams, PageResult, ReviewTask } from '@/types/api';
 
-export function listReviewTasks(params?: { status?: string }): Promise<ReviewTask[]> {
-  return request.get('/review-tasks', { params }) as Promise<ReviewTask[]>;
+export interface ReviewTaskListParams extends ListQueryParams {
+  status?: string;
+  project_id?: number | null;
+}
+
+export interface ApprovedDocumentListParams extends ListQueryParams {
+  scope_type?: 'base' | 'project';
+  project_id?: number | null;
+  category_id?: number | null;
+  index_status?: string;
+  keyword?: string;
+}
+
+export function listReviewTasks(params?: ReviewTaskListParams): Promise<PageResult<ReviewTask>> {
+  return request.get('/review-tasks', { params }) as Promise<PageResult<ReviewTask>>;
 }
 
 export function getReviewTask(id: number): Promise<ReviewTask> {
@@ -26,12 +39,6 @@ export function rejectReviewTask(id: number, comment = '审核驳回'): Promise<
   return request.post(`/review-tasks/${id}/reject`, { comment }) as Promise<ReviewTask>;
 }
 
-export function listApprovedDocuments(params?: {
-  scope_type?: 'base' | 'project';
-  project_id?: number | null;
-  category_id?: number | null;
-  index_status?: string;
-  keyword?: string;
-}): Promise<DocumentInfo[]> {
-  return request.get('/review-tasks/approved-documents', { params }) as Promise<DocumentInfo[]>;
+export function listApprovedDocuments(params?: ApprovedDocumentListParams): Promise<PageResult<DocumentInfo>> {
+  return request.get('/review-tasks/approved-documents', { params }) as Promise<PageResult<DocumentInfo>>;
 }

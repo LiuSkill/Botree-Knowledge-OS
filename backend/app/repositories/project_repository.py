@@ -134,6 +134,32 @@ class ProjectRepository:
             ) in self.db.execute(stmt).all()
         ]
 
+    def list_accessible_ids(
+        self,
+        *,
+        user_id: int,
+        user_department: str | None,
+        is_admin: bool,
+        data_scopes: set[str],
+        project_security_levels: list[str],
+    ) -> list[int]:
+        """查询当前用户可访问项目 ID，供跨项目资料列表做数据库级权限过滤。"""
+
+        stmt = select(Project.id).where(Project.is_deleted.is_(False)).order_by(Project.id.desc())
+        filters = self._project_list_filters(
+            user_id=user_id,
+            user_department=user_department,
+            is_admin=is_admin,
+            data_scopes=data_scopes,
+            project_security_levels=project_security_levels,
+            keyword=None,
+            project_status=None,
+            security_level=None,
+        )
+        if filters:
+            stmt = stmt.where(*filters)
+        return list(self.db.scalars(stmt).all())
+
     def document_stats_for_project(
         self,
         project_id: int,

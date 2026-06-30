@@ -9,7 +9,9 @@ Document Repository
 
 from __future__ import annotations
 
-from sqlalchemy import delete, func, or_, select, update
+from collections.abc import Iterable
+
+from sqlalchemy import and_, delete, false, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentChunk, DocumentVersion
@@ -56,6 +58,118 @@ class DocumentRepository:
         if keyword:
             stmt = stmt.where((Document.file_name.like(f"%{keyword}%")) | (Document.document_name.like(f"%{keyword}%")))
         return list(self.db.scalars(stmt).all())
+
+    def list_approved_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        security_levels: list[str],
+        include_base_documents: bool,
+        include_project_documents: bool,
+        accessible_project_ids: list[int] | None = None,
+        project_id: int | None = None,
+        category_ids: list[int] | None = None,
+        index_status: str | None = None,
+        knowledge_type: str | None = None,
+        keyword: str | None = None,
+    ) -> dict[str, object]:
+        """分页查询已审核通过资料，并将密级和项目访问范围下推到数据库。"""
+
+        safe_page = max(page, 1)
+        safe_size = max(min(page_size, 100), 1)
+        offset = (safe_page - 1) * safe_size
+        filters = self._approved_document_filters(
+            security_levels=security_levels,
+            include_base_documents=include_base_documents,
+            include_project_documents=include_project_documents,
+            accessible_project_ids=accessible_project_ids,
+            project_id=project_id,
+            category_ids=category_ids,
+            index_status=index_status,
+            knowledge_type=knowledge_type,
+            keyword=keyword,
+        )
+        total = int(self.db.scalar(select(func.count(Document.id)).where(*filters)) or 0)
+        items = list(
+            self.db.scalars(
+                select(Document)
+                .where(*filters)
+                .order_by(Document.id.desc())
+                .offset(offset)
+                .limit(safe_size)
+            ).all()
+        )
+        return {"items": items, "total": total, "page": safe_page, "page_size": safe_size}
+
+    def _approved_document_filters(
+        self,
+        *,
+        security_levels: list[str],
+        include_base_documents: bool,
+        include_project_documents: bool,
+        accessible_project_ids: list[int] | None,
+        project_id: int | None,
+        category_ids: list[int] | None,
+        index_status: str | None,
+        knowledge_type: str | None,
+        keyword: str | None,
+    ) -> list[object]:
+        filters: list[object] = [
+            Document.is_deleted.is_(False),
+            Document.review_status == "approved",
+            Document.security_level.in_(security_levels),
+        ]
+        access_filters: list[object] = []
+        if include_base_documents and project_id is None:
+            access_filters.append(or_(Document.knowledge_type == "base", Document.project_id.is_(None)))
+        if include_project_documents:
+            if project_id is not None:
+                access_filters.append(Document.project_id == project_id)
+            elif accessible_project_ids:
+                access_filters.append(Document.project_id.in_(accessible_project_ids))
+        filters.append(or_(*access_filters) if access_filters else false())
+
+        if project_id is not None:
+            filters.append(Document.project_id == project_id)
+        if knowledge_type:
+            filters.append(Document.knowledge_type == knowledge_type)
+        if category_ids:
+            filters.append(or_(Document.category_id.in_(category_ids), Document.directory_id.in_(category_ids)))
+        if index_status:
+            filters.append(Document.index_status == index_status)
+        if keyword:
+            like = f"%{keyword}%"
+            filters.append(or_(Document.file_name.like(like), Document.document_name.like(like)))
+        return filters
+
+    def list_by_ids(self, document_ids: Iterable[int]) -> list[Document]:
+        """按 ID 批量查询文档，用于列表展示字段补齐。"""
+
+        ids = list({int(document_id) for document_id in document_ids})
+        if not ids:
+            return []
+        return list(self.db.scalars(select(Document).where(Document.id.in_(ids))).all())
+
+    def list_versions_by_ids(self, version_ids: Iterable[int]) -> list[DocumentVersion]:
+        """按 ID 批量查询文档版本。"""
+
+        ids = list({int(version_id) for version_id in version_ids})
+        if not ids:
+            return []
+        return list(self.db.scalars(select(DocumentVersion).where(DocumentVersion.id.in_(ids))).all())
+
+    def list_versions_by_document_numbers(self, pairs: Iterable[tuple[int, int]]) -> list[DocumentVersion]:
+        """按文档 ID 和版本号批量查询版本记录。"""
+
+        keys = list({(int(document_id), int(version_no)) for document_id, version_no in pairs})
+        if not keys:
+            return []
+        conditions = [
+            and_(DocumentVersion.document_id == document_id, DocumentVersion.version_no == version_no)
+            for document_id, version_no in keys
+        ]
+        return list(self.db.scalars(select(DocumentVersion).where(or_(*conditions))).all())
 
     def list_project_page(
         self,
