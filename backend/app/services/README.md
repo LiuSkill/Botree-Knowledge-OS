@@ -37,8 +37,12 @@ EMBEDDING_PROVIDER=local
 EMBEDDING_MODEL=E:\workspace\botree-agent\backend\workspace\Qwen\Qwen3-Embedding-0.6B
 EMBEDDING_DEVICE=cuda
 EMBEDDING_BATCH_SIZE=8
+RERANKER_DEVICE=cuda
+RERANKER_BATCH_SIZE=8
 EMBEDDING_DIM=1024
 ```
+
+本地 GPU 部署如果希望真实 reranker 也走显卡，必须显式配置 `RERANKER_DEVICE=cuda` 并重启服务；只配置 `EMBEDDING_DEVICE=cuda` 不会让 reranker 自动切到 GPU。
 
 ## 输出
 

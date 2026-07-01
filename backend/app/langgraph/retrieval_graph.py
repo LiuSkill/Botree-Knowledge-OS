@@ -2503,6 +2503,7 @@ class RetrievalGraph:
                     user=state.get("user"),
                     request_id=state.get("raw", {}).get("run_id"),
                 )
+            state["evidences"] = answer_evidences
             state["answer_type"] = action
             state["need_user_confirm"] = False
             state["pending_action"] = None

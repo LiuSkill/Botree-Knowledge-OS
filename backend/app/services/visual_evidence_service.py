@@ -6,6 +6,7 @@ Visual Evidence Service
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -33,6 +34,20 @@ VISUAL_QUERY_HINTS = (
     "diagram",
     "drawing",
     "flow",
+)
+ASSET_MARKDOWN_METADATA_KEYS = (
+    "original_candidate_value",
+    "resolved_local_path",
+    "local_path",
+    "inline_payload_key",
+    "remote_url",
+    "image_path",
+    "img_path",
+    "path",
+    "saved_path",
+    "file_name",
+    "image_name",
+    "img_name",
 )
 
 
@@ -177,5 +192,24 @@ class VisualEvidenceService:
             file_size=asset.file_size,
             page_number=page_no,
             block_id=asset.block_id,
-            metadata={"document_id": asset.document_id, "version_no": asset.version_no},
+            metadata=self._build_asset_metadata(asset),
         )
+
+    def _build_asset_metadata(self, asset: DocumentAsset) -> dict[str, Any]:
+        """构建前端 Markdown 图片匹配所需的安全资产元数据。"""
+
+        metadata: dict[str, Any] = {"document_id": asset.document_id, "version_no": asset.version_no}
+        if not asset.metadata_json:
+            return metadata
+        try:
+            parsed = json.loads(asset.metadata_json)
+        except json.JSONDecodeError:
+            logger.warning("视觉证据资产元数据解析失败: asset_id=%s", asset.id)
+            return metadata
+        if not isinstance(parsed, dict):
+            return metadata
+        for key in ASSET_MARKDOWN_METADATA_KEYS:
+            value = parsed.get(key)
+            if isinstance(value, (str, int, float, list)):
+                metadata[key] = value
+        return metadata

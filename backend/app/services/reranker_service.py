@@ -128,13 +128,24 @@ class RerankerService:
             self.settings.reranker_device,
             self.settings.reranker_batch_size,
         )
+        requested_device = self._requested_reranker_device()
+        device_explicitly_configured = self._reranker_device_explicitly_configured()
+        if not device_explicitly_configured:
+            logger.warning(
+                "RERANKER_DEVICE 未显式配置，当前按默认值预热本地Reranker: requested_device=%s provider=%s model=%s。"
+                "如需GPU，请在 backend/.env 或进程环境中设置 RERANKER_DEVICE=cuda 并重启服务。",
+                requested_device,
+                runtime_config.provider,
+                runtime_config.model_name,
+            )
         logger.info(
-            "本地Reranker预热开始: loaded=%s provider=%s model=%s device=%s batch_size=%s",
+            "本地Reranker预热开始: loaded=%s provider=%s model=%s requested_device=%s batch_size=%s explicit_device=%s",
             loaded_before,
             runtime_config.provider,
             runtime_config.model_name,
-            self.settings.reranker_device,
+            requested_device,
             self.settings.reranker_batch_size,
+            device_explicitly_configured,
         )
         started_at = time.perf_counter()
         model = self._get_local_model(runtime_config)
@@ -144,18 +155,22 @@ class RerankerService:
             "model_name": runtime_config.model_name,
             "model_loaded": model.is_loaded,
             "backend": model.backend_name,
+            "requested_device": requested_device,
+            "resolved_device": model.device,
             "device": model.device,
+            "device_explicitly_configured": device_explicitly_configured,
             "batch_size": model.batch_size,
             "fallback_used": False,
             "warmup_score": scores[0] if scores else None,
             "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
         }
         logger.info(
-            "本地Reranker预热完成: loaded=%s provider=%s model=%s backend=%s device=%s elapsed_ms=%s",
+            "本地Reranker预热完成: loaded=%s provider=%s model=%s backend=%s requested_device=%s resolved_device=%s elapsed_ms=%s",
             model.is_loaded,
             runtime_config.provider,
             runtime_config.model_name,
             model.backend_name,
+            requested_device,
             model.device,
             self.last_runtime["elapsed_ms"],
         )
@@ -168,6 +183,8 @@ class RerankerService:
         score_order: str,
     ) -> list[Evidence]:
         runtime_config = self._runtime_config()
+        requested_device = self._requested_reranker_device()
+        device_explicitly_configured = self._reranker_device_explicitly_configured()
         if not self._is_local_reranker(runtime_config):
             raise AppException(
                 f"当前Reranker provider={runtime_config.provider} 暂未实现真实重排调用",
@@ -189,6 +206,8 @@ class RerankerService:
                 "rerank_raw_score": raw_score,
                 "rerank_backend": model.backend_name,
                 "rerank_model": runtime_config.model_name,
+                "rerank_requested_device": requested_device,
+                "rerank_resolved_device": model.device,
             }
             evidence.score = score
             scored.append(
@@ -214,7 +233,10 @@ class RerankerService:
             "model_name": runtime_config.model_name,
             "model_loaded": model.is_loaded,
             "backend": model.backend_name,
+            "requested_device": requested_device,
+            "resolved_device": model.device,
             "device": model.device,
+            "device_explicitly_configured": device_explicitly_configured,
             "batch_size": model.batch_size,
             "fallback_used": False,
             "score_order": score_order,
@@ -351,6 +373,12 @@ class RerankerService:
         except Exception as exc:
             logger.exception("本地Reranker加载或调用失败: model=%s", runtime_config.model_name)
             raise AppException(f"本地Reranker加载或调用失败：{exc}", status_code=502, code=502) from exc
+
+    def _requested_reranker_device(self) -> str:
+        return str(self.settings.reranker_device or "cpu").strip().lower() or "cpu"
+
+    def _reranker_device_explicitly_configured(self) -> bool:
+        return "reranker_device" in getattr(self.settings, "model_fields_set", set())
 
     def _is_local_reranker(self, runtime_config: RuntimeRerankerConfig) -> bool:
         return runtime_config.provider.lower() in LOCAL_RERANKER_PROVIDERS

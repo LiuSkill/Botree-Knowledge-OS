@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.retrieval.router import RetrievalRouter
 from app.retrieval.schemas import Evidence
+from app.services.qwen_orchestration_service import QwenOrchestrationService
+from app.services.retrieval_planner_service import RetrievalPlannerService
 
 
 class RetrievalService:
@@ -51,7 +53,52 @@ class RetrievalService:
             检索结果。
         """
 
-        result = RetrievalRouter(self.db).search(query, mode, project_id, user, limit, chat_type, execution_mode)
+        router = RetrievalRouter(self.db)
+        if execution_mode == "all":
+            result = router.search_all(query, mode, project_id, user, limit, chat_type)
+        else:
+            effective_mode = router.prepare_scope(mode, project_id, chat_type, user)
+            qwen = QwenOrchestrationService(self.db)
+            intent = qwen.detect_intent(query, chat_type or "", effective_mode)
+            sub_queries = qwen.decompose_query(query, intent)
+            plan = RetrievalPlannerService(self.db).plan(
+                query=query,
+                sub_queries=sub_queries,
+                intent=intent,
+                chat_type=chat_type or "",
+                mode=effective_mode,
+                project_id=project_id,
+                available_retrievers=router.available_retrievers(),
+            )
+            retrieval = router.execute_planned(
+                query=query,
+                mode=effective_mode,
+                project_id=project_id,
+                user=user,
+                retriever_names=plan.selected_retrievers,
+                limit=limit,
+                fallback_retrievers=plan.fallback_retrievers,
+                fallback_ladder=plan.fallback_ladder,
+                chat_type=chat_type,
+                query_features=plan.query_features,
+                skip_reasons=plan.skip_reasons,
+                intent=intent,
+            )
+            result = {
+                **retrieval,
+                "intent": intent,
+                "sub_queries": sub_queries,
+                "retrieval_plan": plan.to_dict(),
+                **router.finalize_retrieval(
+                    query=query,
+                    evidences=retrieval.pop("evidences"),
+                    limit=limit,
+                    chat_type=chat_type,
+                    effective_mode=effective_mode,
+                    project_id=project_id,
+                    user=user,
+                ),
+            }
         result["citations"] = [self.evidence_to_citation(evidence) for evidence in result.pop("evidences")]
         return result
 

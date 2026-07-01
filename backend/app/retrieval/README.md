@@ -54,4 +54,4 @@ flowchart TD
 
 在线问答默认不再执行全部检索器。LangGraph 会先调用 Retrieval Planner 生成 `selected_retrievers`，再由 `RetrievalRouter.execute_planned()` 只执行计划中的检索器。若某个子查询的规划检索器全部 0 命中，Router 会按计划中的 `fallback_retrievers` 补充执行 `keyword`。
 
-`RetrievalRouter.search()` 默认使用 Planner；`RetrievalRouter.search_all()` 仅供 `/retrieval/debug` 显式传入 `execution_mode=all` 时使用。`used_retrievers` 表示实际执行过的检索器，`planned_retrievers` 表示 Planner 原始选择。
+`RetrievalService.search()` 是 `/retrieval/search` 的唯一规划入口：Service 负责意图识别、子查询拆解和 `RetrievalPlannerService` 规划，`RetrievalRouter.execute_planned()` 只执行既定计划，不再在运行时二次改写 retriever 选择。`RetrievalRouter.search_all()` 仅供 `/retrieval/debug` 显式传入 `execution_mode=all` 时使用。`used_retrievers` 表示实际执行过的检索器，`planned_retrievers` 表示 Planner 原始选择。

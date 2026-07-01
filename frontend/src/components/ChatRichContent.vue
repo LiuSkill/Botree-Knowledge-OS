@@ -7,6 +7,7 @@ import { computed } from 'vue';
 
 const props = defineProps<{
   content: string;
+  imageSourceResolver?: (src: string) => string | null | undefined;
 }>();
 
 interface MathPlaceholder {
@@ -55,12 +56,51 @@ const SAFE_TABLE_ATTRS = new Set(['align', 'colspan', 'rowspan']);
 const SAFE_COL_ATTRS = new Set(['span', 'width']);
 const SAFE_STYLE_PROPERTIES = new Set(['text-align', 'vertical-align', 'width', 'height']);
 const CHEMICAL_SCRIPT_PATTERN = /([A-Za-z\)\]])([_^])\{?([0-9+\-]+)\}?/g;
+const CHEMICAL_FORMULA_CANDIDATE_PATTERN =
+  /(^|[^A-Za-z0-9_\\])([A-Z][A-Za-z0-9()[\]{}.+\-^·₀₁₂₃₄₅₆₇₈₉₊₋⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]{1,48})(?=$|[^A-Za-z0-9_])/gu;
 const HTML_IMAGE_SRC_PATTERN = /<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^>\s]+))/gi;
 const PIPE_TABLE_DELIMITER_CELL = String.raw`\s*:?-{3,}:?\s*`;
 const MERGED_PIPE_TABLE_SEPARATOR_PATTERN = new RegExp(
   String.raw`\|\s*(\|${PIPE_TABLE_DELIMITER_CELL}(?:\|${PIPE_TABLE_DELIMITER_CELL})+\|?\s*)$`,
   'u',
 );
+const ELEMENT_SYMBOLS = new Set(
+  (
+    'H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr ' +
+    'Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu ' +
+    'Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg ' +
+    'Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og'
+  ).split(' '),
+);
+const COMMON_NO_DIGIT_FORMULAS = new Set(['CO', 'HCl', 'HBr', 'HF', 'HI', 'KOH', 'NaCl', 'NaOH', 'OH']);
+const SUBSCRIPT_NORMALIZATION_MAP: Record<string, string> = {
+  '₀': '0',
+  '₁': '1',
+  '₂': '2',
+  '₃': '3',
+  '₄': '4',
+  '₅': '5',
+  '₆': '6',
+  '₇': '7',
+  '₈': '8',
+  '₉': '9',
+  '₊': '+',
+  '₋': '-',
+};
+const SUPERSCRIPT_NORMALIZATION_MAP: Record<string, string> = {
+  '⁰': '0',
+  '¹': '1',
+  '²': '2',
+  '³': '3',
+  '⁴': '4',
+  '⁵': '5',
+  '⁶': '6',
+  '⁷': '7',
+  '⁸': '8',
+  '⁹': '9',
+  '⁺': '+',
+  '⁻': '-',
+};
 
 const markdownRenderer = new MarkdownIt({
   html: true,
@@ -107,10 +147,18 @@ function basenameFromPath(value: string): string {
 }
 
 function normalizeImageUrl(src: string): string {
+  const resolvedUrl = props.imageSourceResolver?.(src)?.trim() || '';
+  if (resolvedUrl && isSafeImageUrl(resolvedUrl)) return resolvedUrl;
+
   const value = src.trim();
-  if (/^(https?:|blob:|\/)/i.test(value)) return value;
-  if (/^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);base64,/i.test(value)) return value;
+  if (isSafeImageUrl(value)) return value;
   return '';
+}
+
+function isSafeImageUrl(value: string): boolean {
+  if (/^(https?:|blob:|\/)/i.test(value)) return true;
+  if (/^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);base64,/i.test(value)) return true;
+  return false;
 }
 
 function decodeAllowedHtmlEntities(value: string): string {
@@ -211,8 +259,77 @@ function normalizeMergedPipeTableSeparators(markdown: string): string {
   return output.join('\n');
 }
 
+function isPipeTableRow(line: string): boolean {
+  const trimmedLine = line.trim();
+  const pipeCount = (trimmedLine.match(/\|/g) || []).length;
+  return trimmedLine.startsWith('|') && trimmedLine.endsWith('|') && pipeCount >= 3;
+}
+
+function isPipeTableDelimiterRow(line: string): boolean {
+  return new RegExp(String.raw`^\s*\|(?:${PIPE_TABLE_DELIMITER_CELL}\|)+\s*$`, 'u').test(line);
+}
+
+function buildPipeTableDelimiter(headerRow: string): string {
+  const columnCount = Math.max(2, headerRow.trim().split('|').length - 2);
+  return `| ${Array.from({ length: columnCount }, () => '---').join(' | ')} |`;
+}
+
+function normalizePipeTableBlocks(markdown: string): string {
+  const output: string[] = [];
+  const tableRows: string[] = [];
+  let inCodeBlock = false;
+  let codeFence = '';
+
+  const flushTableRows = () => {
+    if (!tableRows.length) return;
+    if (tableRows.length === 1) {
+      output.push(tableRows[0]);
+      tableRows.length = 0;
+      return;
+    }
+
+    output.push(tableRows[0]);
+    if (!isPipeTableDelimiterRow(tableRows[1])) {
+      // 检索片段常只有多行管道文本，补充分隔行后才能被 markdown-it 识别为表格。
+      output.push(buildPipeTableDelimiter(tableRows[0]));
+    }
+    output.push(...tableRows.slice(1));
+    tableRows.length = 0;
+  };
+
+  for (const line of markdown.replace(/\r\n/g, '\n').split('\n')) {
+    const trimmedLine = line.trim();
+    const fenceMatch = trimmedLine.match(/^(```|~~~)/);
+    if (fenceMatch) {
+      flushTableRows();
+      output.push(line);
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeFence = fenceMatch[1];
+      } else if (trimmedLine.startsWith(codeFence)) {
+        inCodeBlock = false;
+        codeFence = '';
+      }
+      continue;
+    }
+
+    if (!inCodeBlock && isPipeTableRow(line)) {
+      tableRows.push(line);
+      continue;
+    }
+
+    flushTableRows();
+    output.push(line);
+  }
+
+  flushTableRows();
+  return output.join('\n');
+}
+
 function preprocessMarkdown(markdown: string): string {
-  return normalizeOrphanTableRows(normalizeMergedPipeTableSeparators(restoreAllowedEncodedHtml(markdown)));
+  return normalizePipeTableBlocks(
+    normalizeOrphanTableRows(normalizeMergedPipeTableSeparators(restoreAllowedEncodedHtml(markdown))),
+  );
 }
 
 function isEscaped(value: string, index: number): boolean {
@@ -223,8 +340,143 @@ function isEscaped(value: string, index: number): boolean {
   return slashCount % 2 === 1;
 }
 
-function renderMathToHtml(source: string, displayMode: boolean): string {
+function normalizeUnicodeChemicalScripts(value: string): string {
+  let output = '';
+  let inSuperscript = false;
+  for (const char of value) {
+    if (SUBSCRIPT_NORMALIZATION_MAP[char]) {
+      output += SUBSCRIPT_NORMALIZATION_MAP[char];
+      inSuperscript = false;
+      continue;
+    }
+    if (SUPERSCRIPT_NORMALIZATION_MAP[char]) {
+      if (!inSuperscript) {
+        output += '^';
+        inSuperscript = true;
+      }
+      output += SUPERSCRIPT_NORMALIZATION_MAP[char];
+      continue;
+    }
+    output += char;
+    inSuperscript = false;
+  }
+  return output;
+}
+
+function normalizeChemicalFormulaSource(value: string): string {
+  return normalizeUnicodeChemicalScripts(value)
+    .replace(/[−–—]/g, '-')
+    .replace(/＋/g, '+')
+    .replace(/\\(?:mathrm|mathbf|text|operatorname)\s*\{([^{}]*)\}\}?/g, '$1')
+    .replace(/\\(?:rm|bf|it)\s+/g, '')
+    .replace(/\\cdot\b/g, '·')
+    .replace(/\\[,;:!]\s*/g, '')
+    .replace(/_\s*\{\s*([^{}]+)\s*\}/g, '$1')
+    .replace(/_\s*([0-9+\-]+)/g, '$1')
+    .replace(/\^\s*\{\s*([^{}]+)\s*\}/g, '^$1')
+    .replace(/\^\s*([0-9+\-]+)/g, '^$1')
+    .replace(/[{}]/g, '')
+    .replace(/\s+/g, '');
+}
+
+function trimFormulaPunctuation(value: string): { core: string; suffix: string } {
+  let core = value;
+  let suffix = '';
+  while (core && /[.,;:，。；：]/u.test(core[core.length - 1])) {
+    suffix = `${core[core.length - 1]}${suffix}`;
+    core = core.slice(0, -1);
+  }
+  return { core, suffix };
+}
+
+function scanChemicalFormula(value: string): {
+  elementCount: number;
+  hasCharge: boolean;
+  hasGroup: boolean;
+  hasLowercase: boolean;
+  hasNumber: boolean;
+  valid: boolean;
+} {
+  let cursor = 0;
+  let elementCount = 0;
+  let hasCharge = false;
+  let hasGroup = false;
+  let hasLowercase = false;
+  let hasNumber = false;
+
+  while (cursor < value.length) {
+    const char = value[cursor];
+    if (/[A-Z]/.test(char)) {
+      const twoLetterSymbol = value.slice(cursor, cursor + 2);
+      const oneLetterSymbol = value[cursor];
+      if (ELEMENT_SYMBOLS.has(twoLetterSymbol)) {
+        elementCount += 1;
+        hasLowercase = true;
+        cursor += 2;
+        continue;
+      }
+      if (ELEMENT_SYMBOLS.has(oneLetterSymbol)) {
+        elementCount += 1;
+        cursor += 1;
+        continue;
+      }
+      return { elementCount, hasCharge, hasGroup, hasLowercase, hasNumber, valid: false };
+    }
+    if (/[a-z]/.test(char)) {
+      return { elementCount, hasCharge, hasGroup, hasLowercase, hasNumber, valid: false };
+    }
+    if (/\d/.test(char)) {
+      hasNumber = true;
+      cursor += 1;
+      continue;
+    }
+    if ('()[]'.includes(char)) {
+      hasGroup = true;
+      cursor += 1;
+      continue;
+    }
+    if (char === '^') {
+      hasCharge = true;
+      cursor += 1;
+      continue;
+    }
+    if (char === '+' || char === '-') {
+      hasCharge = true;
+      cursor += 1;
+      continue;
+    }
+    if (char === '·' || char === '.') {
+      cursor += 1;
+      continue;
+    }
+    return { elementCount, hasCharge, hasGroup, hasLowercase, hasNumber, valid: false };
+  }
+
+  return { elementCount, hasCharge, hasGroup, hasLowercase, hasNumber, valid: true };
+}
+
+function isLikelyChemicalFormula(value: string): boolean {
+  const normalized = normalizeChemicalFormulaSource(value);
+  if (normalized.length < 2 || normalized.length > 80) return false;
+  if (!/^[A-Za-z0-9()[\]^+\-.·]+$/.test(normalized)) return false;
+  const scanResult = scanChemicalFormula(normalized);
+  if (!scanResult.valid || scanResult.elementCount === 0) return false;
+  if (scanResult.hasNumber || scanResult.hasGroup || scanResult.hasCharge) return true;
+  return scanResult.hasLowercase || COMMON_NO_DIGIT_FORMULAS.has(normalized);
+}
+
+function normalizeMathSource(source: string): string {
   const expression = source.trim();
+  if (/^\\(?:ce|pu)\s*\{/.test(expression)) return expression;
+  const chemicalSource = normalizeChemicalFormulaSource(expression);
+  if (isLikelyChemicalFormula(chemicalSource)) {
+    return `\\ce{${chemicalSource}}`;
+  }
+  return expression;
+}
+
+function renderMathToHtml(source: string, displayMode: boolean): string {
+  const expression = normalizeMathSource(source);
   if (!expression) return '';
   try {
     return katex.renderToString(expression, {
@@ -290,9 +542,18 @@ function replaceInlineMath(line: string, placeholders: MathPlaceholder[], prefix
 }
 
 function replaceStandaloneChemistry(line: string, placeholders: MathPlaceholder[], prefix: string): string {
-  return line.replace(/\\ce\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, (match) =>
+  return line.replace(/\\ce\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, (match) =>
     createMathToken(placeholders, match, false, prefix),
   );
+}
+
+function replacePlainChemistry(line: string, placeholders: MathPlaceholder[], prefix: string): string {
+  return line.replace(CHEMICAL_FORMULA_CANDIDATE_PATTERN, (match, boundary: string, rawFormula: string) => {
+    const { core, suffix } = trimFormulaPunctuation(rawFormula);
+    if (!core || !isLikelyChemicalFormula(core)) return match;
+    const chemicalSource = normalizeChemicalFormulaSource(core);
+    return `${boundary}${createMathToken(placeholders, `\\ce{${chemicalSource}}`, false, prefix)}${suffix}`;
+  });
 }
 
 function protectMath(markdown: string): { markdown: string; placeholders: MathPlaceholder[] } {
@@ -341,7 +602,9 @@ function protectMath(markdown: string): { markdown: string; placeholders: MathPl
       continue;
     }
 
-    output.push(replaceInlineMath(replaceStandaloneChemistry(line, placeholders, tokenPrefix), placeholders, tokenPrefix));
+    const protectedChemistry = replaceStandaloneChemistry(line, placeholders, tokenPrefix);
+    const protectedMath = replaceInlineMath(protectedChemistry, placeholders, tokenPrefix);
+    output.push(replacePlainChemistry(protectedMath, placeholders, tokenPrefix));
   }
 
   if (blockMath.length) {

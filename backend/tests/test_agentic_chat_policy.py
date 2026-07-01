@@ -40,14 +40,16 @@ def _evidence(
     *,
     source_type: str = "project",
     project_id: int | None = 1,
+    chunk_id: int = 1,
+    document_id: int = 1,
 ) -> Evidence:
     return Evidence(
         score=0.95,
         source_type=source_type,
         knowledge_base_id=1,
         project_id=project_id,
-        document_id=1,
-        chunk_id=1,
+        document_id=document_id,
+        chunk_id=chunk_id,
         drawing_no=None,
         file_name="source.pdf",
         page_number=1,
@@ -335,3 +337,35 @@ def test_base_chat_pending_new_question_clears_pending(monkeypatch):
     assert result is None
     assert session.conversation_state == "NORMAL"
     assert session.pending_general_question is None
+
+
+def test_project_chat_returns_top10_evidences_and_citations_context(monkeypatch):
+    evidences: list[Evidence] = []
+    for index in range(12):
+        evidences.append(
+            Evidence(
+                score=0.95,
+                source_type="project",
+                knowledge_base_id=1,
+                project_id=1,
+                document_id=index + 1,
+                chunk_id=index + 1,
+                drawing_no=None,
+                file_name=f"source-{index}.pdf",
+                page_number=1,
+                content=f"证据片段-{index}",
+                retriever="milvus",
+                metadata={"security_level": "public"},
+            )
+        )
+    result = _graph(monkeypatch, evidences, enough=True).run(
+        "椤圭洰璧勬枡涓殑璁惧鍙傛暟鏄粈涔?",
+        "project_chat",
+        "auto",
+        1,
+        SimpleNamespace(id=1),
+    )
+
+    assert len(result["evidences"]) == 10
+    assert result["raw"]["answer_top_k"] == 10
+    assert result["raw"]["answer_context_count"] == 10

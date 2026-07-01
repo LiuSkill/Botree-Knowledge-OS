@@ -11,6 +11,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onBeforeUnmount, reactive, watch } from 'vue';
 
 import { downloadDocumentAsset } from '@/api/documents';
+import ChatRichContent from '@/components/ChatRichContent.vue';
 import type { Citation, CitationAsset } from '@/types/api';
 
 const props = defineProps<{
@@ -20,6 +21,20 @@ const props = defineProps<{
 
 const assetUrlMap = reactive<Record<number, string>>({});
 const loadingAssetIds = reactive<Record<number, boolean>>({});
+const CITATION_ASSET_METADATA_KEYS = [
+  'original_candidate_value',
+  'resolved_local_path',
+  'local_path',
+  'inline_payload_key',
+  'remote_url',
+  'image_path',
+  'img_path',
+  'path',
+  'saved_path',
+  'file_name',
+  'image_name',
+  'img_name',
+] as const;
 const visualAssets = computed(() => {
   const assets = props.citations.flatMap((citation) => citation.assets || []);
   return Array.from(new Map(assets.map((asset) => [asset.asset_id, asset])).values());
@@ -70,6 +85,65 @@ function openAssetPreview(asset: CitationAsset): void {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+function normalizeAssetKey(value: string): string {
+  return value
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
+    .replace(/[?#].*$/g, '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .replace(/^\/+/, '')
+    .toLowerCase();
+}
+
+function basenameFromPath(value: string): string {
+  const normalized = normalizeAssetKey(value);
+  return normalized.split('/').filter(Boolean).pop() || normalized;
+}
+
+function collectMetadataStrings(value: unknown): string[] {
+  if (typeof value === 'string' && value.trim()) return [value];
+  if (Array.isArray(value)) return value.flatMap((item) => collectMetadataStrings(item));
+  return [];
+}
+
+function collectAssetLookupKeys(asset: CitationAsset): string[] {
+  /**
+   * MinerU 图片可能以 images/xxx、绝对路径或后端资产 URL 出现在 Markdown 中，
+   * 这里统一生成可匹配的安全键，最终仍只使用鉴权下载后的 Blob URL 展示。
+   */
+  const metadata = asset.metadata || {};
+  const rawValues = [
+    asset.file_name,
+    asset.url,
+    ...CITATION_ASSET_METADATA_KEYS.flatMap((key) => collectMetadataStrings(metadata[key])),
+  ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+
+  const keys = new Set<string>();
+  for (const value of rawValues) {
+    const normalized = normalizeAssetKey(value);
+    keys.add(normalized);
+    keys.add(basenameFromPath(normalized));
+  }
+  return Array.from(keys);
+}
+
+function findCitationAssetBySource(src: string, citation: Citation): CitationAsset | null {
+  const normalizedSrc = normalizeAssetKey(src);
+  const basename = basenameFromPath(normalizedSrc);
+  return (
+    (citation.assets || []).find((asset) => {
+      const keys = collectAssetLookupKeys(asset);
+      return keys.includes(normalizedSrc) || keys.includes(basename);
+    }) || null
+  );
+}
+
+function resolveCitationImageUrl(src: string, citation: Citation): string {
+  const asset = findCitationAssetBySource(src, citation);
+  return asset ? assetUrlMap[asset.asset_id] || '' : '';
+}
+
 watch(
   visualAssets,
   async (assets) => {
@@ -113,7 +187,11 @@ onBeforeUnmount(resetAssetUrls);
           <span v-else class="asset-loading">加载中</span>
         </t-button>
       </div>
-      <p class="citation-content">{{ item.content }}</p>
+      <ChatRichContent
+        class="citation-content"
+        :content="item.content"
+        :image-source-resolver="(src) => resolveCitationImageUrl(src, item)"
+      />
     </div>
   </div>
 </template>
@@ -158,10 +236,7 @@ onBeforeUnmount(resetAssetUrls);
 }
 
 .citation-content {
-  margin: 0;
-  color: #374151;
-  font-size: 13px;
-  line-height: 1.7;
+  margin-top: 8px;
 }
 
 .citation-assets {

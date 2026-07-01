@@ -717,8 +717,8 @@ def test_router_executes_same_stage_retrievers_in_parallel() -> None:
     assert result["retriever_timeouts"] == {"milvus": False, "keyword": False}
 
 
-def test_router_runtime_skips_ripgrep_without_precise_signals() -> None:
-    """普通自然语言问题即使计划里带了 ripgrep，运行时也要跳过。"""
+def test_router_does_not_override_planner_selected_retrievers() -> None:
+    """Router 只执行 Planner 已选检索器，不再运行时二次跳过。"""
 
     ripgrep = FakeRetriever("ripgrep", [make_evidence("ripgrep")])
     keyword = FakeRetriever("keyword", [make_evidence("keyword", score=0.9)])
@@ -733,10 +733,10 @@ def test_router_runtime_skips_ripgrep_without_precise_signals() -> None:
         query_features={"query_profile": {"query_type": "comparison", "answer_shape": "comparison_table"}},
     )
 
-    assert ripgrep.calls == 0
+    assert ripgrep.calls == 1
     assert keyword.calls == 1
-    assert result["used_retrievers"] == ["keyword"]
-    assert result["skip_reasons"]["ripgrep"].startswith("runtime_skip")
+    assert result["used_retrievers"] == ["ripgrep", "keyword"]
+    assert "ripgrep" not in result["skip_reasons"]
 
 
 def test_router_process_flow_does_not_skip_page_index_without_page_hint() -> None:
@@ -786,6 +786,26 @@ def test_router_timeout_returns_without_waiting_for_blocking_retriever() -> None
     assert result["retriever_hits"] == {"page_index": 0}
 
 
+def test_router_ripgrep_timeout_envelope_exceeds_rg_subprocess_timeout() -> None:
+    ripgrep = FakeRetriever("ripgrep", [make_evidence("ripgrep")], delay_seconds=0.1)
+    router = build_router(ripgrep)
+    router.settings.ripgrep_timeout_ms = 50
+    router.settings.retrieval_retriever_timeout_ms = 500
+
+    result = router.execute_planned(
+        query="10-PS-0101-3002-003",
+        mode="project_chat",
+        project_id=1,
+        user=None,
+        retriever_names=["ripgrep"],
+        fallback_ladder=[["ripgrep"]],
+        query_features={"has_exact_token": True},
+    )
+
+    assert result["retriever_timeouts"] == {"ripgrep": False}
+    assert result["retriever_hits"] == {"ripgrep": 1}
+
+
 def main() -> None:
     """
     执行轻量单元测试。
@@ -810,9 +830,10 @@ def main() -> None:
     test_router_keyword_fallback_when_planned_empty()
     test_router_low_quality_milvus_triggers_keyword_fallback()
     test_router_executes_same_stage_retrievers_in_parallel()
-    test_router_runtime_skips_ripgrep_without_precise_signals()
+    test_router_does_not_override_planner_selected_retrievers()
     test_router_process_flow_does_not_skip_page_index_without_page_hint()
     test_router_timeout_returns_without_waiting_for_blocking_retriever()
+    test_router_ripgrep_timeout_envelope_exceeds_rg_subprocess_timeout()
     logger.info("Retrieval Planner 单元测试通过")
 
 

@@ -38,24 +38,14 @@ from app.retrieval.retrievers.ripgrep_retriever import RipgrepRetriever
 from app.retrieval.schemas import Evidence
 from app.services.project_access_service import ProjectAccessService
 from app.services.project_service import ProjectService
-from app.services.qwen_orchestration_service import QwenOrchestrationService
 from app.services.evidence_access_guard_service import EvidenceAccessGuardService
 from app.services.reranker_service import RerankerService
-from app.services.retrieval_planner_service import RetrievalPlannerService
 
 logger = logging.getLogger(__name__)
 
 LOW_QUALITY_SCORE_THRESHOLD = 0.58
 LOW_QUALITY_VALUABLE_EVIDENCE_THRESHOLD = 2
-RIPGREP_SIGNAL_KEYS = (
-    "has_exact_token",
-    "has_doc_code",
-    "has_page_hint",
-    "has_section_hint",
-    "has_table_hint",
-    "has_value_hint",
-    "has_table_value_lookup",
-)
+LEGACY_RERANK_TOP_K = 30
 
 
 class RetrievalRouter:
@@ -110,51 +100,7 @@ class RetrievalRouter:
         if execution_mode == "all":
             return self.search_all(query, mode, project_id, user, limit, chat_type)
 
-        effective_mode = self._prepare_scope(mode, project_id, chat_type, user)
-        qwen = QwenOrchestrationService(self.db)
-        intent = qwen.detect_intent(query, chat_type or "", effective_mode)
-        sub_queries = qwen.decompose_query(query, intent)
-        plan = RetrievalPlannerService(self.db).plan(
-            query=query,
-            sub_queries=sub_queries,
-            intent=intent,
-            chat_type=chat_type or "",
-            mode=effective_mode,
-            project_id=project_id,
-            available_retrievers=self.available_retrievers(),
-        )
-        retrieval = self.execute_planned(
-            query=query,
-            mode=effective_mode,
-            project_id=project_id,
-            user=user,
-            retriever_names=plan.selected_retrievers,
-            limit=limit,
-            fallback_retrievers=plan.fallback_retrievers,
-            fallback_ladder=plan.fallback_ladder,
-            chat_type=chat_type,
-            query_features=plan.query_features,
-            skip_reasons=plan.skip_reasons,
-            intent=intent,
-        )
-        merged_evidences = self.merger.merge([retrieval["evidences"]], max(limit * 3, limit))
-        merged_evidences, guard_details = self._guard_before_rerank(
-            merged_evidences,
-            chat_type=chat_type,
-            effective_mode=effective_mode,
-            project_id=project_id,
-            user=user,
-        )
-        evidences = self.reranker.rerank(query, merged_evidences, limit)
-        return {
-            **retrieval,
-            "intent": intent,
-            "sub_queries": sub_queries,
-            "retrieval_plan": plan.to_dict(),
-            "evidences": evidences,
-            "rerank_details": self.reranker.last_details,
-            "pre_rerank_guard": guard_details,
-        }
+        raise AppException("Planner 模式已由 RetrievalService 统一编排，请改用 RetrievalService.search()", status_code=500)
 
     def search_all(
         self,
@@ -203,15 +149,15 @@ class RetrievalRouter:
             fallback_trigger_reason="execution_mode=all",
             query_features=None,
         )
-        merged_evidences = self.merger.merge(groups, max(limit * 3, limit))
-        merged_evidences, guard_details = self._guard_before_rerank(
-            merged_evidences,
+        finalized = self.finalize_retrieval(
+            query=query,
+            evidences=[item for group in groups for item in group],
+            limit=limit,
             chat_type=chat_type,
             effective_mode=effective_mode,
             project_id=project_id,
             user=user,
         )
-        evidences = self.reranker.rerank(query, merged_evidences, limit)
         return {
             "mode": effective_mode,
             "query_scope": self._scope_text(effective_mode),
@@ -223,14 +169,11 @@ class RetrievalRouter:
             "fallback_ladder": [retriever_names],
             "fallback_used": [],
             "fallback_trigger_reason": [],
-            "evidences": evidences,
             "retriever_hits": retriever_hits,
             "retriever_elapsed_ms": retriever_elapsed,
             "retriever_top_scores": retriever_top_scores,
             "retriever_errors": retriever_errors,
             "retriever_timeouts": retriever_timeouts,
-            "rerank_details": self.reranker.last_details,
-            "pre_rerank_guard": guard_details,
             "retrieval_plan": {
                 "selected_retrievers": retriever_names,
                 "fallback_retrievers": [],
@@ -244,6 +187,39 @@ class RetrievalRouter:
                 "skip_reasons": {},
                 "query_features": {},
             },
+            **finalized,
+        }
+
+    def finalize_retrieval(
+        self,
+        query: str,
+        evidences: list[Evidence],
+        limit: int,
+        *,
+        chat_type: str | None,
+        effective_mode: str,
+        project_id: int | None,
+        user: User,
+    ) -> dict[str, Any]:
+        """
+        为 `/retrieval/*` 链路统一做合并去重、权限过滤和真实 reranker 重排。
+        """
+
+        merge_limit = max(limit * 3, LEGACY_RERANK_TOP_K)
+        merged_evidences = self.merger.merge([evidences], merge_limit)
+        rerank_candidates = merged_evidences[:LEGACY_RERANK_TOP_K]
+        rerank_candidates, guard_details = self._guard_before_rerank(
+            rerank_candidates,
+            chat_type=chat_type,
+            effective_mode=effective_mode,
+            project_id=project_id,
+            user=user,
+        )
+        reranked = self.reranker.rerank(query, rerank_candidates, limit)
+        return {
+            "evidences": reranked,
+            "rerank_details": self.reranker.last_details,
+            "pre_rerank_guard": guard_details,
         }
 
     def execute_planned(
@@ -308,13 +284,6 @@ class RetrievalRouter:
 
         for stage_index, stage_retrievers in enumerate(normalized_ladder, start=1):
             stage_names = [name for name in stage_retrievers if name not in executed_retrievers]
-            stage_names = self._apply_runtime_retriever_skips(
-                stage_names,
-                query_features,
-                runtime_skip_reasons,
-                run_id,
-                intent,
-            )
             if not stage_names:
                 continue
 
@@ -384,13 +353,6 @@ class RetrievalRouter:
             runtime_skip_reasons.setdefault(retriever_name, "未进入当前执行阶段")
 
         evidences = [item for group in groups for item in group]
-        evidences, guard_details = self._guard_before_rerank(
-            evidences,
-            chat_type=chat_type,
-            effective_mode=effective_mode,
-            project_id=project_id,
-            user=user,
-        )
         return {
             "mode": effective_mode,
             "query_scope": self._scope_text(effective_mode),
@@ -408,7 +370,6 @@ class RetrievalRouter:
             "retriever_top_scores": retriever_top_scores,
             "retriever_errors": retriever_errors,
             "retriever_timeouts": retriever_timeouts,
-            "pre_rerank_guard": guard_details,
         }
 
     def available_retrievers(self) -> list[str]:
@@ -420,6 +381,18 @@ class RetrievalRouter:
         """
 
         return [retriever.name for retriever in self.retrievers]
+
+    def prepare_scope(
+        self,
+        mode: str,
+        project_id: int | None,
+        chat_type: str | None,
+        user: User,
+        knowledge_scope: str | None = None,
+    ) -> str:
+        """对外暴露统一的检索范围校验入口。"""
+
+        return self._prepare_scope(mode, project_id, chat_type, user, knowledge_scope=knowledge_scope)
 
     def _guard_before_rerank(
         self,
@@ -732,61 +705,6 @@ class RetrievalRouter:
             raise result["error"]
         return result.get("value")
 
-    def _apply_runtime_retriever_skips(
-        self,
-        stage_names: list[str],
-        query_features: dict[str, Any] | None,
-        runtime_skip_reasons: dict[str, str],
-        run_id: str | None,
-        intent: str | None,
-    ) -> list[str]:
-        if query_features is None:
-            return stage_names
-
-        executable: list[str] = []
-        for name in stage_names:
-            if intent == "project_overview" and name == "page_index" and not self._page_index_allowed(query_features):
-                reason = "runtime_skip:project_overview has no page/doc/section location signal"
-                runtime_skip_reasons[name] = reason
-                logger.info("Retriever skipped: run_id=%s retriever=%s intent=%s reason=%s", run_id, name, intent, reason)
-                continue
-            if intent == "project_overview" and name == "ripgrep" and not self._ripgrep_allowed(query_features):
-                reason = "runtime_skip:project_overview has no exact/doc/page/section signal"
-                runtime_skip_reasons[name] = reason
-                logger.info("Retriever skipped: run_id=%s retriever=%s intent=%s reason=%s", run_id, name, intent, reason)
-                continue
-            if name == "ripgrep" and not self._ripgrep_allowed(query_features):
-                reason = "runtime_skip:no exact/doc/page/section/table/value signal"
-                runtime_skip_reasons[name] = reason
-                logger.info("Retriever skipped: run_id=%s retriever=%s intent=%s reason=%s", run_id, name, intent, reason)
-                continue
-            executable.append(name)
-        return executable
-
-    def _page_index_allowed(self, query_features: dict[str, Any]) -> bool:
-        profile = query_features.get("query_profile") or {}
-        resolved_task_type = str(query_features.get("resolved_task_type") or "")
-        return bool(
-            resolved_task_type == "process_flow"
-            or query_features.get("has_page_hint")
-            or query_features.get("has_doc_code")
-            or query_features.get("has_section_hint")
-            or profile.get("need_page_location")
-            or profile.get("need_visual_asset")
-        )
-
-    def _ripgrep_allowed(self, query_features: dict[str, Any]) -> bool:
-        profile = query_features.get("query_profile") or {}
-        retrieval_needs = query_features.get("retrieval_needs") or {}
-        resolved_task_type = str(query_features.get("resolved_task_type") or "")
-        return bool(
-            resolved_task_type in {"document_location", "parameter_lookup"}
-            or bool(retrieval_needs.get("exact_text_search"))
-            or any(query_features.get(key) for key in RIPGREP_SIGNAL_KEYS)
-            or profile.get("need_exact_term")
-            or profile.get("need_page_location")
-        )
-
     def _search_with_isolated_retriever(
         self,
         name: str,
@@ -854,9 +772,13 @@ class RetrievalRouter:
 
     def _retriever_timeout_ms(self, name: str) -> int:
         settings = getattr(self, "settings", None)
+        base_timeout_ms = int(getattr(settings, "retrieval_retriever_timeout_ms", 4500) or 4500)
         if name == "ripgrep":
-            return int(getattr(settings, "ripgrep_timeout_ms", 1500) or 1500)
-        return int(getattr(settings, "retrieval_retriever_timeout_ms", 4500) or 4500)
+            # ripgrep 内部 subprocess 已使用 RIPGREP_TIMEOUT_MS，Router 外层需要额外留出权限过滤和结果映射时间，
+            # 否则会出现 rg 本体未超时、但整个 retriever 被外层 wait_for 提前判超时的误报。
+            ripgrep_timeout_ms = int(getattr(settings, "ripgrep_timeout_ms", 1500) or 1500)
+            return max(base_timeout_ms, ripgrep_timeout_ms + 1000)
+        return base_timeout_ms
 
     def __del__(self) -> None:
         executor = getattr(self, "_retriever_executor", None)

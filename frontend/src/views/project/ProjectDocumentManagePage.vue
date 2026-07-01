@@ -9,12 +9,14 @@
 <script setup lang="ts">
 import {
   AddIcon,
+  AssignmentCheckedIcon,
   BrowseIcon,
   ChevronDownSIcon,
   ChevronRightSIcon,
   CloudUploadIcon,
   DeleteIcon,
   EditIcon,
+  PlayCircleIcon,
   RefreshIcon,
   SearchIcon,
 } from 'tdesign-icons-vue-next';
@@ -22,6 +24,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { createDocumentIndexBuildTask, submitDocumentReview } from '@/api/documents';
 import {
   createProjectDirectory,
   deleteProjectDirectory,
@@ -59,6 +62,7 @@ type CategoryDialogMode = 'create' | 'edit';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const ALL_DIRECTORY_KEY = 'all';
+const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 const DOCUMENT_STATUS_OPTIONS = [
   { label: '已发布', value: 'published' },
   { label: '待审核', value: 'pending_review' },
@@ -83,6 +87,8 @@ const uploadInputRef = ref<HTMLInputElement | null>(null);
 const categoryDialogVisible = ref(false);
 const categoryDialogMode = ref<CategoryDialogMode>('create');
 const editingCategoryId = ref<number | null>(null);
+const reviewSubmittingId = ref<number | null>(null);
+const indexBuildingId = ref<number | null>(null);
 const pendingDeleteDirectory = ref<KnowledgeCategory | null>(null);
 const deleteDirectoryDialogVisible = ref(false);
 const deletingDirectory = ref(false);
@@ -118,19 +124,20 @@ const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSI
 const canCreateDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_CREATE));
 const canEditDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_EDIT));
 const canDeleteDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_DELETE));
+const canSubmitDocumentReview = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_SUBMIT_REVIEW));
+const canBuildDocumentIndex = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_RETRY_INDEX));
 
 const documentColumns = [
   { colKey: 'document_name', title: '文件名称', minWidth: 280, ellipsis: true },
   { colKey: 'directory', title: '所属目录', width: 140, ellipsis: true },
   { colKey: 'security_level', title: '密级', width: 90, align: 'center' },
   { colKey: 'version', title: '版本', width: 80, align: 'center' },
-  { colKey: 'document_type', title: '类型', width: 90, ellipsis: true },
   { colKey: 'file_size', title: '大小', width: 100, align: 'center' },
   { colKey: 'uploader', title: '上传人', width: 110, ellipsis: true },
   { colKey: 'review_status', title: '审核状态', width: 110, align: 'center' },
-  { colKey: 'index_status', title: '构建状态', width: 110, align: 'center' },
+  { colKey: 'index_status', title: '索引构建状态', width: 130, align: 'center' },
   { colKey: 'created_at', title: '上传时间', width: 170, ellipsis: true },
-  { colKey: 'operation', title: '操作', width: 90, align: 'center', fixed: 'right' },
+  { colKey: 'operation', title: '操作', width: 172, align: 'center', fixed: 'right' },
 ];
 
 const directoryRows = computed<DirectoryRow[]>(() => {
@@ -314,10 +321,6 @@ function documentVersionLabel(document: DocumentInfo): string {
   return String(version).startsWith('v') ? String(version) : `v${version}`;
 }
 
-function documentTypeLabel(document: DocumentInfo): string {
-  return document.document_type || document.file_type?.toUpperCase() || '-';
-}
-
 function documentUploader(document: DocumentInfo): string {
   if (document.uploader_name) return document.uploader_name;
   if (document.uploader_username) return document.uploader_username;
@@ -353,6 +356,7 @@ function normalizedIndexStatus(document: DocumentInfo): string {
     indexed: 'indexed',
     success: 'indexed',
     completed: 'indexed',
+    parsing: 'parsing',
     indexing: 'indexing',
     running: 'indexing',
     failed: 'failed',
@@ -366,11 +370,11 @@ function normalizedIndexStatus(document: DocumentInfo): string {
 
 function indexStatusLabel(document: DocumentInfo): string {
   const status = normalizedIndexStatus(document);
-  return status === 'indexed' ? '成功' : INDEX_STATUS_TEXT[status] || status || '-';
+  return INDEX_STATUS_TEXT[status] || status || '-';
 }
 
 function taskStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'default' {
-  if (['success', 'indexed'].includes(status)) return 'success';
+  if (status === 'indexed') return 'success';
   if (['parsing', 'indexing'].includes(status)) return 'warning';
   if (status === 'failed') return 'danger';
   return 'default';
@@ -571,6 +575,49 @@ function viewDocument(document: DocumentInfo): void {
   router.push(`/documents/${document.id}`);
 }
 
+function canSubmitReview(document: DocumentInfo): boolean {
+  return canSubmitDocumentReview.value && SUBMITTABLE_REVIEW_STATUSES.has(document.review_status);
+}
+
+function canBuildIndex(document: DocumentInfo): boolean {
+  const indexStatus = normalizedIndexStatus(document);
+  return canBuildDocumentIndex.value && document.review_status === 'approved' && !['parsing', 'indexing'].includes(indexStatus);
+}
+
+async function submitReview(document: DocumentInfo): Promise<void> {
+  if (!canSubmitDocumentReview.value) {
+    MessagePlugin.warning('无权限提交审核');
+    return;
+  }
+  reviewSubmittingId.value = document.id;
+  try {
+    await submitDocumentReview(document.id);
+    MessagePlugin.success('已提交审核');
+    await loadDocuments();
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '提交审核失败');
+  } finally {
+    reviewSubmittingId.value = null;
+  }
+}
+
+async function createIndexBuild(document: DocumentInfo): Promise<void> {
+  if (!canBuildDocumentIndex.value) {
+    MessagePlugin.warning('无权限构建索引');
+    return;
+  }
+  indexBuildingId.value = document.id;
+  try {
+    await createDocumentIndexBuildTask(document.id, document.version_no);
+    MessagePlugin.success('索引构建任务已创建');
+    await loadDocuments();
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '索引任务创建失败');
+  } finally {
+    indexBuildingId.value = null;
+  }
+}
+
 onMounted(async () => {
   await loadData();
   await focusDirectoryPanelIfRequested();
@@ -727,9 +774,6 @@ onMounted(async () => {
             <template #version="{ row }">
               {{ documentVersionLabel(row) }}
             </template>
-            <template #document_type="{ row }">
-              {{ documentTypeLabel(row) }}
-            </template>
             <template #file_size="{ row }">
               {{ formatFileSize(row.file_size) }}
             </template>
@@ -748,9 +792,46 @@ onMounted(async () => {
               {{ formatDateTime(row.created_at) }}
             </template>
             <template #operation="{ row }">
-              <t-button shape="square" size="small" variant="text" @click="viewDocument(row)">
-                <template #icon><BrowseIcon /></template>
-              </t-button>
+              <div class="document-operation-actions">
+                <t-button
+                  aria-label="查看"
+                  title="查看"
+                  shape="square"
+                  size="small"
+                  variant="text"
+                  @click="viewDocument(row)"
+                >
+                  <template #icon><BrowseIcon /></template>
+                </t-button>
+                <t-button
+                  v-if="canSubmitDocumentReview"
+                  aria-label="提交审核"
+                  title="提交审核"
+                  shape="square"
+                  size="small"
+                  theme="primary"
+                  variant="text"
+                  :disabled="!canSubmitReview(row)"
+                  :loading="reviewSubmittingId === row.id"
+                  @click="submitReview(row)"
+                >
+                  <template #icon><AssignmentCheckedIcon /></template>
+                </t-button>
+                <t-button
+                  v-if="canBuildDocumentIndex"
+                  aria-label="索引构建"
+                  title="索引构建"
+                  shape="square"
+                  size="small"
+                  theme="primary"
+                  variant="text"
+                  :disabled="!canBuildIndex(row)"
+                  :loading="indexBuildingId === row.id"
+                  @click="createIndexBuild(row)"
+                >
+                  <template #icon><PlayCircleIcon /></template>
+                </t-button>
+              </div>
             </template>
           </t-table>
         </div>
@@ -1128,7 +1209,7 @@ onMounted(async () => {
 
 .table-scroll :deep(.t-table) {
   --td-table-border-color: #edf2f7;
-  min-width: 1360px;
+  min-width: 1380px;
   color: #1f2a44;
   font-size: 14px;
 }
@@ -1158,6 +1239,27 @@ onMounted(async () => {
 
 .table-scroll :deep(.t-table__body tr:hover td) {
   background: #f8fbff;
+}
+
+.table-scroll :deep(.t-table th:last-child),
+.table-scroll :deep(.t-table td:last-child),
+.table-scroll :deep(.t-table td:last-child .t-table__cell) {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.document-operation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 132px;
+  white-space: nowrap;
+}
+
+.table-scroll :deep(.document-operation-actions .t-button__text) {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .document-name-link {
