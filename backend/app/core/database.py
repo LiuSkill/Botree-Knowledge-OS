@@ -482,9 +482,17 @@ def migrate_database() -> None:
 
         if "document_pages" in table_names:
             page_columns = {column["name"] for column in inspector.get_columns("document_pages")}
-            _add_column_if_missing(connection, page_columns, "document_pages", "clean_content", "TEXT COMMENT '清洗后页文本，用于分块和索引'", "TEXT")
-            _add_column_if_missing(connection, page_columns, "document_pages", "filtered_content", "TEXT COMMENT '清洗过滤掉的页文本'", "TEXT")
-            _add_column_if_missing(connection, page_columns, "document_pages", "cleaning_metadata_json", "TEXT COMMENT '解析清洗摘要JSON'", "TEXT")
+            _add_column_if_missing(connection, page_columns, "document_pages", "clean_content", "LONGTEXT COMMENT '清洗后页文本，用于分块和索引'", "TEXT")
+            _add_column_if_missing(connection, page_columns, "document_pages", "filtered_content", "LONGTEXT COMMENT '清洗过滤掉的页文本'", "TEXT")
+            _add_column_if_missing(connection, page_columns, "document_pages", "cleaning_metadata_json", "LONGTEXT COMMENT '解析清洗摘要JSON'", "TEXT")
+            for column_name, definition in (
+                ("page_text", "LONGTEXT NOT NULL COMMENT '页原始正文文本'"),
+                ("clean_content", "LONGTEXT COMMENT '清洗后页文本'"),
+                ("filtered_content", "LONGTEXT COMMENT '过滤后页文本'"),
+                ("cleaning_metadata_json", "LONGTEXT COMMENT '清洗摘要JSON'"),
+                ("corrected_text", "LONGTEXT COMMENT '人工修正后的文本'"),
+            ):
+                _modify_mysql_column_if_needed(connection, inspector, "document_pages", column_name, definition)
 
             _add_security_level_column(connection, page_columns, "document_pages", "文档页密级")
             connection.execute(
@@ -503,6 +511,13 @@ def migrate_database() -> None:
 
         if "page_indexes" in table_names:
             page_index_columns = {column["name"] for column in inspector.get_columns("page_indexes")}
+            _modify_mysql_column_if_needed(
+                connection,
+                inspector,
+                "page_indexes",
+                "index_text",
+                "LONGTEXT NOT NULL COMMENT '用于页面索引的文本'",
+            )
             _add_security_level_column(connection, page_index_columns, "page_indexes", "PageIndex密级")
             connection.execute(
                 text(
@@ -520,7 +535,7 @@ def migrate_database() -> None:
 
         if "document_page_blocks" in table_names:
             block_columns = {column["name"] for column in inspector.get_columns("document_page_blocks")}
-            _add_column_if_missing(connection, block_columns, "document_page_blocks", "clean_text", "TEXT COMMENT '清洗后块文本'", "TEXT")
+            _add_column_if_missing(connection, block_columns, "document_page_blocks", "clean_text", "LONGTEXT COMMENT '清洗后块文本'", "TEXT")
             _add_column_if_missing(
                 connection,
                 block_columns,
@@ -530,6 +545,12 @@ def migrate_database() -> None:
                 "VARCHAR(30) NOT NULL DEFAULT 'kept'",
             )
             _add_column_if_missing(connection, block_columns, "document_page_blocks", "filter_reason", "VARCHAR(100) COMMENT '清洗过滤原因'", "VARCHAR(100)")
+            for column_name, definition in (
+                ("text", "LONGTEXT COMMENT '块原始文本'"),
+                ("clean_text", "LONGTEXT COMMENT '清洗后块文本'"),
+                ("metadata_json", "LONGTEXT COMMENT '块扩展元数据JSON'"),
+            ):
+                _modify_mysql_column_if_needed(connection, inspector, "document_page_blocks", column_name, definition)
 
         if "chat_citations" in table_names:
             citation_columns = {column["name"] for column in inspector.get_columns("chat_citations")}
@@ -905,7 +926,7 @@ def _modify_mysql_column_if_needed(
     按需调整 MySQL 字段类型。
 
     说明:
-        create_all 不会修改已存在字段；问答 Trace 可能超过 TEXT 的 64KB 字节限制，
+        create_all 不会修改已存在字段；问答 Trace 与页级解析文本可能超过 TEXT 的 64KB 字节限制，
         因此旧库需要自动扩展为 LONGTEXT。
     """
 

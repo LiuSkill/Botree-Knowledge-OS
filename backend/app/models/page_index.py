@@ -33,17 +33,17 @@ class DocumentPage(TimestampMixin, Base):
     page_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="页码")
     drawing_no: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="图纸编号")
     page_title: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="页标题或章节标题")
-    page_text: Mapped[str] = mapped_column(Text, nullable=False, comment="页原始正文文本")
-    clean_content: Mapped[str | None] = mapped_column(Text, nullable=True, comment="清洗后页文本")
-    filtered_content: Mapped[str | None] = mapped_column(Text, nullable=True, comment="过滤后页文本")
-    cleaning_metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="清洗摘要JSON")
+    page_text: Mapped[str] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=False, comment="页原始正文文本")
+    clean_content: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="清洗后页文本")
+    filtered_content: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="过滤后页文本")
+    cleaning_metadata_json: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="清洗摘要JSON")
     page_summary: Mapped[str | None] = mapped_column(Text, nullable=True, comment="页摘要")
     layout_json: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="版面结构JSON")
     mineru_json_object_key: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="MinerU JSON 对象 Key")
     page_image_object_key: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="页面图片对象 Key")
     source_hash: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="页内容哈希")
     correction_status: Mapped[str] = mapped_column(String(30), default="raw", nullable=False, comment="修正状态")
-    corrected_text: Mapped[str | None] = mapped_column(Text, nullable=True, comment="人工修正后的文本")
+    corrected_text: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="人工修正后的文本")
     corrected_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, comment="修正人ID")
     security_level: Mapped[str] = mapped_column(
         String(30),
@@ -68,12 +68,12 @@ class DocumentPageBlock(TimestampMixin, Base):
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), nullable=False, comment="关联文档ID")
     block_index: Mapped[int] = mapped_column(Integer, nullable=False, comment="页内块序号")
     block_type: Mapped[str] = mapped_column(String(50), nullable=False, comment="块类型")
-    text: Mapped[str | None] = mapped_column(Text, nullable=True, comment="块原始文本")
-    clean_text: Mapped[str | None] = mapped_column(Text, nullable=True, comment="清洗后块文本")
+    text: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="块原始文本")
+    clean_text: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="清洗后块文本")
     filter_status: Mapped[str] = mapped_column(String(30), default="kept", nullable=False, comment="清洗状态")
     filter_reason: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="清洗过滤原因")
     bbox_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="块坐标JSON")
-    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="块扩展元数据JSON")
+    metadata_json: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="块扩展元数据JSON")
 
 
 class PageIndex(TimestampMixin, Base):
@@ -102,7 +102,7 @@ class PageIndex(TimestampMixin, Base):
     version_no: Mapped[int] = mapped_column(Integer, default=1, nullable=False, comment="所属文档版本号")
     page_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="页码")
     drawing_no: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="图纸编号")
-    index_text: Mapped[str] = mapped_column(Text, nullable=False, comment="用于页面索引的文本")
+    index_text: Mapped[str] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=False, comment="用于页面索引的文本")
     text_mirror_path: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="ripgrep 本地文本镜像路径")
     status: Mapped[str] = mapped_column(String(30), default="staging", nullable=False, comment="索引状态")
     security_level: Mapped[str] = mapped_column(
