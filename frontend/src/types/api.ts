@@ -195,6 +195,7 @@ export interface DocumentInfo {
   knowledge_base_id: number;
   knowledge_type: 'base' | 'project';
   project_id?: number | null;
+  project_name?: string | null;
   directory_id?: number | null;
   document_name?: string | null;
   document_type?: string | null;

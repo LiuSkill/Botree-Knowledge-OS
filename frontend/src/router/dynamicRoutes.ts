@@ -16,6 +16,29 @@ export const ROOT_ROUTE_NAME = 'authorized-root';
 export const NOT_FOUND_ROUTE_NAME = 'authorized-not-found';
 
 type RouteComponent = NonNullable<RouteRecordRaw['component']>;
+type ExtraRouteConfig = {
+  path: string;
+  name: string;
+  breadcrumbItems: BreadcrumbConfigValue;
+  breadcrumbQueryItems?: BreadcrumbQueryConfig;
+  component: RouteComponent;
+};
+type BreadcrumbConfigItem = {
+  title: string;
+  path?: string;
+  query?: Record<string, string>;
+};
+type BreadcrumbConfigValue =
+  | BreadcrumbConfigItem[]
+  | {
+      items: BreadcrumbConfigItem[];
+      replaceBase?: boolean;
+    };
+type BreadcrumbQueryConfig = Record<string, Record<string, BreadcrumbConfigValue>>;
+type MenuRouteBreadcrumbConfig = {
+  items: BreadcrumbConfigItem[];
+  queryItems?: BreadcrumbQueryConfig;
+};
 
 const pageComponents: Record<string, RouteComponent> = {
   '/dashboard': () => import('@/views/dashboard/DashboardPage.vue'),
@@ -33,17 +56,97 @@ const pageComponents: Record<string, RouteComponent> = {
   '/system/qa-audits': () => import('@/views/system/QAAuditPage.vue'),
 };
 
-const extraRoutesByMenuId: Record<string, Array<{ path: string; name: string; component: RouteComponent }>> = {
+const breadcrumbByMenuPath: Record<string, MenuRouteBreadcrumbConfig> = {
+  '/knowledge': {
+    items: [{ title: '知识文档' }],
+  },
+  '/projects': {
+    items: [{ title: '项目列表' }],
+  },
+  '/authorization': {
+    items: [{ title: '授权概览' }],
+  },
+  '/reviews': {
+    items: [{ title: '审核任务' }],
+    queryItems: {
+      tab: {
+        tasks: [{ title: '审核任务' }],
+        approved: [{ title: '索引构建' }],
+      },
+    },
+  },
+};
+
+const extraRoutesByMenuId: Record<string, ExtraRouteConfig[]> = {
   knowledge: [
-    { path: '/knowledge/bases/:id', name: 'knowledge-base-detail', component: () => import('@/views/knowledge/KnowledgeCollectionPage.vue') },
-    { path: '/documents/:id', name: 'knowledge-document-detail', component: () => import('@/views/knowledge/DocumentDetailPage.vue') },
+    {
+      path: '/knowledge/bases/:id',
+      name: 'knowledge-base-detail',
+      breadcrumbItems: [
+        { title: '知识文档', path: '/knowledge' },
+        { title: '知识库详情' },
+      ],
+      component: () => import('@/views/knowledge/KnowledgeCollectionPage.vue'),
+    },
+    {
+      path: '/documents/:id',
+      name: 'knowledge-document-detail',
+      breadcrumbItems: [
+        { title: '知识文档', path: '/knowledge' },
+        { title: '文档详情' },
+      ],
+      breadcrumbQueryItems: {
+        from: {
+          project: {
+            replaceBase: true,
+            items: [
+              { title: '项目中心', path: '/projects' },
+              { title: '项目详情', path: '/projects/:projectId' },
+              { title: '项目文档管理', path: '/projects/:projectId/documents' },
+              { title: '文档详情' },
+            ],
+          },
+          reviewDetail: {
+            replaceBase: true,
+            items: [
+              { title: '审核中心', path: '/reviews', query: { tab: 'tasks' } },
+              { title: '审核任务', path: '/reviews', query: { tab: 'tasks' } },
+              { title: '审核详情', path: '/reviews/:reviewId' },
+              { title: '文档详情' },
+            ],
+          },
+        },
+      },
+      component: () => import('@/views/knowledge/DocumentDetailPage.vue'),
+    },
   ],
   project: [
-    { path: '/projects/:id', name: 'project-detail', component: () => import('@/views/project/ProjectDetailPage.vue') },
-    { path: '/projects/:id/documents', name: 'project-document-manage', component: () => import('@/views/project/ProjectDocumentManagePage.vue') },
+    {
+      path: '/projects/:id',
+      name: 'project-detail',
+      breadcrumbItems: [{ title: '项目详情' }],
+      component: () => import('@/views/project/ProjectDetailPage.vue'),
+    },
+    {
+      path: '/projects/:id/documents',
+      name: 'project-document-manage',
+      breadcrumbItems: [
+        { title: '项目详情', path: '/projects/:id' },
+        { title: '项目文档管理' },
+      ],
+      component: () => import('@/views/project/ProjectDocumentManagePage.vue'),
+    },
   ],
   review: [
-    { path: '/reviews/:id', name: 'review-detail', component: () => import('@/views/review/ReviewDetailPage.vue') },
+    {
+      path: '/reviews/:id',
+      name: 'review-detail',
+      breadcrumbItems: [
+        { title: '审核任务', path: '/reviews', query: { tab: 'tasks' } },
+        { title: '审核详情' },
+      ],
+      component: () => import('@/views/review/ReviewDetailPage.vue'),
+    },
   ],
 };
 
@@ -106,23 +209,33 @@ function createMenuRoute(node: SystemMenuNode, parentPath = ''): RouteRecordRaw 
   if (!node.path) return null;
   const component = pageComponents[node.path];
   if (!component) return null;
+  const breadcrumb = breadcrumbByMenuPath[node.path];
   return {
     path: parentPath ? toRelativeChildPath(node.path, parentPath) : toChildPath(node.path),
     name: routeName(node.id),
     component,
-    meta: { permission: node.id, menuId: node.id, title: node.name },
+    meta: {
+      permission: node.id,
+      menuId: node.id,
+      title: node.name,
+      ...(breadcrumb?.items ? { breadcrumbItems: breadcrumb.items } : {}),
+      ...(breadcrumb?.queryItems ? { breadcrumbQueryItems: breadcrumb.queryItems } : {}),
+    },
   };
 }
 
-function createExtraRoute(
-  node: SystemMenuNode,
-  item: { path: string; name: string; component: RouteComponent },
-): RouteRecordRaw {
+function createExtraRoute(node: SystemMenuNode, item: ExtraRouteConfig): RouteRecordRaw {
   return {
     path: toChildPath(item.path),
     name: routeName(`${node.id}:${item.name}`),
     component: item.component,
-    meta: { permission: node.id, menuId: node.id, title: node.name },
+    meta: {
+      permission: node.id,
+      menuId: node.id,
+      title: node.name,
+      breadcrumbItems: item.breadcrumbItems,
+      ...(item.breadcrumbQueryItems ? { breadcrumbQueryItems: item.breadcrumbQueryItems } : {}),
+    },
   };
 }
 

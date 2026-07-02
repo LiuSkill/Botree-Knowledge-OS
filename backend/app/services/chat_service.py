@@ -1038,20 +1038,59 @@ class ChatService:
         directory_name = category.name if category is not None else None
         return {"directory_id": directory_id, "directory": directory_name, "directory_name": directory_name}
 
+    def _citation_required_source_ids(self, evidence: Any) -> tuple[int, int, int] | None:
+        """校验引用是否能追溯到真实知识库、文档和 chunk。"""
+
+        metadata = getattr(evidence, "metadata", None) or {}
+        if metadata.get("metadata_only"):
+            return None
+        knowledge_base_id = self._positive_int_id(getattr(evidence, "knowledge_base_id", None))
+        document_id = self._positive_int_id(getattr(evidence, "document_id", None))
+        chunk_id = self._positive_int_id(getattr(evidence, "chunk_id", None))
+        if knowledge_base_id is None or document_id is None or chunk_id is None:
+            return None
+        return knowledge_base_id, document_id, chunk_id
+
+    @staticmethod
+    def _positive_int_id(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        try:
+            candidate = int(value)
+        except (TypeError, ValueError):
+            return None
+        return candidate if candidate > 0 else None
+
     def _build_chat_citations(self, message_id: int, evidences: list[Any]) -> list[ChatCitation]:
         """将检索证据转换为可持久化的 ChatCitation。"""
 
         citations: list[ChatCitation] = []
         for evidence in evidences:
+            source_ids = self._citation_required_source_ids(evidence)
+            if source_ids is None:
+                logger.info(
+                    "跳过不可持久化引用: message_id=%s source_type=%s retriever=%s project_id=%s "
+                    "knowledge_base_id=%s document_id=%s chunk_id=%s metadata_only=%s",
+                    message_id,
+                    getattr(evidence, "source_type", None),
+                    getattr(evidence, "retriever", None),
+                    getattr(evidence, "project_id", None),
+                    getattr(evidence, "knowledge_base_id", None),
+                    getattr(evidence, "document_id", None),
+                    getattr(evidence, "chunk_id", None),
+                    bool((getattr(evidence, "metadata", None) or {}).get("metadata_only")),
+                )
+                continue
+            knowledge_base_id, document_id, chunk_id = source_ids
             assets = self._evidence_assets_to_dicts(evidence)
             citations.append(
                 ChatCitation(
                     message_id=message_id,
                     source_type=evidence.source_type,
-                    knowledge_base_id=evidence.knowledge_base_id,
+                    knowledge_base_id=knowledge_base_id,
                     project_id=evidence.project_id,
-                    document_id=evidence.document_id,
-                    chunk_id=evidence.chunk_id,
+                    document_id=document_id,
+                    chunk_id=chunk_id,
                     drawing_no=evidence.drawing_no,
                     file_name=evidence.file_name,
                     page_number=evidence.page_number,

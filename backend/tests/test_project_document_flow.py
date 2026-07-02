@@ -44,6 +44,7 @@ from app.services.document_service import (  # noqa: E402
 )
 from app.services.project_document_policy_service import ProjectDocumentPolicyService  # noqa: E402
 from app.services.project_service import ProjectService  # noqa: E402
+from app.services.review_service import ReviewService  # noqa: E402
 
 
 def make_session() -> Session:
@@ -488,6 +489,10 @@ def test_project_document_lifecycle_controls_project_chat_access() -> None:
 
         overview = ProjectService(db).get_project_overview(project_id, admin)
         assert overview["qa_count"] == 2
+        assert overview["pending_review_document_count"] == 0
+
+        ReviewService(db).submit_review(document.id, admin, "提交审核")
+        overview = ProjectService(db).get_project_overview(project_id, admin)
         assert overview["pending_review_document_count"] == 1
         assert overview["recent_documents"][0]["file_type"] == "pdf"
         assert overview["recent_documents"][0]["file_size"] == 120

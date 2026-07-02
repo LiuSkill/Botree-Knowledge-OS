@@ -18,6 +18,7 @@ class DocumentOut(BaseModel):
     knowledge_base_id: int
     knowledge_type: str
     project_id: int | None = None
+    project_name: str | None = None
     directory_id: int | None = None
     document_name: str | None = None
     document_type: str | None = None

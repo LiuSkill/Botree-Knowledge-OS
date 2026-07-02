@@ -7,6 +7,8 @@ Review Repository
 3. 支持审核中心页面
 """
 
+from collections.abc import Collection
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -35,6 +37,34 @@ class ReviewRepository:
         if project_id is not None:
             stmt = stmt.join(Document, Document.id == ReviewTask.document_id).where(Document.project_id == project_id)
         return list(self.db.scalars(stmt).all())
+
+    def count_distinct_review_documents(
+        self,
+        *,
+        status: str,
+        project_id: int,
+        document_ids: Collection[int] | None = None,
+    ) -> int:
+        """按真实审核任务统计项目内文档数，避免把未提交的草稿资料计入待审核。"""
+
+        if document_ids is not None and not document_ids:
+            return 0
+
+        filters = [
+            ReviewTask.review_status == status,
+            Document.project_id == project_id,
+            Document.is_deleted.is_(False),
+        ]
+        if document_ids is not None:
+            filters.append(ReviewTask.document_id.in_(list(document_ids)))
+
+        stmt = (
+            select(func.count(func.distinct(ReviewTask.document_id)))
+            .select_from(ReviewTask)
+            .join(Document, Document.id == ReviewTask.document_id)
+            .where(*filters)
+        )
+        return int(self.db.scalar(stmt) or 0)
 
     def list_tasks_page(
         self,

@@ -41,6 +41,7 @@ from app.knowledge.parsing.parsed_content_cleaner import ParsedContentCleaner
 from app.knowledge.parsing.parser_service import ParserService
 from app.models.document_asset import DocumentAsset
 from app.models.document import Document, DocumentChunk, DocumentVersion
+from app.models.project import Project
 from app.models.index_task import IndexTask
 from app.models.knowledge_category import KnowledgeCategory
 from app.models.page_index import DocumentPage, DocumentPageBlock, PageIndex
@@ -127,6 +128,7 @@ INDEX_BUILD_TASK_TYPE = "full_build"
 INDEX_BUILD_ACTIVE_STATUSES = {"pending", "running"}
 
 ACTION_UPLOAD_DOCUMENT = "上传文件"
+ACTION_IMPORT_PROJECT_DOCUMENT = "导入项目资料"
 ACTION_UPLOAD_NEW_VERSION = "上传新版本"
 ACTION_DELETE_DOCUMENT = "删除文件"
 ACTION_PARSE_DOCUMENT = "文档解析"
@@ -436,6 +438,7 @@ class DocumentService:
             raise AppException("文档不存在", status_code=404, code=404)
         self._ensure_project_document_access(document, user, "project:view")
         self._enrich_category_fields(document)
+        self._enrich_uploader_fields([document])
         return document
 
     async def upload_document(
@@ -557,6 +560,125 @@ class DocumentService:
             "upload",
             "success",
             None,
+            now_utc().isoformat(),
+        )
+        return document
+
+    def create_imported_project_document(
+        self,
+        knowledge_base_id: int,
+        source_path: str | Path,
+        operator: User,
+        category_id: int,
+        security_level: str | None = None,
+        remark: str | None = None,
+    ) -> Document:
+        """
+        从本地目录导入项目资料，仅建档和保存原始文件，不触发解析或索引任务。
+
+        该方法复用上传链路的知识库、目录、密级和元数据规则，但刻意不创建
+        MinerU 解析任务，适合大批量历史项目资料先入库后分批治理。
+        """
+
+        knowledge_base = self.kb_repository.get(knowledge_base_id)
+        if not knowledge_base:
+            raise AppException("知识库不存在", status_code=404, code=404)
+        if knowledge_base.type != "project" or knowledge_base.project_id is None:
+            raise AppException("目录导入仅支持项目知识库")
+        self.access_service.ensure_project_access(
+            knowledge_base.project_id,
+            operator,
+            permission_codes=("project:upload",),
+        )
+        category = self.category_service.validate_for_document(
+            category_id,
+            knowledge_base.type,
+            knowledge_base.project_id,
+            operator,
+        )
+        resolved_security_level = self._resolve_document_security_level(
+            operator=operator,
+            knowledge_base_project_id=knowledge_base.project_id,
+            requested_level=security_level or category.default_security_level,
+        )
+        file_info = UploadService().save_local_file(source_path)
+        version_label = "v1"
+        document_type = self._infer_document_type(category, file_info["file_name"])
+        discipline = self._infer_discipline(category)
+
+        document = Document(
+            knowledge_base_id=knowledge_base.id,
+            knowledge_type=knowledge_base.type,
+            project_id=knowledge_base.project_id,
+            directory_id=category.id,
+            document_name=file_info["file_name"],
+            document_type=document_type,
+            discipline=discipline,
+            version=version_label,
+            status=PROJECT_DOCUMENT_STATUS_PENDING,
+            upload_user_id=operator.id,
+            category_id=category.id,
+            file_name=file_info["file_name"],
+            file_type=file_info["file_type"],
+            file_size=file_info["file_size"],
+            storage_path=file_info["storage_path"],
+            file_path=file_info["storage_path"],
+            document_status=DOCUMENT_STATUS_PENDING_REVIEW,
+            parse_status=PARSE_STATUS_UNPARSED,
+            review_status=REVIEW_STATUS_DRAFT,
+            index_status=INDEX_STATUS_NOT_INDEXED,
+            version_no=1,
+            current_version=False,
+            is_current_version=True,
+            security_level=resolved_security_level,
+            remark=remark,
+            created_by=operator.id,
+        )
+        self.repository.add(document)
+        version = self.repository.add_version(
+            DocumentVersion(
+                document_id=document.id,
+                project_id=document.project_id,
+                version_no=1,
+                version=version_label,
+                category_id=document.category_id,
+                file_name=document.file_name,
+                file_type=document.file_type,
+                file_size=document.file_size,
+                storage_path=document.storage_path,
+                file_path=document.file_path,
+                change_summary="目录导入",
+                version_note="目录导入",
+                version_status=VERSION_STATUS_DRAFT,
+                status=PROJECT_DOCUMENT_STATUS_PENDING,
+                parse_status=PARSE_STATUS_UNPARSED,
+                review_status=REVIEW_STATUS_DRAFT,
+                index_status=document.index_status,
+                is_current=False,
+                is_current_version=True,
+                security_level=document.security_level,
+                created_by=operator.id,
+                upload_user_id=operator.id,
+            )
+        )
+        SystemService(self.db).record_operation(
+            operator,
+            ACTION_IMPORT_PROJECT_DOCUMENT,
+            TARGET_TYPE_DOCUMENT,
+            document.id,
+            f"导入项目资料 {document.file_name}",
+            project_id=document.project_id,
+        )
+        self.db.commit()
+        self._enrich_category_fields(document)
+        logger.info(
+            "项目资料导入成功: document_id=%s version_id=%s project_id=%s file_name=%s operation=%s status=%s timestamp=%s",
+            document.id,
+            version.id,
+            document.project_id,
+            document.file_name,
+            "directory_import",
+            "success",
             now_utc().isoformat(),
         )
         return document
@@ -2094,6 +2216,7 @@ class DocumentService:
 
         setattr(document, "category_name", self.category_service.category_name(document.category_id))
         setattr(document, "category_path", self.category_service.category_path(document.category_id))
+        self._enrich_project_fields(document)
 
     def _enrich_category_fields_bulk(self, documents: list[Document]) -> None:
         """
@@ -2109,6 +2232,7 @@ class DocumentService:
             for document in documents:
                 setattr(document, "category_name", None)
                 setattr(document, "category_path", None)
+            self._enrich_project_fields_bulk(documents)
             return
 
         category_by_id: dict[int, KnowledgeCategory] = {}
@@ -2145,6 +2269,34 @@ class DocumentService:
             category = category_by_id.get(category_id) if category_id is not None else None
             setattr(document, "category_name", category.name if category else None)
             setattr(document, "category_path", category_path(category_id))
+        self._enrich_project_fields_bulk(documents)
+
+    def _enrich_project_fields(self, document: Document) -> None:
+        """补充项目名称，便于详情页直接展示知识范围。"""
+
+        project_name = None
+        if document.project_id is not None:
+            project = ProjectRepository(self.db).get(document.project_id)
+            project_name = project.name if project else None
+        setattr(document, "project_name", project_name)
+
+    def _enrich_project_fields_bulk(self, documents: list[Document]) -> None:
+        """批量补充项目名称，避免列表和详情重复查项目。"""
+
+        project_ids = {document.project_id for document in documents if document.project_id is not None}
+        if not project_ids:
+            for document in documents:
+                setattr(document, "project_name", None)
+            return
+        project_map = {
+            project.id: project
+            for project in self.db.scalars(
+                select(Project).where(Project.id.in_(project_ids), Project.is_deleted.is_(False))
+            ).all()
+        }
+        for document in documents:
+            project = project_map.get(document.project_id) if document.project_id is not None else None
+            setattr(document, "project_name", project.name if project else None)
 
     def _infer_document_type(self, category: object, file_name: str) -> str:
         """根据目录和文件名保守推断文档类型，匹配不到时统一归为“其他”。"""

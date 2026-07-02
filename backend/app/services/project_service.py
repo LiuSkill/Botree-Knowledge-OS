@@ -26,6 +26,7 @@ from app.repositories.chat_repository import ChatRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.review_repository import ReviewRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.project import PROJECT_STATUS_OPTIONS, ProjectCreate, ProjectMemberCreate, ProjectUpdate
 from app.services.project_access_service import ProjectAccessService
@@ -45,6 +46,7 @@ LEGACY_STATUS_TO_PROJECT = {
     "inactive": "已暂停",
 }
 REVIEW_PENDING_STATUSES = {"draft", "reviewing", "rejected"}
+SUBMITTED_REVIEW_TASK_STATUS = "reviewing"
 PROJECT_OVERVIEW_RECENT_DOCUMENT_LIMIT = 5
 
 
@@ -152,7 +154,9 @@ class ProjectService:
             if (uploader_id := document.upload_user_id or document.created_by) is not None
         }
         uploader_by_id = {user.id: user for user in UserRepository(self.db).list_by_ids(uploader_ids)}
-        overview = self._project_to_dict(project, kb.id if kb else None, **self._document_counts(documents))
+        document_counts = self._document_counts(documents)
+        document_counts["pending_review_document_count"] = self._submitted_review_document_count(project.id, documents)
+        overview = self._project_to_dict(project, kb.id if kb else None, **document_counts)
         overview.update(
             {
                 "qa_count": ChatRepository(self.db).count_project_answers(project.id),
@@ -421,6 +425,16 @@ class ProjectService:
                 if doc.document_status == "pending_review" or doc.review_status in REVIEW_PENDING_STATUSES
             ),
         }
+
+    def _submitted_review_document_count(self, project_id: int, documents: list[Document]) -> int:
+        """项目概览待审核只统计真实提交审核的文档，不统计导入后的草稿资料。"""
+
+        accessible_document_ids = {document.id for document in documents}
+        return ReviewRepository(self.db).count_distinct_review_documents(
+            status=SUBMITTED_REVIEW_TASK_STATUS,
+            project_id=project_id,
+            document_ids=accessible_document_ids,
+        )
 
     def _empty_document_counts(self) -> dict[str, int]:
         return {

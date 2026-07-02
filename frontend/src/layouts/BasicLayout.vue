@@ -11,12 +11,16 @@
     <AppHeader />
     <AppSidebar />
     <main class="main-content">
-      <router-view />
+      <AppBreadcrumb />
+      <section class="content-body">
+        <router-view />
+      </section>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppBreadcrumb from '@/components/AppBreadcrumb.vue';
 import AppHeader from '@/components/AppHeader.vue';
 import AppSidebar from '@/components/AppSidebar.vue';
 </script>
@@ -36,9 +40,18 @@ import AppSidebar from '@/components/AppSidebar.vue';
   right: 0;
   bottom: 0;
   left: 240px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: #f5f7fb;
+}
+
+.content-body {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 </style>

@@ -103,7 +103,6 @@ def init_database() -> None:
     with SessionLocal() as db:
         seed_permissions(db)
         admin_role = seed_roles(db)
-        seed_default_department(db)
         seed_admin_user(db, admin_role)
         seed_base_knowledge(db)
         seed_base_categories(db)

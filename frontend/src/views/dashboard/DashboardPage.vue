@@ -23,7 +23,7 @@ import {
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, ref, type Component } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import { getDashboardStats } from '@/api/system';
 import UserAvatar from '@/components/UserAvatar.vue';
@@ -31,6 +31,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { ROUTE_PATHS } from '@/shared/constants/routes';
 import { useAuthStore } from '@/stores/auth';
 import type { DashboardAiQuestion, DashboardCategoryStat, DashboardDocumentSummary, DashboardStats } from '@/types/api';
+import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { formatDateTime } from '@/utils/format';
 
 type ToneName = 'blue' | 'purple' | 'orange' | 'pink' | 'green';
@@ -61,6 +62,7 @@ interface DocumentDisplayItem {
   tone: ToneName | 'red';
 }
 
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const stats = ref<DashboardStats | null>(null);
@@ -271,7 +273,7 @@ function openDocument(documentId: number): void {
     MessagePlugin.warning('无权限查看知识资料');
     return;
   }
-  router.push(ROUTE_PATHS.documentDetail.replace(':id', String(documentId)));
+  router.push(withBreadcrumbContext(route, ROUTE_PATHS.documentDetail.replace(':id', String(documentId))));
 }
 
 function openQuestion(question: DashboardAiQuestion): void {
@@ -286,7 +288,7 @@ function openQuestion(question: DashboardAiQuestion): void {
     MessagePlugin.warning('无权限访问基础问答');
     return;
   }
-  router.push(question.chat_type === 'project_chat' ? ROUTE_PATHS.aiProjectChat : ROUTE_PATHS.aiBaseChat);
+  router.push(withBreadcrumbContext(route, question.chat_type === 'project_chat' ? ROUTE_PATHS.aiProjectChat : ROUTE_PATHS.aiBaseChat));
 }
 
 function openPendingReviewTasks(): void {
@@ -297,14 +299,14 @@ function openPendingReviewTasks(): void {
     MessagePlugin.warning('无权限访问审核中心');
     return;
   }
-  router.push({ path: ROUTE_PATHS.reviews, query: { tab: 'tasks', status: 'pending' } });
+  router.push(withBreadcrumbContext(route, { path: ROUTE_PATHS.reviews, query: { tab: 'tasks', status: 'pending' } }));
 }
 
-function navigateTo(route: string): void {
+function navigateTo(targetRoute: string): void {
   /**
    * 统一处理工作台入口跳转。
    */
-  router.push(route);
+  router.push(withBreadcrumbContext(route, targetRoute));
 }
 
 onMounted(loadData);

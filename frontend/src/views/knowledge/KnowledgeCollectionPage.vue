@@ -21,6 +21,7 @@ import TableActionButton from '@/components/TableActionButton.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
+import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
@@ -153,7 +154,7 @@ function viewDocument(document: DocumentInfo): void {
     MessagePlugin.warning('无权限查看知识资料');
     return;
   }
-  router.push(`/documents/${document.id}`);
+  router.push(withBreadcrumbContext(route, `/documents/${document.id}`));
 }
 
 function canSubmitReview(document: DocumentInfo): boolean {

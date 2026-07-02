@@ -10,7 +10,7 @@
 import { AddIcon, AssignmentCheckedIcon, ChevronDownSIcon, ChevronRightSIcon, DeleteIcon, EditIcon, SearchIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import { submitDocumentReview } from '@/api/documents';
 import { createKnowledgeCategory, deleteKnowledgeCategory, listKnowledgeCategories, updateKnowledgeCategory } from '@/api/knowledgeCategories';
@@ -20,6 +20,7 @@ import TableActionButton from '@/components/TableActionButton.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
+import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
@@ -35,6 +36,7 @@ interface CategoryRow {
 const PAGE_SIZE = 6;
 const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const loading = ref(false);
@@ -303,7 +305,7 @@ function viewDocument(document: DocumentInfo): void {
     MessagePlugin.warning('无权限查看知识资料');
     return;
   }
-  router.push(`/documents/${document.id}`);
+  router.push(withBreadcrumbContext(route, `/documents/${document.id}`));
 }
 
 function canSubmitReview(document: DocumentInfo): boolean {

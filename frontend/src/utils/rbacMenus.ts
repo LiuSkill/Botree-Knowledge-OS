@@ -102,3 +102,12 @@ export function findMenuNode(nodes: SystemMenuNode[], menuId: string): SystemMen
   }
   return null;
 }
+
+export function findMenuNodePath(nodes: SystemMenuNode[], menuId: string): SystemMenuNode[] {
+  for (const node of nodes) {
+    if (node.id === menuId) return [node];
+    const childPath = findMenuNodePath(node.children || [], menuId);
+    if (childPath.length) return [node, ...childPath];
+  }
+  return [];
+}

@@ -5,7 +5,7 @@
 import { AddIcon, ChatBubbleHelpIcon, DeleteIcon, EditIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import { createProject, deleteProject, listProjects, updateProject, type ProjectPayload } from '@/api/projects';
 import PageContainer from '@/components/PageContainer.vue';
@@ -13,6 +13,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { ROUTE_PATHS } from '@/shared/constants/routes';
 import { useAuthStore } from '@/stores/auth';
 import type { ProjectInfo, ProjectStatus, SecurityLevel } from '@/types/api';
+import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 import ProjectFormDrawer from '@/views/project/ProjectFormDrawer.vue';
 
@@ -31,6 +32,7 @@ const PROJECT_STATUS_OPTIONS: Array<{ label: ProjectStatus; value: ProjectStatus
   { label: '已暂停', value: '已暂停', theme: 'default' },
 ];
 
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const projects = ref<ProjectInfo[]>([]);
@@ -96,7 +98,7 @@ function enterProject(project: ProjectInfo): void {
     MessagePlugin.warning('无权限访问项目详情');
     return;
   }
-  router.push(`/projects/${project.id}`);
+  router.push(withBreadcrumbContext(route, `/projects/${project.id}`));
 }
 
 function openProjectDocuments(project: ProjectInfo): void {
@@ -104,7 +106,7 @@ function openProjectDocuments(project: ProjectInfo): void {
     MessagePlugin.warning('无权限访问项目资料管理');
     return;
   }
-  router.push(`/projects/${project.id}/documents`);
+  router.push(withBreadcrumbContext(route, `/projects/${project.id}/documents`));
 }
 
 function openProjectChat(project: ProjectInfo): void {
@@ -112,7 +114,7 @@ function openProjectChat(project: ProjectInfo): void {
     MessagePlugin.warning('无权限使用项目问答');
     return;
   }
-  router.push({ path: ROUTE_PATHS.aiProjectChat, query: { projectId: String(project.id) } });
+  router.push(withBreadcrumbContext(route, { path: ROUTE_PATHS.aiProjectChat, query: { projectId: String(project.id) } }));
 }
 
 function openCreateDialog(): void {

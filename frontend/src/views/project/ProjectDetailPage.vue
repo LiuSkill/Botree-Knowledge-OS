@@ -65,6 +65,7 @@ import type {
   ProjectStatus,
   SecurityLevel,
 } from '@/types/api';
+import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { REVIEW_TASK_STATUS } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
@@ -785,7 +786,7 @@ function openDocumentPreview(document: DocumentInfo): void {
     MessagePlugin.warning('无权限预览文件');
     return;
   }
-  router.push(`/documents/${document.id}`);
+  openProjectDocumentDetail(document.id);
 }
 
 function openRecentDocument(document: RecentDocumentDisplayItem): void {
@@ -793,7 +794,16 @@ function openRecentDocument(document: RecentDocumentDisplayItem): void {
     MessagePlugin.warning('无权限查看项目资料');
     return;
   }
-  router.push(`/documents/${document.id}`);
+  openProjectDocumentDetail(document.id);
+}
+
+function openProjectDocumentDetail(documentId: number): void {
+  const targetProjectId = currentProjectId.value;
+  if (targetProjectId === null) {
+    router.push(withBreadcrumbContext(route, `/documents/${documentId}`));
+    return;
+  }
+  router.push(withBreadcrumbContext(route, `/documents/${documentId}`));
 }
 
 async function downloadDocument(document: DocumentInfo): Promise<void> {
@@ -1243,7 +1253,7 @@ function openProjectChat(): void {
     MessagePlugin.warning('项目ID无效，无法进入项目问答');
     return;
   }
-  router.push({ path: ROUTE_PATHS.aiProjectChat, query: { projectId: String(targetProjectId) } });
+  router.push(withBreadcrumbContext(route, { path: ROUTE_PATHS.aiProjectChat, query: { projectId: String(targetProjectId) } }));
 }
 
 function openProjectDocumentManagement(focusDirectories = false): void {
@@ -1256,10 +1266,12 @@ function openProjectDocumentManagement(focusDirectories = false): void {
     MessagePlugin.warning('项目ID无效，无法进入资料管理');
     return;
   }
-  router.push({
-    path: `/projects/${targetProjectId}/documents`,
-    query: focusDirectories ? { focus: 'directories' } : undefined,
-  });
+  router.push(
+    withBreadcrumbContext(route, {
+      path: `/projects/${targetProjectId}/documents`,
+      query: focusDirectories ? { focus: 'directories' } : undefined,
+    }),
+  );
 }
 
 function openPendingReviewDocuments(): void {
@@ -1272,13 +1284,16 @@ function openPendingReviewDocuments(): void {
     MessagePlugin.warning('项目ID无效，无法查看待审核文档');
     return;
   }
-  router.push({
-    path: ROUTE_PATHS.reviews,
-    query: {
-      projectId: String(targetProjectId),
-      status: REVIEW_TASK_STATUS.reviewing,
-    },
-  });
+  router.push(
+    withBreadcrumbContext(route, {
+      path: ROUTE_PATHS.reviews,
+      query: {
+        tab: 'tasks',
+        projectId: String(targetProjectId),
+        status: REVIEW_TASK_STATUS.reviewing,
+      },
+    }),
+  );
 }
 
 onMounted(loadData);

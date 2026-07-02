@@ -22,9 +22,11 @@ import TableActionButton from '@/components/TableActionButton.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, IndexTaskInfo, KnowledgeCategory, ProjectInfo, ReviewTask } from '@/types/api';
+import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions } from '@/utils/categories';
 import { INDEX_STATUS_TEXT, INDEX_TASK_STATUS_TEXT, REVIEW_TASK_STATUS, isReviewTaskPending } from '@/utils/constants';
 import { formatDateTime } from '@/utils/format';
+import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
 
 type ReviewTab = 'tasks' | 'approved';
 type ScopeType = '' | 'base' | 'project';
@@ -387,6 +389,10 @@ async function runBuild(document: DocumentInfo): Promise<void> {
   /**
    * 创建异步“解析并构建索引”任务，并启动前端轮询。
    */
+  if (isIndexedIndexStatus(document.index_status)) {
+    const confirmed = await confirmRebuildIndexedDocument(approvedDocumentName(document));
+    if (!confirmed) return;
+  }
   try {
     const task = await createDocumentIndexBuildTask(document.id);
     updateLatestBuildTask(task);
@@ -468,6 +474,14 @@ function approvedDocumentName(document: DocumentInfo): string {
   return document.document_name || document.file_name || '-';
 }
 
+function openReviewDetail(task: ReviewTask): void {
+  router.push(withBreadcrumbContext(route, `/reviews/${task.id}`));
+}
+
+function openApprovedDocument(document: DocumentInfo): void {
+  router.push(withBreadcrumbContext(route, `/documents/${document.id}`));
+}
+
 function approvedScopeLabel(document: DocumentInfo): string {
   if (document.knowledge_type !== 'project') {
     return '企业知识';
@@ -487,7 +501,7 @@ function buildActionLabel(document: DocumentInfo): string {
   if (isBuilding(document.id) || document.index_status === 'indexing') {
     return '索引构建中';
   }
-  return document.index_status === 'indexed' ? '重新构建' : '解析并构建索引';
+  return isIndexedIndexStatus(document.index_status) ? '重新构建' : '解析并构建索引';
 }
 
 function handleTaskSearch(): void {
@@ -541,7 +555,13 @@ function handleTabChange(value: unknown): void {
   /**
    * 切换审核中心页签并加载目标页签数据。
    */
-  activeTab.value = value as ReviewTab;
+  if (value !== 'tasks' && value !== 'approved') return;
+  const nextTab = value as ReviewTab;
+  if (route.query.tab !== nextTab) {
+    void router.replace({ path: route.path, query: { ...route.query, tab: nextTab } });
+    return;
+  }
+  activeTab.value = nextTab;
   void refreshActiveTab();
 }
 
@@ -635,7 +655,7 @@ onBeforeUnmount(() => {
             empty="暂无审核任务"
           >
             <template #file_name="{ row }">
-              <t-link theme="primary" @click="router.push(`/documents/${row.document_id}`)">
+              <t-link theme="primary" @click="openReviewDetail(row)">
                 {{ taskFileName(row) }}
               </t-link>
             </template>
@@ -659,7 +679,7 @@ onBeforeUnmount(() => {
             </template>
             <template #operation="{ row }">
               <div class="row-actions">
-                <TableActionButton label="详情" @click="router.push(`/reviews/${row.id}`)">
+                <TableActionButton label="详情" @click="openReviewDetail(row)">
                   <FileSearchIcon />
                 </TableActionButton>
                 <TableActionButton
@@ -766,7 +786,7 @@ onBeforeUnmount(() => {
             empty="暂无审核通过资料"
           >
             <template #document="{ row }">
-              <t-link theme="primary" @click="router.push(`/documents/${row.id}`)">
+              <t-link theme="primary" @click="openApprovedDocument(row)">
                 {{ approvedDocumentName(row) }}
               </t-link>
             </template>

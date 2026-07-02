@@ -20,6 +20,7 @@ sys.path.insert(0, str(BASE_DIR))
 from app.models import Base, ChatCitation, ChatMessage, ChatSession, RetrievalTrace  # noqa: E402
 from app.models.user import Role, User  # noqa: E402
 from app.repositories.chat_repository import ChatRepository  # noqa: E402
+from app.retrieval.schemas import Evidence  # noqa: E402
 from app.schemas.chat import ChatSessionUpdate  # noqa: E402
 from app.services.chat_service import ChatService  # noqa: E402
 
@@ -54,6 +55,46 @@ def seed_chat_sessions(db: Session) -> None:
         ]
     )
     db.commit()
+
+
+def test_build_chat_citations_skips_project_metadata_placeholder_ids() -> None:
+    """项目基础信息是合成证据，不能用 0 占位外键写入引用表。"""
+
+    service = object.__new__(ChatService)
+    metadata_evidence = Evidence(
+        score=0.35,
+        source_type="project_metadata",
+        knowledge_base_id=0,
+        project_id=2,
+        document_id=0,
+        chunk_id=2,
+        drawing_no=None,
+        file_name="项目基础信息",
+        page_number=None,
+        content="项目名称：西班牙LFP项目",
+        retriever="project_metadata",
+        metadata={"metadata_only": True},
+    )
+    document_evidence = Evidence(
+        score=0.95,
+        source_type="project",
+        knowledge_base_id=1,
+        project_id=2,
+        document_id=3,
+        chunk_id=4,
+        drawing_no=None,
+        file_name="202508月报.pdf",
+        page_number=1,
+        content="报告日期为 2025/08/29",
+        retriever="milvus",
+    )
+
+    citations = service._build_chat_citations(13, [metadata_evidence, document_evidence])  # type: ignore[attr-defined]
+
+    assert len(citations) == 1
+    assert citations[0].knowledge_base_id == 1
+    assert citations[0].document_id == 3
+    assert citations[0].chunk_id == 4
 
 
 def test_chat_repository_filters_project_sessions_by_project_id() -> None:

@@ -38,9 +38,11 @@ import PageContainer from '@/components/PageContainer.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeCategory, PageResult, ProjectInfo, SecurityLevel } from '@/types/api';
+import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions, findCategory } from '@/utils/categories';
-import { INDEX_STATUS_TEXT } from '@/utils/constants';
+import { INDEX_STATUS_TEXT, PARSE_STATUS_TEXT } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
+import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
 import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 interface DirectoryRow {
@@ -98,6 +100,8 @@ const directoryPanelHighlighted = ref(false);
 const filters = reactive({
   keyword: '',
   document_status: '',
+  parse_status: '',
+  index_status: '',
   security_level: '' as SecurityLevel | '',
 });
 
@@ -119,6 +123,8 @@ const categoryForm = reactive({
 const projectId = computed(() => Number(route.params.id));
 const projectTitle = computed(() => project.value?.project_name || project.value?.name || `项目 #${projectId.value}`);
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
+const parseStatusOptions = computed(() => Object.entries(PARSE_STATUS_TEXT).map(([value, label]) => ({ value, label })));
+const indexStatusOptions = computed(() => Object.entries(INDEX_STATUS_TEXT).map(([value, label]) => ({ value, label })));
 const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
 const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_UPLOAD));
 const canCreateDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_CREATE));
@@ -128,14 +134,15 @@ const canSubmitDocumentReview = computed(() => authStore.hasActionPermission(PER
 const canBuildDocumentIndex = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_RETRY_INDEX));
 
 const documentColumns = [
-  { colKey: 'document_name', title: '文件名称', minWidth: 280, ellipsis: true },
+  { colKey: 'document_name', title: '文件名称', width: 280, ellipsis: true, fixed: 'left' },
   { colKey: 'directory', title: '所属目录', width: 140, ellipsis: true },
   { colKey: 'security_level', title: '密级', width: 90, align: 'center' },
   { colKey: 'version', title: '版本', width: 80, align: 'center' },
   { colKey: 'file_size', title: '大小', width: 100, align: 'center' },
-  { colKey: 'uploader', title: '上传人', width: 110, ellipsis: true },
   { colKey: 'review_status', title: '审核状态', width: 110, align: 'center' },
+  { colKey: 'parse_status', title: '解析状态', width: 110, align: 'center' },
   { colKey: 'index_status', title: '索引构建状态', width: 130, align: 'center' },
+  { colKey: 'uploader', title: '上传人', width: 110, ellipsis: true },
   { colKey: 'created_at', title: '上传时间', width: 170, ellipsis: true },
   { colKey: 'operation', title: '操作', width: 172, align: 'center', fixed: 'right' },
 ];
@@ -248,6 +255,8 @@ function documentQueryParams() {
     directory_id: activeDirectoryId.value,
     status: filters.document_status || undefined,
     security_level: filters.security_level || undefined,
+    parse_status: filters.parse_status || undefined,
+    index_status: filters.index_status || undefined,
   };
 }
 
@@ -350,6 +359,19 @@ function documentStatusTheme(document: DocumentInfo): 'success' | 'warning' | 'd
   return 'default';
 }
 
+function parseStatusLabel(document: DocumentInfo): string {
+  const status = document.parse_status || 'unparsed';
+  return PARSE_STATUS_TEXT[status] || status || '-';
+}
+
+function parseStatusTheme(document: DocumentInfo): 'success' | 'warning' | 'danger' | 'default' {
+  const status = document.parse_status || 'unparsed';
+  if (status === 'success') return 'success';
+  if (status === 'parsing') return 'warning';
+  if (status === 'failed') return 'danger';
+  return 'default';
+}
+
 function normalizedIndexStatus(document: DocumentInfo): string {
   const status = document.index_status || '';
   const map: Record<string, string> = {
@@ -383,6 +405,8 @@ function taskStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'de
 function resetFilters(): void {
   filters.keyword = '';
   filters.document_status = '';
+  filters.parse_status = '';
+  filters.index_status = '';
   filters.security_level = '';
   currentPage.value = 1;
   void loadDocuments();
@@ -572,7 +596,7 @@ function viewDocument(document: DocumentInfo): void {
     MessagePlugin.warning('无权限查看项目资料');
     return;
   }
-  router.push(`/documents/${document.id}`);
+  router.push(withBreadcrumbContext(route, `/documents/${document.id}`));
 }
 
 function canSubmitReview(document: DocumentInfo): boolean {
@@ -605,6 +629,10 @@ async function createIndexBuild(document: DocumentInfo): Promise<void> {
   if (!canBuildDocumentIndex.value) {
     MessagePlugin.warning('无权限构建索引');
     return;
+  }
+  if (isIndexedIndexStatus(normalizedIndexStatus(document))) {
+    const confirmed = await confirmRebuildIndexedDocument(documentDisplayName(document));
+    if (!confirmed) return;
   }
   indexBuildingId.value = document.id;
   try {
@@ -717,6 +745,16 @@ onMounted(async () => {
               <t-option v-for="item in DOCUMENT_STATUS_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
+          <t-form-item label="解析状态">
+            <t-select v-model="filters.parse_status" class="filter-select" clearable placeholder="全部解析状态" @change="handleSearch">
+              <t-option v-for="item in parseStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
+            </t-select>
+          </t-form-item>
+          <t-form-item label="索引构建状态">
+            <t-select v-model="filters.index_status" class="filter-select" clearable placeholder="全部索引状态" @change="handleSearch">
+              <t-option v-for="item in indexStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
+            </t-select>
+          </t-form-item>
           <t-form-item label="密级">
             <t-select v-model="filters.security_level" class="filter-select" clearable placeholder="全部密级" @change="handleSearch">
               <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
@@ -782,6 +820,9 @@ onMounted(async () => {
             </template>
             <template #review_status="{ row }">
               <t-tag size="small" variant="light" :theme="documentStatusTheme(row)">{{ documentStatusLabel(row) }}</t-tag>
+            </template>
+            <template #parse_status="{ row }">
+              <t-tag size="small" variant="light" :theme="parseStatusTheme(row)">{{ parseStatusLabel(row) }}</t-tag>
             </template>
             <template #index_status="{ row }">
               <t-tag size="small" variant="light" :theme="taskStatusTheme(normalizedIndexStatus(row))">
@@ -1135,17 +1176,19 @@ onMounted(async () => {
 .system-filter-form {
   display: flex;
   flex: 0 0 auto;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 12px 14px;
   margin-bottom: 18px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   background: #fff;
+  overflow-x: auto;
   padding: 14px 16px;
 }
 
 .system-filter-form :deep(.t-form__item) {
+  flex: 0 0 auto;
   margin: 0;
 }
 
@@ -1163,7 +1206,7 @@ onMounted(async () => {
 }
 
 .document-keyword-input {
-  width: 330px;
+  width: 165px;
 }
 
 .filter-select {
@@ -1209,7 +1252,7 @@ onMounted(async () => {
 
 .table-scroll :deep(.t-table) {
   --td-table-border-color: #edf2f7;
-  min-width: 1380px;
+  min-width: 1480px;
   color: #1f2a44;
   font-size: 14px;
 }
@@ -1246,6 +1289,37 @@ onMounted(async () => {
 .table-scroll :deep(.t-table td:last-child .t-table__cell) {
   overflow: visible;
   text-overflow: clip;
+}
+
+.table-scroll :deep(.t-table th:first-child),
+.table-scroll :deep(.t-table td:first-child),
+.table-scroll :deep(.t-table td:first-child .t-table__cell) {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #fff;
+}
+
+.table-scroll :deep(.t-table th:first-child) {
+  z-index: 4;
+  background: #f8fafc;
+}
+
+.table-scroll :deep(.t-table th:last-child) {
+  right: 0;
+  z-index: 4;
+  background: #f8fafc;
+}
+
+.table-scroll :deep(.t-table td:last-child) {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  background: #fff;
+}
+
+.table-scroll :deep(.t-table td:last-child .t-table__cell) {
+  overflow: visible;
 }
 
 .document-operation-actions {
@@ -1374,7 +1448,7 @@ onMounted(async () => {
 
 @media (max-width: 1180px) {
   .document-keyword-input {
-    width: 260px;
+    width: 130px;
   }
 }
 
@@ -1397,6 +1471,11 @@ onMounted(async () => {
   .system-section-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .system-filter-form {
+    flex-wrap: wrap;
+    overflow-x: visible;
   }
 
   .document-keyword-input,
