@@ -13,11 +13,10 @@ from app.models.document import Document
 from app.models.user import User
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.graph_repository import GraphRepository
-from app.retrieval.base import BaseRetriever
+from app.retrieval.base import BaseRetriever, DEFAULT_RETRIEVER_TOP_K
 from app.retrieval.retrievers.keyword_retriever import KeywordRetriever
 from app.retrieval.schemas import Evidence
 from app.services.project_document_policy_service import ProjectDocumentPolicyService
-from app.services.project_service import ProjectService
 
 
 class GraphRAGRetriever(BaseRetriever):
@@ -38,14 +37,20 @@ class GraphRAGRetriever(BaseRetriever):
         self.document_repository = DocumentRepository(db)
         self.keyword_policy = KeywordRetriever(db)
 
-    def search(self, query: str, mode: str, project_id: int | None, user: User, limit: int = 5) -> list[Evidence]:
+    def search(
+        self,
+        query: str,
+        mode: str,
+        project_id: int | None,
+        user: User,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
+    ) -> list[Evidence]:
         """执行图谱关系检索。"""
 
         terms = self.keyword_policy._terms(query)
         entities = self.graph_repository.search_entities(terms, limit=limit * 3)
         relations = self.graph_repository.relations_for_entities([entity.id for entity in entities], limit=limit * 3)
         evidences: list[Evidence] = []
-        project_service = ProjectService(self.db)
         project_document_policy = ProjectDocumentPolicyService(self.db)
         allowed_levels = set(self.keyword_policy._allowed_security_levels(user))
         for relation in relations:
@@ -69,10 +74,6 @@ class GraphRAGRetriever(BaseRetriever):
                     project_id=project_id,
                     require_chat_permission=mode == "project_chat",
                 ):
-                    continue
-                try:
-                    project_service.ensure_project_access(document.project_id, user)
-                except Exception:
                     continue
             chunk = self.document_repository.get_chunk(relation.chunk_id)
             if not chunk or chunk.chunk_status != "active":

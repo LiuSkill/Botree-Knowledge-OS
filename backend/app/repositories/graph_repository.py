@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.models.graph import GraphEntity, GraphRelation
 
+STATUS_UPDATE_BATCH_SIZE = 200
+
 
 class GraphRepository:
     """
@@ -91,28 +93,71 @@ class GraphRepository:
     def publish_document_graph(self, document_id: int, version_no: int) -> int:
         """发布指定文档版本的图谱数据。"""
 
-        self.db.execute(
-            update(GraphEntity)
-            .where(GraphEntity.document_id == document_id, GraphEntity.version_no != version_no, GraphEntity.status == "published")
-            .values(status="obsolete")
-        )
-        self.db.execute(
-            update(GraphRelation)
-            .where(GraphRelation.document_id == document_id, GraphRelation.version_no != version_no, GraphRelation.status == "published")
-            .values(status="obsolete")
-        )
-        entity_result = self.db.execute(
-            update(GraphEntity)
-            .where(GraphEntity.document_id == document_id, GraphEntity.version_no == version_no, GraphEntity.status == "staging")
-            .values(status="published")
-        )
-        self.db.execute(
-            update(GraphRelation)
-            .where(GraphRelation.document_id == document_id, GraphRelation.version_no == version_no, GraphRelation.status == "staging")
-            .values(status="published")
-        )
+        old_entity_ids = self._list_entity_ids(document_id, "published", exclude_version_no=version_no)
+        old_relation_ids = self._list_relation_ids(document_id, "published", exclude_version_no=version_no)
+        current_entity_ids = self._list_entity_ids(document_id, "staging", version_no=version_no)
+        current_relation_ids = self._list_relation_ids(document_id, "staging", version_no=version_no)
+
+        self._update_entity_status_by_ids(old_entity_ids, "obsolete")
+        self._update_relation_status_by_ids(old_relation_ids, "obsolete")
+        entity_count = self._update_entity_status_by_ids(current_entity_ids, "published")
+        self._update_relation_status_by_ids(current_relation_ids, "published")
         self.db.flush()
-        return int(entity_result.rowcount or 0)
+        return entity_count
+
+    def _list_entity_ids(
+        self,
+        document_id: int,
+        status: str,
+        *,
+        version_no: int | None = None,
+        exclude_version_no: int | None = None,
+    ) -> list[int]:
+        """先取主键再更新，避免 MySQL 在 status 单列索引上产生大范围锁。"""
+
+        stmt = select(GraphEntity.id).where(GraphEntity.document_id == document_id, GraphEntity.status == status)
+        if version_no is not None:
+            stmt = stmt.where(GraphEntity.version_no == version_no)
+        if exclude_version_no is not None:
+            stmt = stmt.where(GraphEntity.version_no != exclude_version_no)
+        return list(self.db.scalars(stmt.order_by(GraphEntity.id)).all())
+
+    def _list_relation_ids(
+        self,
+        document_id: int,
+        status: str,
+        *,
+        version_no: int | None = None,
+        exclude_version_no: int | None = None,
+    ) -> list[int]:
+        """先取主键再更新，避免 MySQL 在 status 单列索引上产生大范围锁。"""
+
+        stmt = select(GraphRelation.id).where(GraphRelation.document_id == document_id, GraphRelation.status == status)
+        if version_no is not None:
+            stmt = stmt.where(GraphRelation.version_no == version_no)
+        if exclude_version_no is not None:
+            stmt = stmt.where(GraphRelation.version_no != exclude_version_no)
+        return list(self.db.scalars(stmt.order_by(GraphRelation.id)).all())
+
+    def _update_entity_status_by_ids(self, entity_ids: list[int], status: str) -> int:
+        updated_count = 0
+        for start in range(0, len(entity_ids), STATUS_UPDATE_BATCH_SIZE):
+            batch_ids = entity_ids[start : start + STATUS_UPDATE_BATCH_SIZE]
+            if not batch_ids:
+                continue
+            result = self.db.execute(update(GraphEntity).where(GraphEntity.id.in_(batch_ids)).values(status=status))
+            updated_count += int(result.rowcount or 0)
+        return updated_count
+
+    def _update_relation_status_by_ids(self, relation_ids: list[int], status: str) -> int:
+        updated_count = 0
+        for start in range(0, len(relation_ids), STATUS_UPDATE_BATCH_SIZE):
+            batch_ids = relation_ids[start : start + STATUS_UPDATE_BATCH_SIZE]
+            if not batch_ids:
+                continue
+            result = self.db.execute(update(GraphRelation).where(GraphRelation.id.in_(batch_ids)).values(status=status))
+            updated_count += int(result.rowcount or 0)
+        return updated_count
 
     def search_entities(self, terms: list[str], limit: int = 20) -> list[GraphEntity]:
         """按关键词查询已发布实体。"""

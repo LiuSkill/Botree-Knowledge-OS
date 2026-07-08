@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.project import Project
 from app.models.user import User
-from app.retrieval.base import BaseRetriever
+from app.retrieval.base import BaseRetriever, DEFAULT_RETRIEVER_TOP_K
 from app.retrieval.schemas import Evidence
 from app.services.project_access_service import ProjectAccessService
 
@@ -22,7 +22,14 @@ class ProjectMetadataRetriever(BaseRetriever):
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def search(self, query: str, mode: str, project_id: int | None, user: User, limit: int = 5) -> list[Evidence]:  # noqa: ARG002
+    def search(
+        self,
+        query: str,
+        mode: str,
+        project_id: int | None,
+        user: User,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
+    ) -> list[Evidence]:  # noqa: ARG002
         if mode != "project_chat" or project_id is None:
             return []
 

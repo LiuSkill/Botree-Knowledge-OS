@@ -71,7 +71,7 @@ class RetrievalTraceService:
         if not self.settings.retrieval_trace_enabled:
             return None
         elapsed_ms = sum(int(step.get("elapsed_ms") or 0) for step in trace_steps)
-        knowledge_base_id = evidences[0].knowledge_base_id if evidences else None
+        knowledge_base_id = self._resolve_trace_knowledge_base_id(evidences)
         trace = RetrievalTrace(
             user_id=user.id,
             session_id=session_id,
@@ -132,3 +132,30 @@ class RetrievalTraceService:
                 for asset in evidence.assets
             ],
         }
+
+    def _resolve_trace_knowledge_base_id(self, evidences: list[Evidence]) -> int | None:
+        """
+        解析可持久化的知识库 ID。
+
+        项目元数据检索会使用 0 作为占位 knowledge_base_id，写入 retrieval_traces
+        时需要归一化为 None，避免触发知识库外键约束；若后续证据存在真实知识库，
+        则优先记录首个合法知识库 ID，便于后台按知识库筛选审计轨迹。
+        """
+
+        for evidence in evidences:
+            knowledge_base_id = self._positive_int_id(getattr(evidence, "knowledge_base_id", None))
+            if knowledge_base_id is not None:
+                return knowledge_base_id
+        return None
+
+    @staticmethod
+    def _positive_int_id(value: Any) -> int | None:
+        """仅保留大于 0 的整型 ID，过滤占位值和异常输入。"""
+
+        if isinstance(value, bool):
+            return None
+        try:
+            candidate = int(value)
+        except (TypeError, ValueError):
+            return None
+        return candidate if candidate > 0 else None

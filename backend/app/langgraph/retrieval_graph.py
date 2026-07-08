@@ -10,6 +10,7 @@ Retrieval LangGraph
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from collections.abc import Iterator
@@ -18,11 +19,14 @@ from typing import Any, Callable
 from sqlalchemy.orm import Session
 
 from app.agent.answer_generator import AnswerGenerator, PROJECT_REFUSAL_TEXT
+from app.core.config import get_settings
 from app.langgraph.state import RetrievalGraphState
+from app.retrieval.query_utils import TABLE_ROW_PATTERN, extract_query_terms, normalize_query_text
 from app.models.user import User
 from app.retrieval.merger import EvidenceMerger
 from app.retrieval.router import RetrievalRouter
 from app.retrieval.schemas import Evidence
+from app.retrieval.scope import normalize_retrieval_scope, retrieval_scope_has_filters
 from app.services.answer_policy_gate_service import AnswerAction, AnswerPolicyGateService
 from app.services.evidence_access_guard_service import EvidenceAccessGuardService
 from app.services.evidence_evaluator_service import EvidenceEvaluatorService, EvidenceStatus
@@ -70,6 +74,12 @@ EVIDENCE_PARTIAL = "PARTIAL"
 EVIDENCE_EMPTY = "EMPTY"
 EVIDENCE_CONFLICTED = "CONFLICTED"
 EVIDENCE_INVALID_QUERY = "INVALID_QUERY"
+
+DEFAULT_RETRIEVER_TOP_K = 10
+FUSED_EVIDENCE_TOP_K = 20
+RERANKED_EVIDENCE_TOP_K = 5
+ANSWER_CONTEXT_TOP_K = 5
+VISUAL_EVIDENCE_TOP_K = 5
 
 PRESET_GREETING_ANSWER = "您好，我是博萃循环AI智能体，请问有什么可以帮助您的吗？"
 PRESET_IDENTITY_ANSWER = "我是博萃循环AI智能体，可以帮助您查询已授权的知识库资料、项目资料和基础知识。"
@@ -138,6 +148,7 @@ class RetrievalGraph:
 
     def __init__(self, db: Session) -> None:
         self.db = db
+        self.settings = get_settings()
         self.qwen = QwenOrchestrationService(db)
         self.query_profile_service = QueryProfileService()
         self.question_understanding_service = QuestionUnderstandingService()
@@ -170,7 +181,7 @@ class RetrievalGraph:
         answer_top_k: int | None = None,
         retrieval_mode: str = "full",
         require_real_reranker: bool = True,
-        allow_reranker_fallback: bool = False,
+        allow_reranker_fallback: bool = True,
         reranker_score_order: str = "desc",
     ) -> RetrievalGraphState:
         """
@@ -231,7 +242,7 @@ class RetrievalGraph:
         answer_top_k: int | None = None,
         retrieval_mode: str = "full",
         require_real_reranker: bool = True,
-        allow_reranker_fallback: bool = False,
+        allow_reranker_fallback: bool = True,
         reranker_score_order: str = "desc",
     ) -> Iterator[tuple[str, Any]]:
         """
@@ -366,7 +377,7 @@ class RetrievalGraph:
         answer_top_k: int | None = None,
         retrieval_mode: str = "full",
         require_real_reranker: bool = True,
-        allow_reranker_fallback: bool = False,
+        allow_reranker_fallback: bool = True,
         reranker_score_order: str = "desc",
     ) -> dict[str, Any]:
         """
@@ -464,14 +475,27 @@ class RetrievalGraph:
                 "eval_mode": bool(eval_mode),
                 "return_evidence": bool(return_evidence),
                 "retrieval_limit": int(retrieval_limit) if retrieval_limit is not None else None,
-                "candidate_k": int(candidate_k) if candidate_k is not None else 100,
-                "rerank_top_k": int(rerank_top_k) if rerank_top_k is not None else 30,
-                "eval_top_k": int(eval_top_k) if eval_top_k is not None else 100,
-                "answer_top_k": int(answer_top_k) if answer_top_k is not None else 10,
+                "candidate_k": int(candidate_k) if candidate_k is not None else DEFAULT_RETRIEVER_TOP_K,
+                "rerank_top_k": int(rerank_top_k) if rerank_top_k is not None else FUSED_EVIDENCE_TOP_K,
+                "eval_top_k": int(eval_top_k) if eval_top_k is not None else RERANKED_EVIDENCE_TOP_K,
+                "answer_top_k": int(answer_top_k) if answer_top_k is not None else ANSWER_CONTEXT_TOP_K,
                 "retrieval_mode": str(retrieval_mode or "full"),
                 "require_real_reranker": bool(require_real_reranker),
                 "allow_reranker_fallback": bool(allow_reranker_fallback),
                 "reranker_score_order": str(reranker_score_order or "desc"),
+                "retrieval_total_budget_ms": int(self._settings().retrieval_total_budget_ms),
+                "retrieval_retry_budget_ms": int(self._settings().retrieval_retry_budget_ms),
+                "retrieval_min_stage_budget_ms": int(self._settings().retrieval_min_stage_budget_ms),
+                "retrieval_min_retry_budget_ms": int(self._settings().retrieval_min_retry_budget_ms),
+                "retrieval_max_sub_queries": int(self._settings().retrieval_max_sub_queries),
+                "retrieval_max_retry_queries": int(self._settings().retrieval_max_retry_queries),
+                "retrieval_max_retry_retrievers": int(self._settings().retrieval_max_retry_retrievers),
+                "retrieval_page_index_candidate_limit": int(self._settings().retrieval_page_index_candidate_limit),
+                "retrieval_page_index_row_limit": int(self._settings().retrieval_page_index_row_limit),
+                "retrieval_ripgrep_candidate_limit": int(self._settings().retrieval_ripgrep_candidate_limit),
+                "retrieval_ripgrep_row_limit": int(self._settings().retrieval_ripgrep_row_limit),
+                "retrieval_ripgrep_pattern_limit": int(self._settings().retrieval_ripgrep_pattern_limit),
+                "retrieval_ripgrep_max_count_per_file": int(self._settings().retrieval_ripgrep_max_count_per_file),
             },
         }
 
@@ -709,6 +733,7 @@ class RetrievalGraph:
             raw = next_state.setdefault("raw", {})
             trace_key = str(raw.pop("active_trace_display_key", "") or self._infer_trace_key(step, implementation))
             sequence = raw.pop("active_trace_sequence", None) or self.next_trace_sequence(next_state)
+            self._record_trace_timing(next_state, trace_key, elapsed_ms, "success")
             trace_item = {
                 "sequence": sequence,
                 "step": step,
@@ -740,6 +765,7 @@ class RetrievalGraph:
             raw = state.setdefault("raw", {})
             trace_key = str(raw.pop("active_trace_display_key", "") or self._infer_trace_key(step, implementation))
             sequence = raw.pop("active_trace_sequence", None) or self.next_trace_sequence(state)
+            self._record_trace_timing(state, trace_key, elapsed_ms, "failed")
             trace_item = {
                 "sequence": sequence,
                 "step": step,
@@ -787,8 +813,9 @@ class RetrievalGraph:
             raw["rerank_top_k"] = self._rerank_top_k(state)
             raw["eval_top_k"] = self._eval_top_k(state)
             raw["answer_top_k"] = self._answer_top_k(state)
+            # 项目问答优先真实 reranker，但超时后允许降级到确定性重排，避免整条检索链路失败。
             raw["require_real_reranker"] = True
-            raw["allow_reranker_fallback"] = False
+            raw["allow_reranker_fallback"] = True
             raw["answer_policy"] = answer_policy
             return state
 
@@ -1164,8 +1191,8 @@ class RetrievalGraph:
         try:
             limit = int(raw_limit)
         except (TypeError, ValueError):
-            limit = 5
-        return max(1, min(limit, 200))
+            limit = DEFAULT_RETRIEVER_TOP_K
+        return max(1, min(limit, DEFAULT_RETRIEVER_TOP_K))
 
     def _candidate_k(self, state: RetrievalGraphState) -> int:
         raw = state.get("raw", {})
@@ -1173,42 +1200,286 @@ class RetrievalGraph:
         try:
             limit = int(raw_limit)
         except (TypeError, ValueError):
-            limit = 100
-        return max(1, min(limit, 200))
+            limit = self._default_candidate_k(state)
+        return max(1, min(limit, DEFAULT_RETRIEVER_TOP_K))
 
     def _rerank_top_k(self, state: RetrievalGraphState) -> int:
-        if state.get("intent") == "project_overview":
-            return 6
         raw = state.get("raw", {})
-        raw_limit = raw.get("rerank_top_k") or raw.get("candidate_k") or raw.get("retrieval_limit")
+        raw_limit = raw.get("rerank_top_k")
         try:
             limit = int(raw_limit)
         except (TypeError, ValueError):
-            limit = 100
-        return max(1, min(limit, 200))
+            limit = self._default_rerank_top_k(state)
+        return max(1, min(limit, FUSED_EVIDENCE_TOP_K))
 
     def _eval_top_k(self, state: RetrievalGraphState) -> int:
         raw = state.get("raw", {})
-        raw_limit = raw.get("eval_top_k") or raw.get("retrieval_limit")
+        raw_limit = raw.get("eval_top_k")
         try:
             limit = int(raw_limit)
         except (TypeError, ValueError):
-            limit = 100
-        return max(1, min(limit, 200))
+            limit = self._default_eval_top_k(state)
+        return max(1, min(limit, RERANKED_EVIDENCE_TOP_K))
 
     def _answer_top_k(self, state: RetrievalGraphState) -> int:
         raw_limit = state.get("raw", {}).get("answer_top_k")
         try:
             limit = int(raw_limit)
         except (TypeError, ValueError):
-            limit = 10
-        if limit != 10:
-            logger.warning("answer_top_k=%s 当前真实答案生成链路固定使用Top10", limit)
-        return 10
+            limit = ANSWER_CONTEXT_TOP_K
+        if limit != ANSWER_CONTEXT_TOP_K:
+            logger.warning("answer_top_k=%s 当前真实答案生成链路固定使用Top5", limit)
+        return ANSWER_CONTEXT_TOP_K
+
+    def _default_candidate_k(self, _state: RetrievalGraphState) -> int:
+        return DEFAULT_RETRIEVER_TOP_K
+
+    def _default_rerank_top_k(self, _state: RetrievalGraphState) -> int:
+        return FUSED_EVIDENCE_TOP_K
+
+    def _default_eval_top_k(self, _state: RetrievalGraphState) -> int:
+        return RERANKED_EVIDENCE_TOP_K
+
+    def _is_flow_visual_query(self, state: RetrievalGraphState) -> bool:
+        query_profile = state.get("query_profile") or {}
+        query_features = state.get("query_features") or {}
+        query_type = str(query_profile.get("query_type") or "")
+        answer_shape = str(query_profile.get("answer_shape") or "")
+        return bool(
+            query_type == "process_flow"
+            or answer_shape == "process_steps"
+            or query_profile.get("need_visual_asset")
+            or query_features.get("has_page_hint")
+            or query_features.get("has_doc_code")
+        )
+
+    def _visual_query_context(self, state: RetrievalGraphState) -> dict[str, Any]:
+        """汇总视觉证据增强所需的稳定信号，避免仅靠关键词触发。"""
+
+        query_features = dict(state.get("query_features") or {})
+        query_profile = state.get("query_profile") or {}
+        understanding = state.get("question_understanding") or {}
+        retrieval_needs = understanding.get("retrieval_needs") or {}
+
+        query_features["query_type"] = str(query_profile.get("query_type") or query_features.get("query_type") or "")
+        query_features["answer_shape"] = str(
+            query_profile.get("answer_shape") or query_features.get("answer_shape") or ""
+        )
+        query_features["need_visual_asset"] = bool(
+            query_profile.get("need_visual_asset") or query_features.get("need_visual_asset")
+        )
+        query_features["visual_evidence"] = bool(
+            query_features.get("visual_evidence")
+            or self._is_flow_visual_query(state)
+            or (isinstance(retrieval_needs, dict) and retrieval_needs.get("visual_evidence"))
+        )
+        if isinstance(retrieval_needs, dict) and retrieval_needs:
+            query_features["retrieval_needs"] = dict(retrieval_needs)
+        return query_features
 
     def _retrieval_mode(self, state: RetrievalGraphState) -> str:
         mode = str(state.get("raw", {}).get("retrieval_mode") or "full").strip().lower()
         return mode if mode in {"fast", "smart", "full"} else "full"
+
+    def _settings(self) -> Any:
+        return getattr(self, "settings", get_settings())
+
+    def _ensure_retrieval_clock(self, state: RetrievalGraphState) -> float:
+        raw = state.setdefault("raw", {})
+        started_at = raw.get("retrieval_started_at")
+        if isinstance(started_at, (int, float)):
+            return float(started_at)
+        current = time.perf_counter()
+        raw["retrieval_started_at"] = current
+        return current
+
+    def _ensure_retry_clock(self, state: RetrievalGraphState) -> float:
+        raw = state.setdefault("raw", {})
+        started_at = raw.get("retry_started_at")
+        if isinstance(started_at, (int, float)):
+            return float(started_at)
+        current = time.perf_counter()
+        raw["retry_started_at"] = current
+        return current
+
+    def _remaining_budget_ms(self, started_at: float | None, budget_ms: int | None) -> int | None:
+        if started_at is None or budget_ms is None:
+            return None
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        return max(int(budget_ms) - elapsed_ms, 0)
+
+    def _remaining_retrieval_budget_ms(self, state: RetrievalGraphState) -> int | None:
+        raw = state.get("raw", {})
+        started_at = raw.get("retrieval_started_at")
+        budget_ms = raw.get("retrieval_total_budget_ms")
+        if not isinstance(started_at, (int, float)):
+            return None
+        try:
+            normalized_budget = int(budget_ms)
+        except (TypeError, ValueError):
+            return None
+        return self._remaining_budget_ms(float(started_at), normalized_budget)
+
+    def _remaining_retry_budget_ms(self, state: RetrievalGraphState) -> int | None:
+        raw = state.get("raw", {})
+        started_at = raw.get("retry_started_at")
+        budget_ms = raw.get("retrieval_retry_budget_ms")
+        if not isinstance(started_at, (int, float)):
+            return None
+        try:
+            normalized_budget = int(budget_ms)
+        except (TypeError, ValueError):
+            return None
+        return self._remaining_budget_ms(float(started_at), normalized_budget)
+
+    def _effective_retry_budget_ms(self, state: RetrievalGraphState) -> int | None:
+        budgets = [
+            value
+            for value in (
+                self._remaining_retrieval_budget_ms(state),
+                self._remaining_retry_budget_ms(state),
+            )
+            if value is not None
+        ]
+        if not budgets:
+            return None
+        return max(0, min(budgets))
+
+    def _max_sub_queries(self, state: RetrievalGraphState) -> int:
+        raw_limit = state.get("raw", {}).get("retrieval_max_sub_queries")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = int(self._settings().retrieval_max_sub_queries)
+        return max(1, min(limit, 3))
+
+    def _max_retry_queries(self, state: RetrievalGraphState) -> int:
+        raw_limit = state.get("raw", {}).get("retrieval_max_retry_queries")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = int(self._settings().retrieval_max_retry_queries)
+        return max(1, min(limit, 4))
+
+    def _max_retry_retrievers(self, state: RetrievalGraphState) -> int:
+        raw_limit = state.get("raw", {}).get("retrieval_max_retry_retrievers")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = int(self._settings().retrieval_max_retry_retrievers)
+        return max(1, min(limit, 3))
+
+    def _min_stage_budget_ms(self, state: RetrievalGraphState) -> int:
+        raw_limit = state.get("raw", {}).get("retrieval_min_stage_budget_ms")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = int(self._settings().retrieval_min_stage_budget_ms)
+        return max(0, min(limit, 5000))
+
+    def _min_retry_budget_ms(self, state: RetrievalGraphState) -> int:
+        raw_limit = state.get("raw", {}).get("retrieval_min_retry_budget_ms")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = int(self._settings().retrieval_min_retry_budget_ms)
+        return max(0, min(limit, 5000))
+
+    def _looks_like_exact_lookup_fragment(self, query: str) -> bool:
+        return bool(
+            re.search(r"\b[A-Z]{1,8}[A-Z0-9]*[-_/][A-Z0-9]{2,}(?:[-_/][A-Z0-9]{2,})*\b", query, re.IGNORECASE)
+            or re.search(r"\b\d+(?:\.\d+){1,3}\b", query)
+            or re.search(r"\b\d+\s*[xX]\s*\d+\b", query)
+        )
+
+    def _looks_like_meta_retry_query(self, query: str) -> bool:
+        lowered = normalize_query_text(query).lower()
+        blocked_fragments = (
+            "无法确定",
+            "当前资料",
+            "未检索到",
+            "缺乏",
+            "没有相关信息",
+            "完整规格",
+            "相关信息",
+            "相关资料",
+            "哪一份文档属于",
+            "which document belongs",
+            "unable to determine",
+            "not found",
+            "missing aspects",
+            "suggested queries",
+        )
+        return any(fragment in lowered for fragment in blocked_fragments)
+
+    def _search_query_quality_score(self, query: str, original_question: str) -> int:
+        normalized = normalize_query_text(query)
+        if not normalized:
+            return -100
+        if normalized == normalize_query_text(original_question):
+            return 100
+        if self._looks_like_meta_retry_query(normalized):
+            return -80
+
+        score = 0
+        terms = extract_query_terms(normalized)
+        if self._looks_like_exact_lookup_fragment(normalized):
+            score += 45
+        if len(terms) >= 2:
+            score += 18
+        elif len(terms) == 1:
+            score += 4
+        if any(char.isdigit() for char in normalized) and any("\u4e00" <= char <= "\u9fff" or char.isalpha() for char in normalized):
+            score += 12
+        if " " in normalized and len(normalized) >= 8:
+            score += 8
+        if re.fullmatch(r"\d{1,6}", normalized):
+            score -= 60
+        if len(normalized) < 6 and not self._looks_like_exact_lookup_fragment(normalized):
+            score -= 18
+        if any(marker in normalized for marker in ("哪个", "哪一", "是什么", "什么是", "有哪些", "指哪个")) and not self._looks_like_exact_lookup_fragment(normalized):
+            score -= 20
+        if len(terms) == 1 and re.fullmatch(r"[\u4e00-\u9fff]{2,8}", terms[0]) and not self._looks_like_exact_lookup_fragment(normalized):
+            score -= 16
+        return score
+
+    def _sanitize_search_queries(
+        self,
+        original_question: str,
+        candidates: list[Any],
+        *,
+        limit: int,
+        prefer_original: bool = True,
+    ) -> list[str]:
+        normalized_original = normalize_query_text(original_question)
+        scored: list[tuple[int, int, str]] = []
+        seen: set[str] = set()
+        for index, item in enumerate(candidates):
+            text = normalize_query_text(str(item or "")).strip()
+            if not text or len(text) > 120:
+                continue
+            key = text.lower()
+            if key in seen:
+                continue
+            score = self._search_query_quality_score(text, normalized_original)
+            if text == normalized_original and not prefer_original:
+                score = min(score, 5)
+            if text != normalized_original and score < 10:
+                continue
+            seen.add(key)
+            scored.append((score, index, text))
+
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        result: list[str] = []
+        if prefer_original and normalized_original and normalized_original.lower() in seen:
+            result.append(normalized_original)
+        for _, _, text in scored:
+            if text in result:
+                continue
+            result.append(text)
+            if len(result) >= limit:
+                break
+        return result[:limit] if result else ([normalized_original] if normalized_original else [])
 
     def _enforce_default_hybrid_plan(
         self,
@@ -1221,7 +1492,12 @@ class RetrievalGraph:
 
         available = set(available_retrievers)
         metadata = dict(plan_dict.get("metadata") or {})
-        if metadata.get("policy_matrix_used"):
+        preserve_planner_ladder = bool(
+            metadata.get("policy_matrix_used")
+            or (query_features or {}).get("has_structured_list_lookup")
+            or (query_features or {}).get("has_table_value_lookup")
+        )
+        if preserve_planner_ladder:
             selected = [name for name in list(plan_dict.get("selected_retrievers") or []) if name in available]
             fallback_ladder = [
                 [name for name in stage if name in available]
@@ -1365,17 +1641,115 @@ class RetrievalGraph:
 
         return f"{evidence.document_id}:{evidence.chunk_id}"
 
+    def _evidence_score(self, evidence: Evidence) -> float:
+        try:
+            return float(evidence.score)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _top_scored_evidences(self, evidences: list[Evidence], limit: int) -> list[Evidence]:
+        if limit <= 0:
+            return []
+        return sorted(evidences, key=self._evidence_score, reverse=True)[:limit]
+
     def _record_answer_context(self, state: RetrievalGraphState) -> list[Evidence]:
-        """Record the fixed Top10 answer context without changing eval_top_k evidences."""
+        """Record the fixed Top5 answer context without changing eval_top_k evidences."""
 
         answer_top_k = self._answer_top_k(state)
-        answer_evidences = list(state.get("evidences", []))[:answer_top_k]
+        answer_evidences = self._top_scored_evidences(
+            self._preferred_answer_context(state, list(state.get("evidences", [])), answer_top_k),
+            answer_top_k,
+        )
         raw = state.setdefault("raw", {})
         raw["answer_top_k"] = answer_top_k
         raw["answer_context_count"] = len(answer_evidences)
         raw["answer_context_doc_ids"] = [self._evidence_debug_id(evidence) for evidence in answer_evidences]
+        raw["final_answer_doc_ids_top5"] = raw["answer_context_doc_ids"][:ANSWER_CONTEXT_TOP_K]
         raw["final_answer_doc_ids_top10"] = raw["answer_context_doc_ids"][:10]
         return answer_evidences
+
+    def _preferred_answer_context(
+        self,
+        state: RetrievalGraphState,
+        evidences: list[Evidence],
+        limit: int,
+    ) -> list[Evidence]:
+        if not evidences:
+            return []
+        query_features = state.get("query_features", {}) or {}
+        if not query_features.get("has_structured_list_lookup"):
+            return self._top_scored_evidences(evidences, limit)
+
+        row_evidences = [evidence for evidence in evidences if self._is_structured_list_row_evidence(evidence)]
+        dominant_group = self._dominant_structured_list_group(row_evidences)
+        if dominant_group is None:
+            return self._top_scored_evidences(evidences, limit)
+
+        prioritized = [evidence for evidence in row_evidences if self._structured_list_group_key(evidence) == dominant_group]
+        supporting = [
+            evidence
+            for evidence in evidences
+            if self._structured_list_group_key(evidence) == dominant_group and evidence not in prioritized
+        ]
+        remaining = [evidence for evidence in evidences if self._structured_list_group_key(evidence) != dominant_group]
+        return self._top_scored_evidences([*prioritized, *supporting, *remaining], limit)
+
+    def _should_skip_retry_for_structured_list_partial(
+        self,
+        state: RetrievalGraphState,
+        evaluation: dict[str, Any],
+    ) -> bool:
+        if str(evaluation.get("evidence_status") or EVIDENCE_EMPTY) != EVIDENCE_PARTIAL:
+            return False
+        query_features = state.get("query_features", {}) or {}
+        if not query_features.get("has_structured_list_lookup"):
+            return False
+        row_evidences = [evidence for evidence in state.get("evidences", []) if self._is_structured_list_row_evidence(evidence)]
+        dominant_group = self._dominant_structured_list_group(row_evidences)
+        if dominant_group is None:
+            return False
+        dominant_rows = [evidence for evidence in row_evidences if self._structured_list_group_key(evidence) == dominant_group]
+        return len(dominant_rows) >= 3
+
+    def _is_structured_list_row_evidence(self, evidence: Evidence) -> bool:
+        return bool(TABLE_ROW_PATTERN.search(str(getattr(evidence, "content", "") or "")))
+
+    def _structured_list_group_key(self, evidence: Evidence) -> tuple[int | None, int | None]:
+        return (getattr(evidence, "document_id", None), getattr(evidence, "page_number", None))
+
+    def _dominant_structured_list_group(self, evidences: list[Evidence]) -> tuple[int | None, int | None] | None:
+        if not evidences:
+            return None
+        groups: dict[tuple[int | None, int | None], dict[str, Any]] = {}
+        for index, evidence in enumerate(evidences):
+            key = self._structured_list_group_key(evidence)
+            group = groups.setdefault(
+                key,
+                {
+                    "first_index": index,
+                    "best_score": float(evidence.score),
+                    "top3_score_sum": 0.0,
+                    "scores": [],
+                },
+            )
+            group["first_index"] = min(int(group["first_index"]), index)
+            group["best_score"] = max(float(group["best_score"]), float(evidence.score))
+            group["scores"].append(float(evidence.score))
+        for group in groups.values():
+            scores = sorted(group.pop("scores"), reverse=True)
+            group["row_count"] = len(scores)
+            group["top3_score_sum"] = sum(scores[:3])
+        ranked = sorted(
+            groups.items(),
+            key=lambda item: (
+                float(item[1]["best_score"]),
+                float(item[1]["top3_score_sum"]),
+                int(item[1]["row_count"]),
+                -int(item[1]["first_index"]),
+            ),
+            reverse=True,
+        )
+        return ranked[0][0] if ranked else None
 
     def _rerank_evidences(
         self,
@@ -1401,7 +1775,7 @@ class RetrievalGraph:
                 len(candidates),
                 state.get("intent_type"),
             )
-            return candidates[:limit]
+            return self._top_scored_evidences(candidates, limit)
 
         kwargs = {
             "require_real_model": bool(state.get("raw", {}).get("require_real_reranker")),
@@ -1422,6 +1796,8 @@ class RetrievalGraph:
             return "INVALID_QUERY"
         if state.get("intent_type") in {"invalid", "invalid_or_noise_query", "ambiguous"}:
             return "INVALID_OR_AMBIGUOUS_INTENT"
+        if self._is_flow_visual_query(state) and any(item.retriever == "page_index" for item in candidates):
+            return "FLOW_VISUAL_PAGE_INDEX_PRIORITY"
         if state.get("intent") == "project_overview" and len(candidates) <= 12:
             return "PROJECT_OVERVIEW_LIGHTWEIGHT_DEDUPE"
         if max((float(item.score) for item in candidates), default=0.0) <= 0:
@@ -1574,7 +1950,12 @@ class RetrievalGraph:
         """
 
         def run() -> RetrievalGraphState:
-            state["sub_queries"] = self.qwen.decompose_query(state["question"], state["intent"])
+            raw_sub_queries = self.qwen.decompose_query(state["question"], state["intent"])
+            state["sub_queries"] = self._sanitize_search_queries(
+                state["question"],
+                raw_sub_queries or [state["question"]],
+                limit=self._max_sub_queries(state),
+            )
             state.setdefault("model_routes", {})["query_decompose"] = {
                 "task": "query_decompose",
                 "source": "rules",
@@ -1804,6 +2185,7 @@ class RetrievalGraph:
             skipped_retrievers: list[str] = []
             fallback_used: list[str] = []
             fallback_trigger_reason: list[dict[str, Any]] = []
+            retrieval_sub_queries: list[dict[str, Any]] = []
             query_scope = ""
             effective_mode = state["mode"]
             retriever_hits: dict[str, int] = {}
@@ -1829,14 +2211,20 @@ class RetrievalGraph:
             fallback_ladder = list(plan.get("fallback_ladder", []))
             effective_task_type = str(state.get("resolved_task_type") or state.get("intent") or "")
             knowledge_scope = str(state.get("resolved_knowledge_scope") or (state.get("query_profile") or {}).get("knowledge_scope") or "")
-            max_sub_queries = 2 if effective_task_type == "project_overview" else 3
+            self._ensure_retrieval_clock(state)
+            max_sub_queries = 1 if effective_task_type == "project_overview" else self._max_sub_queries(state)
             sub_queries = state.get("sub_queries", [state["question"]])[:max_sub_queries]
             candidate_k = self._candidate_k(state)
             rerank_top_k = self._rerank_top_k(state)
             eval_top_k = self._eval_top_k(state)
-            merge_limit = max(eval_top_k, rerank_top_k, candidate_k)
+            merge_limit = FUSED_EVIDENCE_TOP_K
+            retriever_timeouts: dict[str, bool] = {}
 
             for sub_query_index, sub_query in enumerate(sub_queries, start=1):
+                remaining_budget_ms = self._remaining_retrieval_budget_ms(state)
+                if remaining_budget_ms is not None and remaining_budget_ms <= 0:
+                    state.setdefault("raw", {})["retrieval_budget_exhausted"] = True
+                    break
                 logger.info(
                     "LangGraph子查询开始: run_id=%s step=retrieval implementation=router status=started intent=%s sub_query_index=%s sub_query_total=%s query=%s planned_retrievers=%s fallback_ladder=%s",
                     state.get("raw", {}).get("run_id"),
@@ -1864,6 +2252,8 @@ class RetrievalGraph:
                     sub_query_index=sub_query_index,
                     sub_query_total=len(sub_queries),
                     knowledge_scope=knowledge_scope,
+                    remaining_budget_ms=remaining_budget_ms,
+                    min_stage_budget_ms=self._min_stage_budget_ms(state),
                 )
                 evidence_groups.append(retrieval["evidences"])
                 used_retrievers.extend(retrieval["used_retrievers"])
@@ -1878,16 +2268,34 @@ class RetrievalGraph:
                     retriever_elapsed[name] = retriever_elapsed.get(name, 0) + int(elapsed_ms)
                 for name, top_score in retrieval.get("retriever_top_scores", {}).items():
                     retriever_top_scores[name] = max(retriever_top_scores.get(name, 0.0), float(top_score))
+                for name, timed_out in retrieval.get("retriever_timeouts", {}).items():
+                    retriever_timeouts[name] = retriever_timeouts.get(name, False) or bool(timed_out)
                 for name, reason in retrieval.get("skip_reasons", {}).items():
                     skip_reasons.setdefault(name, reason)
+                retrieval_sub_queries.append(
+                    {
+                        "sub_query_index": sub_query_index,
+                        "query": self._clip(sub_query, 300),
+                        "execution_elapsed_ms": int(retrieval.get("execution_elapsed_ms") or 0),
+                        "candidate_evidence_count": len(retrieval.get("evidences", [])),
+                        "executed_retrievers": retrieval.get("executed_retrievers", []),
+                        "skipped_retrievers": retrieval.get("skipped_retrievers", []),
+                        "retriever_hits": retrieval.get("retriever_hits", {}),
+                        "retriever_elapsed_ms": retrieval.get("retriever_elapsed_ms", {}),
+                        "fallback_used": retrieval.get("fallback_used", []),
+                        "fallback_trigger_reason": retrieval.get("fallback_trigger_reason", []),
+                        "retriever_timeouts": retrieval.get("retriever_timeouts", {}),
+                    }
+                )
 
                 logger.info(
-                    "LangGraph子查询完成: run_id=%s step=retrieval implementation=router status=success intent=%s sub_query_index=%s sub_query_total=%s query=%s executed_retrievers=%s skipped_retrievers=%s fallback_used=%s fallback_trigger_reason=%s retriever_hits=%s retriever_elapsed_ms=%s",
+                    "LangGraph子查询完成: run_id=%s step=retrieval implementation=router status=success intent=%s sub_query_index=%s sub_query_total=%s query=%s execution_elapsed_ms=%s executed_retrievers=%s skipped_retrievers=%s fallback_used=%s fallback_trigger_reason=%s retriever_hits=%s retriever_elapsed_ms=%s",
                     state.get("raw", {}).get("run_id"),
                     effective_task_type or state.get("intent"),
                     sub_query_index,
                     len(sub_queries),
                     self._clip(sub_query, 300),
+                    retrieval.get("execution_elapsed_ms", 0),
                     retrieval.get("executed_retrievers", []),
                     retrieval.get("skipped_retrievers", []),
                     retrieval.get("fallback_used", []),
@@ -1896,8 +2304,8 @@ class RetrievalGraph:
                     retrieval.get("retriever_elapsed_ms", {}),
                 )
 
-            merged = self.merger.merge(evidence_groups, merge_limit)
-            rerank_candidates = merged[:rerank_top_k]
+            merged = self._top_scored_evidences(self.merger.merge(evidence_groups, merge_limit), merge_limit)
+            rerank_candidates = self._top_scored_evidences(merged, rerank_top_k)
             pre_rerank_guard = self.evidence_access_guard.filter_evidences(
                 evidences=rerank_candidates,
                 chat_type=str(state.get("chat_type") or ""),
@@ -1905,21 +2313,23 @@ class RetrievalGraph:
                 user=state.get("user"),
                 audit_action="RAG证据权限过滤",
             )
-            rerank_candidates = pre_rerank_guard.evidences
+            rerank_candidates = self._top_scored_evidences(pre_rerank_guard.evidences, rerank_top_k)
             raw_before_doc_ids = [self._evidence_debug_id(evidence) for evidence in rerank_candidates]
             raw_before_scores = [float(evidence.score) for evidence in rerank_candidates]
             rerank_started_at = time.perf_counter()
             evidences = self._rerank_evidences(state, rerank_candidates, eval_top_k)
             rerank_elapsed_ms = int((time.perf_counter() - rerank_started_at) * 1000)
-            evidences = evidences[:eval_top_k]
+            evidences = self._top_scored_evidences(evidences, eval_top_k)
             metadata_evidence_count = sum(1 for evidence in evidences if evidence.metadata.get("metadata_only"))
             if metadata_evidence_count:
                 evidences = [evidence for evidence in evidences if not evidence.metadata.get("metadata_only")]
+                evidences = self._top_scored_evidences(evidences, eval_top_k)
             evidences = self.visual_evidence_service.enrich(
                 state["question"],
                 evidences,
-                state.get("query_features", {}),
+                self._visual_query_context(state),
             )
+            evidences = self._top_scored_evidences(evidences, VISUAL_EVIDENCE_TOP_K)
             visual_asset_count = sum(len(evidence.assets) for evidence in evidences)
             logger.info(
                 "LangGraph检索重排完成: run_id=%s merged_count=%s final_count=%s rerank=%s final_evidence=%s",
@@ -1964,10 +2374,14 @@ class RetrievalGraph:
             state["raw"]["retriever_hits"] = retriever_hits
             state["raw"]["retriever_elapsed_ms"] = retriever_elapsed
             state["raw"]["retriever_top_scores"] = retriever_top_scores
-            state["raw"]["retrieval_limit"] = eval_top_k
+            state["raw"]["retriever_timeouts"] = retriever_timeouts
+            state["raw"]["retrieval_sub_queries"] = retrieval_sub_queries
+            state["raw"]["retrieval_limit"] = candidate_k
             state["raw"]["candidate_k"] = candidate_k
             state["raw"]["rerank_top_k"] = rerank_top_k
             state["raw"]["eval_top_k"] = eval_top_k
+            state["raw"]["fused_evidence_top_k"] = merge_limit
+            state["raw"]["visual_evidence_top_k"] = VISUAL_EVIDENCE_TOP_K
             state["raw"]["retrieval_before_rerank_doc_ids"] = raw_before_doc_ids
             state["raw"]["retrieval_before_rerank_scores"] = raw_before_scores
             state["raw"]["pre_rerank_evidence_guard"] = pre_rerank_guard.to_dict()
@@ -1995,10 +2409,10 @@ class RetrievalGraph:
         def run() -> RetrievalGraphState:
             raw = state.setdefault("raw", {})
             eval_top_k = self._eval_top_k(state)
-            before_doc_ids = [self._evidence_debug_id(evidence) for evidence in state.get("evidences", [])]
-            raw["evidence_before_judge_doc_ids"] = before_doc_ids[:eval_top_k]
+            before_evidences = self._top_scored_evidences(list(state.get("evidences", [])), eval_top_k)
+            raw["evidence_before_judge_doc_ids"] = [self._evidence_debug_id(evidence) for evidence in before_evidences]
             if bool(raw.get("eval_mode")) or self._retrieval_mode(state) in {"fast", "smart"}:
-                state["evidences"] = list(state.get("evidences", []))[:eval_top_k]
+                state["evidences"] = self._top_scored_evidences(list(state.get("evidences", [])), eval_top_k)
                 state["evidence_judgement"] = {
                     "enough": True,
                     "reason": "lightweight_evidence_filter",
@@ -2009,6 +2423,7 @@ class RetrievalGraph:
                 raw["evidence_judgement"] = state["evidence_judgement"]
                 raw["evidence_after_judge_doc_ids"] = [self._evidence_debug_id(evidence) for evidence in state.get("evidences", [])]
                 self._record_answer_context(state)
+                raw["evidence_judge_elapsed_ms"] = 0
                 raw["llm_evidence_judge_ms"] = 0
                 raw["lightweight_filter_ms"] = 0
                 state.setdefault("model_routes", {})["evidence_judge"] = {
@@ -2017,6 +2432,7 @@ class RetrievalGraph:
                     "reason": "BEIR/fast/smart evaluation uses non-LLM evidence filter",
                 }
                 return state
+            judge_started_at = time.perf_counter()
             state["evidence_judgement"] = self.qwen.judge_evidence(
                 state["question"],
                 state.get("evidences", []),
@@ -2027,11 +2443,21 @@ class RetrievalGraph:
                     "visual_asset_count": state.get("visual_asset_count", 0),
                 },
             )
-            state["evidences"] = list(state.get("evidences", []))[:eval_top_k]
+            evidence_judge_elapsed_ms = int((time.perf_counter() - judge_started_at) * 1000)
+            state["evidences"] = self._top_scored_evidences(list(state.get("evidences", [])), eval_top_k)
             raw["evidence_judgement"] = state["evidence_judgement"]
             raw["evidence_after_judge_doc_ids"] = [self._evidence_debug_id(evidence) for evidence in state.get("evidences", [])]
             self._record_answer_context(state)
-            state.setdefault("model_routes", {})["evidence_judge"] = self.qwen.model_routes.get("evidence_judge", {})
+            evidence_route = self.qwen.model_routes.get("evidence_judge", {})
+            state.setdefault("model_routes", {})["evidence_judge"] = evidence_route
+            evidence_route_source = str(evidence_route.get("source") or "").strip().lower()
+            raw["evidence_judge_elapsed_ms"] = evidence_judge_elapsed_ms
+            raw["llm_evidence_judge_ms"] = (
+                0
+                if evidence_route_source in {"", "rules", "rules_fallback", "rules_fast_path", "lightweight", "not_called"}
+                else evidence_judge_elapsed_ms
+            )
+            raw["lightweight_filter_ms"] = 0
             return state
 
         return self._with_trace(state, "资料证据有效性判断", "qwen", run)
@@ -2062,7 +2488,39 @@ class RetrievalGraph:
             pre_retry_status = str(pre_retry_evaluation.get("evidence_status") or EVIDENCE_EMPTY)
             raw["pre_retry_evidence_status"] = pre_retry_status
             raw["pre_retry_evidence_evaluation"] = pre_retry_evaluation
-            retry_skip_reason = self._retry_skip_reason(state, judgement, retry_count, pre_retry_status)
+            if self._should_skip_retry_for_visual_partial(state, pre_retry_evaluation):
+                raw.setdefault("max_retry", 1)
+                raw["retry_count"] = retry_count
+                raw["retry_allowed"] = False
+                raw["retry_skipped_reason"] = "VISUAL_PARTIAL_ANSWER_READY"
+                logger.info(
+                    "Retry跳过: run_id=%s reason=%s visual_asset_count=%s strong=%s answerable_parts=%s",
+                    raw.get("run_id"),
+                    raw["retry_skipped_reason"],
+                    state.get("visual_asset_count", 0),
+                    pre_retry_evaluation.get("strong_evidence_count"),
+                    pre_retry_evaluation.get("answerable_parts"),
+                )
+                return state
+            if self._should_skip_retry_for_structured_list_partial(state, pre_retry_evaluation):
+                raw.setdefault("max_retry", 1)
+                raw["retry_count"] = retry_count
+                raw["retry_allowed"] = False
+                raw["retry_skipped_reason"] = "STRUCTURED_LIST_ROWS_READY"
+                logger.info(
+                    "Retry跳过: run_id=%s reason=%s dominant_row_doc_ids=%s",
+                    raw.get("run_id"),
+                    raw["retry_skipped_reason"],
+                    [self._evidence_debug_id(evidence) for evidence in state.get("evidences", [])[:6]],
+                )
+                return state
+            retry_skip_reason = self._retry_skip_reason(
+                state,
+                judgement,
+                retry_count,
+                pre_retry_status,
+                pre_retry_evaluation,
+            )
             if retry_skip_reason:
                 raw.setdefault("max_retry", 1)
                 raw["retry_count"] = retry_count
@@ -2094,6 +2552,27 @@ class RetrievalGraph:
                 raw.setdefault("retry_skipped_reason", "evidence_enough_or_retry_limit")
                 raw["retry_allowed"] = False
                 return state
+            self._ensure_retry_clock(state)
+            retry_budget_ms = self._effective_retry_budget_ms(state)
+            min_retry_budget_ms = self._min_retry_budget_ms(state)
+            if retry_budget_ms is not None and retry_budget_ms <= 0:
+                raw.setdefault("max_retry", 1)
+                raw["retry_count"] = retry_count
+                raw["retry_allowed"] = False
+                raw["retry_skipped_reason"] = "BUDGET_EXHAUSTED"
+                return state
+            if retry_budget_ms is not None and retry_budget_ms < min_retry_budget_ms:
+                raw.setdefault("max_retry", 1)
+                raw["retry_count"] = retry_count
+                raw["retry_allowed"] = False
+                raw["retry_skipped_reason"] = "BUDGET_TOO_LOW"
+                return state
+
+            retry_scope = self._retry_scope_from_evidences(state)
+            raw["retry_scope"] = retry_scope
+            raw["retry_scope_document_ids"] = retry_scope.get("document_ids", [])
+            raw["retry_scope_page_numbers_by_document"] = retry_scope.get("page_numbers_by_document", {})
+            raw["retry_scope_chunk_ids"] = retry_scope.get("chunk_ids", [])
 
             retry_retrievers, retry_queries, retry_reason = self._retry_strategy_for_status(
                 pre_retry_status,
@@ -2106,6 +2585,16 @@ class RetrievalGraph:
                 raw["retry_skipped_reason"] = "missing_retry_retrievers_or_queries"
                 raw["retry_allowed"] = False
                 return state
+            if (
+                pre_retry_status in {EVIDENCE_WEAK_ONLY, EVIDENCE_PARTIAL}
+                and not retrieval_scope_has_filters(retry_scope)
+                and not self._has_retry_signal(judgement)
+            ):
+                raw.setdefault("max_retry", 1)
+                raw["retry_count"] = retry_count
+                raw["retry_skipped_reason"] = "NO_SCOPE_HINT"
+                raw["retry_allowed"] = False
+                return state
 
             raw["max_retry"] = 1
             raw["retry_count"] = retry_count + 1
@@ -2114,6 +2603,17 @@ class RetrievalGraph:
             raw["retry_retrievers"] = retry_retrievers
             raw["retry_queries"] = retry_queries
             raw["retry_query_count"] = len(retry_queries)
+            raw["retry_fallback_ladder"] = self._retry_execution_ladder(retry_retrievers)
+            raw["retry_budget_ms"] = retry_budget_ms
+            raw["retry_min_budget_ms"] = min_retry_budget_ms
+            logger.info(
+                "Retry retrieval plan: run_id=%s retry_scope_document_ids=%s retry_scope_pages=%s retry_ladder=%s retry_queries=%s",
+                raw.get("run_id"),
+                raw["retry_scope_document_ids"],
+                raw["retry_scope_page_numbers_by_document"],
+                raw["retry_fallback_ladder"],
+                [self._clip(query, 160) for query in retry_queries],
+            )
             logger.info(
                 "LangGraph证据不足补充检索开始: run_id=%s retry_reason=%s retry_retrievers=%s retry_query_count=%s",
                 raw.get("run_id"),
@@ -2126,16 +2626,33 @@ class RetrievalGraph:
             retry_hits: dict[str, int] = {}
             retry_elapsed: dict[str, int] = {}
             retry_top_scores: dict[str, float] = {}
+            retry_retriever_timeouts: dict[str, bool] = {}
             retry_executed: list[str] = []
             retry_skipped: list[str] = []
             retry_skip_reasons: dict[str, str] = {}
+            retry_budget_stop_reason: str | None = None
+            retry_query_details: list[dict[str, Any]] = []
             query_scope = state.get("query_scope") or ""
             effective_mode = state["mode"]
-            retrieval_limit = self._retrieval_limit(state)
-            retry_rerank_top_k = min(10, self._rerank_top_k(state))
-            merge_limit = max(10, retrieval_limit * 2)
+            retrieval_limit = self._candidate_k(state)
+            retry_rerank_top_k = self._rerank_top_k(state)
+            merge_limit = FUSED_EVIDENCE_TOP_K
+            retry_fallback_ladder = self._retry_execution_ladder(retry_retrievers)
 
             for index, retry_query in enumerate(retry_queries, start=1):
+                remaining_retry_budget_ms = self._effective_retry_budget_ms(state)
+                if remaining_retry_budget_ms is not None and remaining_retry_budget_ms < min_retry_budget_ms:
+                    retry_budget_stop_reason = "budget_exhausted" if remaining_retry_budget_ms <= 0 else "budget_too_low"
+                    break
+                logger.info(
+                    "LangGraph补充检索子查询开始: run_id=%s step=retry_retrieval implementation=router status=started retry_query_index=%s retry_query_total=%s query=%s retry_retrievers=%s remaining_retry_budget_ms=%s",
+                    raw.get("run_id"),
+                    index,
+                    len(retry_queries),
+                    self._clip(retry_query, 300),
+                    retry_retrievers,
+                    remaining_retry_budget_ms,
+                )
                 retrieval = self.retrieval_router.execute_planned(
                     query=retry_query,
                     mode=state["mode"],
@@ -2145,7 +2662,7 @@ class RetrievalGraph:
                     limit=retrieval_limit,
                     chat_type=state["chat_type"],
                     fallback_retrievers=[],
-                    fallback_ladder=[retry_retrievers],
+                    fallback_ladder=retry_fallback_ladder,
                     query_features=state.get("query_features", {}),
                     skip_reasons=state.get("skip_reasons", {}),
                     run_id=raw.get("run_id"),
@@ -2153,6 +2670,9 @@ class RetrievalGraph:
                     sub_query_index=index,
                     sub_query_total=len(retry_queries),
                     knowledge_scope=str((state.get("query_profile") or {}).get("knowledge_scope") or ""),
+                    remaining_budget_ms=remaining_retry_budget_ms,
+                    min_stage_budget_ms=self._min_stage_budget_ms(state),
+                    retrieval_scope=retry_scope,
                 )
                 retry_groups.append(retrieval.get("evidences", []))
                 retry_executed.extend(retrieval.get("executed_retrievers", []))
@@ -2167,20 +2687,55 @@ class RetrievalGraph:
                     retry_top_scores[name] = max(retry_top_scores.get(name, 0.0), float(top_score))
                 for name, reason in retrieval.get("skip_reasons", {}).items():
                     retry_skip_reasons.setdefault(name, reason)
+                for name, timed_out in retrieval.get("retriever_timeouts", {}).items():
+                    retry_retriever_timeouts[name] = retry_retriever_timeouts.get(name, False) or bool(timed_out)
+                retry_query_details.append(
+                    {
+                        "retry_query_index": index,
+                        "query": self._clip(retry_query, 300),
+                        "execution_elapsed_ms": int(retrieval.get("execution_elapsed_ms") or 0),
+                        "candidate_evidence_count": len(retrieval.get("evidences", [])),
+                        "executed_retrievers": retrieval.get("executed_retrievers", []),
+                        "skipped_retrievers": retrieval.get("skipped_retrievers", []),
+                        "retriever_hits": retrieval.get("retriever_hits", {}),
+                        "retriever_elapsed_ms": retrieval.get("retriever_elapsed_ms", {}),
+                        "retrieval_scope": retrieval.get("retrieval_scope", {}),
+                        "fallback_trigger_reason": retrieval.get("fallback_trigger_reason", []),
+                        "retriever_timeouts": retrieval.get("retriever_timeouts", {}),
+                    }
+                )
+                logger.info(
+                    "LangGraph补充检索子查询完成: run_id=%s step=retry_retrieval implementation=router status=success retry_query_index=%s retry_query_total=%s query=%s execution_elapsed_ms=%s executed_retrievers=%s skipped_retrievers=%s retriever_hits=%s retriever_elapsed_ms=%s",
+                    raw.get("run_id"),
+                    index,
+                    len(retry_queries),
+                    self._clip(retry_query, 300),
+                    retrieval.get("execution_elapsed_ms", 0),
+                    retrieval.get("executed_retrievers", []),
+                    retrieval.get("skipped_retrievers", []),
+                    retrieval.get("retriever_hits", {}),
+                    retrieval.get("retriever_elapsed_ms", {}),
+                )
 
-            merged = self._merge_evidences_by_source([state.get("evidences", []), *retry_groups], merge_limit)
+            retry_new_evidence_count = self._retry_added_value_count(list(state.get("evidences", [])), retry_groups)
+            merged = self._top_scored_evidences(
+                self._merge_evidences_by_source([state.get("evidences", []), *retry_groups], merge_limit),
+                merge_limit,
+            )
             rerank_started_at = time.perf_counter()
             evidences = self._rerank_evidences(
                 state,
-                merged[:retry_rerank_top_k],
+                self._top_scored_evidences(merged, retry_rerank_top_k),
                 self._eval_top_k(state),
             )
             retry_rerank_elapsed_ms = int((time.perf_counter() - rerank_started_at) * 1000)
+            evidences = self._top_scored_evidences(evidences, self._eval_top_k(state))
             evidences = self.visual_evidence_service.enrich(
                 state["question"],
                 evidences,
-                state.get("query_features", {}),
+                self._visual_query_context(state),
             )
+            evidences = self._top_scored_evidences(evidences, VISUAL_EVIDENCE_TOP_K)
             visual_asset_count = sum(len(evidence.assets) for evidence in evidences)
 
             state["mode"] = effective_mode
@@ -2211,6 +2766,7 @@ class RetrievalGraph:
                     top_score,
                 )
 
+            retry_judge_started_at = time.perf_counter()
             state["evidence_judgement"] = self.qwen.judge_evidence(
                 state["question"],
                 state.get("evidences", []),
@@ -2222,12 +2778,21 @@ class RetrievalGraph:
                     "retry_count": raw["retry_count"],
                 },
             )
-            state.setdefault("model_routes", {})["evidence_judge_retry"] = self.qwen.model_routes.get("evidence_judge", {})
-            state["model_routes"]["evidence_judge"] = self.qwen.model_routes.get("evidence_judge", {})
+            retry_evidence_judge_elapsed_ms = int((time.perf_counter() - retry_judge_started_at) * 1000)
+            retry_evidence_route = self.qwen.model_routes.get("evidence_judge", {})
+            state.setdefault("model_routes", {})["evidence_judge_retry"] = retry_evidence_route
+            state["model_routes"]["evidence_judge"] = retry_evidence_route
+            retry_evidence_route_source = str(retry_evidence_route.get("source") or "").strip().lower()
 
             raw["retry_hits"] = retry_hits
             raw["retry_elapsed_ms"] = retry_elapsed
             raw["retry_top_scores"] = retry_top_scores
+            raw["retry_retriever_timeouts"] = retry_retriever_timeouts
+            raw["retry_query_details"] = retry_query_details
+            raw["retry_new_evidence_count"] = retry_new_evidence_count
+            raw["retry_added_value"] = retry_new_evidence_count > 0
+            raw["retry_budget_exhausted"] = retry_budget_stop_reason == "budget_exhausted"
+            raw["retry_budget_stop_reason"] = retry_budget_stop_reason
             raw["retry_executed_retrievers"] = list(dict.fromkeys(retry_executed))
             raw["executed_retrievers"] = state["executed_retrievers"]
             raw["skipped_retrievers"] = state["skipped_retrievers"]
@@ -2237,9 +2802,25 @@ class RetrievalGraph:
             raw["retriever_top_scores"] = state.get("retriever_top_scores", {})
             raw["rerank_details"] = state.get("rerank_details", [])
             raw["retry_rerank_elapsed_ms"] = retry_rerank_elapsed_ms
+            raw["retry_retrieval_limit"] = retrieval_limit
+            raw["retry_fused_evidence_top_k"] = merge_limit
             raw["retry_rerank_top_k"] = retry_rerank_top_k
+            raw["visual_evidence_top_k"] = VISUAL_EVIDENCE_TOP_K
+            raw["retry_evidence_judge_elapsed_ms"] = retry_evidence_judge_elapsed_ms
+            raw["retry_llm_evidence_judge_ms"] = (
+                0
+                if retry_evidence_route_source in {"", "rules", "rules_fallback", "rules_fast_path", "lightweight", "not_called"}
+                else retry_evidence_judge_elapsed_ms
+            )
             raw["evidence_judgement"] = state["evidence_judgement"]
             raw["visual_asset_count"] = visual_asset_count
+            logger.info(
+                "Retry retrieval value: run_id=%s retry_new_evidence_count=%s retry_added_value=%s retry_budget_stop_reason=%s",
+                raw.get("run_id"),
+                retry_new_evidence_count,
+                retry_new_evidence_count > 0,
+                retry_budget_stop_reason,
+            )
             logger.info(
                 "LangGraph证据不足补充检索完成: run_id=%s retry_retrievers=%s retry_query_count=%s final_evidence_count=%s final_enough=%s",
                 raw.get("run_id"),
@@ -2258,7 +2839,9 @@ class RetrievalGraph:
         judgement: dict[str, Any],
         retry_count: int,
         evidence_status: str,
+        evaluation: dict[str, Any],
     ) -> str | None:
+        has_retry_signal = self._has_retry_signal(judgement) or bool(evaluation.get("should_retry"))
         if bool(state.get("raw", {}).get("eval_mode")):
             return None
         if state.get("answer_policy") == ANSWER_POLICY_CLARIFY:
@@ -2269,11 +2852,39 @@ class RetrievalGraph:
             return "NON_RETRIEVAL_INTENT"
         if evidence_status == EVIDENCE_ENOUGH:
             return "EVIDENCE_ENOUGH"
+        if evidence_status in {EVIDENCE_WEAK_ONLY, EVIDENCE_PARTIAL} and not has_retry_signal:
+            return "LOW_RETRY_SIGNAL"
+        if (
+            evidence_status == EVIDENCE_EMPTY
+            and not has_retry_signal
+            and not self._looks_like_exact_lookup_fragment(str(state.get("question") or ""))
+        ):
+            return "LOW_RETRY_SIGNAL"
         if state.get("intent") == "project_overview":
             return "PROJECT_OVERVIEW_INSUFFICIENT_NO_HEAVY_RETRY"
         if retry_count >= 1:
             return "RETRY_LIMIT"
         return None
+
+    def _should_skip_retry_for_visual_partial(
+        self,
+        state: RetrievalGraphState,
+        evaluation: dict[str, Any],
+    ) -> bool:
+        """流程图问答已具备可回答的图纸证据时，避免补充检索把延迟放大。"""
+
+        if str(evaluation.get("evidence_status") or EVIDENCE_EMPTY) != EVIDENCE_PARTIAL:
+            return False
+        if not bool(evaluation.get("allow_limited_answer")):
+            return False
+        if not self._is_flow_visual_query(state):
+            return False
+        visual_asset_count = int(state.get("visual_asset_count") or 0)
+        if visual_asset_count <= 0 and not any(evidence.assets for evidence in state.get("evidences", [])):
+            return False
+        strong_count = int(evaluation.get("strong_evidence_count") or 0)
+        answerable_parts = evaluation.get("answerable_parts") or []
+        return strong_count > 0 or bool(answerable_parts)
 
     def _evidence_decision_node(self, state: RetrievalGraphState) -> RetrievalGraphState:
         """将证据判断归一化为答案门控可消费的 evidence_status。"""
@@ -2526,6 +3137,144 @@ class RetrievalGraph:
 
         return self._with_trace(state, "回答生成", "answer_generator", run)
 
+    def _has_retry_signal(self, judgement: dict[str, Any]) -> bool:
+        return bool(judgement.get("suggested_retrievers") or judgement.get("suggested_queries"))
+
+    def _retry_scope_from_evidences(self, state: RetrievalGraphState) -> dict[str, Any]:
+        """Build a narrow retry scope from first-round top evidences."""
+
+        document_ids: list[int] = []
+        chunk_ids: list[int] = []
+        file_names: list[str] = []
+        page_numbers_by_document: dict[int, list[int]] = {}
+        page_window = 1
+        evidences = sorted(
+            [evidence for evidence in state.get("evidences", []) if not evidence.metadata.get("metadata_only")],
+            key=lambda item: float(item.score),
+            reverse=True,
+        )[:8]
+        for evidence in evidences:
+            document_id = self._positive_int(getattr(evidence, "document_id", None))
+            chunk_id = self._positive_int(getattr(evidence, "chunk_id", None))
+            if document_id is not None and document_id not in document_ids:
+                document_ids.append(document_id)
+            if chunk_id is not None and chunk_id not in chunk_ids:
+                chunk_ids.append(chunk_id)
+            file_name = str(getattr(evidence, "file_name", "") or "").strip()
+            if file_name and file_name not in file_names:
+                file_names.append(file_name)
+            page_number = self._positive_int(getattr(evidence, "page_number", None))
+            if document_id is None or page_number is None:
+                continue
+            pages = page_numbers_by_document.setdefault(document_id, [])
+            for page in range(max(1, page_number - page_window), page_number + page_window + 1):
+                if page not in pages:
+                    pages.append(page)
+
+        scope = normalize_retrieval_scope(
+            {
+                "document_ids": document_ids,
+                "chunk_ids": chunk_ids,
+                "page_numbers_by_document": page_numbers_by_document,
+                "file_names": file_names,
+            }
+        )
+        if scope:
+            scope["source"] = "first_round_evidence"
+            scope["source_evidence_count"] = len(evidences)
+        return scope
+
+    def _positive_int(self, value: Any) -> int | None:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            return None
+        return normalized if normalized > 0 else None
+
+    def _retry_scope_query_candidates(self, state: RetrievalGraphState) -> list[str]:
+        candidates: list[str] = []
+        for evidence in state.get("evidences", [])[:5]:
+            parts = [
+                getattr(evidence, "file_name", None),
+                getattr(evidence, "drawing_no", None),
+                (getattr(evidence, "metadata", {}) or {}).get("document_name"),
+            ]
+            text = " ".join(str(item).strip() for item in parts if str(item or "").strip())
+            if text:
+                candidates.append(text)
+        return list(dict.fromkeys(candidates))[:4]
+
+    def _retry_query_limit_for_status(self, evidence_status: str, state: RetrievalGraphState) -> int:
+        configured_limit = self._max_retry_queries(state)
+        if evidence_status == EVIDENCE_EMPTY and self._looks_like_exact_lookup_fragment(str(state.get("question") or "")):
+            return min(configured_limit, 2)
+        return 1
+
+    def _retry_execution_ladder(self, retry_retrievers: list[str]) -> list[list[str]]:
+        preferred_order = {"page_index": 0, "ripgrep": 1, "keyword": 2, "project_metadata": 3, "milvus": 4}
+        ordered = sorted(list(dict.fromkeys(retry_retrievers)), key=lambda name: preferred_order.get(name, 10))
+        return [[name] for name in ordered]
+
+    def _retry_added_value_count(self, current_evidences: list[Evidence], retry_groups: list[list[Evidence]]) -> int:
+        existing_keys = {
+            (evidence.document_id, evidence.chunk_id, evidence.page_number)
+            for evidence in current_evidences
+        }
+        retry_keys = {
+            (evidence.document_id, evidence.chunk_id, evidence.page_number)
+            for group in retry_groups
+            for evidence in group
+        }
+        return len(retry_keys - existing_keys)
+
+    def _prioritize_retry_retrievers(
+        self,
+        retrievers: list[str],
+        evidence_status: str,
+        judgement: dict[str, Any],
+        state: RetrievalGraphState,
+    ) -> list[str]:
+        suggested = {
+            str(item or "").strip().lower()
+            for item in (judgement.get("suggested_retrievers") or [])
+            if str(item or "").strip()
+        }
+        already_used = {
+            str(item or "").strip().lower()
+            for item in state.get("used_retrievers", [])
+            if str(item or "").strip()
+        }
+        exact_lookup = self._looks_like_exact_lookup_fragment(str(state.get("question") or ""))
+        flow_visual_query = self._is_flow_visual_query(state)
+
+        def priority(name: str) -> tuple[int, str]:
+            value = 50
+            if name in suggested:
+                value -= 20
+            rank_map = {
+                "page_index": 0,
+                "ripgrep": 1,
+                "keyword": 2,
+                "project_metadata": 3,
+                "milvus": 4,
+            }
+            value += rank_map.get(name, 10) * 4
+            if flow_visual_query and name == "page_index":
+                value -= 12
+            if evidence_status == EVIDENCE_CONFLICTED and name == "project_metadata":
+                value -= 18
+            if exact_lookup and name in {"page_index", "ripgrep", "keyword"}:
+                value -= 8
+            if name in already_used and name not in suggested:
+                value += 6
+            if evidence_status in {EVIDENCE_WEAK_ONLY, EVIDENCE_PARTIAL} and name == "milvus" and name not in suggested:
+                value += 12
+            return value, name
+
+        ordered = sorted(list(dict.fromkeys(retrievers)), key=priority)
+        limit = 1 if state.get("intent") == "project_overview" else self._max_retry_retrievers(state)
+        return ordered[:limit]
+
     def _retry_strategy_for_status(
         self,
         evidence_status: str,
@@ -2535,18 +3284,44 @@ class RetrievalGraph:
         """按证据状态选择一次性补检索策略。"""
 
         suggested_retrievers = list(judgement.get("suggested_retrievers") or [])
+        flow_visual_query = self._is_flow_visual_query(state)
         if evidence_status == EVIDENCE_EMPTY:
-            default_retrievers = ["ripgrep", "keyword", "milvus", "project_metadata", "page_index"]
+            if flow_visual_query:
+                default_retrievers = ["page_index", "ripgrep", "keyword", "milvus", "project_metadata"]
+            else:
+                default_retrievers = ["ripgrep", "keyword", "milvus", "project_metadata", "page_index"]
         elif evidence_status == EVIDENCE_WEAK_ONLY:
-            default_retrievers = ["page_index", "ripgrep", "milvus", "keyword"]
+            default_retrievers = (
+                ["page_index", "ripgrep", "keyword", "milvus"]
+                if flow_visual_query
+                else ["page_index", "ripgrep", "milvus", "keyword"]
+            )
         elif evidence_status == EVIDENCE_PARTIAL:
-            default_retrievers = ["milvus", "ripgrep", "page_index", "keyword"]
+            default_retrievers = (
+                ["page_index", "ripgrep", "keyword"]
+                if flow_visual_query
+                else ["milvus", "ripgrep", "page_index", "keyword"]
+            )
         elif evidence_status == EVIDENCE_CONFLICTED:
-            default_retrievers = ["project_metadata", "ripgrep", "page_index", "keyword"]
+            default_retrievers = (
+                ["page_index", "ripgrep", "keyword", "project_metadata"]
+                if flow_visual_query
+                else ["project_metadata", "ripgrep", "page_index", "keyword"]
+            )
         else:
             return [], [], "evidence_enough"
 
-        retry_retrievers = self._filter_available_retrievers([*suggested_retrievers, *default_retrievers])
+        already_used = {str(item or "").strip().lower() for item in state.get("used_retrievers", [])}
+        if "milvus" in already_used and evidence_status in {EVIDENCE_EMPTY, EVIDENCE_WEAK_ONLY, EVIDENCE_PARTIAL}:
+            suggested_retrievers = [name for name in suggested_retrievers if str(name or "").strip().lower() != "milvus"]
+            default_retrievers = [name for name in default_retrievers if name != "milvus"]
+
+        retry_retrievers = self._prioritize_retry_retrievers(
+            self._filter_available_retrievers([*suggested_retrievers, *default_retrievers]),
+            evidence_status,
+            judgement,
+            state,
+        )
         retry_queries = self._retry_queries_for_status(evidence_status, judgement, state)
         reason = judgement.get("reason") or f"evidence_status={evidence_status}"
         return retry_retrievers, retry_queries, reason
@@ -2558,21 +3333,33 @@ class RetrievalGraph:
         state: RetrievalGraphState,
     ) -> list[str]:
         suggested_queries = [str(item).strip() for item in (judgement.get("suggested_queries") or []) if str(item).strip()]
-        missing_aspects = [str(item).strip() for item in (judgement.get("missing_aspects") or []) if str(item).strip()]
+        query_limit = self._retry_query_limit_for_status(evidence_status, state)
+        preferred_suggested = self._sanitize_search_queries(
+            state["question"],
+            suggested_queries,
+            limit=query_limit,
+            prefer_original=False,
+        )
+        suggested_keys = {normalize_query_text(query).lower() for query in suggested_queries}
+        if preferred_suggested and any(normalize_query_text(query).lower() in suggested_keys for query in preferred_suggested):
+            return preferred_suggested
+
         candidates: list[str] = []
         candidates.extend(suggested_queries)
-        candidates.extend(f"{state['question']} {aspect}" for aspect in missing_aspects[:3])
+        candidates.extend(self._retry_scope_query_candidates(state))
         if evidence_status == EVIDENCE_EMPTY:
             profile = state.get("query_profile", {}) or {}
             profile_terms = [
-                *list(profile.get("project_name_candidates") or [])[:3],
-                *list(profile.get("entities") or [])[:6],
-                *list(profile.get("keywords") or [])[:8],
+                *list(profile.get("project_name_candidates") or [])[:2],
+                *list(profile.get("entities") or [])[:4],
+                *list(profile.get("keywords") or [])[:4],
             ]
             candidates.append(state["question"])
             if profile_terms:
                 candidates.append(" ".join(str(item) for item in profile_terms))
-            candidates.extend(state.get("sub_queries", [])[:2])
+            candidates.extend(state.get("sub_queries", [])[1:3])
+        elif evidence_status in {EVIDENCE_WEAK_ONLY, EVIDENCE_PARTIAL, EVIDENCE_CONFLICTED}:
+            candidates.extend(self._build_retry_queries(suggested_queries, state))
         elif evidence_status == EVIDENCE_WEAK_ONLY:
             candidates.append(f"{state['question']} 正文 参数 流程 设备关系")
             candidates.extend(state.get("sub_queries", [])[:2])
@@ -2582,7 +3369,12 @@ class RetrievalGraph:
             candidates.append(f"{state['question']} 版本 审核状态 来源 发布时间 优先级")
         if not candidates:
             candidates = self._build_retry_queries([], state)
-        return list(dict.fromkeys(item for item in candidates if item))[:4]
+        return self._sanitize_search_queries(
+            state["question"],
+            candidates,
+            limit=query_limit,
+            prefer_original=False,
+        )
 
     def _filter_available_retrievers(self, retrievers: list[Any]) -> list[str]:
         """按当前 Router 可用列表过滤补充检索器。"""
@@ -2601,27 +3393,36 @@ class RetrievalGraph:
 
         candidates: list[str] = []
         candidates.extend(str(item).strip() for item in suggested_queries if str(item).strip())
-        if not candidates:
-            candidates.append(state["question"])
-            candidates.extend(state.get("sub_queries", [])[:2])
+        candidates.append(state["question"])
+        candidates.extend(((state.get("question_understanding", {}) or {}).get("query_rewrites") or [])[:4])
+        candidates.extend(((state.get("query_features", {}) or {}).get("query_rewrites") or [])[:4])
+        candidates.extend(state.get("sub_queries", [])[1:3])
         profile = state.get("query_profile", {}) or {}
-        profile_terms = [*list(profile.get("entities") or [])[:6], *list(profile.get("keywords") or [])[:8]]
-        if profile_terms and len(candidates) < 4:
+        profile_terms = [
+            *list(profile.get("project_name_candidates") or [])[:2],
+            *list(profile.get("entities") or [])[:4],
+            *list(profile.get("keywords") or [])[:4],
+        ]
+        if profile_terms:
             candidates.append(" ".join(str(item) for item in profile_terms))
-        limit = 1 if state.get("intent") == "project_overview" else 4
-        return list(dict.fromkeys(item for item in candidates if item))[:limit]
+        return self._sanitize_search_queries(
+            state["question"],
+            candidates,
+            limit=1 if state.get("intent") == "project_overview" else self._max_retry_queries(state),
+            prefer_original=False,
+        )
 
     def _merge_evidences_by_source(self, evidence_groups: list[list[Evidence]], limit: int) -> list[Evidence]:
         """按文档、chunk、页码和图号去重，保留最高分证据。"""
 
-        by_source: dict[tuple[int, int, int | None, str | None], Evidence] = {}
+        by_source: dict[tuple[int, int, int | None], Evidence] = {}
         for group in evidence_groups:
             for evidence in group:
-                key = (evidence.document_id, evidence.chunk_id, evidence.page_number, evidence.drawing_no)
+                key = (evidence.document_id, evidence.chunk_id, evidence.page_number)
                 existing = by_source.get(key)
-                if existing is None or evidence.score > existing.score:
+                if existing is None or self._evidence_score(evidence) > self._evidence_score(existing):
                     by_source[key] = evidence
-        return sorted(by_source.values(), key=lambda item: item.score, reverse=True)[:limit]
+        return self._top_scored_evidences(list(by_source.values()), limit)
 
     def _state_log_context(self, state: RetrievalGraphState) -> dict[str, Any]:
         """
@@ -2698,6 +3499,9 @@ class RetrievalGraph:
             "retriever_hits": state.get("retriever_hits", {}),
             "retriever_elapsed_ms": state.get("retriever_elapsed_ms", {}),
             "retriever_top_scores": state.get("retriever_top_scores", {}),
+            "retriever_timeouts": state.get("raw", {}).get("retriever_timeouts", {}),
+            "timing_summary": state.get("raw", {}).get("timing_summary", {}),
+            "retrieval_sub_query_count": len(state.get("raw", {}).get("retrieval_sub_queries", [])),
             "rerank_details": self._clip(str(state.get("rerank_details", [])), 1000),
             "evidence_judgement": state.get("evidence_judgement", {}),
             "evidence_evaluation": state.get("evidence_evaluation", {}),
@@ -2706,6 +3510,8 @@ class RetrievalGraph:
             "retry_count": state.get("raw", {}).get("retry_count", 0),
             "retry_retrievers": state.get("raw", {}).get("retry_retrievers", []),
             "retry_query_count": state.get("raw", {}).get("retry_query_count", 0),
+            "retry_budget_stop_reason": state.get("raw", {}).get("retry_budget_stop_reason"),
+            "retry_query_detail_count": len(state.get("raw", {}).get("retry_query_details", [])),
             "model_routes": state.get("model_routes", {}),
             "evidence": self._evidence_log_summary(state.get("evidences", [])),
             "visual_asset_count": state.get("visual_asset_count", 0),
@@ -2799,6 +3605,8 @@ class RetrievalGraph:
             "retriever_hits": state.get("retriever_hits", {}),
             "retriever_elapsed_ms": state.get("retriever_elapsed_ms", {}),
             "retriever_top_scores": state.get("retriever_top_scores", {}),
+            "retriever_timeouts": state.get("raw", {}).get("retriever_timeouts", {}),
+            "retrieval_sub_queries": state.get("raw", {}).get("retrieval_sub_queries", []),
             "evidence_judgement": state.get("evidence_judgement", {}),
             "evidence_evaluation": state.get("evidence_evaluation", {}),
             "answer_policy_gate": state.get("answer_policy_decision", {}),
@@ -2807,6 +3615,11 @@ class RetrievalGraph:
             "retry_reason": state.get("raw", {}).get("retry_reason"),
             "retry_retrievers": state.get("raw", {}).get("retry_retrievers", []),
             "retry_query_count": state.get("raw", {}).get("retry_query_count", 0),
+            "retry_query_details": state.get("raw", {}).get("retry_query_details", []),
+            "retry_budget_stop_reason": state.get("raw", {}).get("retry_budget_stop_reason"),
+            "timing_summary": state.get("raw", {}).get("timing_summary", {}),
+            "evidence_judge_elapsed_ms": state.get("raw", {}).get("evidence_judge_elapsed_ms", 0),
+            "retry_evidence_judge_elapsed_ms": state.get("raw", {}).get("retry_evidence_judge_elapsed_ms", 0),
             "model_route": self._model_route_for_trace_key(state, trace_key or self._infer_trace_key(step, "")),
             "evidence": self._evidence_log_summary(state.get("evidences", [])),
             "visual_asset_count": state.get("visual_asset_count", 0),
@@ -2818,6 +3631,161 @@ class RetrievalGraph:
 
         model_routes = state.get("model_routes", {})
         return model_routes.get(trace_key, {})
+
+    def _record_trace_timing(
+        self,
+        state: RetrievalGraphState,
+        trace_key: str,
+        elapsed_ms: int,
+        status: str,
+    ) -> None:
+        raw = state.setdefault("raw", {})
+        stage_timings = dict(raw.get("stage_timings_ms") or {})
+        stage_timings[trace_key] = int(elapsed_ms or 0)
+        raw["stage_timings_ms"] = stage_timings
+
+        stage_status = dict(raw.get("stage_status") or {})
+        stage_status[trace_key] = status
+        raw["stage_status"] = stage_status
+        raw["timing_summary"] = self._build_timing_summary(state)
+
+    def _sum_ms(self, values: Any) -> int:
+        if isinstance(values, dict):
+            iterable = values.values()
+        elif isinstance(values, (list, tuple, set)):
+            iterable = values
+        else:
+            return 0
+        total = 0
+        for item in iterable:
+            try:
+                total += int(item or 0)
+            except (TypeError, ValueError):
+                continue
+        return total
+
+    def _query_timing_total_ms(self, entries: Any) -> int:
+        if not isinstance(entries, list):
+            return 0
+        return self._sum_ms(
+            [
+                entry.get("execution_elapsed_ms", 0)
+                for entry in entries
+                if isinstance(entry, dict)
+            ]
+        )
+
+    def _query_retriever_total_ms(self, entries: Any) -> int:
+        if not isinstance(entries, list):
+            return 0
+        total = 0
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            total += self._sum_ms(entry.get("retriever_elapsed_ms") or {})
+        return total
+
+    def _slowest_query_timing(self, entries: Any, index_key: str) -> dict[str, Any] | None:
+        if not isinstance(entries, list):
+            return None
+        slowest_entry: dict[str, Any] | None = None
+        slowest_elapsed_ms = -1
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            elapsed_ms = int(entry.get("execution_elapsed_ms") or 0)
+            if elapsed_ms <= slowest_elapsed_ms:
+                continue
+            slowest_elapsed_ms = elapsed_ms
+            slowest_entry = entry
+        if slowest_entry is None:
+            return None
+        return {
+            "index": slowest_entry.get(index_key),
+            "query": slowest_entry.get("query", ""),
+            "elapsed_ms": int(slowest_entry.get("execution_elapsed_ms") or 0),
+            "executed_retrievers": slowest_entry.get("executed_retrievers", []),
+        }
+
+    def _stage_uses_llm(self, state: RetrievalGraphState, trace_key: str) -> bool:
+        route = self._model_route_for_trace_key(state, trace_key)
+        source = str(route.get("source") or "").strip().lower()
+        return bool(source and source not in {"rules", "rules_fallback", "rules_fast_path", "lightweight", "not_called"})
+
+    def _build_timing_summary(self, state: RetrievalGraphState) -> dict[str, Any]:
+        raw = state.get("raw", {})
+        stage_timings = dict(raw.get("stage_timings_ms") or {})
+        llm_stage_timings = {
+            key: int(value or 0)
+            for key, value in stage_timings.items()
+            if self._stage_uses_llm(state, key)
+        }
+        retrieval_stage_ms = int(stage_timings.get("retrieval") or 0)
+        retry_stage_ms = int(stage_timings.get("retry_retrieval") or 0)
+        evidence_judge_stage_ms = int(stage_timings.get("evidence_judge") or 0)
+        retrieval_sub_queries = list(raw.get("retrieval_sub_queries") or [])
+        retry_query_details = list(raw.get("retry_query_details") or [])
+        retrieval_sub_query_total_ms = self._query_timing_total_ms(retrieval_sub_queries)
+        retry_query_total_ms = self._query_timing_total_ms(retry_query_details)
+        retriever_total_ms = self._query_retriever_total_ms(retrieval_sub_queries) or self._sum_ms(
+            raw.get("retriever_elapsed_ms") or {}
+        )
+        retry_retriever_total_ms = self._query_retriever_total_ms(retry_query_details) or self._sum_ms(
+            raw.get("retry_elapsed_ms") or {}
+        )
+        rerank_ms = int(raw.get("rerank_elapsed_ms") or 0)
+        retry_rerank_ms = int(raw.get("retry_rerank_elapsed_ms") or 0)
+        evidence_judge_elapsed_ms = int(raw.get("evidence_judge_elapsed_ms") or 0)
+        llm_evidence_judge_ms = int(raw.get("llm_evidence_judge_ms") or 0)
+        retry_evidence_judge_elapsed_ms = int(raw.get("retry_evidence_judge_elapsed_ms") or 0)
+        retry_llm_evidence_judge_ms = int(raw.get("retry_llm_evidence_judge_ms") or 0)
+        retrieval_sub_query_overhead_ms = max(retrieval_sub_query_total_ms - retriever_total_ms, 0)
+        retry_query_overhead_ms = max(retry_query_total_ms - retry_retriever_total_ms, 0)
+        retrieval_overhead_ms = max(retrieval_stage_ms - retrieval_sub_query_total_ms - rerank_ms, 0)
+        retry_overhead_ms = max(
+            retry_stage_ms - retry_query_total_ms - retry_rerank_ms - retry_evidence_judge_elapsed_ms,
+            0,
+        )
+        sorted_stage_timings = sorted(stage_timings.items(), key=lambda item: int(item[1] or 0), reverse=True)
+        slowest_stage = sorted_stage_timings[0] if sorted_stage_timings else None
+        retriever_elapsed = dict(raw.get("retriever_elapsed_ms") or {})
+        slowest_retriever = None
+        if retriever_elapsed:
+            slowest_retriever = max(retriever_elapsed.items(), key=lambda item: int(item[1] or 0))
+        return {
+            "total_stage_ms": self._sum_ms(stage_timings),
+            "stage_timings_ms": stage_timings,
+            "llm_stage_timings_ms": llm_stage_timings,
+            "retrieval_pipeline_ms": {
+                "retrieval_stage_ms": retrieval_stage_ms,
+                "retrieval_sub_query_total_ms": retrieval_sub_query_total_ms,
+                "retriever_total_ms": retriever_total_ms,
+                "retrieval_sub_query_overhead_ms": retrieval_sub_query_overhead_ms,
+                "rerank_ms": rerank_ms,
+                "retrieval_overhead_ms": retrieval_overhead_ms,
+                "evidence_judge_stage_ms": evidence_judge_stage_ms,
+                "evidence_judge_elapsed_ms": evidence_judge_elapsed_ms,
+                "llm_evidence_judge_ms": llm_evidence_judge_ms,
+                "retry_stage_ms": retry_stage_ms,
+                "retry_query_total_ms": retry_query_total_ms,
+                "retry_retriever_total_ms": retry_retriever_total_ms,
+                "retry_query_overhead_ms": retry_query_overhead_ms,
+                "retry_rerank_ms": retry_rerank_ms,
+                "retry_evidence_judge_elapsed_ms": retry_evidence_judge_elapsed_ms,
+                "retry_llm_evidence_judge_ms": retry_llm_evidence_judge_ms,
+                "retry_overhead_ms": retry_overhead_ms,
+            },
+            "slowest_stage": (
+                {"name": slowest_stage[0], "elapsed_ms": int(slowest_stage[1] or 0)} if slowest_stage is not None else None
+            ),
+            "slowest_retriever": (
+                {"name": slowest_retriever[0], "elapsed_ms": int(slowest_retriever[1] or 0)}
+                if slowest_retriever is not None
+                else None
+            ),
+            "slowest_sub_query": self._slowest_query_timing(retrieval_sub_queries, "sub_query_index"),
+            "slowest_retry_query": self._slowest_query_timing(retry_query_details, "retry_query_index"),
+        }
 
     def next_trace_sequence(self, state: RetrievalGraphState) -> int:
         """为同一次问答生成递增的 trace 序号，便于前端合并 running/success 状态。"""

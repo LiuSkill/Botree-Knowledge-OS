@@ -12,7 +12,13 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
-from app.retrieval.query_utils import count_search_token, extract_query_terms, score_text_relevance  # noqa: E402
+from app.retrieval.query_utils import (  # noqa: E402
+    augment_query_terms,
+    count_search_token,
+    extract_query_terms,
+    is_structured_list_lookup_query,
+    score_text_relevance,
+)
 
 
 def test_element_symbol_uses_word_boundary() -> None:
@@ -54,3 +60,12 @@ def test_table_value_query_demotes_project_header_without_target_element() -> No
     )
 
     assert score_text_relevance(table_text, query, terms) > score_text_relevance(header_text, query, terms)
+
+
+def test_structured_list_lookup_adds_product_alias_terms() -> None:
+    query = "该项目的最终产品有哪些"
+    terms = set(augment_query_terms(query))
+
+    assert is_structured_list_lookup_query(query) is True
+    assert {"Product List", "Product Name", "Products"}.issubset(terms)
+    assert {"List", "Table", "Name"}.isdisjoint(terms)

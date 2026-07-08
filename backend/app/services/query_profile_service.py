@@ -156,7 +156,9 @@ class QueryProfileService:
         has_project_name = bool(project_name_candidates)
         need_page_location = self._contains_any(lowered, PAGE_LOCATION_HINTS)
         need_exact_term = self._contains_any(lowered, EXACT_LOOKUP_HINTS) or has_doc_code or has_tag
-        need_visual_asset = need_page_location or any(token in lowered for token in ("图纸", "drawing"))
+        explicit_visual_hint = need_page_location or any(
+            token in lowered for token in ("图纸", "drawing", "diagram", "pid", "p&id", "pfd")
+        )
         need_graph_reasoning = self._contains_any(lowered, GRAPH_REASONING_HINTS)
 
         if intent in {"greeting", "pure_general_qa", "general_qa"}:
@@ -205,6 +207,7 @@ class QueryProfileService:
             answer_shape = "general"
             reasons.append("未命中强规则信号")
 
+        need_visual_asset = explicit_visual_hint or query_type in {"process_flow", "graph_reasoning", "page_location"}
         entities = self._extract_entities(normalized)
         keywords = self._extract_keywords(normalized, sub_queries or [])
 

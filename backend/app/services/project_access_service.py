@@ -30,6 +30,8 @@ class ProjectAccessService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.project_repository = ProjectRepository(db)
+        self._project_cache: dict[int, Project | None] = {}
+        self._project_access_cache: dict[tuple[int, int | str | None, tuple[str, ...]], Project] = {}
 
     def is_admin(self, user: User) -> bool:
         """系统管理员不受项目数据范围限制。"""
@@ -66,12 +68,21 @@ class ProjectAccessService:
     ) -> Project:
         """校验项目页面/API 权限、数据范围和项目密级。"""
 
-        project = self.project_repository.get(project_id)
+        normalized_permission_codes = tuple(dict.fromkeys(permission_codes))
+        access_key = (int(project_id), self._user_cache_key(user), normalized_permission_codes)
+        cached_project = self._project_access_cache.get(access_key)
+        if cached_project is not None:
+            return cached_project
+
+        if project_id not in self._project_cache:
+            self._project_cache[project_id] = self.project_repository.get(project_id)
+        project = self._project_cache[project_id]
         if not project or bool(getattr(project, "is_deleted", False)):
             raise AppException("项目不存在", status_code=404, code=404)
-        self.ensure_permission(user, *permission_codes, message="无权访问该项目")
+        self.ensure_permission(user, *normalized_permission_codes, message="无权访问该项目")
         ensure_security_level_access(user, project.security_level, message="无权访问该项目密级")
         if self.is_admin(user) or self._data_scope_allows_project(project, user):
+            self._project_access_cache[access_key] = project
             return project
         raise AppException("无权访问该项目", status_code=403, code=403)
 
@@ -150,3 +161,6 @@ class ProjectAccessService:
 
     def _is_active_member(self, member: ProjectMember | None) -> bool:
         return bool(member and member.status == "active")
+
+    def _user_cache_key(self, user: User) -> int | str | None:
+        return getattr(user, "id", None) or getattr(user, "username", None)

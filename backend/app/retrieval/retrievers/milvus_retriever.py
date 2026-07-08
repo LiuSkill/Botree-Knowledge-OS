@@ -15,12 +15,11 @@ from app.knowledge.indexing.milvus_indexer import MilvusIndexer
 from app.models.document import Document
 from app.models.user import User
 from app.repositories.document_repository import DocumentRepository
-from app.retrieval.base import BaseRetriever
+from app.retrieval.base import BaseRetriever, DEFAULT_RETRIEVER_TOP_K
 from app.retrieval.retrievers.keyword_retriever import KeywordRetriever
 from app.retrieval.schemas import Evidence
 from app.services.embedding_service import EmbeddingService
 from app.services.project_document_policy_service import ProjectDocumentPolicyService
-from app.services.project_service import ProjectService
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,14 @@ class MilvusHybridRetriever(BaseRetriever):
         self.milvus_indexer = MilvusIndexer()
         self.keyword_policy = KeywordRetriever(db)
 
-    def search(self, query: str, mode: str, project_id: int | None, user: User, limit: int = 5) -> list[Evidence]:
+    def search(
+        self,
+        query: str,
+        mode: str,
+        project_id: int | None,
+        user: User,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
+    ) -> list[Evidence]:
         """
         执行真实向量检索。
 
@@ -63,7 +69,6 @@ class MilvusHybridRetriever(BaseRetriever):
         milvus_expr, access_debug = self._build_milvus_expr(mode, project_id, user)
         hits = self.milvus_indexer.search(query_vector, limit * 3, expr=milvus_expr)
         evidences: list[Evidence] = []
-        project_service = ProjectService(self.db)
         project_document_policy = ProjectDocumentPolicyService(self.db)
         filter_stats = {
             "missing_or_inactive_chunk": 0,
@@ -71,7 +76,6 @@ class MilvusHybridRetriever(BaseRetriever):
             "version_mismatch": 0,
             "security_denied": 0,
             "scope_denied": 0,
-            "project_access_denied": 0,
         }
         allowed_levels = set(self.keyword_policy._allowed_security_levels(user))
 
@@ -106,17 +110,6 @@ class MilvusHybridRetriever(BaseRetriever):
                 )
                 if reject_reason:
                     filter_stats[reject_reason] = filter_stats.get(reject_reason, 0) + 1
-                    continue
-                try:
-                    project_service.ensure_project_access(document.project_id, user)
-                except Exception:
-                    filter_stats["project_access_denied"] += 1
-                    logger.exception(
-                        "Milvus检索项目权限校验失败: document_id=%s project_id=%s user_id=%s",
-                        document.id,
-                        document.project_id,
-                        getattr(user, "id", None),
-                    )
                     continue
             evidences.append(
                 Evidence(

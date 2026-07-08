@@ -35,6 +35,7 @@ def test_project_profile_priority_over_industry_terms() -> None:
 
     assert profile["query_type"] == "process_flow"
     assert profile["knowledge_scope"] == "project"
+    assert profile["need_visual_asset"] is True
     assert profile["is_industry_domain"] is True
     assert "hydrometallurgy" in profile["industry_domains"]
 
@@ -50,3 +51,11 @@ def test_project_name_does_not_force_exact_lookup() -> None:
     assert profile["has_project_name"] is True
     assert profile["need_exact_term"] is False
     assert profile["need_page_location"] is False
+
+
+def test_process_flow_query_without_explicit_drawing_keyword_still_requests_visual_assets() -> None:
+    profile = QueryProfileService().build_profile("Na2SO4蒸发流程", intent="project_qa")
+
+    assert profile["query_type"] == "process_flow"
+    assert profile["answer_shape"] == "process_steps"
+    assert profile["need_visual_asset"] is True

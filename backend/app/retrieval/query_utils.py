@@ -1,10 +1,8 @@
 """
-Retrieval Query Utilities
+Retrieval query utilities.
 
-负责：
-1. 统一在线问答中的查询归一化、关键词抽取和短语扩展
-2. 为 PageIndex、ripgrep、Keyword、Reranker 提供一致的评分输入
-3. 识别版权页、目录页等低价值证据并提供降权依据
+Shared helpers for query normalization, keyword extraction, phrase expansion,
+and lightweight relevance scoring across retrievers and rerankers.
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ CHINESE_STOPWORDS = {
     "介绍",
     "说明",
     "项目",
-    "一下",
+    "一个",
     "请问",
     "请",
     "这个",
@@ -74,23 +72,43 @@ VALUE_LOOKUP_HINTS = (
     "minimum",
 )
 TABLE_LOOKUP_HINTS = ("表格", "元素", "成分", "含量", "percentage", "element", "calculation", "calculation in design", "wt%")
+LIST_LOOKUP_HINTS = ("哪些", "列表", "清单", "明细", "名称", "一览", "list", "listing", "items", "names")
+LIST_TARGET_HINTS = (
+    "产品",
+    "最终产品",
+    "product",
+    "final product",
+    "equipment",
+    "设备",
+    "material",
+    "物料",
+    "raw material",
+    "原料",
+    "component",
+    "部件",
+    "subproject",
+    "分项",
+)
+PRODUCT_LIST_PHRASES = ("Product List", "Product Name", "Products", "Final Product")
+EQUIPMENT_LIST_PHRASES = ("Equipment List", "Equipment Name", "Equipment")
+MATERIAL_LIST_PHRASES = ("Material List", "Material Name", "Materials", "Raw Material")
 ELEMENT_SYMBOL_PATTERN = re.compile(
     r"(?<![A-Za-z0-9])(?:Li|Ni|Co|Mn|Al|Cu|Fe|Ca|Mg|PVDF|PAA|C|O|P|F)(?![A-Za-z0-9])"
 )
+TABLE_ROW_PATTERN = re.compile(r"\|\s*\d+\s*\|")
 
 
 def normalize_query_text(text: str) -> str:
     """
-    归一化查询文本。
-
-    参数:
-        text: 原始查询或文档文本。
-
-    返回:
-        便于检索和匹配的归一化文本。
+    Normalize query/content text for retrieval.
     """
 
-    normalized = text.replace("×", "x").replace("＊", "*").replace("／", "/")
+    normalized = (
+        text.replace("脳", "x")
+        .replace("×", "x")
+        .replace("＊", "*")
+        .replace("／", "/")
+    )
     normalized = re.sub(r"\s+", " ", normalized)
     normalized = re.sub(r"(\d)\s*[xX*]\s*(\d)", r"\1x\2", normalized)
     return normalized.strip()
@@ -98,14 +116,7 @@ def normalize_query_text(text: str) -> str:
 
 def extract_query_terms(query: str, include_chinese_chars: bool = False) -> list[str]:
     """
-    抽取检索关键词。
-
-    参数:
-        query: 用户问题或子查询。
-        include_chinese_chars: 是否保留单字中文，默认关闭以减少噪声。
-
-    返回:
-        去重后的关键词列表。
+    Extract de-duplicated query terms.
     """
 
     normalized = normalize_query_text(query).lower()
@@ -117,13 +128,7 @@ def extract_query_terms(query: str, include_chinese_chars: bool = False) -> list
 
 def expand_search_phrases(query: str) -> list[str]:
     """
-    扩展检索短语。
-
-    参数:
-        query: 用户问题。
-
-    返回:
-        适合 PageIndex、ripgrep 和向量检索的短语列表。
+    Expand query into retrieval-friendly phrases.
     """
 
     normalized = normalize_query_text(query)
@@ -131,7 +136,6 @@ def expand_search_phrases(query: str) -> list[str]:
     phrases: list[str] = [normalized]
     domain_phrases: list[str] = []
 
-    # 抽取连续英文/数字片段，避免中文提示词污染英文项目名匹配。
     english_spans = re.findall(r"[A-Za-z0-9][A-Za-z0-9&.,()/#\- xX*]{2,}", normalized)
     phrases.extend(span.strip(" ,.;:") for span in english_spans)
 
@@ -149,26 +153,18 @@ def expand_search_phrases(query: str) -> list[str]:
         domain_phrases.append("Calculation in design")
     if is_project_overview_query(query):
         domain_phrases.extend(["Project overview", "Design Basis", "Plant Capacity", "Production Capacity", "Products", "Client"])
+    if is_structured_list_lookup_query(query):
+        domain_phrases.extend(structured_lookup_phrases(query))
 
-    # 领域短语比普通分词更接近文档中的标题和参数，必须先进入检索器模式列表。
     phrases.extend(domain_phrases)
-    terms = extract_query_terms(normalized)
-    phrases.extend(terms)
+    phrases.extend(extract_query_terms(normalized))
 
     return _dedupe(item for item in phrases if len(item.strip()) >= 3)[:16]
 
 
 def score_text_relevance(content: str, query: str, terms: list[str] | None = None) -> float:
     """
-    计算文本与查询的相关性分数。
-
-    参数:
-        content: 候选文本。
-        query: 用户问题。
-        terms: 可选的预抽取关键词。
-
-    返回:
-        相关性分数，已包含版权页和目录页降权。
+    Lightweight lexical relevance scoring with a few domain-specific boosts.
     """
 
     normalized_content = normalize_query_text(content).lower()
@@ -186,6 +182,7 @@ def score_text_relevance(content: str, query: str, terms: list[str] | None = Non
         count = count_search_token(normalized_content, term.lower())
         if count:
             score += 1.0 + min(count, 5) * 0.25
+
     if is_table_value_lookup_query(query):
         element_symbols = extract_element_symbols(query)
         matched_symbols = [symbol for symbol in element_symbols if contains_search_token(normalized_content, symbol.lower())]
@@ -199,6 +196,7 @@ def score_text_relevance(content: str, query: str, terms: list[str] | None = Non
                 score += 2.0
             if any(re.search(rf"\|\s*{re.escape(symbol.lower())}\s*\|", normalized_content) for symbol in matched_symbols):
                 score += 4.0
+
     if is_project_overview_query(query):
         if "plant capacity" in normalized_content or "production capacity" in normalized_content:
             score += 3.0
@@ -207,21 +205,27 @@ def score_text_relevance(content: str, query: str, terms: list[str] | None = Non
         if "client" in normalized_content:
             score += 1.5
 
+    if is_structured_list_lookup_query(query):
+        if TABLE_ROW_PATTERN.search(normalized_content):
+            score += 3.0
+        if normalized_content.count("|") >= 6:
+            score += 1.5
+
     return max(0.0, score * boilerplate_multiplier(content))
 
 
 def contains_search_token(normalized_content: str, token: str) -> bool:
     """
-    判断 token 是否命中文本。
-
-    英文元素符号等短 token 必须按词边界匹配，避免 Co 误命中 corrosion。
+    Whether the normalized content contains the token.
     """
 
     return count_search_token(normalized_content, token) > 0
 
 
 def count_search_token(normalized_content: str, token: str) -> int:
-    """统计 token 命中次数，英文/数字 token 使用词边界。"""
+    """
+    Count token hits using boundaries for short Latin tokens.
+    """
 
     normalized_token = normalize_query_text(token).lower().strip()
     if not normalized_content or not normalized_token:
@@ -229,7 +233,7 @@ def count_search_token(normalized_content: str, token: str) -> int:
     if _requires_word_boundary(normalized_token):
         right_boundary = r"(?![a-z0-9_])"
         if normalized_token == "co":
-            # Co 元素查询不能命中页眉中的公司缩写 CO., LTD 或化学式 CO_{3}。
+            # Avoid matching company suffixes like "CO., LTD" for cobalt queries.
             right_boundary = r"(?![a-z0-9_\.])"
         pattern = re.compile(rf"(?<![a-z0-9_]){re.escape(normalized_token)}{right_boundary}", re.IGNORECASE)
         return len(pattern.findall(normalized_content))
@@ -238,13 +242,7 @@ def count_search_token(normalized_content: str, token: str) -> int:
 
 def boilerplate_multiplier(content: str) -> float:
     """
-    计算低价值页面降权倍数。
-
-    参数:
-        content: 候选文本。
-
-    返回:
-        0 到 1 之间的分数倍数。
+    Down-rank boilerplate and TOC-like content.
     """
 
     text = normalize_query_text(content).lower()
@@ -258,13 +256,7 @@ def boilerplate_multiplier(content: str) -> float:
 
 def is_project_overview_query(query: str) -> bool:
     """
-    判断是否为项目介绍类问题。
-
-    参数:
-        query: 用户问题。
-
-    返回:
-        True 表示需要覆盖项目概况字段。
+    Whether the query asks for project overview-style information.
     """
 
     lowered = normalize_query_text(query).lower()
@@ -273,9 +265,7 @@ def is_project_overview_query(query: str) -> bool:
 
 def is_table_value_lookup_query(query: str) -> bool:
     """
-    判断是否为表格参数值查询。
-
-    这类问题通常由元素符号/表格字段 + 最大最小值等值域词组成，需要避免项目页眉词干扰排序。
+    Whether the query looks like a table value lookup.
     """
 
     normalized = normalize_query_text(query)
@@ -285,18 +275,55 @@ def is_table_value_lookup_query(query: str) -> bool:
     return has_value_hint and (has_table_hint or bool(extract_element_symbols(normalized)))
 
 
+def is_structured_list_lookup_query(query: str) -> bool:
+    """
+    Detect list-like lookup questions that usually map to table/list pages.
+    """
+
+    lowered = normalize_query_text(query).lower()
+    has_list_intent = any(hint in lowered for hint in LIST_LOOKUP_HINTS)
+    has_list_target = any(hint in lowered for hint in LIST_TARGET_HINTS)
+    return has_list_intent and has_list_target
+
+
+def structured_lookup_phrases(query: str) -> list[str]:
+    """
+    English aliases commonly used by product/equipment/material list documents.
+    """
+
+    lowered = normalize_query_text(query).lower()
+    phrases: list[str] = []
+    if any(hint in lowered for hint in ("产品", "最终产品", "product", "final product")):
+        phrases.extend(PRODUCT_LIST_PHRASES)
+    if any(hint in lowered for hint in ("equipment", "设备")):
+        phrases.extend(EQUIPMENT_LIST_PHRASES)
+    if any(hint in lowered for hint in ("material", "raw material", "物料", "原料")):
+        phrases.extend(MATERIAL_LIST_PHRASES)
+    return _dedupe(phrases)
+
+
+def augment_query_terms(query: str, base_terms: list[str] | None = None) -> list[str]:
+    """
+    Add narrow structured-list aliases without broadening normal queries too much.
+    """
+
+    candidates = list(base_terms or extract_query_terms(query))
+    candidates.extend(structured_lookup_phrases(query))
+    return _dedupe(candidates)
+
+
 def extract_element_symbols(query: str) -> list[str]:
     """
-    从查询中抽取常见物料表元素符号。
-
-    返回保持原大小写的去重结果，调用方可按需要转换为小写。
+    Extract common material-table element symbols from the query.
     """
 
     return _dedupe(match.group(0) for match in ELEMENT_SYMBOL_PATTERN.finditer(query))
 
 
 def _is_meaningful_term(term: str) -> bool:
-    """判断关键词是否有检索价值。"""
+    """
+    Whether the extracted term is useful for retrieval.
+    """
 
     normalized = term.lower().strip()
     if not normalized:
@@ -311,13 +338,17 @@ def _is_meaningful_term(term: str) -> bool:
 
 
 def _requires_word_boundary(token: str) -> bool:
-    """英文/数字 token 不允许按普通子串匹配。"""
+    """
+    Latin/number tokens should use word boundaries instead of raw substring match.
+    """
 
     return bool(re.fullmatch(r"[a-z0-9]+(?:[._\-/][a-z0-9]+)*", token))
 
 
 def _dedupe(items: Iterable[str]) -> list[str]:
-    """保持顺序去重并清理空白。"""
+    """
+    Preserve order while de-duplicating normalized strings.
+    """
 
     result: list[str] = []
     seen: set[str] = set()

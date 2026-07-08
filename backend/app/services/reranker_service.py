@@ -7,7 +7,9 @@ reranker；在允许降级的场景下，保留确定性规则排序作为 fallb
 
 from __future__ import annotations
 
+import copy
 import logging
+import threading
 import time
 from dataclasses import dataclass
 
@@ -78,8 +80,9 @@ class RerankerService:
         normalized_score_order = self._normalize_score_order(score_order)
         if require_real_model or self._has_default_real_model():
             try:
-                return self._rerank_with_real_model(query, evidences, limit, normalized_score_order)
+                return self._rerank_with_real_model_with_timeout(query, evidences, limit, normalized_score_order)
             except Exception as exc:
+                failure_runtime = dict(self.last_runtime)
                 if require_real_model and not allow_fallback:
                     logger.exception("真实Reranker调用失败且禁止fallback: candidate_count=%s", len(evidences))
                     if isinstance(exc, AppException):
@@ -92,8 +95,91 @@ class RerankerService:
                     exc,
                     exc_info=True,
                 )
+                reranked = self._rerank_with_fallback(
+                    query,
+                    evidences,
+                    limit,
+                    normalized_score_order,
+                    fallback_used=True,
+                )
+                if failure_runtime:
+                    self.last_runtime["real_model_runtime"] = failure_runtime
+                self.last_runtime["real_model_error"] = str(exc)
+                return reranked
 
         return self._rerank_with_fallback(query, evidences, limit, normalized_score_order, fallback_used=True)
+
+    def _rerank_with_real_model_with_timeout(
+        self,
+        query: str,
+        evidences: list[Evidence],
+        limit: int,
+        score_order: str,
+    ) -> list[Evidence]:
+        timeout_seconds = float(getattr(self.settings, "reranker_timeout_seconds", 15) or 15)
+        if timeout_seconds <= 0:
+            return self._rerank_with_real_model(query, evidences, limit, score_order)
+
+        total_started_at = time.perf_counter()
+        gate_context = self._try_acquire_local_inference_slot(timeout_seconds, len(evidences), score_order)
+        queue_wait_ms = int(gate_context["queue_wait_ms"]) if gate_context else 0
+        prepare_elapsed_ms = int(gate_context["prepare_elapsed_ms"]) if gate_context else 0
+        wait_budget_seconds = max(0.0, timeout_seconds - prepare_elapsed_ms / 1000.0)
+        if gate_context is not None and wait_budget_seconds <= 0:
+            gate_context["model"].release_inference_slot()
+            self._record_real_model_timeout_runtime(
+                gate_context=gate_context,
+                candidate_count=len(evidences),
+                score_order=score_order,
+                queue_wait_ms=queue_wait_ms,
+                prepare_elapsed_ms=prepare_elapsed_ms,
+                timeout_seconds=timeout_seconds,
+                timeout_stage="prepare",
+                total_elapsed_ms=prepare_elapsed_ms,
+            )
+            raise TimeoutError(f"real_reranker_timeout>{timeout_seconds}s")
+        worker_evidences = copy.deepcopy(evidences)
+        result_holder: dict[str, list[Evidence]] = {}
+        error_holder: dict[str, BaseException] = {}
+        completed = threading.Event()
+
+        def run_real_rerank() -> None:
+            try:
+                result_holder["value"] = self._rerank_with_real_model(query, worker_evidences, limit, score_order)
+            except BaseException as exc:  # noqa: BLE001
+                error_holder["error"] = exc
+            finally:
+                if gate_context is not None:
+                    gate_context["model"].release_inference_slot()
+                completed.set()
+
+        worker = threading.Thread(target=run_real_rerank, name="reranker-real-model", daemon=True)
+        try:
+            worker.start()
+        except Exception:
+            if gate_context is not None:
+                gate_context["model"].release_inference_slot()
+            raise
+        if not completed.wait(wait_budget_seconds if gate_context is not None else timeout_seconds):
+            self._record_real_model_timeout_runtime(
+                gate_context=gate_context,
+                candidate_count=len(evidences),
+                score_order=score_order,
+                queue_wait_ms=queue_wait_ms,
+                prepare_elapsed_ms=prepare_elapsed_ms,
+                timeout_seconds=timeout_seconds,
+                timeout_stage="inference",
+                total_elapsed_ms=int((time.perf_counter() - total_started_at) * 1000),
+            )
+            raise TimeoutError(f"real_reranker_timeout>{timeout_seconds}s")
+        if "error" in error_holder:
+            raise error_holder["error"]
+        self._attach_timeout_metrics(
+            queue_wait_ms,
+            prepare_elapsed_ms,
+            int((time.perf_counter() - total_started_at) * 1000),
+        )
+        return result_holder["value"]
 
     def ensure_real_model(self) -> RuntimeRerankerConfig:
         """校验并加载默认真实 Reranker 模型。"""
@@ -330,6 +416,108 @@ class RerankerService:
             "milvus": 0.6,
             "keyword": 0.2,
         }.get(retriever, 0.0)
+
+    def _try_acquire_local_inference_slot(
+        self,
+        timeout_seconds: float,
+        candidate_count: int,
+        score_order: str,
+    ) -> dict | None:
+        started_at = time.perf_counter()
+        try:
+            runtime_config = self._runtime_config()
+        except Exception:
+            return None
+        if not self._is_local_reranker(runtime_config):
+            return None
+
+        model = self._get_local_model(runtime_config)
+        acquire_slot = getattr(model, "acquire_inference_slot", None)
+        if not callable(acquire_slot):
+            return None
+
+        queue_wait_ms = acquire_slot(timeout_seconds)
+        requested_device = self._requested_reranker_device()
+        device_explicitly_configured = self._reranker_device_explicitly_configured()
+        if queue_wait_ms is None:
+            prepare_elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            self._record_real_model_timeout_runtime(
+                gate_context={
+                    "runtime_config": runtime_config,
+                    "model": model,
+                    "requested_device": requested_device,
+                    "device_explicitly_configured": device_explicitly_configured,
+                },
+                candidate_count=candidate_count,
+                score_order=score_order,
+                queue_wait_ms=int(timeout_seconds * 1000),
+                prepare_elapsed_ms=prepare_elapsed_ms,
+                timeout_seconds=timeout_seconds,
+                timeout_stage="queue",
+                total_elapsed_ms=prepare_elapsed_ms,
+            )
+            raise TimeoutError(f"real_reranker_queue_timeout>{timeout_seconds}s")
+
+        return {
+            "runtime_config": runtime_config,
+            "model": model,
+            "requested_device": requested_device,
+            "device_explicitly_configured": device_explicitly_configured,
+            "queue_wait_ms": queue_wait_ms,
+            "prepare_elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+        }
+
+    def _record_real_model_timeout_runtime(
+        self,
+        *,
+        gate_context: dict | None,
+        candidate_count: int,
+        score_order: str,
+        queue_wait_ms: int,
+        prepare_elapsed_ms: int,
+        timeout_seconds: float,
+        timeout_stage: str,
+        total_elapsed_ms: int,
+    ) -> None:
+        runtime = {
+            "provider": "local" if gate_context is not None else "unknown",
+            "model_name": None,
+            "model_loaded": False,
+            "backend": "timeout",
+            "fallback_used": False,
+            "score_order": score_order,
+            "candidate_count": candidate_count,
+            "timed_out": True,
+            "timeout_stage": timeout_stage,
+            "timeout_seconds": timeout_seconds,
+            "queue_wait_ms": queue_wait_ms,
+            "prepare_elapsed_ms": prepare_elapsed_ms,
+            "total_elapsed_ms": total_elapsed_ms,
+        }
+        if gate_context is not None:
+            runtime_config = gate_context["runtime_config"]
+            model = gate_context["model"]
+            runtime.update(
+                {
+                    "provider": runtime_config.provider,
+                    "model_name": runtime_config.model_name,
+                    "model_loaded": model.is_loaded,
+                    "backend": model.backend_name,
+                    "requested_device": gate_context["requested_device"],
+                    "resolved_device": model.device,
+                    "device": model.device,
+                    "device_explicitly_configured": gate_context["device_explicitly_configured"],
+                    "batch_size": model.batch_size,
+                }
+            )
+        self.last_runtime = runtime
+
+    def _attach_timeout_metrics(self, queue_wait_ms: int, prepare_elapsed_ms: int, total_elapsed_ms: int) -> None:
+        if not self.last_runtime:
+            return
+        self.last_runtime["queue_wait_ms"] = queue_wait_ms
+        self.last_runtime["prepare_elapsed_ms"] = prepare_elapsed_ms
+        self.last_runtime["total_elapsed_ms"] = total_elapsed_ms
 
     def _runtime_config(self, config: ModelConfig | None = None) -> RuntimeRerankerConfig:
         if config is None:

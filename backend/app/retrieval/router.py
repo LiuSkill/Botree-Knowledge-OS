@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import inspect
 import logging
 import threading
 import time
@@ -27,6 +28,7 @@ from app.core.security_levels import allowed_security_levels, user_max_security_
 from app.models.document import Document, DocumentChunk
 from app.models.knowledge_base import KnowledgeBase
 from app.models.user import User
+from app.retrieval.base import DEFAULT_RETRIEVER_TOP_K
 from app.retrieval.merger import EvidenceMerger
 from app.retrieval.query_utils import boilerplate_multiplier
 from app.retrieval.retrievers.graph_retriever import GraphRAGRetriever
@@ -36,6 +38,7 @@ from app.retrieval.retrievers.page_index_retriever import PageIndexRetriever
 from app.retrieval.retrievers.project_metadata_retriever import ProjectMetadataRetriever
 from app.retrieval.retrievers.ripgrep_retriever import RipgrepRetriever
 from app.retrieval.schemas import Evidence
+from app.retrieval.scope import normalize_retrieval_scope
 from app.services.project_access_service import ProjectAccessService
 from app.services.project_service import ProjectService
 from app.services.evidence_access_guard_service import EvidenceAccessGuardService
@@ -45,7 +48,8 @@ logger = logging.getLogger(__name__)
 
 LOW_QUALITY_SCORE_THRESHOLD = 0.58
 LOW_QUALITY_VALUABLE_EVIDENCE_THRESHOLD = 2
-LEGACY_RERANK_TOP_K = 30
+FUSED_EVIDENCE_TOP_K = 20
+RERANKED_EVIDENCE_TOP_K = 5
 
 
 class RetrievalRouter:
@@ -66,10 +70,7 @@ class RetrievalRouter:
         self.merger = EvidenceMerger()
         self.reranker = RerankerService(db)
         self.evidence_access_guard = EvidenceAccessGuardService(db)
-        self._retriever_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=6,
-            thread_name_prefix="retriever-worker",
-        )
+        self._retriever_executor_max_workers = 6
 
     def search(
         self,
@@ -77,7 +78,7 @@ class RetrievalRouter:
         mode: str,
         project_id: int | None,
         user: User,
-        limit: int = 5,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
         chat_type: str | None = None,
         execution_mode: str = "planner",
     ) -> dict[str, Any]:
@@ -108,7 +109,7 @@ class RetrievalRouter:
         mode: str,
         project_id: int | None,
         user: User,
-        limit: int = 5,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
         chat_type: str | None = None,
     ) -> dict[str, Any]:
         """
@@ -205,9 +206,9 @@ class RetrievalRouter:
         为 `/retrieval/*` 链路统一做合并去重、权限过滤和真实 reranker 重排。
         """
 
-        merge_limit = max(limit * 3, LEGACY_RERANK_TOP_K)
-        merged_evidences = self.merger.merge([evidences], merge_limit)
-        rerank_candidates = merged_evidences[:LEGACY_RERANK_TOP_K]
+        merge_limit = FUSED_EVIDENCE_TOP_K
+        merged_evidences = self._top_scored_evidences(self.merger.merge([evidences], merge_limit), merge_limit)
+        rerank_candidates = self._top_scored_evidences(merged_evidences, FUSED_EVIDENCE_TOP_K)
         rerank_candidates, guard_details = self._guard_before_rerank(
             rerank_candidates,
             chat_type=chat_type,
@@ -215,7 +216,11 @@ class RetrievalRouter:
             project_id=project_id,
             user=user,
         )
-        reranked = self.reranker.rerank(query, rerank_candidates, limit)
+        rerank_candidates = self._top_scored_evidences(rerank_candidates, FUSED_EVIDENCE_TOP_K)
+        reranked = self._top_scored_evidences(
+            self.reranker.rerank(query, rerank_candidates, min(limit, RERANKED_EVIDENCE_TOP_K)),
+            RERANKED_EVIDENCE_TOP_K,
+        )
         return {
             "evidences": reranked,
             "rerank_details": self.reranker.last_details,
@@ -229,7 +234,7 @@ class RetrievalRouter:
         project_id: int | None,
         user: User,
         retriever_names: list[str],
-        limit: int = 5,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
         fallback_retrievers: list[str] | None = None,
         fallback_ladder: list[list[str]] | None = None,
         chat_type: str | None = None,
@@ -240,6 +245,9 @@ class RetrievalRouter:
         sub_query_index: int | None = None,
         sub_query_total: int | None = None,
         knowledge_scope: str | None = None,
+        remaining_budget_ms: int | None = None,
+        min_stage_budget_ms: int | None = None,
+        retrieval_scope: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         按 Planner 结果分阶段执行检索。
@@ -270,6 +278,7 @@ class RetrievalRouter:
         fallback_names = self._filter_retriever_names(fallback_retrievers or [])
         normalized_ladder = self._normalize_execution_ladder(planned_retrievers, fallback_names, fallback_ladder)
         runtime_skip_reasons = dict(skip_reasons or {})
+        normalized_retrieval_scope = normalize_retrieval_scope(retrieval_scope)
 
         groups: list[list[Evidence]] = []
         retriever_hits: dict[str, int] = {}
@@ -280,12 +289,58 @@ class RetrievalRouter:
         executed_retrievers: list[str] = []
         fallback_used: list[str] = []
         fallback_trigger_reason: list[dict[str, Any]] = []
+        execution_started_at = time.perf_counter()
+        effective_min_stage_budget_ms = max(
+            0,
+            int(
+                min_stage_budget_ms
+                if min_stage_budget_ms is not None
+                else getattr(self.settings, "retrieval_min_stage_budget_ms", 1200) or 1200
+            ),
+        )
         self._log_base_scope_diagnostics(effective_mode, project_id, user, intent)
 
         for stage_index, stage_retrievers in enumerate(normalized_ladder, start=1):
             stage_names = [name for name in stage_retrievers if name not in executed_retrievers]
             if not stage_names:
                 continue
+            stage_budget_ms = self._remaining_budget_ms(remaining_budget_ms, execution_started_at)
+            if stage_budget_ms is not None and stage_budget_ms <= 0:
+                fallback_trigger_reason.append(
+                    {
+                        "stage": stage_index,
+                        "stage_retrievers": stage_names,
+                        "reason": "budget_exhausted",
+                        "hits": 0,
+                        "top_raw_score": 0.0,
+                        "valuable_evidence_count": 0,
+                    }
+                )
+                self._mark_remaining_stage_skips(
+                    normalized_ladder=normalized_ladder,
+                    current_stage_index=stage_index - 1,
+                    runtime_skip_reasons=runtime_skip_reasons,
+                    executed_retrievers=executed_retrievers,
+                )
+                break
+            if stage_budget_ms is not None and stage_budget_ms < effective_min_stage_budget_ms:
+                fallback_trigger_reason.append(
+                    {
+                        "stage": stage_index,
+                        "stage_retrievers": stage_names,
+                        "reason": "budget_too_low",
+                        "hits": 0,
+                        "top_raw_score": 0.0,
+                        "valuable_evidence_count": 0,
+                    }
+                )
+                self._mark_remaining_stage_skips(
+                    normalized_ladder=normalized_ladder,
+                    current_stage_index=stage_index - 1,
+                    runtime_skip_reasons=runtime_skip_reasons,
+                    executed_retrievers=executed_retrievers,
+                )
+                break
 
             (
                 stage_groups,
@@ -311,6 +366,8 @@ class RetrievalRouter:
                 sub_query_index=sub_query_index,
                 sub_query_total=sub_query_total,
                 query_features=query_features,
+                remaining_budget_ms=stage_budget_ms,
+                retrieval_scope=normalized_retrieval_scope,
             )
             groups.extend(stage_groups)
             retriever_hits.update(stage_hits)
@@ -324,7 +381,13 @@ class RetrievalRouter:
 
             stage_evidences = [item for group in stage_groups for item in group]
             quality = self._assess_stage_quality(stage_evidences)
-            should_continue, reason_text = self._should_continue_fallback(quality, stage_index, len(normalized_ladder))
+            should_continue, reason_text = self._should_continue_fallback(
+                quality,
+                stage_index,
+                len(normalized_ladder),
+                remaining_budget_ms=self._remaining_budget_ms(remaining_budget_ms, execution_started_at),
+                min_remaining_budget_ms=effective_min_stage_budget_ms,
+            )
             if should_continue:
                 fallback_trigger_reason.append(
                     {
@@ -353,6 +416,7 @@ class RetrievalRouter:
             runtime_skip_reasons.setdefault(retriever_name, "未进入当前执行阶段")
 
         evidences = [item for group in groups for item in group]
+        execution_elapsed_ms = int((time.perf_counter() - execution_started_at) * 1000)
         return {
             "mode": effective_mode,
             "query_scope": self._scope_text(effective_mode),
@@ -370,6 +434,8 @@ class RetrievalRouter:
             "retriever_top_scores": retriever_top_scores,
             "retriever_errors": retriever_errors,
             "retriever_timeouts": retriever_timeouts,
+            "execution_elapsed_ms": execution_elapsed_ms,
+            "retrieval_scope": self._compact_retrieval_scope(normalized_retrieval_scope),
         }
 
     def available_retrievers(self) -> list[str]:
@@ -393,6 +459,17 @@ class RetrievalRouter:
         """对外暴露统一的检索范围校验入口。"""
 
         return self._prepare_scope(mode, project_id, chat_type, user, knowledge_scope=knowledge_scope)
+
+    def _evidence_score(self, evidence: Evidence) -> float:
+        try:
+            return float(evidence.score)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _top_scored_evidences(self, evidences: list[Evidence], limit: int) -> list[Evidence]:
+        if limit <= 0:
+            return []
+        return sorted(evidences, key=self._evidence_score, reverse=True)[:limit]
 
     def _guard_before_rerank(
         self,
@@ -449,6 +526,8 @@ class RetrievalRouter:
         sub_query_index: int | None = None,
         sub_query_total: int | None = None,
         query_features: dict[str, Any] | None = None,
+        remaining_budget_ms: int | None = None,
+        retrieval_scope: dict[str, Any] | None = None,
     ) -> tuple[
         list[list[Evidence]],
         dict[str, int],
@@ -498,6 +577,8 @@ class RetrievalRouter:
                 sub_query_index=sub_query_index,
                 sub_query_total=sub_query_total,
                 query_features=query_features,
+                remaining_budget_ms=remaining_budget_ms,
+                retrieval_scope=retrieval_scope,
             )
         )
 
@@ -518,6 +599,8 @@ class RetrievalRouter:
         sub_query_index: int | None,
         sub_query_total: int | None,
         query_features: dict[str, Any] | None,
+        remaining_budget_ms: int | None,
+        retrieval_scope: dict[str, Any] | None,
     ) -> tuple[
         list[list[Evidence]],
         dict[str, int],
@@ -540,30 +623,42 @@ class RetrievalRouter:
             enabled_names,
             query[:160],
         )
+        if not enabled_names:
+            return ([], {}, {}, {}, [], {}, {})
         user_snapshot = self._snapshot_user(user)
-        results = await asyncio.gather(
-            *[
-                self._execute_one_retriever_async(
-                    name=name,
-                    query=query,
-                    effective_mode=effective_mode,
-                    project_id=project_id,
-                    user=user_snapshot,
-                    limit=limit,
-                    planned_order=planned_order,
-                    fallback_used=fallback_used,
-                    fallback_stage=fallback_stage,
-                    fallback_trigger_reason=fallback_trigger_reason,
-                    run_id=run_id,
-                    intent=intent,
-                    sub_query_index=sub_query_index,
-                    sub_query_total=sub_query_total,
-                    query_features=query_features,
-                )
-                for name in enabled_names
-            ],
-            return_exceptions=True,
+        stage_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=self._stage_executor_max_workers(len(enabled_names)),
+            thread_name_prefix=f"retriever-stage-{planned_order}",
         )
+        try:
+            results = await asyncio.gather(
+                *[
+                    self._execute_one_retriever_async(
+                        executor=stage_executor,
+                        name=name,
+                        query=query,
+                        effective_mode=effective_mode,
+                        project_id=project_id,
+                        user=user_snapshot,
+                        limit=limit,
+                        planned_order=planned_order,
+                        fallback_used=fallback_used,
+                        fallback_stage=fallback_stage,
+                        fallback_trigger_reason=fallback_trigger_reason,
+                        run_id=run_id,
+                        intent=intent,
+                        sub_query_index=sub_query_index,
+                        sub_query_total=sub_query_total,
+                        query_features=query_features,
+                        remaining_budget_ms=remaining_budget_ms,
+                        retrieval_scope=retrieval_scope,
+                    )
+                    for name in enabled_names
+                ],
+                return_exceptions=True,
+            )
+        finally:
+            stage_executor.shutdown(wait=False, cancel_futures=True)
 
         groups: list[list[Evidence]] = []
         retriever_hits: dict[str, int] = {}
@@ -610,6 +705,7 @@ class RetrievalRouter:
 
     async def _execute_one_retriever_async(
         self,
+        executor: concurrent.futures.Executor,
         name: str,
         query: str,
         effective_mode: str,
@@ -625,15 +721,19 @@ class RetrievalRouter:
         sub_query_index: int | None,
         sub_query_total: int | None,
         query_features: dict[str, Any] | None,
+        remaining_budget_ms: int | None,
+        retrieval_scope: dict[str, Any] | None,
     ) -> dict[str, Any]:
         timeout_ms = self._retriever_timeout_ms(name)
+        if remaining_budget_ms is not None:
+            timeout_ms = min(timeout_ms, max(int(remaining_budget_ms), 1))
         started_at = time.perf_counter()
         timeout = False
         error = ""
         group: list[Evidence] = []
         loop = asyncio.get_running_loop()
         future = loop.run_in_executor(
-            self._retriever_executor,
+            executor,
             self._search_with_isolated_retriever,
             name,
             query,
@@ -641,6 +741,7 @@ class RetrievalRouter:
             project_id,
             user,
             limit,
+            retrieval_scope,
         )
         try:
             group = await asyncio.wait_for(future, timeout=max(timeout_ms, 1) / 1000)
@@ -656,7 +757,7 @@ class RetrievalRouter:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         top_score = max((float(item.score) for item in group), default=0.0)
         logger.info(
-            "Retriever execution completed: run_id=%s query=%s intent=%s retriever=%s planned_order=%s hits=%s top_score=%.4f post_filter_hits=%s fallback_used=%s fallback_stage=%s fallback_trigger_reason=%s elapsed_ms=%s timeout=%s error=%s sub_query_index=%s sub_query_total=%s query_features=%s",
+            "Retriever execution completed: run_id=%s query=%s intent=%s retriever=%s planned_order=%s hits=%s top_score=%.4f post_filter_hits=%s fallback_used=%s fallback_stage=%s fallback_trigger_reason=%s elapsed_ms=%s timeout=%s error=%s sub_query_index=%s sub_query_total=%s query_features=%s retrieval_scope=%s",
             run_id,
             query[:160],
             intent,
@@ -674,6 +775,7 @@ class RetrievalRouter:
             sub_query_index,
             sub_query_total,
             self._compact_query_features(query_features),
+            self._compact_retrieval_scope(retrieval_scope),
         )
         return {
             "group": group,
@@ -683,6 +785,17 @@ class RetrievalRouter:
             "timeout": timeout,
             "error": error,
         }
+
+    def _stage_executor_max_workers(self, stage_size: int) -> int:
+        configured_workers = getattr(self, "_retriever_executor_max_workers", None)
+        if configured_workers is None:
+            executor = getattr(self, "_retriever_executor", None)
+            configured_workers = getattr(executor, "_max_workers", None)
+        try:
+            max_workers = int(configured_workers or 6)
+        except (TypeError, ValueError):
+            max_workers = 6
+        return max(1, min(max_workers, max(stage_size, 1)))
 
     def _run_async_blocking(self, coroutine: Any) -> Any:
         try:
@@ -713,14 +826,45 @@ class RetrievalRouter:
         project_id: int | None,
         user: User,
         limit: int,
+        retrieval_scope: dict[str, Any] | None = None,
     ) -> list[Evidence]:
         retriever = self.retriever_map[name]
         if not self._uses_real_db_session(retriever):
-            return retriever.search(query, effective_mode, project_id, user, limit)
+            return self._call_retriever_search(retriever, query, effective_mode, project_id, user, limit, retrieval_scope)
 
         with SessionLocal() as db:
             isolated_retriever = self._build_retriever_for_session(name, db)
-            return isolated_retriever.search(query, effective_mode, project_id, user, limit)
+            return self._call_retriever_search(isolated_retriever, query, effective_mode, project_id, user, limit, retrieval_scope)
+
+    def _call_retriever_search(
+        self,
+        retriever: Any,
+        query: str,
+        effective_mode: str,
+        project_id: int | None,
+        user: User,
+        limit: int,
+        retrieval_scope: dict[str, Any] | None,
+    ) -> list[Evidence]:
+        if retrieval_scope and self._retriever_accepts_scope(retriever):
+            return retriever.search(
+                query,
+                effective_mode,
+                project_id,
+                user,
+                limit,
+                retrieval_scope=retrieval_scope,
+            )
+        return retriever.search(query, effective_mode, project_id, user, limit)
+
+    def _retriever_accepts_scope(self, retriever: Any) -> bool:
+        try:
+            parameters = inspect.signature(retriever.search).parameters
+        except (TypeError, ValueError):
+            return False
+        return "retrieval_scope" in parameters or any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+        )
 
     def _uses_real_db_session(self, retriever: Any) -> bool:
         return isinstance(
@@ -773,6 +917,9 @@ class RetrievalRouter:
     def _retriever_timeout_ms(self, name: str) -> int:
         settings = getattr(self, "settings", None)
         base_timeout_ms = int(getattr(settings, "retrieval_retriever_timeout_ms", 4500) or 4500)
+        if name == "milvus":
+            milvus_timeout_ms = int(getattr(settings, "retrieval_milvus_timeout_ms", 15000) or 15000)
+            return max(base_timeout_ms, milvus_timeout_ms)
         if name == "ripgrep":
             # ripgrep 内部 subprocess 已使用 RIPGREP_TIMEOUT_MS，Router 外层需要额外留出权限过滤和结果映射时间，
             # 否则会出现 rg 本体未超时、但整个 retriever 被外层 wait_for 提前判超时的误报。
@@ -784,6 +931,20 @@ class RetrievalRouter:
         executor = getattr(self, "_retriever_executor", None)
         if executor is not None:
             executor.shutdown(wait=False, cancel_futures=True)
+
+    def _compact_retrieval_scope(self, retrieval_scope: dict[str, Any] | None) -> dict[str, Any]:
+        if not retrieval_scope:
+            return {}
+        page_numbers_by_document = retrieval_scope.get("page_numbers_by_document") or {}
+        page_count = 0
+        if isinstance(page_numbers_by_document, dict):
+            page_count = sum(len(pages or []) for pages in page_numbers_by_document.values())
+        return {
+            "document_count": len(retrieval_scope.get("document_ids") or []),
+            "chunk_count": len(retrieval_scope.get("chunk_ids") or []),
+            "page_scope_document_count": len(page_numbers_by_document) if isinstance(page_numbers_by_document, dict) else 0,
+            "page_count": page_count,
+        }
 
     def _compact_query_features(self, query_features: dict[str, Any] | None) -> dict[str, Any]:
         if not query_features:
@@ -961,6 +1122,9 @@ class RetrievalRouter:
         quality: dict[str, Any],
         stage_index: int,
         stage_count: int,
+        *,
+        remaining_budget_ms: int | None = None,
+        min_remaining_budget_ms: int = 0,
     ) -> tuple[bool, str]:
         """
         判断是否继续执行下一层 fallback。
@@ -976,6 +1140,10 @@ class RetrievalRouter:
 
         if stage_index >= stage_count:
             return False, "already_last_stage"
+        if remaining_budget_ms is not None and int(remaining_budget_ms) <= 0:
+            return False, "budget_exhausted"
+        if remaining_budget_ms is not None and int(remaining_budget_ms) < max(int(min_remaining_budget_ms), 0):
+            return False, "budget_too_low"
         if int(quality["hits"]) == 0:
             return True, "hits==0"
         if float(quality["top_raw_score"]) < LOW_QUALITY_SCORE_THRESHOLD:
@@ -984,12 +1152,19 @@ class RetrievalRouter:
             return True, f"valuable_evidence_count<{LOW_QUALITY_VALUABLE_EVIDENCE_THRESHOLD}"
         return False, "quality_enough"
 
+    def _remaining_budget_ms(self, total_budget_ms: int | None, started_at: float) -> int | None:
+        if total_budget_ms is None:
+            return None
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        return max(int(total_budget_ms) - elapsed_ms, 0)
+
     def _mark_remaining_stage_skips(
         self,
         normalized_ladder: list[list[str]],
         current_stage_index: int,
         runtime_skip_reasons: dict[str, str],
         executed_retrievers: list[str],
+        default_reason: str | None = None,
     ) -> None:
         """
         在提前结束 fallback 时，为剩余阶段补齐 skip reason。

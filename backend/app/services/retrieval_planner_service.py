@@ -17,7 +17,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.retrieval.query_utils import extract_query_terms, normalize_query_text
+from app.retrieval.query_utils import extract_query_terms, is_structured_list_lookup_query, normalize_query_text
 from app.services.llm_service import LLMService
 from app.services.rag_prompt_templates import PLANNER_SYSTEM_PROMPT
 
@@ -471,7 +471,8 @@ class RetrievalPlannerService:
         has_summary_intent = any(token in lowered for token in SUMMARY_HINT_PATTERNS)
         has_comparison = any(token in lowered for token in COMPLEX_HINT_PATTERNS)
         has_value_hint = any(token in lowered for token in VALUE_LOOKUP_HINT_PATTERNS)
-        has_table_hint = any(token in lowered for token in TABLE_LOOKUP_HINT_PATTERNS)
+        has_structured_list_lookup = is_structured_list_lookup_query(normalized)
+        has_table_hint = any(token in lowered for token in TABLE_LOOKUP_HINT_PATTERNS) or has_structured_list_lookup
         has_element_symbol = bool(ELEMENT_SYMBOL_PATTERN.search(normalized))
         # 表格中的 Min/Max、元素符号和合并单元格信息更依赖 pageIndex 的页级文本。
         has_table_value_lookup = has_value_hint and (has_table_hint or has_element_symbol)
@@ -495,6 +496,7 @@ class RetrievalPlannerService:
             "has_comparison": has_comparison,
             "has_value_hint": has_value_hint,
             "has_table_hint": has_table_hint,
+            "has_structured_list_lookup": has_structured_list_lookup,
             "has_element_symbol": has_element_symbol,
             "has_table_value_lookup": has_table_value_lookup,
             "query_language": query_language,
@@ -780,6 +782,7 @@ class RetrievalPlannerService:
             or query_features.get("has_exact_token")
             or query_features.get("has_section_hint")
             or query_features.get("has_table_hint")
+            or query_features.get("has_structured_list_lookup")
             or query_features.get("has_value_hint")
             or query_features.get("has_table_value_lookup")
             or query_features.get("has_element_symbol")
@@ -916,6 +919,7 @@ class RetrievalPlannerService:
             or query_features.get("has_doc_code")
         )
         has_table_value_lookup = bool(query_features.get("has_table_value_lookup"))
+        has_structured_list_lookup = bool(query_features.get("has_structured_list_lookup"))
         has_exact_signal = bool(
             query_features.get("has_exact_token")
             or query_features.get("has_doc_code")
@@ -982,6 +986,13 @@ class RetrievalPlannerService:
             stages = [
                 keep([RETRIEVER_PAGE_INDEX, RETRIEVER_MILVUS]),
                 keep([RETRIEVER_RIPGREP]),
+                keep([RETRIEVER_KEYWORD]),
+            ]
+        elif has_structured_list_lookup:
+            stages = [
+                keep([RETRIEVER_PAGE_INDEX]),
+                keep([RETRIEVER_RIPGREP]),
+                keep([RETRIEVER_MILVUS]),
                 keep([RETRIEVER_KEYWORD]),
             ]
         elif intent == "project_qa":
@@ -1083,6 +1094,7 @@ class RetrievalPlannerService:
         if retriever_name == RETRIEVER_PAGE_INDEX and not (
             query_features.get("has_page_hint")
             or query_features.get("has_section_hint")
+            or query_features.get("has_structured_list_lookup")
             or query_features.get("has_table_value_lookup")
             or query_profile.get("need_page_location")
             or query_profile.get("need_visual_asset")
@@ -1133,6 +1145,8 @@ class RetrievalPlannerService:
             return 0.35
         if query_features.get("has_table_value_lookup"):
             return 0.82
+        if query_features.get("has_structured_list_lookup"):
+            return 0.8
         if intent in {"page_location", "exact_lookup"}:
             return 0.94
         if intent == "graph_reasoning":
@@ -1182,6 +1196,8 @@ class RetrievalPlannerService:
             signals.append("精确词项信号")
         if query_features.get("has_table_value_lookup"):
             signals.append("表格数值查询信号")
+        if query_features.get("has_structured_list_lookup"):
+            signals.append("结构化清单查询信号")
         if query_features.get("has_graph_relation"):
             signals.append("关系推理信号")
         if query_features.get("has_summary_intent"):
@@ -1520,6 +1536,10 @@ class RetrievalPlannerService:
                 result.insert(0, RETRIEVER_PAGE_INDEX)
             elif result[0] != RETRIEVER_PAGE_INDEX:
                 result = [RETRIEVER_PAGE_INDEX] + [name for name in result if name != RETRIEVER_PAGE_INDEX]
+        if query_features.get("has_structured_list_lookup"):
+            for required_name in (RETRIEVER_RIPGREP, RETRIEVER_PAGE_INDEX):
+                if required_name in available_set and required_name not in result:
+                    result.insert(0, required_name)
         required_by_type = {
             "page_location": [RETRIEVER_PAGE_INDEX, RETRIEVER_RIPGREP],
             "process_flow": [RETRIEVER_PAGE_INDEX, RETRIEVER_RIPGREP, RETRIEVER_MILVUS],

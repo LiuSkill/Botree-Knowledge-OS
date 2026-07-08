@@ -12,6 +12,8 @@ from abc import ABC, abstractmethod
 from app.models.user import User
 from app.retrieval.schemas import Evidence
 
+DEFAULT_RETRIEVER_TOP_K = 10
+
 
 class BaseRetriever(ABC):
     """
@@ -25,7 +27,14 @@ class BaseRetriever(ABC):
     name: str
 
     @abstractmethod
-    def search(self, query: str, mode: str, project_id: int | None, user: User, limit: int = 5) -> list[Evidence]:
+    def search(
+        self,
+        query: str,
+        mode: str,
+        project_id: int | None,
+        user: User,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
+    ) -> list[Evidence]:
         """
         执行检索
 

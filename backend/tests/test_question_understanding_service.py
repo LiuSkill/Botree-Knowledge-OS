@@ -77,6 +77,23 @@ def test_visual_material_flow_is_understood_as_process_flow() -> None:
     assert understanding["retrieval_needs"]["visual_evidence"] is True
 
 
+def test_process_object_flow_query_is_understood_as_process_flow() -> None:
+    understanding = QuestionUnderstandingService().understand(
+        "Na2SO4蒸发流程",
+        chat_type="project_chat",
+        project_id=2,
+        user_id=7,
+        intent="project_qa",
+        query_profile={"query_type": "process_flow"},
+    ).to_dict()
+
+    assert understanding["task_type"] == TaskType.PROCESS_FLOW.value
+    assert understanding["answer_shape"] == AnswerShape.PROCESS_STEPS.value
+    assert understanding["object_type"] == "process"
+    assert understanding["retrieval_needs"]["page_level_retrieval"] is True
+    assert understanding["retrieval_needs"]["visual_evidence"] is True
+
+
 def test_drawing_page_location_is_understood_as_document_location() -> None:
     understanding = QuestionUnderstandingService().understand(
         "黑粉进料流程在哪张图纸第几页",

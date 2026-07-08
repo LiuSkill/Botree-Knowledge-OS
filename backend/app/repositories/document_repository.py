@@ -475,7 +475,17 @@ class DocumentRepository:
 
         return self.db.get(DocumentChunk, chunk_id)
 
-    def searchable_chunks(self, security_levels: list[str] | None = None) -> list[tuple[DocumentChunk, Document]]:
+    def searchable_chunks(
+        self,
+        security_levels: list[str] | None = None,
+        *,
+        knowledge_type: str | None = None,
+        project_id: int | None = None,
+        query_terms: list[str] | None = None,
+        document_ids: list[int] | None = None,
+        chunk_ids: list[int] | None = None,
+        page_numbers_by_document: dict[int, list[int]] | None = None,
+    ) -> list[tuple[DocumentChunk, Document]]:
         """查询可参与检索的 Chunk 和文档。"""
 
         stmt = (
@@ -488,4 +498,29 @@ class DocumentRepository:
         )
         if security_levels is not None:
             stmt = stmt.where(Document.security_level.in_(security_levels), DocumentChunk.security_level.in_(security_levels))
+        if knowledge_type:
+            stmt = stmt.where(Document.knowledge_type == knowledge_type, DocumentChunk.knowledge_type == knowledge_type)
+        if project_id is not None:
+            stmt = stmt.where(Document.project_id == project_id, DocumentChunk.project_id == project_id)
+        if document_ids:
+            stmt = stmt.where(Document.id.in_(document_ids), DocumentChunk.document_id.in_(document_ids))
+        if chunk_ids:
+            stmt = stmt.where(DocumentChunk.id.in_(chunk_ids))
+        page_scope = self._chunk_page_scope_filters(page_numbers_by_document)
+        if page_scope:
+            stmt = stmt.where(or_(*page_scope))
+        limited_terms = self._limited_query_terms(query_terms)
+        if limited_terms:
+            stmt = stmt.where(or_(*[DocumentChunk.content.ilike(f"%{term}%") for term in limited_terms]))
         return list(self.db.execute(stmt).all())
+
+    def _limited_query_terms(self, query_terms: list[str] | None) -> list[str]:
+        return [term.strip() for term in (query_terms or []) if len(term.strip()) >= 2][:8]
+
+    def _chunk_page_scope_filters(self, page_numbers_by_document: dict[int, list[int]] | None) -> list[object]:
+        filters: list[object] = []
+        for document_id, page_numbers in (page_numbers_by_document or {}).items():
+            if not page_numbers:
+                continue
+            filters.append(and_(DocumentChunk.document_id == document_id, DocumentChunk.page_number.in_(page_numbers)))
+        return filters

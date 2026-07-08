@@ -10,6 +10,7 @@ Retrieval Service
 from sqlalchemy.orm import Session
 
 from app.models.user import User
+from app.retrieval.base import DEFAULT_RETRIEVER_TOP_K
 from app.retrieval.router import RetrievalRouter
 from app.retrieval.schemas import Evidence
 from app.services.qwen_orchestration_service import QwenOrchestrationService
@@ -34,7 +35,7 @@ class RetrievalService:
         mode: str,
         project_id: int | None,
         user: User,
-        limit: int = 5,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
         chat_type: str | None = None,
         execution_mode: str = "planner",
     ) -> dict:

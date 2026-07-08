@@ -19,6 +19,22 @@ from app.models.knowledge_category import KnowledgeCategory
 from app.models.model_config import ModelConfig
 from app.models.operation_log import OperationLog
 from app.models.page_index import DocumentPage, DocumentPageBlock, PageIndex
+from app.models.process_config import (
+    ProcessConsumable,
+    ProcessMaterial,
+    ProcessNode,
+    ProcessNodeConsumable,
+    ProcessNodeEquipment,
+    ProcessNodeMaterialInput,
+    ProcessNodeOutput,
+    ProcessNodePublicService,
+    ProcessProduct,
+    ProcessPublicService,
+    ProcessRegionPrice,
+    ProcessRoute,
+    ProcessRouteNode,
+    ProcessRouteVersion,
+)
 from app.models.project import Project, ProjectMember
 from app.models.retrieval_trace import RetrievalTrace
 from app.models.review import ReviewLog, ReviewTask
@@ -45,6 +61,20 @@ __all__ = [
     "DocumentPage",
     "DocumentPageBlock",
     "PageIndex",
+    "ProcessConsumable",
+    "ProcessMaterial",
+    "ProcessNode",
+    "ProcessNodeConsumable",
+    "ProcessNodeEquipment",
+    "ProcessNodeMaterialInput",
+    "ProcessNodeOutput",
+    "ProcessNodePublicService",
+    "ProcessProduct",
+    "ProcessPublicService",
+    "ProcessRegionPrice",
+    "ProcessRoute",
+    "ProcessRouteNode",
+    "ProcessRouteVersion",
     "Permission",
     "Project",
     "ProjectMember",

@@ -90,6 +90,7 @@ class PageIndex(TimestampMixin, Base):
         Index("idx_page_indexes_page_no", "page_no"),
         Index("idx_page_indexes_drawing_no", "drawing_no"),
         Index("idx_page_indexes_status", "status"),
+        Index("idx_page_indexes_doc_status_ver", "document_id", "status", "version_no"),
         {"comment": "PageIndex表"},
     )
 

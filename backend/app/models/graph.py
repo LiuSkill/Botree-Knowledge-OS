@@ -31,6 +31,7 @@ class GraphEntity(TimestampMixin, Base):
         Index("idx_graph_entities_drawing_no", "drawing_no"),
         Index("idx_graph_entities_page_number", "page_number"),
         Index("idx_graph_entities_status", "status"),
+        Index("idx_graph_entities_doc_status_ver", "document_id", "status", "version_no"),
         {"comment": "知识图谱实体表"},
     )
 
@@ -69,6 +70,7 @@ class GraphRelation(TimestampMixin, Base):
         Index("idx_graph_relations_drawing_no", "drawing_no"),
         Index("idx_graph_relations_page_number", "page_number"),
         Index("idx_graph_relations_status", "status"),
+        Index("idx_graph_relations_doc_status_ver", "document_id", "status", "version_no"),
         {"comment": "知识图谱关系表"},
     )
 

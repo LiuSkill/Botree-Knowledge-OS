@@ -24,6 +24,7 @@ from app.services.document_asset_service import ASSET_TYPE_BLOCK_IMAGE, ASSET_TY
 logger = logging.getLogger(__name__)
 
 VISUAL_ASSET_TYPES = {ASSET_TYPE_PAGE_PREVIEW, ASSET_TYPE_BLOCK_IMAGE}
+VISUAL_ASSET_TOP_K = 5
 VISUAL_QUERY_HINTS = (
     "图",
     "图片",
@@ -79,7 +80,7 @@ class VisualEvidenceService:
             return evidences
 
         started_at = time.perf_counter()
-        max_images = max(0, int(self.settings.vision_llm_max_images))
+        max_images = min(max(0, int(self.settings.vision_llm_max_images)), VISUAL_ASSET_TOP_K)
         if max_images <= 0:
             return evidences
 
@@ -118,6 +119,21 @@ class VisualEvidenceService:
         """判断本次问题是否需要尝试挂载图片证据。"""
 
         if query_features.get("has_doc_code"):
+            return True
+        if query_features.get("has_page_hint"):
+            return True
+        if query_features.get("need_visual_asset") or query_features.get("visual_evidence"):
+            return True
+        query_type = str(query_features.get("query_type") or "")
+        answer_shape = str(query_features.get("answer_shape") or "")
+        if query_type in {"process_flow", "graph_reasoning", "page_location", "metadata_lookup"}:
+            return True
+        if answer_shape in {"process_steps", "flow_description", "drawing_understanding", "material_flow", "source_location"}:
+            return True
+        retrieval_needs = query_features.get("retrieval_needs") or {}
+        if isinstance(retrieval_needs, dict) and (
+            retrieval_needs.get("visual_evidence") or retrieval_needs.get("page_level_retrieval")
+        ):
             return True
         lowered = question.lower()
         return any(hint in lowered for hint in VISUAL_QUERY_HINTS)

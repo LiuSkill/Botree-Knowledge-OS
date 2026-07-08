@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 ENTITY_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_.\-/]{2,}|[\u4e00-\u9fff]{2,12}")
 STOP_WORDS = {"document", "page", "section", "content", "the", "and", "with"}
+ENTITY_TOKEN_MAX_LENGTH = 150
+GRAPH_ENTITY_CODE_TYPES = {"equipment", "pipeline", "instrument", "code"}
 
 
 class GraphIndexService:
@@ -91,8 +93,8 @@ class GraphIndexService:
 
         candidates: list[str] = []
         for match in ENTITY_PATTERN.findall(chunk.content):
-            token = match.strip(" ,.;:，。；：()（）[]【】")
-            if len(token) < 2 or token.lower() in STOP_WORDS:
+            token = self._normalize_entity_token(match)
+            if token is None:
                 continue
             candidates.append(token)
         unique_tokens = list(dict.fromkeys(candidates))[:8]
@@ -109,13 +111,34 @@ class GraphIndexService:
                     "drawing_no": document.drawing_no,
                     "page_number": chunk.page_number,
                     "entity_type": entity_type,
-                    "entity_code": token if entity_type in {"equipment", "pipeline", "instrument", "code"} else None,
+                    "entity_code": self._entity_code(token, entity_type),
                     "entity_name": token,
                     "status": "staging",
                     "properties_json": json.dumps({"extractor": "rule_v1"}, ensure_ascii=False),
                 }
             )
         return entities
+
+    def _normalize_entity_token(self, raw_token: str) -> str | None:
+        """清洗并过滤图谱实体候选，避免 OCR 超长噪声写入数据库。"""
+
+        token = raw_token.strip(" \t\r\n,.;:!?()[]{}<>\"'`~|，。；：！？（）【】《》")
+        if len(token) < 2 or token.lower() in STOP_WORDS:
+            return None
+        # entity_code 字段长度为 150，超长英文数字串多来自 PDF OCR 粘连，跳过比截断更可靠。
+        if len(token) > ENTITY_TOKEN_MAX_LENGTH:
+            logger.debug("GraphRAG实体候选过长已跳过: length=%s sample=%s", len(token), token[:40])
+            return None
+        return token
+
+    def _entity_code(self, token: str, entity_type: str) -> str | None:
+        """仅为可编码实体生成 entity_code，并再次守住数据库字段上限。"""
+
+        if entity_type not in GRAPH_ENTITY_CODE_TYPES:
+            return None
+        if len(token) > ENTITY_TOKEN_MAX_LENGTH:
+            return None
+        return token
 
     def _build_relations(self, document: Document, chunk: DocumentChunk, entities: list[GraphEntity]) -> int:
         """按 Chunk 内实体相邻关系构建弱关系。"""

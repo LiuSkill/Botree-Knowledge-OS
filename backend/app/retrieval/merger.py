@@ -9,6 +9,8 @@ Evidence Merger
 
 from app.retrieval.schemas import Evidence
 
+DEFAULT_MERGED_EVIDENCE_TOP_K = 20
+
 
 class EvidenceMerger:
     """
@@ -19,7 +21,7 @@ class EvidenceMerger:
     - 保留最高得分证据
     """
 
-    def merge(self, evidence_groups: list[list[Evidence]], limit: int = 5) -> list[Evidence]:
+    def merge(self, evidence_groups: list[list[Evidence]], limit: int = DEFAULT_MERGED_EVIDENCE_TOP_K) -> list[Evidence]:
         """
         合并证据
 

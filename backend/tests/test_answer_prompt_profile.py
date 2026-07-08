@@ -10,6 +10,7 @@ sys.path.insert(0, str(BASE_DIR))
 
 from app.retrieval.schemas import Evidence  # noqa: E402
 from app.services.llm_service import INDUSTRY_GENERAL_KNOWLEDGE_NOTICE, LLMService  # noqa: E402
+from app.services.rag_prompt_templates import ANSWER_SYSTEM_PROMPT, VISION_ANSWER_SYSTEM_PROMPT  # noqa: E402
 
 
 def make_evidence(source_type: str = "project", project_id: int | None = 1, content: str = "设计温度为 80 °C。") -> Evidence:
@@ -33,6 +34,22 @@ def user_prompt_for(profile: dict) -> str:
     service = object.__new__(LLMService)
     messages = service._build_text_messages("设计温度是多少？", [make_evidence()], profile)  # noqa: SLF001
     return messages[1]["content"]
+
+
+def test_answer_system_prompt_uses_new_evidence_grounded_style() -> None:
+    service = object.__new__(LLMService)
+    text_messages = service._build_text_messages("设计温度是多少？", [make_evidence()], {"query_type": "exact_lookup"})  # noqa: SLF001
+    multimodal_messages = service._build_multimodal_messages(  # noqa: SLF001
+        "设计温度是多少？",
+        [make_evidence()],
+        [{"type": "image_url", "image_url": {"url": "https://example.com/test.png"}}],
+        {"query_type": "process_flow"},
+    )
+
+    assert text_messages[0]["content"] == ANSWER_SYSTEM_PROMPT
+    assert multimodal_messages[0]["content"] == VISION_ANSWER_SYSTEM_PROMPT
+    assert "当前资料未检索到相关信息" in ANSWER_SYSTEM_PROMPT
+    assert "不要机械套固定模板" in VISION_ANSWER_SYSTEM_PROMPT
 
 
 def test_answer_prompt_switches_to_direct_value_template() -> None:

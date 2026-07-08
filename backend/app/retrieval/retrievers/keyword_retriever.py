@@ -14,11 +14,11 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.project import Project
 from app.models.user import User
 from app.repositories.document_repository import DocumentRepository
-from app.retrieval.base import BaseRetriever
+from app.retrieval.base import BaseRetriever, DEFAULT_RETRIEVER_TOP_K
 from app.retrieval.query_utils import extract_query_terms, score_text_relevance
 from app.retrieval.schemas import Evidence
+from app.retrieval.scope import normalize_retrieval_scope
 from app.services.project_document_policy_service import ProjectDocumentPolicyService
-from app.services.project_service import ProjectService
 
 
 class KeywordRetriever(BaseRetriever):
@@ -28,15 +28,30 @@ class KeywordRetriever(BaseRetriever):
 
     def __init__(self, db: Session) -> None:
         self.db = db
+        self._knowledge_base_allowed_cache: dict[int, bool] = {}
+        self._directory_cache: dict[int, KnowledgeCategory | None] = {}
+        self._project_security_cache: dict[int, str | None] = {}
 
-    def search(self, query: str, mode: str, project_id: int | None, user: User, limit: int = 5) -> list[Evidence]:
+    def search(
+        self,
+        query: str,
+        mode: str,
+        project_id: int | None,
+        user: User,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
+        *,
+        retrieval_scope: dict[str, object] | None = None,
+    ) -> list[Evidence]:
         terms = self._terms(query)
         evidences: list[Evidence] = []
-        project_service = ProjectService(self.db)
         project_document_policy = ProjectDocumentPolicyService(self.db)
         allowed_levels = self._allowed_security_levels(user)
-
-        for chunk, document in DocumentRepository(self.db).searchable_chunks(security_levels=allowed_levels):
+        search_filters = self._chunk_search_filters(mode, project_id, terms)
+        search_filters.update(self._scope_search_filters(normalize_retrieval_scope(retrieval_scope)))
+        for chunk, document in DocumentRepository(self.db).searchable_chunks(
+            security_levels=allowed_levels,
+            **search_filters,
+        ):
             if not self._scope_allowed(document.knowledge_type, document.project_id, document.knowledge_base_id, mode, project_id, user):
                 continue
             if document.project_id is not None:
@@ -47,10 +62,6 @@ class KeywordRetriever(BaseRetriever):
                     project_id=project_id,
                     require_chat_permission=mode == "project_chat",
                 ):
-                    continue
-                try:
-                    project_service.ensure_project_access(document.project_id, user)
-                except Exception:
                     continue
 
             score = self._score(chunk.content, query, terms)
@@ -85,7 +96,7 @@ class KeywordRetriever(BaseRetriever):
     ) -> bool:
         """判断 Chunk 是否落在当前问答范围内，不再读取旧 KB 授权模型。"""
 
-        effective_mode = "hybrid" if mode == "auto" and project_id is not None else ("base_only" if mode == "auto" else mode)
+        effective_mode = self._effective_mode(mode, project_id)
         if effective_mode == "project_chat":
             return knowledge_type == "project" and doc_project_id == project_id
         if effective_mode == "base_chat":
@@ -118,8 +129,13 @@ class KeywordRetriever(BaseRetriever):
 
         if self.db is None:
             return True
-        knowledge_base = self.db.get(KnowledgeBase, knowledge_base_id)
-        return bool(knowledge_base and knowledge_base.enabled and knowledge_base.type == "base")
+        cache_key = int(knowledge_base_id)
+        if cache_key not in self._knowledge_base_allowed_cache:
+            knowledge_base = self.db.get(KnowledgeBase, knowledge_base_id)
+            self._knowledge_base_allowed_cache[cache_key] = bool(
+                knowledge_base and knowledge_base.enabled and knowledge_base.type == "base"
+            )
+        return self._knowledge_base_allowed_cache[cache_key]
 
     def accessible_base_knowledge_base_ids(self, project_id: int | None, user: User, strict_external: bool) -> list[int]:  # noqa: ARG002
         """返回启用的基础知识库容器 ID，内容权限由文档密级控制。"""
@@ -162,7 +178,9 @@ class KeywordRetriever(BaseRetriever):
         metadata: dict[str, Any] = {"directory_id": directory_id}
         if self.db is None or directory_id is None:
             return metadata
-        category = self.db.get(KnowledgeCategory, directory_id)
+        if directory_id not in self._directory_cache:
+            self._directory_cache[directory_id] = self.db.get(KnowledgeCategory, directory_id)
+        category = self._directory_cache[directory_id]
         if category is None:
             return metadata
         metadata.update(
@@ -176,8 +194,10 @@ class KeywordRetriever(BaseRetriever):
     def _project_security_level(self, document: Document) -> str | None:
         if self.db is None or document.project_id is None:
             return None
-        project = self.db.get(Project, document.project_id)
-        return getattr(project, "security_level", None)
+        if document.project_id not in self._project_security_cache:
+            project = self.db.get(Project, document.project_id)
+            self._project_security_cache[document.project_id] = getattr(project, "security_level", None)
+        return self._project_security_cache[document.project_id]
 
     def _allowed_security_levels(self, user: User) -> list[str]:
         return allowed_security_levels(user_max_security_level(user))
@@ -190,3 +210,23 @@ class KeywordRetriever(BaseRetriever):
 
     def _score(self, content: str, query: str, terms: list[str] | None = None) -> float:
         return score_text_relevance(content, query, terms or self._terms(query))
+
+    def _effective_mode(self, mode: str, project_id: int | None) -> str:
+        return "hybrid" if mode == "auto" and project_id is not None else ("base_only" if mode == "auto" else mode)
+
+    def _chunk_search_filters(self, mode: str, project_id: int | None, terms: list[str]) -> dict[str, Any]:
+        effective_mode = self._effective_mode(mode, project_id)
+        filters: dict[str, Any] = {"query_terms": terms}
+        if effective_mode in {"project_chat", "project_only"} and project_id is not None:
+            filters.update({"knowledge_type": "project", "project_id": project_id})
+        elif effective_mode in {"base_chat", "base_only"}:
+            filters["knowledge_type"] = "base"
+        return filters
+
+    def _scope_search_filters(self, retrieval_scope: dict[str, object]) -> dict[str, object]:
+        filters: dict[str, object] = {}
+        for key in ("document_ids", "chunk_ids", "page_numbers_by_document"):
+            value = retrieval_scope.get(key)
+            if value:
+                filters[key] = value
+        return filters

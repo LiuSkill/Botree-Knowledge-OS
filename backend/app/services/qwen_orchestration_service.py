@@ -240,6 +240,27 @@ class QwenOrchestrationService:
             }
             return decision
 
+        if self._should_skip_intent_model(question, chat_type, mode, rule_intent, confidence):
+            decision = self._route_decision(
+                rule_intent,
+                False,
+                "项目检索模式命中低时延规则快路，跳过意图模型兜底",
+                confidence,
+            )
+            decision = self._enforce_chat_mode_policy(decision, chat_type, mode, confidence)
+            self.model_routes["intent"] = {
+                "task": "intent",
+                "source": "rules_fast_path",
+                "reason": "项目检索模式下直接沿用规则意图，避免额外 LLM 往返",
+                "confidence": confidence,
+                "intent": rule_intent,
+                "direct_answer": False,
+                "direct_answer_type": None,
+                "route": decision["route"],
+                "knowledge_scope": decision["knowledge_scope"],
+            }
+            return decision
+
         try:
             llm = LLMService(self.db)
             raw_text = llm.chat(self._build_intent_prompt(question, chat_type, mode, rule_intent), model_type="intent")
@@ -278,6 +299,22 @@ class QwenOrchestrationService:
                 "knowledge_scope": decision["knowledge_scope"],
             }
             return decision
+
+    def _should_skip_intent_model(
+        self,
+        question: str,
+        chat_type: str,
+        mode: str,
+        rule_intent: str,
+        confidence: float,
+    ) -> bool:
+        if chat_type != "project_chat" and mode not in {"project_only", "hybrid"}:
+            return False
+        if rule_intent in DIRECT_INTENTS:
+            return False
+        if confidence >= 0.68:
+            return True
+        return self._is_project_reference_question(question, chat_type, mode)
 
     def _enforce_chat_mode_policy(
         self,

@@ -532,6 +532,13 @@ def migrate_database() -> None:
                 )
             )
             _create_index_if_missing(connection, inspector, "page_indexes", "idx_page_indexes_security_level", "security_level")
+            _create_composite_index_if_missing(
+                connection,
+                inspector,
+                "page_indexes",
+                "idx_page_indexes_doc_status_ver",
+                ("document_id", "status", "version_no"),
+            )
 
         if "document_page_blocks" in table_names:
             block_columns = {column["name"] for column in inspector.get_columns("document_page_blocks")}
@@ -650,6 +657,13 @@ def migrate_database() -> None:
             _create_index_if_missing(connection, inspector, "graph_entities", "idx_graph_entities_drawing_no", "drawing_no")
             _create_index_if_missing(connection, inspector, "graph_entities", "idx_graph_entities_page_number", "page_number")
             _create_index_if_missing(connection, inspector, "graph_entities", "idx_graph_entities_status", "status")
+            _create_composite_index_if_missing(
+                connection,
+                inspector,
+                "graph_entities",
+                "idx_graph_entities_doc_status_ver",
+                ("document_id", "status", "version_no"),
+            )
 
         if "graph_relations" in table_names:
             relation_columns = {column["name"] for column in inspector.get_columns("graph_relations")}
@@ -689,6 +703,13 @@ def migrate_database() -> None:
             _create_index_if_missing(connection, inspector, "graph_relations", "idx_graph_relations_drawing_no", "drawing_no")
             _create_index_if_missing(connection, inspector, "graph_relations", "idx_graph_relations_page_number", "page_number")
             _create_index_if_missing(connection, inspector, "graph_relations", "idx_graph_relations_status", "status")
+            _create_composite_index_if_missing(
+                connection,
+                inspector,
+                "graph_relations",
+                "idx_graph_relations_doc_status_ver",
+                ("document_id", "status", "version_no"),
+            )
 
         if "operation_logs" in table_names:
             operation_log_columns = {column["name"] for column in inspector.get_columns("operation_logs")}
@@ -956,6 +977,25 @@ def _create_index_if_missing(connection, inspector, table_name: str, index_name:
     if index_name in index_names:
         return
     connection.execute(text(f"CREATE INDEX {index_name} ON {table_name} ({column_name})"))
+    logger.info("数据库迁移完成: %s.%s", table_name, index_name)
+
+
+def _create_composite_index_if_missing(
+    connection,
+    inspector,
+    table_name: str,
+    index_name: str,
+    column_names: tuple[str, ...],
+) -> None:
+    """
+    按需新增复合索引，避免索引发布时走 status 单列索引扫描大量已发布行。
+    """
+
+    index_names = {index["name"] for index in inspector.get_indexes(table_name)}
+    if index_name in index_names:
+        return
+    columns_sql = ", ".join(column_names)
+    connection.execute(text(f"CREATE INDEX {index_name} ON {table_name} ({columns_sql})"))
     logger.info("数据库迁移完成: %s.%s", table_name, index_name)
 
 

@@ -23,7 +23,13 @@ from app.agent.executor import AgentExecutor
 from app.core.exceptions import AppException
 from app.core.rbac import has_permission
 from app.langgraph import RetrievalGraph
-from app.langgraph.retrieval_graph import GENERAL_ANSWER_PREFIX
+from app.langgraph.retrieval_graph import (
+    ANSWER_CONTEXT_TOP_K,
+    DEFAULT_RETRIEVER_TOP_K,
+    FUSED_EVIDENCE_TOP_K,
+    GENERAL_ANSWER_PREFIX,
+    RERANKED_EVIDENCE_TOP_K,
+)
 from app.models.chat import ChatCitation, ChatMessage, ChatSession
 from app.models.document import Document
 from app.models.knowledge_category import KnowledgeCategory
@@ -822,9 +828,10 @@ class ChatService:
             "progress_events": progress_events,
             "evidences": [],
             "raw": {
-                "candidate_k": 100,
-                "rerank_top_k": 30,
-                "answer_top_k": 10,
+                "candidate_k": DEFAULT_RETRIEVER_TOP_K,
+                "rerank_top_k": FUSED_EVIDENCE_TOP_K,
+                "eval_top_k": RERANKED_EVIDENCE_TOP_K,
+                "answer_top_k": ANSWER_CONTEXT_TOP_K,
                 "reranker_used": False,
                 "direct_llm_used": direct_llm_used,
                 "kb_grounded": False,

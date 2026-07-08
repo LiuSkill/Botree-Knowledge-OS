@@ -273,3 +273,31 @@ def test_partial_answer_with_visual_evidence_uses_limited_vision_llm() -> None:
     assert answer == "受限视觉回答"
     assert fake_llm.called_model_type == "vision_llm"
     assert isinstance(fake_llm.messages[1]["content"], list)
+
+
+def test_partial_answer_with_llm_failure_falls_back_to_rule_partial_answer() -> None:
+    generator = AnswerGenerator.__new__(AnswerGenerator)
+    generator.last_model_route = None
+
+    def raise_timeout(*args: object, **kwargs: object) -> str:  # noqa: ARG001
+        raise RuntimeError("vision timeout")
+
+    generator._partial_answer_with_llm = raise_timeout  # type: ignore[method-assign]  # noqa: SLF001
+    fallback_evidence = evidence("Process flow evidence")
+    evaluation = {"missing_aspects": ["material flow"]}
+    expected = generator._partial_answer("Na2SO4蒸发流程", [fallback_evidence], evaluation)  # noqa: SLF001
+
+    answer = generator.generate_by_action(
+        "Na2SO4蒸发流程",
+        [fallback_evidence],
+        action="partial_answer_with_llm",
+        query_profile={"query_type": "process_flow", "answer_shape": "process_steps"},
+        evidence_evaluation=evaluation,
+    )
+
+    assert answer == expected
+    assert generator.last_model_route == {
+        "task": "answer",
+        "source": "rules",
+        "reason": "partial_llm_failed_rule_partial_answer",
+    }

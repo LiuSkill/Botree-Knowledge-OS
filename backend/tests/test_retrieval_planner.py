@@ -21,6 +21,7 @@ from unittest.mock import patch
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
+from app.retrieval.base import DEFAULT_RETRIEVER_TOP_K  # noqa: E402
 from app.retrieval.router import RetrievalRouter  # noqa: E402
 from app.retrieval.schemas import Evidence  # noqa: E402
 from app.services.evidence_access_guard_service import EvidenceAccessGuardService  # noqa: E402
@@ -109,7 +110,14 @@ class FakeRetriever:
         self.delay_seconds = delay_seconds
         self.calls = 0
 
-    def search(self, query: str, mode: str, project_id: int | None, user: Any, limit: int = 5) -> list[Evidence]:
+    def search(
+        self,
+        query: str,
+        mode: str,
+        project_id: int | None,
+        user: Any,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
+    ) -> list[Evidence]:
         """
         模拟 Retriever 的 search 接口。
 
@@ -128,6 +136,25 @@ class FakeRetriever:
         if self.delay_seconds:
             time.sleep(self.delay_seconds)
         return self.evidences[:limit]
+
+
+class ScopedFakeRetriever(FakeRetriever):
+    def __init__(self, name: str, evidences: list[Evidence] | None = None, delay_seconds: float = 0.0) -> None:
+        super().__init__(name, evidences, delay_seconds)
+        self.scopes: list[dict[str, Any] | None] = []
+
+    def search(
+        self,
+        query: str,
+        mode: str,
+        project_id: int | None,
+        user: Any,
+        limit: int = DEFAULT_RETRIEVER_TOP_K,
+        *,
+        retrieval_scope: dict[str, Any] | None = None,
+    ) -> list[Evidence]:
+        self.scopes.append(retrieval_scope)
+        return super().search(query, mode, project_id, user, limit)
 
 
 def make_evidence(retriever: str, score: float = 1.0, content: str | None = None) -> Evidence:
@@ -175,7 +202,11 @@ def build_router(*retrievers: FakeRetriever) -> RetrievalRouter:
     router.retriever_map = {retriever.name: retriever for retriever in retrievers}
     router.evidence_access_guard = EvidenceAccessGuardService(None)
     router._scope_text = lambda mode: mode  # type: ignore[method-assign]
-    router.settings = SimpleNamespace(retrieval_retriever_timeout_ms=4500, ripgrep_timeout_ms=1500)
+    router.settings = SimpleNamespace(
+        retrieval_retriever_timeout_ms=4500,
+        retrieval_milvus_timeout_ms=15000,
+        ripgrep_timeout_ms=1500,
+    )
     router._retriever_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
     def prepare_scope(
@@ -574,6 +605,24 @@ def test_rule_planner_table_value_lookup_uses_page_index() -> None:
     assert "page_index" not in plan.skipped_retrievers
 
 
+def test_rule_planner_structured_list_lookup_uses_page_index_and_ripgrep() -> None:
+    plan = RetrievalPlannerService(None).plan(
+        query="该项目的最终产品有哪些",
+        sub_queries=["该项目的最终产品有哪些"],
+        intent="project_qa",
+        chat_type="project_chat",
+        mode="project_chat",
+        project_id=1,
+        available_retrievers=["page_index", "milvus", "ripgrep", "keyword", "graphrag"],
+        query_profile={"query_type": "project_qa", "answer_shape": "general", "knowledge_scope": "project"},
+    )
+
+    assert plan.qwen_used is False
+    assert plan.query_features["has_structured_list_lookup"] is True
+    assert plan.selected_retrievers == ["page_index", "ripgrep", "milvus"]
+    assert plan.fallback_ladder == [["page_index"], ["ripgrep"], ["milvus"], ["keyword"]]
+
+
 def test_qwen_table_value_lookup_keeps_required_page_index() -> None:
     """
     即使 Qwen 没选择 page_index，表格数值查询也必须补齐页级索引。
@@ -717,6 +766,32 @@ def test_router_executes_same_stage_retrievers_in_parallel() -> None:
     assert result["retriever_timeouts"] == {"milvus": False, "keyword": False}
 
 
+def test_router_passes_retrieval_scope_to_compatible_retriever() -> None:
+    page_index = ScopedFakeRetriever("page_index", [make_evidence("page_index")])
+    router = build_router(page_index)
+
+    result = router.execute_planned(
+        query="Product List SUBPROJECT",
+        mode="project_chat",
+        project_id=1,
+        user=None,
+        retriever_names=["page_index"],
+        fallback_ladder=[["page_index"]],
+        retrieval_scope={
+            "document_ids": ["308"],
+            "page_numbers_by_document": {"308": [2, "3"]},
+        },
+    )
+
+    assert page_index.scopes == [{"document_ids": [308], "page_numbers_by_document": {308: [2, 3]}}]
+    assert result["retrieval_scope"] == {
+        "document_count": 1,
+        "chunk_count": 0,
+        "page_scope_document_count": 1,
+        "page_count": 2,
+    }
+
+
 def test_router_does_not_override_planner_selected_retrievers() -> None:
     """Router 只执行 Planner 已选检索器，不再运行时二次跳过。"""
 
@@ -786,6 +861,50 @@ def test_router_timeout_returns_without_waiting_for_blocking_retriever() -> None
     assert result["retriever_hits"] == {"page_index": 0}
 
 
+def test_router_timeout_does_not_block_next_fallback_stage() -> None:
+    page_index = FakeRetriever("page_index", [make_evidence("page_index")], delay_seconds=0.3)
+    project_metadata = FakeRetriever("project_metadata", [make_evidence("project_metadata", score=0.95)])
+    router = build_router(page_index, project_metadata)
+    router.settings.retrieval_retriever_timeout_ms = 50
+    router._retriever_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+    started_at = time.perf_counter()
+    result = router.execute_planned(
+        query="Introduce project overview",
+        mode="project_chat",
+        project_id=1,
+        user=None,
+        retriever_names=["page_index"],
+        fallback_ladder=[["page_index"], ["project_metadata"]],
+        query_features={"query_profile": {"query_type": "project_overview"}},
+    )
+    elapsed = time.perf_counter() - started_at
+
+    assert elapsed < 0.2
+    assert result["used_retrievers"] == ["page_index", "project_metadata"]
+    assert result["retriever_timeouts"]["page_index"] is True
+    assert result["retriever_hits"]["project_metadata"] == 1
+
+
+def test_router_milvus_timeout_can_exceed_base_timeout() -> None:
+    milvus = FakeRetriever("milvus", [make_evidence("milvus")], delay_seconds=0.1)
+    router = build_router(milvus)
+    router.settings.retrieval_retriever_timeout_ms = 50
+    router.settings.retrieval_milvus_timeout_ms = 200
+
+    result = router.execute_planned(
+        query="Na2SO4蒸发流程",
+        mode="project_chat",
+        project_id=1,
+        user=SimpleNamespace(roles=[]),
+        retriever_names=["milvus"],
+        fallback_ladder=[["milvus"]],
+    )
+
+    assert result["retriever_timeouts"] == {"milvus": False}
+    assert result["retriever_hits"] == {"milvus": 1}
+
+
 def test_router_ripgrep_timeout_envelope_exceeds_rg_subprocess_timeout() -> None:
     ripgrep = FakeRetriever("ripgrep", [make_evidence("ripgrep")], delay_seconds=0.1)
     router = build_router(ripgrep)
@@ -833,6 +952,8 @@ def main() -> None:
     test_router_does_not_override_planner_selected_retrievers()
     test_router_process_flow_does_not_skip_page_index_without_page_hint()
     test_router_timeout_returns_without_waiting_for_blocking_retriever()
+    test_router_timeout_does_not_block_next_fallback_stage()
+    test_router_milvus_timeout_can_exceed_base_timeout()
     test_router_ripgrep_timeout_envelope_exceeds_rg_subprocess_timeout()
     logger.info("Retrieval Planner 单元测试通过")
 

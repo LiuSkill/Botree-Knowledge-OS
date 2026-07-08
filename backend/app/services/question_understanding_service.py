@@ -221,6 +221,23 @@ class QuestionUnderstandingService:
         "flow",
         "feeding",
     )
+    _PROCESS_OBJECT_HINTS = (
+        "蒸发",
+        "结晶",
+        "浓缩",
+        "干燥",
+        "过滤",
+        "反应",
+        "浸出",
+        "萃取",
+        "除杂",
+        "洗涤",
+        "沉淀",
+        "分离",
+        "回收",
+        "冷却",
+        "蒸馏",
+    )
     _FEEDING_HINTS = ("进料", "原料进料", "feeding", "raw material")
     _PROJECT_OVERVIEW_HINTS = ("项目概况", "项目简介", "建设内容", "处理规模", "项目定位", "overview")
     _COMPARISON_HINTS = ("区别", "对比", "比较", "差异", "哪个更好", "compare", "comparison", "difference")
@@ -356,13 +373,14 @@ class QuestionUnderstandingService:
     def _is_process_flow_query(self, lowered: str, normalized: str) -> bool:
         has_process = self._contains_any(lowered, self._PROCESS_HINTS)
         has_feeding = self._contains_any(lowered, self._FEEDING_HINTS)
+        has_process_object = any(token in normalized for token in self._PROCESS_OBJECT_HINTS)
         has_material_flow = any(token in normalized for token in ("物料流向", "流向", "上下游"))
         has_project_context = any(token in normalized for token in self._PROJECT_REFERENCE_HINTS)
         if has_material_flow:
             return True
-        if has_process and (has_feeding or "黑粉" in normalized or has_project_context):
+        if has_process and (has_feeding or "黑粉" in normalized or has_project_context or has_process_object):
             return True
-        return bool("流程" in normalized and "介绍" in normalized)
+        return bool("流程" in normalized and ("介绍" in normalized or has_process_object))
 
     def _infer_object_type(self, lowered: str, normalized: str, task_type: str) -> str:
         if task_type == TaskType.PROJECT_OVERVIEW.value:

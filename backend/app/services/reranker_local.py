@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from threading import RLock
+from threading import Lock, RLock
 from typing import Any
 
 import torch
@@ -36,6 +36,9 @@ class LocalCrossEncoderReranker:
         self.requested_device = self._normalize_device(device)
         self.device = self._resolve_device(self.requested_device)
         self.model: Any | None = None
+        # 普通 Lock 不绑定线程所有者，这里把它当作进程内 GPU 推理闸门。
+        # 请求线程先占位，后台推理线程结束后释放，避免超时请求继续叠加新推理。
+        self._inference_gate = Lock()
 
         started_at = time.perf_counter()
         logger.info(
@@ -96,6 +99,24 @@ class LocalCrossEncoderReranker:
             int((time.perf_counter() - started_at) * 1000),
         )
         return result
+
+    def acquire_inference_slot(self, timeout_seconds: float | None = None) -> int | None:
+        """申请一次真实推理执行槽，返回排队耗时（毫秒）。"""
+
+        started_at = time.perf_counter()
+        if timeout_seconds is None:
+            acquired = self._inference_gate.acquire()
+        else:
+            acquired = self._inference_gate.acquire(timeout=max(0.0, float(timeout_seconds)))
+        wait_ms = int((time.perf_counter() - started_at) * 1000)
+        if not acquired:
+            return None
+        return wait_ms
+
+    def release_inference_slot(self) -> None:
+        """释放真实推理执行槽。"""
+
+        self._inference_gate.release()
 
     def _resolve_model_path(self, model_name: str) -> Path:
         model_path = Path(model_name)

@@ -7,6 +7,7 @@
 """
 
 import json
+import logging
 from collections.abc import Iterator
 from typing import Any
 
@@ -14,6 +15,9 @@ from sqlalchemy.orm import Session
 
 from app.retrieval.schemas import Evidence
 from app.services.llm_service import LLMService
+from app.services.rag_prompt_templates import ANSWER_SYSTEM_PROMPT, VISION_ANSWER_SYSTEM_PROMPT
+
+logger = logging.getLogger(__name__)
 
 ANSWER_MODEL_TEXT = "answer_llm"
 ANSWER_MODEL_VISION = "vision_llm"
@@ -103,7 +107,12 @@ class AnswerGenerator:
             self.last_model_route = self._rule_answer_route("证据仅包含标题、图名或弱证据，生成有限回答")
             return self._limited_answer(question, evidences, evidence_evaluation or {})
         if action == ACTION_PARTIAL_ANSWER_WITH_LLM:
-            return self._partial_answer_with_llm(question, evidences, evidence_evaluation or {}, query_profile or {})
+            try:
+                return self._partial_answer_with_llm(question, evidences, evidence_evaluation or {}, query_profile or {})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Partial LLM answer failed, downgrade to rule partial answer: %s", exc, exc_info=True)
+                self.last_model_route = self._rule_answer_route("partial_llm_failed_rule_partial_answer")
+                return self._partial_answer(question, evidences, evidence_evaluation or {})
         if action == ACTION_PARTIAL_ANSWER:
             self.last_model_route = self._rule_answer_route("证据不完整，生成部分回答")
             return self._partial_answer(question, evidences, evidence_evaluation or {})
@@ -132,12 +141,17 @@ class AnswerGenerator:
             yield from self._stream_general_answer(question, query_profile=query_profile)
             return
         if action == ACTION_PARTIAL_ANSWER_WITH_LLM:
-            yield from self._stream_partial_answer_with_llm(
-                question,
-                evidences,
-                evidence_evaluation or {},
-                query_profile or {},
-            )
+            try:
+                yield from self._stream_partial_answer_with_llm(
+                    question,
+                    evidences,
+                    evidence_evaluation or {},
+                    query_profile or {},
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Streaming partial LLM answer failed, downgrade to rule partial answer: %s", exc, exc_info=True)
+                self.last_model_route = self._rule_answer_route("stream_partial_llm_failed_rule_partial_answer")
+                yield self._partial_answer(question, evidences, evidence_evaluation or {})
             return
         if action != ACTION_NORMAL_ANSWER:
             yield self.generate_by_action(
@@ -375,14 +389,7 @@ class AnswerGenerator:
         return [
             {
                 "role": "system",
-                "content": (
-                    "你是知识库问答的受限回答器。你只能回答证据中明确支持的内容。"
-                    "不得补全未检索到的流程、参数、设备关系、项目事实。"
-                    "回答必须分为三节：1. 已能确认的信息；2. 资料不足，无法确认的信息；"
-                    "3. 缺失证据或建议补充检索方向。"
-                    "如果证据不能支持某个部分，必须明确说“当前资料未检索到”。"
-                    "不要伪造来源，不要使用通用知识补齐项目事实。"
-                ),
+                "content": ANSWER_SYSTEM_PROMPT,
             },
             {
                 "role": "user",
@@ -410,14 +417,7 @@ class AnswerGenerator:
         return [
             {
                 "role": "system",
-                "content": (
-                    "你是知识库问答的受限视觉回答器。你只能回答文字证据或图片证据中明确支持的内容。"
-                    "不得补全未检索到、未在图中识别到的流程、参数、设备关系、项目事实。"
-                    "回答必须分为三节：1. 已能确认的信息；2. 资料不足，无法确认的信息；"
-                    "3. 缺失证据或建议补充检索方向。"
-                    "如果图片分辨率或文字证据不能支持某个部分，必须明确说“当前资料未检索到”。"
-                    "不要伪造来源，不要使用通用知识补齐项目事实。"
-                ),
+                "content": VISION_ANSWER_SYSTEM_PROMPT,
             },
             {
                 "role": "user",
