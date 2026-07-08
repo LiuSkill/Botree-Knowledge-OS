@@ -1,0 +1,136 @@
+import type { PermissionCode } from '@/constants/permissions';
+
+export type ProcessLibraryStatus = 'enabled' | 'draft' | 'disabled';
+export type ProcessRegionCode = 'asia' | 'europe' | 'americas';
+export type ProcessRegionCurrency = 'CNY' | 'EUR' | 'USD';
+export type ProcessConfigModuleKey = 'materials' | 'products' | 'consumables' | 'public-services' | 'nodes' | 'routes';
+
+export interface ProcessRegionDefinition {
+  region_code: ProcessRegionCode;
+  region_name: string;
+  currency: ProcessRegionCurrency;
+}
+
+export interface ProcessConfigModuleMeta {
+  key: ProcessConfigModuleKey;
+  label: string;
+  filenamePrefix: string;
+}
+
+export const PROCESS_REGION_DEFINITIONS: readonly ProcessRegionDefinition[] = [
+  { region_code: 'asia', region_name: '亚洲', currency: 'CNY' },
+  { region_code: 'europe', region_name: '欧洲', currency: 'EUR' },
+  { region_code: 'americas', region_name: '美洲', currency: 'USD' },
+];
+
+export const PROCESS_CONFIG_MODULE_META_MAP: Record<ProcessConfigModuleKey, ProcessConfigModuleMeta> = {
+  materials: { key: 'materials', label: '原料库', filenamePrefix: 'process-materials' },
+  products: { key: 'products', label: '产品库', filenamePrefix: 'process-products' },
+  consumables: { key: 'consumables', label: '消耗品库', filenamePrefix: 'process-consumables' },
+  'public-services': { key: 'public-services', label: '公共服务库', filenamePrefix: 'process-public-services' },
+  nodes: { key: 'nodes', label: '工艺节点库', filenamePrefix: 'process-nodes' },
+  routes: { key: 'routes', label: '工艺路线库', filenamePrefix: 'process-routes' },
+};
+
+export interface ProcessConfigImportError {
+  sheet: string;
+  row: number;
+  field: string;
+  message: string;
+}
+
+export interface ProcessConfigImportResult {
+  module: ProcessConfigModuleKey;
+  imported_count: number;
+  imported_codes?: string[];
+}
+
+export interface ProcessRegionPrice {
+  id?: number;
+  owner_type?: string;
+  owner_id?: number;
+  region_code: ProcessRegionCode;
+  region_name: string;
+  currency: ProcessRegionCurrency;
+  unit_price: string | number;
+  unit: string;
+  status: ProcessLibraryStatus;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProcessLibraryItem {
+  id: number;
+  code: string;
+  name: string;
+  type: string;
+  description?: string | null;
+  unit: string;
+  status: ProcessLibraryStatus;
+  sort_order: number;
+  remark?: string | null;
+  region_prices: ProcessRegionPrice[];
+  created_by?: number | null;
+  updated_by?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProcessLibraryPayload {
+  code: string;
+  name: string;
+  type: string;
+  description?: string | null;
+  unit: string;
+  status: ProcessLibraryStatus;
+  sort_order: number;
+  remark?: string | null;
+  region_prices: ProcessRegionPrice[];
+}
+
+export interface ProcessLibraryListParams {
+  keyword?: string;
+  status?: ProcessLibraryStatus;
+  page?: number;
+  page_size?: number;
+}
+
+export interface ProcessLibraryPermissions {
+  view: PermissionCode;
+  create: PermissionCode;
+  update: PermissionCode;
+  delete: PermissionCode;
+  import: PermissionCode;
+  export: PermissionCode;
+}
+
+export interface ProcessLibraryPageConfig {
+  title: string;
+  entityName: string;
+  moduleKey: ProcessConfigModuleKey;
+  apiBasePath: string;
+  permissions: ProcessLibraryPermissions;
+}
+
+export function getProcessConfigModuleMeta(moduleKey: ProcessConfigModuleKey): ProcessConfigModuleMeta {
+  return PROCESS_CONFIG_MODULE_META_MAP[moduleKey];
+}
+
+export function normalizeRegionPrices(regionPrices: ProcessRegionPrice[] = [], unit = ''): ProcessRegionPrice[] {
+  return PROCESS_REGION_DEFINITIONS.map((definition) => {
+    const current = regionPrices.find((price) => price.region_code === definition.region_code);
+    return {
+      id: current?.id,
+      owner_type: current?.owner_type,
+      owner_id: current?.owner_id,
+      region_code: definition.region_code,
+      region_name: current?.region_name || definition.region_name,
+      currency: current?.currency || definition.currency,
+      unit_price: current?.unit_price ?? 0,
+      unit: current?.unit || unit,
+      status: current?.status || 'enabled',
+      created_at: current?.created_at,
+      updated_at: current?.updated_at,
+    };
+  });
+}

@@ -1,0 +1,10 @@
+1783333901 start
+1783333901 user_loaded
+1783333901 router_ready
+1783333901 effective_mode=project_chat
+1783333901 intent=project_qa
+1783333901 sub_queries=['Na2SO4????']
+1783333904 plan=['milvus', 'ripgrep']
+1783333915 retrieval_done hits={'milvus': 10, 'ripgrep': 10} timeouts={'milvus': False, 'ripgrep': False}
+1783333990 finalize_done count=10
+1783333990 db_closed

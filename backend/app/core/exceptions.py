@@ -8,6 +8,7 @@ Application Exceptions
 """
 
 import logging
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -29,10 +30,11 @@ class AppException(Exception):
     - 携带 HTTP 状态码和业务错误码
     """
 
-    def __init__(self, message: str, status_code: int = 400, code: int = 400) -> None:
+    def __init__(self, message: str, status_code: int = 400, code: int = 400, data: Any = None) -> None:
         self.message = message
         self.status_code = status_code
         self.code = code
+        self.data = data
         super().__init__(message)
 
 
@@ -67,7 +69,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppException)
     async def handle_app_exception(_: Request, exc: AppException) -> JSONResponse:
         logger.warning("业务异常: %s", exc.message)
-        return JSONResponse(status_code=exc.status_code, content=fail(exc.message, exc.code))
+        return JSONResponse(status_code=exc.status_code, content=fail(exc.message, exc.code, exc.data))
 
     @app.exception_handler(HTTPException)
     async def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:

@@ -14,6 +14,7 @@ import { firstMenuPath } from '@/utils/rbacMenus';
 
 export const ROOT_ROUTE_NAME = 'authorized-root';
 export const NOT_FOUND_ROUTE_NAME = 'authorized-not-found';
+const PROCESS_CONFIG_PARENT_PATH = '/process-config';
 
 type RouteComponent = NonNullable<RouteRecordRaw['component']>;
 type ExtraRouteConfig = {
@@ -46,6 +47,12 @@ const pageComponents: Record<string, RouteComponent> = {
   '/projects': () => import('@/views/project/ProjectListPage.vue'),
   '/authorization': () => import('@/views/auth-center/KnowledgeAuthPage.vue'),
   '/reviews': () => import('@/views/review/ReviewTaskPage.vue'),
+  '/process-config/materials': () => import('@/views/process-config/MaterialLibraryPage.vue'),
+  '/process-config/products': () => import('@/views/process-config/ProductLibraryPage.vue'),
+  '/process-config/consumables': () => import('@/views/process-config/ConsumableLibraryPage.vue'),
+  '/process-config/public-services': () => import('@/views/process-config/PublicServiceLibraryPage.vue'),
+  '/process-config/nodes': () => import('@/views/process-config/ProcessNodeLibraryPage.vue'),
+  '/process-config/routes': () => import('@/views/process-config/ProcessRouteLibraryPage.vue'),
   '/ai/project-chat': () => import('@/views/ai/ProjectChatPage.vue'),
   '/ai/base-chat': () => import('@/views/ai/BaseChatPage.vue'),
   '/system/users': () => import('@/views/system/UserManagePage.vue'),
@@ -148,6 +155,14 @@ const extraRoutesByMenuId: Record<string, ExtraRouteConfig[]> = {
       component: () => import('@/views/review/ReviewDetailPage.vue'),
     },
   ],
+  'process_config:route': [
+    {
+      path: '/process-config/routes/:id',
+      name: 'detail',
+      breadcrumbItems: [{ title: '路线详情' }],
+      component: () => import('@/views/process-config/route/detail.vue'),
+    },
+  ],
 };
 
 let routeSignature = '';
@@ -179,6 +194,10 @@ function createAuthorizedRoutes(menus: SystemMenuNode[]): RouteRecordRaw[] {
       routes.push(createSystemRoute(node));
       return;
     }
+    if (node.id === 'process_config' && node.children.length) {
+      routes.push(createProcessConfigRoute(node));
+      return;
+    }
     if (node.children.length) {
       node.children.forEach((child) => routes.push(...createLeafRoutes(child)));
       return;
@@ -196,6 +215,22 @@ function createSystemRoute(node: SystemMenuNode): RouteRecordRaw {
     redirect: firstMenuPath(node.children) || undefined,
     meta: { menuId: node.id, title: node.name },
     children: node.children.map((child) => createMenuRoute(child, node.path || '/system')).filter(isRoute),
+  };
+}
+
+function createProcessConfigRoute(node: SystemMenuNode): RouteRecordRaw {
+  return {
+    path: toChildPath(PROCESS_CONFIG_PARENT_PATH),
+    name: routeName(node.id),
+    component: () => import('@/views/process-config/ProcessConfigLayoutPage.vue'),
+    redirect: firstMenuPath(node.children) || undefined,
+    meta: { menuId: node.id, title: node.name },
+    children: node.children
+      .flatMap((child) => [
+        createMenuRoute(child, PROCESS_CONFIG_PARENT_PATH),
+        ...(extraRoutesByMenuId[child.id] || []).map((item) => createExtraRoute(child, item, PROCESS_CONFIG_PARENT_PATH)),
+      ])
+      .filter(isRoute),
   };
 }
 
@@ -224,9 +259,9 @@ function createMenuRoute(node: SystemMenuNode, parentPath = ''): RouteRecordRaw 
   };
 }
 
-function createExtraRoute(node: SystemMenuNode, item: ExtraRouteConfig): RouteRecordRaw {
+function createExtraRoute(node: SystemMenuNode, item: ExtraRouteConfig, parentPath = ''): RouteRecordRaw {
   return {
-    path: toChildPath(item.path),
+    path: parentPath ? toRelativeChildPath(item.path, parentPath) : toChildPath(item.path),
     name: routeName(`${node.id}:${item.name}`),
     component: item.component,
     meta: {

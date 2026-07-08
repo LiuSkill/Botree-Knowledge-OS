@@ -88,6 +88,39 @@ def test_system_menu_and_action_catalog_use_registered_permissions(db_session: S
     assert isinstance(create_action["permission_id"], int)
 
 
+def test_process_config_menu_and_action_catalog_use_registered_permissions(db_session: Session) -> None:
+    """Process configuration menus and actions are exposed through RBAC catalog."""
+
+    seed_permission_catalog(db_session)
+
+    menus = SystemService(db_session).list_menus()
+    actions = SystemService(db_session).list_action_permissions()
+    process_menu = next(menu for menu in menus if menu["id"] == "process_config")
+    route_group = next(group for group in actions if group["module"] == "process-config-route")
+
+    assert [(child["id"], child["path"]) for child in process_menu["children"]] == [
+        ("process_config:material", "/process-config/materials"),
+        ("process_config:product", "/process-config/products"),
+        ("process_config:consumable", "/process-config/consumables"),
+        ("process_config:public_service", "/process-config/public-services"),
+        ("process_config:node", "/process-config/nodes"),
+        ("process_config:route", "/process-config/routes"),
+    ]
+    assert all(isinstance(child["permission_id"], int) for child in process_menu["children"])
+    assert route_group["menu_ids"] == ["process_config:route"]
+    assert {action["code"] for action in route_group["actions"]} == {
+        "process_config:route:view",
+        "process_config:route:create",
+        "process_config:route:update",
+        "process_config:route:delete",
+        "process_config:route:import",
+        "process_config:route:export",
+        "process_config:route:copy",
+        "process_config:route:version",
+    }
+    assert all(isinstance(action["permission_id"], int) for action in route_group["actions"])
+
+
 def test_current_permissions_filter_actions_without_bound_page(db_session: Session) -> None:
     """Button permissions do not exist independently from their bound page."""
 

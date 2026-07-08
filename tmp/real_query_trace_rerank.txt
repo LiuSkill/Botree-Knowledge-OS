@@ -1,0 +1,5 @@
+1783334018 retrieval_done
+1783334018 merge_done count=20
+1783334018 guard_done accepted=20 rejected=0
+1783334093 rerank_done count=10 runtime={'provider': 'local', 'model_name': 'E:\\workspace\\botree-agent\\backend\\workspace\\bge-reranker-v2-m3', 'model_loaded': True, 'backend': 'sentence-transformers-cross-encoder', 'requested_device': 'cuda', 'resolved_device': 'cuda', 'device': 'cuda', 'device_explicitly_configured': True, 'batch_size': 8, 'fallback_used': False, 'score_order': 'desc', 'candidate_count': 20, 'elapsed_ms': 72449}
+1783334093 db_closed
