@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from app.models.user import Role, User
+from app.retrieval.schemas import Evidence
 from app.retrieval.retrievers.keyword_retriever import KeywordRetriever
 from app.retrieval.router import RetrievalRouter
 from app.services.qwen_orchestration_service import QwenOrchestrationService
@@ -57,3 +58,82 @@ def test_project_intent_scope_does_not_append_base_library() -> None:
     assert service._knowledge_scope_for_intent("project_qa") == "project"
     assert service._knowledge_scope_for_intent("exact_lookup") == "project"
     assert service._knowledge_scope_for_intent("industry_knowledge_qa") == "industry"
+
+
+def test_structured_list_stage_quality_forces_fallback_on_generic_table_noise() -> None:
+    router = object.__new__(RetrievalRouter)
+    evidence = Evidence(
+        score=1.24,
+        source_type="project",
+        knowledge_base_id=1,
+        project_id=2,
+        document_id=900,
+        chunk_id=1001,
+        drawing_no=None,
+        file_name="PERFORMANCE TEST OF THE PUMP.pdf",
+        page_number=3,
+        content="| No. | Test Item | Result | Unit |\n| 1 | Flow rate | 12 | m3/h |",
+        retriever="page_index",
+        metadata={"document_name": "PERFORMANCE TEST OF THE PUMP.pdf"},
+    )
+
+    quality = router._assess_stage_quality("该项目的最终产品有哪些", [evidence])  # noqa: SLF001
+    should_continue, reason = router._should_continue_fallback(  # noqa: SLF001
+        quality,
+        1,
+        3,
+        remaining_budget_ms=9000,
+        min_remaining_budget_ms=1000,
+    )
+
+    assert quality["structured_anchor_support_count"] == 0
+    assert quality["table_like_without_anchor_count"] == 1
+    assert should_continue is True
+    assert reason == "structured_anchor_support_count==0"
+
+
+def test_structured_list_stage_quality_accepts_real_product_list_rows() -> None:
+    router = object.__new__(RetrievalRouter)
+    evidences = [
+        Evidence(
+            score=1.42,
+            source_type="project",
+            knowledge_base_id=1,
+            project_id=2,
+            document_id=308,
+            chunk_id=51193,
+            drawing_no=None,
+            file_name="BCE2413-PS-40-007 Product List_Rev.1B.pdf",
+            page_number=3,
+            content="| No. | Product Name | Product Remarks |\n| 1 | Li2CO3 | / |",
+            retriever="page_index",
+            metadata={"document_name": "BCE2413-PS-40-007 Product List_Rev.1B.pdf"},
+        ),
+        Evidence(
+            score=1.21,
+            source_type="project",
+            knowledge_base_id=1,
+            project_id=2,
+            document_id=308,
+            chunk_id=51194,
+            drawing_no=None,
+            file_name="BCE2413-PS-40-007 Product List_Rev.1B.pdf",
+            page_number=3,
+            content="| 2 | Na2SO4 | / |",
+            retriever="page_index",
+            metadata={"document_name": "BCE2413-PS-40-007 Product List_Rev.1B.pdf"},
+        ),
+    ]
+
+    quality = router._assess_stage_quality("该项目的最终产品有哪些", evidences)  # noqa: SLF001
+    should_continue, reason = router._should_continue_fallback(  # noqa: SLF001
+        quality,
+        1,
+        3,
+        remaining_budget_ms=9000,
+        min_remaining_budget_ms=1000,
+    )
+
+    assert quality["structured_anchor_support_count"] >= 1
+    assert should_continue is False
+    assert reason == "quality_enough"

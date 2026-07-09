@@ -373,6 +373,50 @@ def test_visual_evidence_judge_skips_llm_for_simple_drawing_flow() -> None:
     assert service.model_routes["evidence_judge"]["source"] == "rules"
 
 
+def test_structured_list_evidence_judge_rejects_generic_table_noise() -> None:
+    service = QwenOrchestrationService(db=None)  # type: ignore[arg-type]
+    evidence = make_evidence(
+        "2 x 2000 TPA Battery Black Mass Recycling Project\n"
+        "PERFORMANCE TEST OF THE PUMP\n"
+        "| No. | Test Item | Result | Unit |\n"
+        "| 1 | Flow rate | 12 | m3/h |"
+    )
+    evidence.file_name = "PERFORMANCE TEST OF THE PUMP.pdf"
+    evidence.metadata["document_name"] = "PERFORMANCE TEST OF THE PUMP.pdf"
+
+    result = service.judge_evidence(
+        "该项目的最终产品有哪些",
+        [evidence],
+        {
+            "retriever_hits": {"page_index": 1},
+            "query_features": {"has_structured_list_lookup": True},
+        },
+    )
+
+    assert result["enough"] is False
+    assert result["risk"] == "insufficient_target_alignment"
+    assert service.model_routes["evidence_judge"]["source"] == "rules"
+
+
+def test_structured_list_evidence_judge_accepts_product_list_row_with_file_anchor() -> None:
+    service = QwenOrchestrationService(db=None)  # type: ignore[arg-type]
+    evidence = make_evidence("| 2 | Na2SO4 | / |")
+    evidence.file_name = "BCE2413-PS-40-007 Product List_Rev.1B.pdf"
+    evidence.metadata["document_name"] = "BCE2413-PS-40-007 Product List_Rev.1B.pdf"
+
+    result = service.judge_evidence(
+        "该项目的最终产品有哪些",
+        [evidence],
+        {
+            "retriever_hits": {"page_index": 1},
+            "query_features": {"has_structured_list_lookup": True},
+        },
+    )
+
+    assert result["enough"] is True
+    assert service.model_routes["evidence_judge"]["source"] == "rules"
+
+
 def test_evidence_judge_parse_new_json_fields_and_filters_retrievers() -> None:
     """证据判断新版 JSON 字段需要解析成功，并过滤未知 retriever。"""
 

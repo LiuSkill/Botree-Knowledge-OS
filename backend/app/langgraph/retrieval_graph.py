@@ -75,11 +75,11 @@ EVIDENCE_EMPTY = "EMPTY"
 EVIDENCE_CONFLICTED = "CONFLICTED"
 EVIDENCE_INVALID_QUERY = "INVALID_QUERY"
 
-DEFAULT_RETRIEVER_TOP_K = 10
+DEFAULT_RETRIEVER_TOP_K = 20
 FUSED_EVIDENCE_TOP_K = 20
-RERANKED_EVIDENCE_TOP_K = 5
-ANSWER_CONTEXT_TOP_K = 5
-VISUAL_EVIDENCE_TOP_K = 5
+RERANKED_EVIDENCE_TOP_K = 10
+ANSWER_CONTEXT_TOP_K = 10
+VISUAL_EVIDENCE_TOP_K = 8
 
 PRESET_GREETING_ANSWER = "您好，我是博萃循环AI智能体，请问有什么可以帮助您的吗？"
 PRESET_IDENTITY_ANSWER = "我是博萃循环AI智能体，可以帮助您查询已授权的知识库资料、项目资料和基础知识。"
@@ -1228,7 +1228,7 @@ class RetrievalGraph:
         except (TypeError, ValueError):
             limit = ANSWER_CONTEXT_TOP_K
         if limit != ANSWER_CONTEXT_TOP_K:
-            logger.warning("answer_top_k=%s 当前真实答案生成链路固定使用Top5", limit)
+            logger.warning("answer_top_k=%s 当前真实答案生成链路固定使用Top10", limit)
         return ANSWER_CONTEXT_TOP_K
 
     def _default_candidate_k(self, _state: RetrievalGraphState) -> int:
@@ -1653,7 +1653,7 @@ class RetrievalGraph:
         return sorted(evidences, key=self._evidence_score, reverse=True)[:limit]
 
     def _record_answer_context(self, state: RetrievalGraphState) -> list[Evidence]:
-        """Record the fixed Top5 answer context without changing eval_top_k evidences."""
+        """Record the fixed Top10 answer context without changing eval_top_k evidences."""
 
         answer_top_k = self._answer_top_k(state)
         answer_evidences = self._top_scored_evidences(
@@ -1664,7 +1664,7 @@ class RetrievalGraph:
         raw["answer_top_k"] = answer_top_k
         raw["answer_context_count"] = len(answer_evidences)
         raw["answer_context_doc_ids"] = [self._evidence_debug_id(evidence) for evidence in answer_evidences]
-        raw["final_answer_doc_ids_top5"] = raw["answer_context_doc_ids"][:ANSWER_CONTEXT_TOP_K]
+        raw["final_answer_doc_ids_top5"] = raw["answer_context_doc_ids"][:5]
         raw["final_answer_doc_ids_top10"] = raw["answer_context_doc_ids"][:10]
         return answer_evidences
 

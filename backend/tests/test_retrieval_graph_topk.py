@@ -22,9 +22,10 @@ def test_retrieval_graph_uses_fixed_topk_defaults() -> None:
         "raw": {},
     }
 
-    assert graph._candidate_k(state) == 10  # noqa: SLF001
+    assert graph._candidate_k(state) == 20  # noqa: SLF001
     assert graph._rerank_top_k(state) == 20  # noqa: SLF001
-    assert graph._eval_top_k(state) == 5  # noqa: SLF001
+    assert graph._eval_top_k(state) == 10  # noqa: SLF001
+    assert graph._answer_top_k(state) == 10  # noqa: SLF001
 
 
 def test_explicit_topk_is_capped_by_fixed_pipeline_limits() -> None:
@@ -39,9 +40,10 @@ def test_explicit_topk_is_capped_by_fixed_pipeline_limits() -> None:
         },
     }
 
-    assert graph._candidate_k(state) == 10  # noqa: SLF001
+    assert graph._candidate_k(state) == 20  # noqa: SLF001
     assert graph._rerank_top_k(state) == 18  # noqa: SLF001
-    assert graph._eval_top_k(state) == 5  # noqa: SLF001
+    assert graph._eval_top_k(state) == 10  # noqa: SLF001
+    assert graph._answer_top_k(state) == 10  # noqa: SLF001
 
 
 def test_process_flow_page_index_candidates_skip_heavy_reranker() -> None:

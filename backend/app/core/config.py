@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     vision_llm_api_key: str | None = Field(default=None, alias="VISION_LLM_API_KEY")
     vision_llm_model: str = Field(default="qwen3.5-plus", alias="VISION_LLM_MODEL")
     vision_llm_timeout_seconds: int = Field(default=90, alias="VISION_LLM_TIMEOUT_SECONDS")
-    vision_llm_max_images: int = Field(default=2, alias="VISION_LLM_MAX_IMAGES")
+    vision_llm_max_images: int = Field(default=8, alias="VISION_LLM_MAX_IMAGES")
     vision_llm_max_image_bytes: int = Field(default=8 * 1024 * 1024, alias="VISION_LLM_MAX_IMAGE_BYTES")
     embedding_provider: str = Field(default="local", alias="EMBEDDING_PROVIDER")
     embedding_model: str | None = Field(default=None, alias="EMBEDDING_MODEL")

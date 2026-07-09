@@ -24,7 +24,7 @@ from app.services.document_asset_service import ASSET_TYPE_BLOCK_IMAGE, ASSET_TY
 logger = logging.getLogger(__name__)
 
 VISUAL_ASSET_TYPES = {ASSET_TYPE_PAGE_PREVIEW, ASSET_TYPE_BLOCK_IMAGE}
-VISUAL_ASSET_TOP_K = 5
+VISUAL_ASSET_TOP_K = 8
 VISUAL_QUERY_HINTS = (
     "图",
     "图片",

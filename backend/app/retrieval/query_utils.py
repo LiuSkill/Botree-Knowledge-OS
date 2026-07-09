@@ -92,6 +92,38 @@ LIST_TARGET_HINTS = (
 PRODUCT_LIST_PHRASES = ("Product List", "Product Name", "Products", "Final Product")
 EQUIPMENT_LIST_PHRASES = ("Equipment List", "Equipment Name", "Equipment")
 MATERIAL_LIST_PHRASES = ("Material List", "Material Name", "Materials", "Raw Material")
+PRODUCT_LIST_ANCHORS = (
+    *PRODUCT_LIST_PHRASES,
+    "product",
+    "products",
+    "product name",
+    "product list",
+    "final product",
+    "产品",
+    "产品名称",
+    "最终产品",
+)
+EQUIPMENT_LIST_ANCHORS = (
+    *EQUIPMENT_LIST_PHRASES,
+    "equipment",
+    "equipment name",
+    "equipment list",
+    "设备",
+    "设备名称",
+    "设备清单",
+)
+MATERIAL_LIST_ANCHORS = (
+    *MATERIAL_LIST_PHRASES,
+    "material",
+    "materials",
+    "material name",
+    "material list",
+    "raw material",
+    "物料",
+    "物料名称",
+    "原料",
+    "原料清单",
+)
 ELEMENT_SYMBOL_PATTERN = re.compile(
     r"(?<![A-Za-z0-9])(?:Li|Ni|Co|Mn|Al|Cu|Fe|Ca|Mg|PVDF|PAA|C|O|P|F)(?![A-Za-z0-9])"
 )
@@ -206,10 +238,17 @@ def score_text_relevance(content: str, query: str, terms: list[str] | None = Non
             score += 1.5
 
     if is_structured_list_lookup_query(query):
-        if TABLE_ROW_PATTERN.search(normalized_content):
-            score += 3.0
-        if normalized_content.count("|") >= 6:
-            score += 1.5
+        anchor_hits = _structured_lookup_anchor_hits_in_text(normalized_content, query)
+        if anchor_hits:
+            score += min(len(anchor_hits), 3) * 0.8
+            if TABLE_ROW_PATTERN.search(normalized_content):
+                score += 3.0
+            if normalized_content.count("|") >= 6:
+                score += 1.5
+        elif is_table_like_content(content):
+            # Structured-list questions should not over-rank generic test tables
+            # that only share project headers or table formatting.
+            score *= 0.35
 
     return max(0.0, score * boilerplate_multiplier(content))
 
@@ -302,6 +341,52 @@ def structured_lookup_phrases(query: str) -> list[str]:
     return _dedupe(phrases)
 
 
+def structured_lookup_anchor_phrases(query: str) -> list[str]:
+    """
+    Target-specific anchors used to validate whether a list/table really matches
+    the requested product/equipment/material dimension.
+    """
+
+    lowered = normalize_query_text(query).lower()
+    phrases: list[str] = []
+    if any(hint in lowered for hint in ("产品", "最终产品", "product", "final product")):
+        phrases.extend(PRODUCT_LIST_ANCHORS)
+    if any(hint in lowered for hint in ("equipment", "设备")):
+        phrases.extend(EQUIPMENT_LIST_ANCHORS)
+    if any(hint in lowered for hint in ("material", "raw material", "物料", "原料")):
+        phrases.extend(MATERIAL_LIST_ANCHORS)
+    return _dedupe(phrases)
+
+
+def structured_lookup_anchor_hits(content: str, query: str) -> list[str]:
+    """
+    Return matched target anchors for structured-list questions.
+    """
+
+    return _structured_lookup_anchor_hits_in_text(normalize_query_text(content).lower(), query)
+
+
+def has_structured_lookup_anchor_support(content: str, query: str) -> bool:
+    """
+    Whether content contains target-specific structured-list anchors.
+    """
+
+    return bool(structured_lookup_anchor_hits(content, query))
+
+
+def is_table_like_content(content: str) -> bool:
+    """
+    Heuristic table/list shape detection shared by retrievers and evidence judge.
+    """
+
+    normalized_content = normalize_query_text(content).lower()
+    if TABLE_ROW_PATTERN.search(normalized_content):
+        return True
+    if normalized_content.count("|") >= 6:
+        return True
+    return any(hint in normalized_content for hint in ("\t", "table", "表格", "list", "清单", "列表"))
+
+
 def augment_query_terms(query: str, base_terms: list[str] | None = None) -> list[str]:
     """
     Add narrow structured-list aliases without broadening normal queries too much.
@@ -360,3 +445,11 @@ def _dedupe(items: Iterable[str]) -> list[str]:
         result.append(normalized)
         seen.add(key)
     return result
+
+
+def _structured_lookup_anchor_hits_in_text(normalized_content: str, query: str) -> list[str]:
+    return [
+        phrase
+        for phrase in structured_lookup_anchor_phrases(query)
+        if phrase and contains_search_token(normalized_content, phrase.lower())
+    ]

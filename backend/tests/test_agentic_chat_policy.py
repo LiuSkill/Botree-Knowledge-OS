@@ -124,7 +124,7 @@ def test_project_chat_kb_answer_requires_sources(monkeypatch):
     assert result["evidence_status"] == "ENOUGH"
     assert result["evidences"]
     assert "milvus" in set(result["used_retrievers"])
-    assert result["raw"]["answer_top_k"] == 5
+    assert result["raw"]["answer_top_k"] == 10
     assert result["raw"]["reranker_used"] is True
 
 
@@ -366,6 +366,6 @@ def test_project_chat_returns_top5_evidences_and_citations_context(monkeypatch):
         SimpleNamespace(id=1),
     )
 
-    assert len(result["evidences"]) == 5
-    assert result["raw"]["answer_top_k"] == 5
-    assert result["raw"]["answer_context_count"] == 5
+    assert len(result["evidences"]) == 8
+    assert result["raw"]["answer_top_k"] == 10
+    assert result["raw"]["answer_context_count"] == 8

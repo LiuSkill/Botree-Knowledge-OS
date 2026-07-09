@@ -30,7 +30,12 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.user import User
 from app.retrieval.base import DEFAULT_RETRIEVER_TOP_K
 from app.retrieval.merger import EvidenceMerger
-from app.retrieval.query_utils import boilerplate_multiplier
+from app.retrieval.query_utils import (
+    boilerplate_multiplier,
+    has_structured_lookup_anchor_support,
+    is_structured_list_lookup_query,
+    is_table_like_content,
+)
 from app.retrieval.retrievers.graph_retriever import GraphRAGRetriever
 from app.retrieval.retrievers.keyword_retriever import KeywordRetriever
 from app.retrieval.retrievers.milvus_retriever import MilvusHybridRetriever
@@ -49,7 +54,7 @@ logger = logging.getLogger(__name__)
 LOW_QUALITY_SCORE_THRESHOLD = 0.58
 LOW_QUALITY_VALUABLE_EVIDENCE_THRESHOLD = 2
 FUSED_EVIDENCE_TOP_K = 20
-RERANKED_EVIDENCE_TOP_K = 5
+RERANKED_EVIDENCE_TOP_K = 10
 
 
 class RetrievalRouter:
@@ -380,7 +385,7 @@ class RetrievalRouter:
                 fallback_used.extend(stage_executed)
 
             stage_evidences = [item for group in stage_groups for item in group]
-            quality = self._assess_stage_quality(stage_evidences)
+            quality = self._assess_stage_quality(query, stage_evidences)
             should_continue, reason_text = self._should_continue_fallback(
                 quality,
                 stage_index,
@@ -397,6 +402,8 @@ class RetrievalRouter:
                         "hits": quality["hits"],
                         "top_raw_score": quality["top_raw_score"],
                         "valuable_evidence_count": quality["valuable_evidence_count"],
+                        "structured_anchor_support_count": quality.get("structured_anchor_support_count", 0),
+                        "table_like_without_anchor_count": quality.get("table_like_without_anchor_count", 0),
                     }
                 )
                 continue
@@ -1098,7 +1105,7 @@ class RetrievalRouter:
             ladder.append([name])
         return ladder
 
-    def _assess_stage_quality(self, evidences: list[Evidence]) -> dict[str, Any]:
+    def _assess_stage_quality(self, query: str, evidences: list[Evidence]) -> dict[str, Any]:
         """
         评估单个阶段的命中质量。
 
@@ -1110,12 +1117,30 @@ class RetrievalRouter:
         """
 
         top_raw_score = max((float(item.score) for item in evidences), default=0.0)
-        valuable_evidence_count = sum(1 for item in evidences if boilerplate_multiplier(item.content) >= 0.45)
-        return {
+        valuable_evidences = [item for item in evidences if boilerplate_multiplier(item.content) >= 0.45]
+        quality = {
             "hits": len(evidences),
             "top_raw_score": round(top_raw_score, 4),
-            "valuable_evidence_count": valuable_evidence_count,
+            "valuable_evidence_count": len(valuable_evidences),
         }
+        if is_structured_list_lookup_query(query):
+            structured_anchor_support_count = 0
+            table_like_without_anchor_count = 0
+            for item in valuable_evidences:
+                evidence_text = self._structured_quality_text(item)
+                has_anchor = has_structured_lookup_anchor_support(evidence_text, query)
+                if has_anchor:
+                    structured_anchor_support_count += 1
+                elif is_table_like_content(evidence_text):
+                    table_like_without_anchor_count += 1
+            quality.update(
+                {
+                    "structured_list_query": True,
+                    "structured_anchor_support_count": structured_anchor_support_count,
+                    "table_like_without_anchor_count": table_like_without_anchor_count,
+                }
+            )
+        return quality
 
     def _should_continue_fallback(
         self,
@@ -1146,11 +1171,27 @@ class RetrievalRouter:
             return False, "budget_too_low"
         if int(quality["hits"]) == 0:
             return True, "hits==0"
+        if bool(quality.get("structured_list_query")) and int(quality.get("structured_anchor_support_count", 0)) <= 0:
+            return True, "structured_anchor_support_count==0"
         if float(quality["top_raw_score"]) < LOW_QUALITY_SCORE_THRESHOLD:
             return True, f"top_raw_score<{LOW_QUALITY_SCORE_THRESHOLD}"
         if int(quality["valuable_evidence_count"]) < LOW_QUALITY_VALUABLE_EVIDENCE_THRESHOLD:
             return True, f"valuable_evidence_count<{LOW_QUALITY_VALUABLE_EVIDENCE_THRESHOLD}"
         return False, "quality_enough"
+
+    def _structured_quality_text(self, evidence: Evidence) -> str:
+        metadata = evidence.metadata or {}
+        return " ".join(
+            str(part)
+            for part in (
+                evidence.file_name,
+                metadata.get("document_name"),
+                metadata.get("document_type"),
+                metadata.get("discipline"),
+                evidence.content,
+            )
+            if part
+        )
 
     def _remaining_budget_ms(self, total_budget_ms: int | None, started_at: float) -> int | None:
         if total_budget_ms is None:

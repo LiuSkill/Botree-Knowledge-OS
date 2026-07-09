@@ -23,7 +23,10 @@ from app.retrieval.query_utils import (
     boilerplate_multiplier,
     expand_search_phrases,
     extract_query_terms,
+    has_structured_lookup_anchor_support,
     is_project_overview_query,
+    is_structured_list_lookup_query,
+    is_table_like_content,
     normalize_query_text,
 )
 from app.retrieval.schemas import Evidence
@@ -863,6 +866,31 @@ class QwenOrchestrationService:
                 risk="weak_evidence",
                 reason="召回证据相关性分数过低或只包含弱内容",
             )
+        if is_structured_list_lookup_query(question):
+            structured_supported_count = 0
+            table_like_without_anchor_count = 0
+            for item in valuable_evidences:
+                evidence_text = self._structured_lookup_evidence_text(item)
+                has_anchor = has_structured_lookup_anchor_support(evidence_text, question)
+                if has_anchor:
+                    structured_supported_count += 1
+                elif is_table_like_content(evidence_text):
+                    table_like_without_anchor_count += 1
+            if structured_supported_count <= 0:
+                return self._evidence_judge_payload(
+                    enough=False,
+                    confidence=0.35,
+                    relevance="weak",
+                    support_level="weak",
+                    missing_aspects=["目标清单字段"],
+                    suggested_retrievers=["page_index", "ripgrep", "milvus"],
+                    suggested_queries=[question],
+                    risk="insufficient_target_alignment",
+                    reason=(
+                        "结构化清单问题未命中产品/设备/物料等目标字段，"
+                        f"table_like_without_anchor={table_like_without_anchor_count}"
+                    ),
+                )
         if is_project_overview_query(question):
             document_evidences = [
                 item
@@ -897,6 +925,19 @@ class QwenOrchestrationService:
             support_level="full",
             answerable_parts=["可基于召回证据回答的问题部分"],
             reason=f"已召回 {len(valuable_evidences)} 条有效候选证据",
+        )
+
+    def _structured_lookup_evidence_text(self, evidence: Evidence) -> str:
+        metadata = evidence.metadata or {}
+        return " ".join(
+            str(part)
+            for part in (
+                evidence.file_name,
+                metadata.get("document_name"),
+                metadata.get("document_type"),
+                evidence.content,
+            )
+            if part
         )
 
     def _select_evidence_model(self, evidences: list[Evidence], context: dict[str, Any]) -> tuple[str, str]:
@@ -1128,7 +1169,15 @@ class QwenOrchestrationService:
 
     def _risk(self, raw_value: Any) -> str:
         value = str(raw_value or "none").strip().lower()
-        allowed = {"none", "insufficient_coverage", "weak_evidence", "conflict", "irrelevant", "permission_limited"}
+        allowed = {
+            "none",
+            "insufficient_coverage",
+            "insufficient_target_alignment",
+            "weak_evidence",
+            "conflict",
+            "irrelevant",
+            "permission_limited",
+        }
         return value if value in allowed else "none"
 
     def _string_list(self, raw_value: Any, limit: int = 8, max_length: int = 180) -> list[str]:

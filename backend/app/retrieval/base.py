@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from app.models.user import User
 from app.retrieval.schemas import Evidence
 
-DEFAULT_RETRIEVER_TOP_K = 10
+DEFAULT_RETRIEVER_TOP_K = 20
 
 
 class BaseRetriever(ABC):
