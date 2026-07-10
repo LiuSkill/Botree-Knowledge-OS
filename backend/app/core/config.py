@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default="/api", alias="API_PREFIX")
     host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=8888, alias="PORT")
+    cors_allow_origins: str = Field(
+        default="http://127.0.0.1,http://localhost,http://127.0.0.1:5173,http://localhost:5173",
+        alias="CORS_ALLOW_ORIGINS",
+    )
 
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     mysql_host: str | None = Field(default=None, alias="MYSQL_HOST")
@@ -39,6 +43,7 @@ class Settings(BaseSettings):
     mysql_database: str | None = Field(default=None, alias="MYSQL_DATABASE")
     mysql_user: str | None = Field(default=None, alias="MYSQL_USER")
     mysql_password: str | None = Field(default=None, alias="MYSQL_PASSWORD")
+    allow_sqlite_fallback: bool = Field(default=True, alias="ALLOW_SQLITE_FALLBACK")
 
     redis_host: str | None = Field(default=None, alias="REDIS_HOST")
     redis_port: int = Field(default=6379, alias="REDIS_PORT")
@@ -95,6 +100,10 @@ class Settings(BaseSettings):
     embedding_device: str = Field(default="cpu", alias="EMBEDDING_DEVICE")
     embedding_batch_size: int = Field(default=8, alias="EMBEDDING_BATCH_SIZE")
     embedding_timeout_seconds: int = Field(default=60, alias="EMBEDDING_TIMEOUT_SECONDS")
+    reranker_provider: str | None = Field(default=None, alias="RERANKER_PROVIDER")
+    reranker_model: str | None = Field(default=None, alias="RERANKER_MODEL")
+    reranker_api_base: str | None = Field(default=None, alias="RERANKER_API_BASE")
+    reranker_api_key: str | None = Field(default=None, alias="RERANKER_API_KEY")
     reranker_device: str = Field(default="cpu", alias="RERANKER_DEVICE")
     reranker_batch_size: int = Field(default=8, alias="RERANKER_BATCH_SIZE")
     reranker_timeout_seconds: int = Field(default=15, alias="RERANKER_TIMEOUT_SECONDS")
@@ -214,6 +223,22 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY长度不能低于32字节，请在.env中配置随机强密钥")
         return normalized
 
+    @field_validator("cors_allow_origins")
+    @classmethod
+    def validate_cors_allow_origins(cls, value: str) -> str:
+        """校验并规范化 CORS 白名单，部署环境禁止继续使用 `*`。"""
+
+        normalized_origins = [origin.strip() for origin in str(value or "").split(",") if origin.strip()]
+        if any(origin == "*" for origin in normalized_origins):
+            raise ValueError("CORS_ALLOW_ORIGINS 涓嶈兘鍖呭惈 *锛岃鏄惧紡閰嶇疆鍓嶇璁块棶鍩熷悕")
+        return ",".join(normalized_origins)
+
+    @property
+    def cors_allow_origins_list(self) -> list[str]:
+        """返回供 FastAPI CORS 中间件使用的白名单列表。"""
+
+        return [origin.strip() for origin in str(self.cors_allow_origins or "").split(",") if origin.strip()]
+
     @property
     def effective_database_url(self) -> str:
         """
@@ -233,6 +258,8 @@ class Settings(BaseSettings):
                 f"mysql+pymysql://{user}:{password}@{self.mysql_host}:"
                 f"{self.mysql_port}/{self.mysql_database}?charset=utf8mb4"
             )
+        if not self.allow_sqlite_fallback:
+            raise ValueError("鏈厤缃?DATABASE_URL 鎴?MYSQL_*锛屼笖 ALLOW_SQLITE_FALLBACK=false锛屾棤娉曞洖閫€ SQLite")
         return "sqlite:///./botree_knowledge.db"
 
     @property

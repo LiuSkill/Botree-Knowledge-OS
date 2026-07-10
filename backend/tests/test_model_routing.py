@@ -62,6 +62,10 @@ def fake_settings() -> SimpleNamespace:
         vision_llm_timeout_seconds=90,
         embedding_provider="local",
         embedding_model=None,
+        reranker_provider="local",
+        reranker_model="models/bge-reranker-v2-m3",
+        reranker_api_base=None,
+        reranker_api_key=None,
     )
 
 
@@ -113,6 +117,7 @@ def test_seed_task_model_configs_inserts_missing_defaults_without_overwriting(mo
         assert configs["answer_llm"].model_name == "qwen3.5-plus"
         assert configs["vision_llm"].model_name == "qwen3.5-plus"
         assert configs["analysis_llm"].model_name == "qwen3.7-max"
+        assert configs["reranker"].model_name == "models/bge-reranker-v2-m3"
         assert configs["planner"].api_key is None
     finally:
         db.close()

@@ -40,6 +40,7 @@ TASK_MODEL_DEFAULTS = (
     ("vision_llm", "vision_llm_model", "vision"),
     ("analysis_llm", "analysis_llm_model", "llm"),
 )
+LOCAL_RERANKER_PROVIDERS = {"local", "local_reranker", "bge_local", "qwen_local"}
 
 
 def ensure_mysql_database_exists() -> None:
@@ -1336,6 +1337,47 @@ def seed_model_config(db: Session) -> None:
                 enabled=True,
             )
         )
+    _seed_default_reranker_config(db, disabled_providers)
+
+
+def _seed_default_reranker_config(db: Session, disabled_providers: set[str]) -> None:
+    """初始化默认 Reranker 配置，供试用环境首启自动预热。"""
+
+    settings = get_settings()
+    exists = db.scalar(select(ModelConfig).where(ModelConfig.model_type == "reranker", ModelConfig.is_default.is_(True)))
+    if exists:
+        logger.info("榛樿Reranker妯″瀷閰嶇疆宸插瓨鍦紝璺宠繃鍒濆鍖?")
+        return
+
+    provider = str(getattr(settings, "reranker_provider", "") or "").strip()
+    model_name = str(getattr(settings, "reranker_model", "") or "").strip()
+    api_base = str(getattr(settings, "reranker_api_base", "") or "").strip() or None
+    api_key = str(getattr(settings, "reranker_api_key", "") or "").strip() or None
+
+    if not provider:
+        logger.warning("鏈厤缃?RERANKER_PROVIDER锛岃烦杩囬粯璁eranker閰嶇疆鍒濆鍖?")
+        return
+    if provider.lower() in disabled_providers:
+        logger.warning("RERANKER_PROVIDER 涓虹鐢ㄧ殑鍗犱綅渚涘簲鍟嗭紝璺宠繃榛樿Reranker閰嶇疆鍒濆鍖?")
+        return
+    if not model_name:
+        logger.warning("鏈厤缃?RERANKER_MODEL锛岃烦杩囬粯璁eranker閰嶇疆鍒濆鍖?")
+        return
+    if provider.lower() not in LOCAL_RERANKER_PROVIDERS and not api_base:
+        logger.warning("闈炴湰鍦癛eranker 缂哄皯 RERANKER_API_BASE锛岃烦杩囬粯璁ら厤缃垵濮嬪寲")
+        return
+
+    db.add(
+        ModelConfig(
+            provider=provider,
+            model_name=model_name,
+            api_base=None if provider.lower() in LOCAL_RERANKER_PROVIDERS else api_base,
+            api_key=None if provider.lower() in LOCAL_RERANKER_PROVIDERS else api_key,
+            model_type="reranker",
+            is_default=True,
+            enabled=True,
+        )
+    )
 
 
 def _seed_task_model_config(

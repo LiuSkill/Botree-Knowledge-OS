@@ -9,6 +9,8 @@ venv/
 **/.env
 **/.env.*
 !**/.env.example
+!**/.env.trial.example
+deploy/env/backend.env
 /storage/
 backend/*.db
 backend/tmp_*
