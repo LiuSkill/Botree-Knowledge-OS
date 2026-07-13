@@ -2,11 +2,11 @@
 
 ## 功能
 
-`app/services` 是后端业务服务层，承接 Controller 传入的请求，统一编排 Repository、外部模型服务、对象存储、向量库和业务校验逻辑。
+`app/services` 是后端业务服务层，承接 Controller 传入的请求，统一编排 Repository、独立模型服务、对象存储、向量库和业务校验逻辑。
 
 当前 Embedding 相关服务包括：
 
-- `EmbeddingService`：统一 Embedding 入口，根据配置选择本地真实模型或远程 OpenAI-compatible 接口。
+- `EmbeddingService`：统一 Embedding 入口，根据配置选择独立模型服务、本地真实模型或远程 OpenAI-compatible 接口。
 - `LocalQwenEmbedding`：加载本地 `Qwen3-Embedding-0.6B`，生成固定维度向量。
 - `ModelService`：管理 LLM、Embedding、Reranker 等模型配置，并触发连通性测试。
 
@@ -16,6 +16,7 @@
 flowchart TD
     Controller["Controller: app/api"]
     Service["EmbeddingService"]
+    ModelSvc["botree-model-service"]
     Local["LocalQwenEmbedding"]
     Remote["OpenAI-compatible Embeddings API"]
     Repository["ModelConfigRepository"]
@@ -23,6 +24,8 @@ flowchart TD
 
     Controller --> Service
     Service --> Repository
+    Service --> ModelSvc
+    ModelSvc --> Local
     Service --> Local
     Service --> Remote
     Service --> Milvus
@@ -30,19 +33,30 @@ flowchart TD
 
 ## 输入
 
-本地 Embedding 推荐配置：
+独立 Embedding/Reranker 模型服务推荐配置：
 
 ```env
-EMBEDDING_PROVIDER=local
-EMBEDDING_MODEL=E:\workspace\botree-agent\backend\workspace\Qwen\Qwen3-Embedding-0.6B
-EMBEDDING_DEVICE=cuda
+MODEL_SERVICE_ENABLED=true
+MODEL_SERVICE_API_BASE=http://botree-model-service:8890
+MODEL_SERVICE_EMBEDDING_MODEL=/app/models/Qwen/Qwen3-Embedding-0.6B
+MODEL_SERVICE_EMBEDDING_DEVICE=cuda
+MODEL_SERVICE_RERANKER_MODEL=/app/models/bge-reranker-v2-m3
+MODEL_SERVICE_RERANKER_DEVICE=cuda
+MODEL_SERVICE_MAX_CONCURRENCY=1
+
+EMBEDDING_PROVIDER=model_service
+EMBEDDING_MODEL=/app/models/Qwen/Qwen3-Embedding-0.6B
+EMBEDDING_API_BASE=http://botree-model-service:8890
 EMBEDDING_BATCH_SIZE=8
-RERANKER_DEVICE=cuda
-RERANKER_BATCH_SIZE=8
 EMBEDDING_DIM=1024
+
+RERANKER_PROVIDER=model_service
+RERANKER_MODEL=/app/models/bge-reranker-v2-m3
+RERANKER_API_BASE=http://botree-model-service:8890
+RERANKER_BATCH_SIZE=8
 ```
 
-本地 GPU 部署如果希望真实 reranker 也走显卡，必须显式配置 `RERANKER_DEVICE=cuda` 并重启服务；只配置 `EMBEDDING_DEVICE=cuda` 不会让 reranker 自动切到 GPU。
+API/Worker 在 `model_service` 模式下不加载本地 CUDA 模型；GPU 设备由模型服务的 `MODEL_SERVICE_*_DEVICE` 控制。
 
 ## 输出
 

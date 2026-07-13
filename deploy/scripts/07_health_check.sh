@@ -36,6 +36,14 @@ for container_name in \
     fi
 done
 
+if model_service_enabled; then
+    if container_running "${MODEL_SERVICE_CONTAINER_NAME}"; then
+        check_pass "容器运行中: ${MODEL_SERVICE_CONTAINER_NAME}"
+    else
+        check_fail "容器未运行: ${MODEL_SERVICE_CONTAINER_NAME}" || failures=$((failures + 1))
+    fi
+fi
+
 if docker exec "${MYSQL_CONTAINER_NAME}" mysqladmin ping -h 127.0.0.1 -uroot "-p${MYSQL_ROOT_PASSWORD}" --silent >/dev/null 2>&1; then
     check_pass "MySQL 健康"
 else
@@ -64,6 +72,14 @@ if curl -fsS "http://127.0.0.1:${MINERU_PORT}/docs" >/dev/null 2>&1; then
     check_pass "MinerU 健康"
 else
     check_fail "MinerU 健康检查失败" || failures=$((failures + 1))
+fi
+
+if model_service_enabled; then
+    if curl -fsS "http://127.0.0.1:${MODEL_SERVICE_PORT}/health" | grep -q '"status":"ok"'; then
+        check_pass "Model Service 健康"
+    else
+        check_fail "Model Service 健康检查失败" || failures=$((failures + 1))
+    fi
 fi
 
 if curl -fsS "http://127.0.0.1:${API_PORT}/api/health" | grep -q '"status":"ok"'; then

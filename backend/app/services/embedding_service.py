@@ -29,6 +29,7 @@ MIN_EMBEDDING_BATCH_SIZE = 1
 DASHSCOPE_EMBEDDING_BATCH_LIMIT = 10
 DIMENSION_AWARE_MODEL_KEYWORDS = ("text-embedding-v3", "text-embedding-v4", "text-embedding-3")
 LOCAL_EMBEDDING_PROVIDERS = {"local", "local_qwen", "qwen_local"}
+MODEL_SERVICE_EMBEDDING_PROVIDERS = {"model_service"}
 EMBEDDING_CACHE_MAX_SIZE = 256
 _EMBEDDING_CACHE: dict[tuple[str, str, str], list[float]] = {}
 
@@ -280,7 +281,7 @@ class EmbeddingService:
         """
 
         payload: dict[str, object] = {"model": runtime_config.model_name, "input": texts}
-        if self._should_send_dimensions(runtime_config.model_name):
+        if self._should_send_dimensions(runtime_config):
             payload["dimensions"] = self.settings.embedding_dim
         return payload
 
@@ -340,18 +341,20 @@ class EmbeddingService:
 
         return runtime_config.provider.lower() in LOCAL_EMBEDDING_PROVIDERS
 
-    def _should_send_dimensions(self, model_name: str) -> bool:
+    def _should_send_dimensions(self, runtime_config: RuntimeEmbeddingConfig) -> bool:
         """
         判断当前模型是否支持 dimensions 参数。
 
         参数:
-            model_name: Embedding 模型名称。
+            runtime_config: 已解析的 Embedding 运行配置。
 
         返回:
             True 表示请求体应包含 dimensions。
         """
 
-        normalized_model = model_name.lower()
+        if runtime_config.provider.lower() in MODEL_SERVICE_EMBEDDING_PROVIDERS:
+            return self.settings.embedding_dim > 0
+        normalized_model = runtime_config.model_name.lower()
         return self.settings.embedding_dim > 0 and any(keyword in normalized_model for keyword in DIMENSION_AWARE_MODEL_KEYWORDS)
 
     def _runtime_config(self, config: ModelConfig | None = None) -> RuntimeEmbeddingConfig:
@@ -371,7 +374,8 @@ class EmbeddingService:
         if provider_key in DISABLED_MODEL_PROVIDERS:
             raise AppException("已禁用mock/fallback Embedding，请配置真实 Embedding 服务", status_code=500, code=500)
 
-        model_name = (model_config.model_name if model_config else (self.settings.embedding_model or "")).strip()
+        fallback_model = self.settings.embedding_model or self.settings.model_service_embedding_model or ""
+        model_name = (model_config.model_name if model_config else fallback_model).strip()
         if not model_name:
             raise AppException("未配置 EMBEDDING_MODEL 或默认 Embedding 模型", status_code=500, code=500)
         if provider_key in LOCAL_EMBEDDING_PROVIDERS:
@@ -382,10 +386,18 @@ class EmbeddingService:
 
         api_base = (
             (model_config.api_base if model_config else None)
+            or self.settings.embedding_api_base
+            or (self.settings.model_service_api_base if provider_key in MODEL_SERVICE_EMBEDDING_PROVIDERS else None)
             or self.settings.llm_base_url
             or self.settings.openai_compatible_base_url
         )
-        api_key = (model_config.api_key if model_config else None) or self.settings.llm_api_key or self.settings.openai_api_key
+        api_key = (
+            (model_config.api_key if model_config else None)
+            or self.settings.embedding_api_key
+            or (self.settings.model_service_api_key if provider_key in MODEL_SERVICE_EMBEDDING_PROVIDERS else None)
+            or self.settings.llm_api_key
+            or self.settings.openai_api_key
+        )
         if not api_base:
             raise AppException("未配置 Embedding API Base", status_code=500, code=500)
         return RuntimeEmbeddingConfig(provider=provider, model_name=model_name, api_base=api_base, api_key=api_key)

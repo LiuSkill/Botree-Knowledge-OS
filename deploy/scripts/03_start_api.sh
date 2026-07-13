@@ -17,6 +17,10 @@ require_container_running "${REDIS_CONTAINER_NAME}"
 require_container_running "${MINIO_CONTAINER_NAME}"
 require_container_running "${MILVUS_CONTAINER_NAME}"
 require_container_running "${MINERU_CONTAINER_NAME}"
+if model_service_enabled; then
+    require_container_running "${MODEL_SERVICE_CONTAINER_NAME}"
+    wait_for_http "http://127.0.0.1:${MODEL_SERVICE_PORT}/health" "Model Service" 30
+fi
 
 docker_rm_if_exists "${API_CONTAINER_NAME}"
 docker run -d \
@@ -32,7 +36,7 @@ docker run -d \
     -v "${MODELS_HOST_DIR}:/app/models" \
     -v "${LOGS_HOST_DIR}:/app/logs" \
     "${API_IMAGE}" \
-    sh -lc 'set -eu; cd /app; alembic upgrade head; mkdir -p /app/logs; uvicorn main:app --host 0.0.0.0 --port 8888 2>&1 | tee -a /app/logs/api.log' >/dev/null
+    sh -lc 'set -eu; cd /app; alembic upgrade head; python -m app.scripts.configure_model_service; mkdir -p /app/logs; uvicorn main:app --host 0.0.0.0 --port 8888 2>&1 | tee -a /app/logs/api.log' >/dev/null
 
 wait_for_http "http://127.0.0.1:${API_PORT}/api/health" "API" 90
 log "API 启动完成"

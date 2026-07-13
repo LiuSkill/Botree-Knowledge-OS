@@ -41,6 +41,7 @@ TASK_MODEL_DEFAULTS = (
     ("analysis_llm", "analysis_llm_model", "llm"),
 )
 LOCAL_RERANKER_PROVIDERS = {"local", "local_reranker", "bge_local", "qwen_local"}
+MODEL_SERVICE_PROVIDERS = {"model_service"}
 
 
 def ensure_mysql_database_exists() -> None:
@@ -1304,18 +1305,32 @@ def seed_model_config(db: Session) -> None:
         _seed_task_model_config(db, model_type, model_attr, provider_group, disabled_providers)
 
     embedding_exists = db.scalar(select(ModelConfig).where(ModelConfig.model_type == "embedding", ModelConfig.is_default.is_(True)))
-    embedding_base = settings.openai_compatible_base_url or settings.llm_base_url
+    embedding_provider = str(settings.embedding_provider or "").strip()
+    embedding_provider_key = embedding_provider.lower()
+    embedding_model = str(settings.embedding_model or settings.model_service_embedding_model or "").strip()
+    embedding_base = (
+        settings.embedding_api_base
+        or (settings.model_service_api_base if embedding_provider_key in MODEL_SERVICE_PROVIDERS else None)
+        or settings.openai_compatible_base_url
+        or settings.llm_base_url
+    )
+    embedding_api_key = (
+        settings.embedding_api_key
+        or (settings.model_service_api_key if embedding_provider_key in MODEL_SERVICE_PROVIDERS else None)
+        or settings.openai_api_key
+        or settings.llm_api_key
+    )
     if embedding_exists:
         logger.info("默认Embedding模型配置已存在，跳过初始化")
-    elif settings.embedding_provider.lower() in disabled_providers:
+    elif embedding_provider_key in disabled_providers:
         logger.warning("未配置真实Embedding供应商，跳过默认Embedding配置初始化")
-    elif settings.embedding_provider.lower() == "local" and not settings.embedding_model:
+    elif embedding_provider_key == "local" and not embedding_model:
         logger.warning("未配置本地Embedding模型路径，跳过默认Embedding配置初始化")
-    elif settings.embedding_provider.lower() == "local":
+    elif embedding_provider_key == "local":
         db.add(
             ModelConfig(
-                provider=settings.embedding_provider,
-                model_name=settings.embedding_model,
+                provider=embedding_provider,
+                model_name=embedding_model,
                 api_base=None,
                 api_key=None,
                 model_type="embedding",
@@ -1323,15 +1338,15 @@ def seed_model_config(db: Session) -> None:
                 enabled=True,
             )
         )
-    elif not embedding_base or not settings.embedding_model:
+    elif not embedding_base or not embedding_model:
         logger.warning("未配置真实Embedding API Base或模型名，跳过默认Embedding配置初始化")
     else:
         db.add(
             ModelConfig(
-                provider=settings.embedding_provider,
-                model_name=settings.embedding_model,
+                provider=embedding_provider,
+                model_name=embedding_model,
                 api_base=embedding_base,
-                api_key=settings.openai_api_key or settings.llm_api_key,
+                api_key=embedding_api_key,
                 model_type="embedding",
                 is_default=True,
                 enabled=True,
@@ -1350,20 +1365,24 @@ def _seed_default_reranker_config(db: Session, disabled_providers: set[str]) -> 
         return
 
     provider = str(getattr(settings, "reranker_provider", "") or "").strip()
-    model_name = str(getattr(settings, "reranker_model", "") or "").strip()
+    provider_key = provider.lower()
+    model_name = str(getattr(settings, "reranker_model", "") or getattr(settings, "model_service_reranker_model", "") or "").strip()
     api_base = str(getattr(settings, "reranker_api_base", "") or "").strip() or None
     api_key = str(getattr(settings, "reranker_api_key", "") or "").strip() or None
+    if provider_key in MODEL_SERVICE_PROVIDERS:
+        api_base = api_base or getattr(settings, "model_service_api_base", None)
+        api_key = api_key or getattr(settings, "model_service_api_key", None)
 
     if not provider:
         logger.warning("鏈厤缃?RERANKER_PROVIDER锛岃烦杩囬粯璁eranker閰嶇疆鍒濆鍖?")
         return
-    if provider.lower() in disabled_providers:
+    if provider_key in disabled_providers:
         logger.warning("RERANKER_PROVIDER 涓虹鐢ㄧ殑鍗犱綅渚涘簲鍟嗭紝璺宠繃榛樿Reranker閰嶇疆鍒濆鍖?")
         return
     if not model_name:
         logger.warning("鏈厤缃?RERANKER_MODEL锛岃烦杩囬粯璁eranker閰嶇疆鍒濆鍖?")
         return
-    if provider.lower() not in LOCAL_RERANKER_PROVIDERS and not api_base:
+    if provider_key not in LOCAL_RERANKER_PROVIDERS and not api_base:
         logger.warning("闈炴湰鍦癛eranker 缂哄皯 RERANKER_API_BASE锛岃烦杩囬粯璁ら厤缃垵濮嬪寲")
         return
 
@@ -1371,8 +1390,8 @@ def _seed_default_reranker_config(db: Session, disabled_providers: set[str]) -> 
         ModelConfig(
             provider=provider,
             model_name=model_name,
-            api_base=None if provider.lower() in LOCAL_RERANKER_PROVIDERS else api_base,
-            api_key=None if provider.lower() in LOCAL_RERANKER_PROVIDERS else api_key,
+            api_base=None if provider_key in LOCAL_RERANKER_PROVIDERS else api_base,
+            api_key=None if provider_key in LOCAL_RERANKER_PROVIDERS else api_key,
             model_type="reranker",
             is_default=True,
             enabled=True,

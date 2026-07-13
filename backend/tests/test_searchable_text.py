@@ -118,6 +118,65 @@ def test_page_index_normalize_page_indexes_table_body() -> None:
     assert "Ni" in normalized["clean_content"]
 
 
+def test_page_index_normalize_page_truncates_overlong_drawing_no() -> None:
+    """异常长图号不能导致页级落库失败。"""
+
+    service = object.__new__(PageIndexService)
+    document = SimpleNamespace(drawing_no=None)
+    raw_drawing_no = "CAC-" + ("1" * 140)
+
+    normalized = service._normalize_page(
+        document,
+        {
+            "page_number": 16,
+            "drawing_no": raw_drawing_no,
+            "content": "A",
+        },
+        fallback_no=16,
+    )
+
+    assert normalized["drawing_no"] == raw_drawing_no[:100]
+    assert len(normalized["drawing_no"]) == 100
+
+
+def test_page_index_normalize_page_extracts_reasonable_drawing_no_from_noisy_value() -> None:
+    """图号字段带噪声时，应优先提取出可用的短图号。"""
+
+    service = object.__new__(PageIndexService)
+    document = SimpleNamespace(drawing_no=None)
+
+    normalized = service._normalize_page(
+        document,
+        {
+            "page_number": 3,
+            "drawing_no": "图纸编号: 10-PS-0200-0000-001 " + ("X" * 180),
+            "content": "封面",
+        },
+        fallback_no=3,
+    )
+
+    assert normalized["drawing_no"] == "10-PS-0200-0000-001"
+
+
+def test_page_index_normalize_page_extracts_reasonable_drawing_no_from_labeled_value() -> None:
+    """图号字段带标签前缀时，不应把整串标签一起写库。"""
+
+    service = object.__new__(PageIndexService)
+    document = SimpleNamespace(drawing_no=None)
+
+    normalized = service._normalize_page(
+        document,
+        {
+            "page_number": 7,
+            "drawing_no": "图纸编号: 10-PS-0200-0000-001",
+            "content": "封面",
+        },
+        fallback_no=7,
+    )
+
+    assert normalized["drawing_no"] == "10-PS-0200-0000-001"
+
+
 def test_build_page_searchable_text_prefers_clean_content_and_clean_blocks() -> None:
     """索引用文本必须优先使用 clean_content / clean_blocks，避开原始页眉噪声。"""
 

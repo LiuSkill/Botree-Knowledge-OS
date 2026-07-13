@@ -30,6 +30,7 @@ from app.repositories.page_index_repository import PageIndexRepository
 from app.services.system_service import SystemService
 
 logger = logging.getLogger(__name__)
+DRAWING_NO_MAX_LENGTH = 100
 
 DRAWING_NO_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?:图纸编号|图号|drawing\s*no\.?|dwg\s*no\.?)[:：\s]*([A-Za-z0-9_.\-/]+)", re.IGNORECASE),
@@ -171,7 +172,10 @@ class PageIndexService:
                         chunk_id=chunk.id if chunk else None,
                         version_no=document.version_no,
                         page_no=page.page_no,
-                        drawing_no=page.drawing_no or document.drawing_no,
+                        drawing_no=self._normalize_drawing_no(
+                            page.drawing_no or document.drawing_no,
+                            fallback_text=page.corrected_text or page.clean_content or page.page_text or "",
+                        ),
                         index_text=text,
                         text_mirror_path=str(mirror_path),
                         status="staging",
@@ -215,7 +219,10 @@ class PageIndexService:
         page.correction_status = "corrected"
         page.corrected_by = user.id
         if drawing_no is not None:
-            page.drawing_no = drawing_no
+            page.drawing_no = self._normalize_drawing_no(
+                drawing_no,
+                fallback_text=corrected_text or page.clean_content or page.page_text or "",
+            )
         if page_title is not None:
             page.page_title = page_title
         SystemService(self.db).record_operation(
@@ -271,7 +278,10 @@ class PageIndexService:
         filtered_content = normalize_searchable_text(str(raw_page.get("filtered_content") or ""))
         cleaning_metadata = raw_page.get("cleaning_metadata")
         page_no = int(raw_page.get("page_number") or raw_page.get("page_no") or raw_page.get("page") or fallback_no)
-        drawing_no = raw_page.get("drawing_no") or document.drawing_no or self._guess_drawing_no(clean_content or raw_content)
+        drawing_no = self._normalize_drawing_no(
+            raw_page.get("drawing_no") or document.drawing_no,
+            fallback_text=clean_content or raw_content,
+        )
         layout = raw_page.get("layout") or raw_page.get("layout_json") or raw_page.get("blocks") or raw_page.get("page_blocks")
         page_title = raw_page.get("page_title") or raw_page.get("title") or self._guess_page_title(clean_content or raw_content)
         return {
@@ -382,10 +392,62 @@ class PageIndexService:
         """从页文本中猜测图纸编号。"""
 
         for pattern in DRAWING_NO_PATTERNS:
-            match = pattern.search(text)
-            if match:
-                return match.group(1)
+            for match in pattern.finditer(text):
+                candidate = self._clean_drawing_no_candidate(match.group(1))
+                if candidate is not None:
+                    return candidate
         return None
+
+    def _normalize_drawing_no(self, drawing_no: Any, *, fallback_text: str = "") -> str | None:
+        """
+        规范化图纸编号，避免异常 OCR 结果导致写库失败。
+
+        规则：
+        - 先清理空白和包裹符号；
+        - 过长或明显带噪声时，优先尝试从自身或页文本中提取合理图号；
+        - 提取失败时，按数据库字段上限截断并记录 warning。
+        """
+
+        raw_value = self._normalize_inline_text(drawing_no)
+        if raw_value:
+            guessed_from_raw = self._guess_drawing_no(raw_value)
+            if guessed_from_raw is not None:
+                return guessed_from_raw
+            direct_candidate = self._clean_drawing_no_candidate(raw_value)
+            if direct_candidate is not None:
+                return direct_candidate
+        if fallback_text:
+            guessed_from_text = self._guess_drawing_no(fallback_text)
+            if guessed_from_text is not None:
+                return guessed_from_text
+        if not raw_value:
+            return None
+
+        truncated = raw_value[:DRAWING_NO_MAX_LENGTH]
+        logger.warning(
+            "图纸编号超长，已截断后写入: original_length=%s truncated=%s",
+            len(raw_value),
+            truncated,
+        )
+        return truncated
+
+    def _clean_drawing_no_candidate(self, value: str | None) -> str | None:
+        """清洗并校验图号候选值。"""
+
+        normalized = self._normalize_inline_text(value)
+        if not normalized:
+            return None
+        if len(normalized) > DRAWING_NO_MAX_LENGTH:
+            return None
+        return normalized
+
+    def _normalize_inline_text(self, value: Any) -> str:
+        """把单行元数据文本归一化，移除多余空白和包裹符号。"""
+
+        if value is None:
+            return ""
+        normalized = re.sub(r"\s+", " ", str(value)).strip()
+        return normalized.strip("()[]{}<>\"'`|,;:：")
 
     def _guess_page_title(self, text: str) -> str | None:
         """从页文本首行猜测页标题。"""

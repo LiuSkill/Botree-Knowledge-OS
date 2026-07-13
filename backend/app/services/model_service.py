@@ -16,6 +16,7 @@ from app.repositories.model_repository import ModelConfigRepository
 from app.schemas.model_config import ModelConfigCreate, ModelConfigUpdate
 from app.services.embedding_service import EmbeddingService
 from app.services.llm_service import LLMService
+from app.services.reranker_service import RerankerService
 from app.services.system_service import SystemService
 from app.utils.pagination import paginate
 
@@ -100,7 +101,6 @@ class ModelService:
         if config.model_type in {
             "llm",
             "vision_llm",
-            "reranker",
             "intent",
             "planner",
             "evidence_judge_fast",
@@ -112,6 +112,8 @@ class ModelService:
             return LLMService(self.db).test_chat_completion(config)
         if config.model_type == "embedding":
             return EmbeddingService(self.db).test_embedding(config)
+        if config.model_type == "reranker":
+            return RerankerService(self.db).test_reranker(config)
         raise AppException("当前仅支持测试 LLM、Embedding、Reranker、意图识别、证据判断和图谱抽取模型配置")
 
     def set_default(self, config_id: int, operator: User) -> ModelConfig:

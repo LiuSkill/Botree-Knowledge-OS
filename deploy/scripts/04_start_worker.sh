@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=deploy/scripts/common.sh
 source "${SCRIPT_DIR}/common.sh"
 
-require_commands docker
+require_commands docker curl
 load_env_files
 validate_trial_env
 validate_local_model_mounts
@@ -17,6 +17,10 @@ require_container_running "${REDIS_CONTAINER_NAME}"
 require_container_running "${MINIO_CONTAINER_NAME}"
 require_container_running "${MILVUS_CONTAINER_NAME}"
 require_container_running "${MINERU_CONTAINER_NAME}"
+if model_service_enabled; then
+    require_container_running "${MODEL_SERVICE_CONTAINER_NAME}"
+    wait_for_http "http://127.0.0.1:${MODEL_SERVICE_PORT}/health" "Model Service" 30
+fi
 
 docker_rm_if_exists "${WORKER_CONTAINER_NAME}"
 docker run -d \

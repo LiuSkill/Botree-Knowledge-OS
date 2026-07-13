@@ -62,10 +62,16 @@ def fake_settings() -> SimpleNamespace:
         vision_llm_timeout_seconds=90,
         embedding_provider="local",
         embedding_model=None,
+        embedding_api_base=None,
+        embedding_api_key=None,
         reranker_provider="local",
         reranker_model="models/bge-reranker-v2-m3",
         reranker_api_base=None,
         reranker_api_key=None,
+        model_service_api_base="http://botree-model-service:8890",
+        model_service_api_key=None,
+        model_service_embedding_model=None,
+        model_service_reranker_model=None,
     )
 
 

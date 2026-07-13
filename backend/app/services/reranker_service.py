@@ -13,6 +13,7 @@ import threading
 import time
 from dataclasses import dataclass
 
+import requests
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -31,6 +32,7 @@ from app.retrieval.schemas import Evidence
 logger = logging.getLogger(__name__)
 
 LOCAL_RERANKER_PROVIDERS = {"local", "local_reranker", "bge_local", "qwen_local"}
+MODEL_SERVICE_RERANKER_PROVIDERS = {"model_service"}
 
 
 @dataclass(frozen=True)
@@ -185,6 +187,9 @@ class RerankerService:
         """校验并加载默认真实 Reranker 模型。"""
 
         runtime_config = self._runtime_config()
+        if self._is_model_service_reranker(runtime_config):
+            self._ensure_model_service_available(runtime_config)
+            return runtime_config
         if not self._is_local_reranker(runtime_config):
             raise AppException(
                 f"当前Reranker provider={runtime_config.provider} 暂未接入本地预热",
@@ -193,6 +198,40 @@ class RerankerService:
             )
         self._get_local_model(runtime_config)
         return runtime_config
+
+    def test_reranker(self, config: ModelConfig) -> dict:
+        """测试指定 Reranker 配置。"""
+
+        runtime_config = self._runtime_config(config)
+        try:
+            if self._is_model_service_reranker(runtime_config):
+                response_data = self._request_model_service_rerank("连接测试", ["连接测试文档"], runtime_config)
+                results = response_data.get("results") or []
+                score = float(results[0]["score"]) if results else None
+                return {
+                    "status": "success",
+                    "provider": runtime_config.provider,
+                    "model": runtime_config.model_name,
+                    "backend": response_data.get("backend") or "model_service",
+                    "score": score,
+                }
+            if self._is_local_reranker(runtime_config):
+                model = self._get_local_model(runtime_config)
+                scores = model.predict("连接测试", ["连接测试文档"])
+                return {
+                    "status": "success",
+                    "provider": runtime_config.provider,
+                    "model": runtime_config.model_name,
+                    "backend": model.backend_name,
+                    "device": model.device,
+                    "score": scores[0] if scores else None,
+                }
+            raise AppException(f"当前Reranker provider={runtime_config.provider} 暂未实现连接测试", status_code=500, code=500)
+        except AppException:
+            raise
+        except (requests.RequestException, KeyError, ValueError, TypeError) as exc:
+            logger.exception("Reranker配置测试失败: provider=%s model=%s", runtime_config.provider, runtime_config.model_name)
+            raise AppException(f"Reranker配置测试失败：{exc}", status_code=502, code=502) from exc
 
     def warmup_local_reranker(self) -> None:
         """启动时预热本地 Reranker 模型。"""
@@ -271,6 +310,8 @@ class RerankerService:
         runtime_config = self._runtime_config()
         requested_device = self._requested_reranker_device()
         device_explicitly_configured = self._reranker_device_explicitly_configured()
+        if self._is_model_service_reranker(runtime_config):
+            return self._rerank_with_model_service(query, evidences, limit, score_order, runtime_config)
         if not self._is_local_reranker(runtime_config):
             raise AppException(
                 f"当前Reranker provider={runtime_config.provider} 暂未实现真实重排调用",
@@ -330,6 +371,106 @@ class RerankerService:
             "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
         }
         return [item[1] for item in scored[:limit]]
+
+    def _rerank_with_model_service(
+        self,
+        query: str,
+        evidences: list[Evidence],
+        limit: int,
+        score_order: str,
+        runtime_config: RuntimeRerankerConfig,
+    ) -> list[Evidence]:
+        """调用独立模型服务执行真实重排。"""
+
+        if not runtime_config.api_base:
+            raise AppException("Reranker API Base为空，无法调用模型服务", status_code=500, code=500)
+
+        started_at = time.perf_counter()
+        documents = [evidence.content or "" for evidence in evidences]
+        response_data = self._request_model_service_rerank(query, documents, runtime_config)
+        results = response_data.get("results")
+        if not isinstance(results, list):
+            raise ValueError("Reranker模型服务响应缺少results")
+
+        scores_by_index: dict[int, float] = {}
+        for item in results:
+            if not isinstance(item, dict):
+                raise ValueError("Reranker模型服务results格式错误")
+            index = int(item["index"])
+            scores_by_index[index] = float(item["score"])
+        if len(scores_by_index) != len(evidences):
+            raise ValueError(f"Reranker返回数量不匹配: expected={len(evidences)} actual={len(scores_by_index)}")
+
+        backend = str(response_data.get("backend") or "model_service")
+        resolved_device = str(response_data.get("device") or "remote")
+        scored: list[tuple[float, Evidence, dict]] = []
+        for index, evidence in enumerate(evidences):
+            if index not in scores_by_index:
+                raise ValueError(f"Reranker模型服务缺少候选分数: index={index}")
+            score = scores_by_index[index]
+            raw_score = evidence.score
+            evidence.metadata = {
+                **evidence.metadata,
+                "rerank_score": score,
+                "rerank_raw_score": raw_score,
+                "rerank_backend": backend,
+                "rerank_model": runtime_config.model_name,
+                "rerank_requested_device": "remote",
+                "rerank_resolved_device": resolved_device,
+            }
+            evidence.score = score
+            scored.append(
+                (
+                    score,
+                    evidence,
+                    {
+                        "retriever": evidence.retriever,
+                        "document_id": evidence.document_id,
+                        "chunk_id": evidence.chunk_id,
+                        "page_number": evidence.page_number,
+                        "raw_score": raw_score,
+                        "score": score,
+                        "backend": backend,
+                        "model_name": runtime_config.model_name,
+                    },
+                )
+            )
+
+        scored.sort(key=lambda item: item[0], reverse=score_order == "desc")
+        self.last_details = [item[2] for item in scored[:limit]]
+        self.last_runtime = {
+            "provider": runtime_config.provider,
+            "model_name": runtime_config.model_name,
+            "model_loaded": True,
+            "backend": backend,
+            "requested_device": "remote",
+            "resolved_device": resolved_device,
+            "device": resolved_device,
+            "device_explicitly_configured": True,
+            "fallback_used": False,
+            "score_order": score_order,
+            "candidate_count": len(evidences),
+            "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+        }
+        return [item[1] for item in scored[:limit]]
+
+    def _request_model_service_rerank(
+        self,
+        query: str,
+        documents: list[str],
+        runtime_config: RuntimeRerankerConfig,
+    ) -> dict:
+        """发送 Reranker 模型服务请求并返回 JSON 响应。"""
+
+        url = f"{runtime_config.api_base.rstrip('/')}/rerank"
+        headers = {"Content-Type": "application/json"}
+        if runtime_config.api_key:
+            headers["Authorization"] = f"Bearer {runtime_config.api_key}"
+        payload = {"model": runtime_config.model_name, "query": query, "documents": documents}
+        timeout_seconds = float(getattr(self.settings, "reranker_timeout_seconds", 15) or 15)
+        response = requests.post(url, headers=headers, json=payload, timeout=timeout_seconds if timeout_seconds > 0 else None)
+        response.raise_for_status()
+        return response.json()
 
     def _rerank_with_fallback(
         self,
@@ -521,9 +662,10 @@ class RerankerService:
 
     def _runtime_config(self, config: ModelConfig | None = None) -> RuntimeRerankerConfig:
         if config is None:
-            if self.model_repository is None:
-                raise AppException("Reranker模型配置不可用：数据库会话为空", status_code=500, code=500)
-            config = self.model_repository.get_default("reranker")
+            if self.model_repository is not None:
+                config = self.model_repository.get_default("reranker")
+            if config is None:
+                return self._runtime_config_from_env()
         if config is None:
             raise AppException("未配置默认启用的Reranker模型", status_code=500, code=500)
         return RuntimeRerankerConfig(
@@ -532,6 +674,25 @@ class RerankerService:
             api_base=config.api_base,
             api_key=config.api_key,
         )
+
+    def _runtime_config_from_env(self) -> RuntimeRerankerConfig:
+        provider = str(getattr(self.settings, "reranker_provider", "") or "").strip()
+        model_name = str(
+            getattr(self.settings, "reranker_model", "")
+            or getattr(self.settings, "model_service_reranker_model", "")
+            or ""
+        ).strip()
+        if not provider or not model_name:
+            raise AppException("未配置默认启用的Reranker模型", status_code=500, code=500)
+        provider_key = provider.lower()
+        api_base = str(getattr(self.settings, "reranker_api_base", "") or "").strip() or None
+        api_key = str(getattr(self.settings, "reranker_api_key", "") or "").strip() or None
+        if provider_key in MODEL_SERVICE_RERANKER_PROVIDERS:
+            api_base = api_base or getattr(self.settings, "model_service_api_base", None)
+            api_key = api_key or getattr(self.settings, "model_service_api_key", None)
+        if provider_key not in LOCAL_RERANKER_PROVIDERS and not api_base:
+            raise AppException("未配置 Reranker API Base", status_code=500, code=500)
+        return RuntimeRerankerConfig(provider=provider, model_name=model_name, api_base=api_base, api_key=api_key)
 
     def _has_default_real_model(self) -> bool:
         if self.model_repository is None:
@@ -570,6 +731,22 @@ class RerankerService:
 
     def _is_local_reranker(self, runtime_config: RuntimeRerankerConfig) -> bool:
         return runtime_config.provider.lower() in LOCAL_RERANKER_PROVIDERS
+
+    def _is_model_service_reranker(self, runtime_config: RuntimeRerankerConfig) -> bool:
+        return runtime_config.provider.lower() in MODEL_SERVICE_RERANKER_PROVIDERS
+
+    def _ensure_model_service_available(self, runtime_config: RuntimeRerankerConfig) -> None:
+        if not runtime_config.api_base:
+            raise AppException("Reranker API Base为空，无法检查模型服务", status_code=500, code=500)
+        headers = {}
+        if runtime_config.api_key:
+            headers["Authorization"] = f"Bearer {runtime_config.api_key}"
+        response = requests.get(
+            f"{runtime_config.api_base.rstrip('/')}/health",
+            headers=headers,
+            timeout=float(getattr(self.settings, "reranker_timeout_seconds", 15) or 15),
+        )
+        response.raise_for_status()
 
     def _normalize_score_order(self, score_order: str) -> str:
         normalized = (score_order or "desc").lower().strip()

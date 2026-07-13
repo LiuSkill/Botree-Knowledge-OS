@@ -59,8 +59,18 @@ load_env_files() {
     source "${backend_env_file}"
     set +a
 
+    apply_model_service_defaults
     export TRIAL_ENV_FILE="${trial_env_file}"
     export BACKEND_ENV_FILE="${backend_env_file}"
+}
+
+apply_model_service_defaults() {
+    MODEL_SERVICE_ENABLED="${MODEL_SERVICE_ENABLED:-false}"
+    MODEL_SERVICE_IMAGE="${MODEL_SERVICE_IMAGE:-${API_IMAGE}}"
+    MODEL_SERVICE_CONTAINER_NAME="${MODEL_SERVICE_CONTAINER_NAME:-botree-model-service}"
+    MODEL_SERVICE_PORT="${MODEL_SERVICE_PORT:-8890}"
+    MODEL_SERVICE_USE_GPU="${MODEL_SERVICE_USE_GPU:-true}"
+    export MODEL_SERVICE_ENABLED MODEL_SERVICE_IMAGE MODEL_SERVICE_CONTAINER_NAME MODEL_SERVICE_PORT MODEL_SERVICE_USE_GPU
 }
 
 assert_under_dir() {
@@ -96,6 +106,10 @@ ensure_docker_network() {
 container_running() {
     local container_name="$1"
     docker inspect -f '{{.State.Running}}' "${container_name}" 2>/dev/null | grep -Fxq 'true'
+}
+
+model_service_enabled() {
+    [[ "$(to_lower "${MODEL_SERVICE_ENABLED:-false}")" == "true" ]]
 }
 
 require_container_running() {
@@ -160,6 +174,11 @@ validate_trial_env() {
     ensure_non_empty WORKER_IMAGE
     ensure_non_empty API_CONTAINER_NAME
     ensure_non_empty WORKER_CONTAINER_NAME
+    if model_service_enabled; then
+        ensure_non_empty MODEL_SERVICE_IMAGE
+        ensure_non_empty MODEL_SERVICE_CONTAINER_NAME
+        ensure_non_empty MODEL_SERVICE_PORT
+    fi
     ensure_non_empty MYSQL_IMAGE
     ensure_non_empty MYSQL_CONTAINER_NAME
     ensure_non_empty MYSQL_ROOT_PASSWORD
@@ -221,6 +240,8 @@ validate_trial_env() {
     ensure_linux_path "${LIBREOFFICE_WORK_DIR}" "LIBREOFFICE_WORK_DIR"
     ensure_linux_path "${EMBEDDING_MODEL:-}" "EMBEDDING_MODEL"
     ensure_linux_path "${RERANKER_MODEL:-}" "RERANKER_MODEL"
+    ensure_linux_path "${MODEL_SERVICE_EMBEDDING_MODEL:-}" "MODEL_SERVICE_EMBEDDING_MODEL"
+    ensure_linux_path "${MODEL_SERVICE_RERANKER_MODEL:-}" "MODEL_SERVICE_RERANKER_MODEL"
 
     [[ "${UPLOAD_DIR}" == "/app/storage/uploads" ]] || die "UPLOAD_DIR 必须为 /app/storage/uploads"
     [[ "${PAGE_INDEX_DIR}" == "/app/storage/page_index" ]] || die "PAGE_INDEX_DIR 必须为 /app/storage/page_index"
@@ -247,15 +268,32 @@ validate_local_model_mounts() {
     local embedding_provider_lower
     local reranker_provider_lower
     local model_path
+    local embedding_model_path
+    local reranker_model_path
 
     embedding_provider_lower="$(to_lower "${EMBEDDING_PROVIDER:-}")"
     reranker_provider_lower="$(to_lower "${RERANKER_PROVIDER:-}")"
 
-    if [[ "${embedding_provider_lower}" == "local" ]]; then
+    if model_service_enabled || [[ "${embedding_provider_lower}" == "model_service" ]]; then
+        embedding_model_path="${MODEL_SERVICE_EMBEDDING_MODEL:-${EMBEDDING_MODEL:-}}"
+        ensure_non_empty embedding_model_path
+        model_path="$(resolve_host_model_path "${embedding_model_path}")"
+        [[ -n "${model_path}" ]] || die "MODEL_SERVICE_EMBEDDING_MODEL/EMBEDDING_MODEL 建议使用 /app/models/* 形式，当前值: ${embedding_model_path}"
+        [[ -e "${model_path}" ]] || die "未找到模型服务 Embedding 模型目录: ${model_path}"
+    elif [[ "${embedding_provider_lower}" == "local" ]]; then
         ensure_non_empty EMBEDDING_MODEL
         model_path="$(resolve_host_model_path "${EMBEDDING_MODEL}")"
         [[ -n "${model_path}" ]] || die "EMBEDDING_MODEL 建议使用 /app/models/* 形式，当前值: ${EMBEDDING_MODEL}"
         [[ -e "${model_path}" ]] || die "未找到 Embedding 模型目录: ${model_path}"
+    fi
+
+    if model_service_enabled || [[ "${reranker_provider_lower}" == "model_service" ]]; then
+        reranker_model_path="${MODEL_SERVICE_RERANKER_MODEL:-${RERANKER_MODEL:-}}"
+        ensure_non_empty reranker_model_path
+        model_path="$(resolve_host_model_path "${reranker_model_path}")"
+        [[ -n "${model_path}" ]] || die "MODEL_SERVICE_RERANKER_MODEL/RERANKER_MODEL 建议使用 /app/models/* 形式，当前值: ${reranker_model_path}"
+        [[ -e "${model_path}" ]] || die "未找到模型服务 Reranker 模型目录: ${model_path}"
+        return
     fi
 
     case "${reranker_provider_lower}" in

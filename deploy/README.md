@@ -7,6 +7,7 @@
 - 前端使用 Nginx 静态资源部署。
 - 后端 API 使用独立 Docker 容器部署。
 - Worker 使用独立 Docker 容器部署。
+- Embedding/Reranker 使用独立模型服务容器部署，API/Worker 只通过 HTTP 调用。
 - MySQL、Redis、MinIO、Milvus、MinerU 作为独立服务运行。
 - `uploads`、`derived`、`page_index`、`mineru_output`、`models`、`logs` 全部使用宿主机持久化目录。
 - API 容器与 Worker 容器挂载同一份 `/data/botree/page_index -> /app/storage/page_index`。
@@ -32,6 +33,7 @@ deploy/
     ├── 00_create_dirs.sh
     ├── 01_start_middlewares.sh
     ├── 02_build_backend.sh
+    ├── 02_start_model_service.sh
     ├── 03_start_api.sh
     ├── 04_start_worker.sh
     ├── 05_build_frontend.sh
@@ -55,7 +57,7 @@ deploy/
 可选：
 
 - 宿主机安装 Node.js 20，用于直接构建前端；若未安装，`05_build_frontend.sh` 会使用 `node:20-bookworm-slim` 容器构建。
-- 若 MinerU 使用 GPU，请确保 NVIDIA 驱动与 Docker GPU Runtime 已准备完成。
+- 若模型服务或 MinerU 使用 GPU，请确保 NVIDIA 驱动与 Docker GPU Runtime 已准备完成。
 
 ## 4. 复制环境文件
 
@@ -71,6 +73,7 @@ cp deploy/env/backend.env.example deploy/env/backend.env
   - `MYSQL_ROOT_PASSWORD`
   - `MINERU_IMAGE`（若你本地构建的标签不是 `mineru:latest`）
   - `MINERU_USE_GPU`
+  - `MODEL_SERVICE_USE_GPU`
 - `deploy/env/backend.env`
   - `CORS_ALLOW_ORIGINS`
   - `MYSQL_PASSWORD`
@@ -84,6 +87,8 @@ cp deploy/env/backend.env.example deploy/env/backend.env
   - `DEFAULT_ADMIN_PASSWORD`
   - `EMBEDDING_MODEL`
   - `RERANKER_MODEL`
+  - `MODEL_SERVICE_EMBEDDING_MODEL`
+  - `MODEL_SERVICE_RERANKER_MODEL`
 
 说明：
 
@@ -115,8 +120,10 @@ cp deploy/env/backend.env.example deploy/env/backend.env
 
 - `EMBEDDING_MODEL` 指向 `/app/models/...`
 - `RERANKER_MODEL` 指向 `/app/models/...`
+- `MODEL_SERVICE_EMBEDDING_MODEL` 指向 `/app/models/...`
+- `MODEL_SERVICE_RERANKER_MODEL` 指向 `/app/models/...`
 
-脚本会在启动 API/Worker 前校验这两个模型目录是否存在。
+脚本会在启动模型服务、API、Worker 前校验这些模型目录是否存在。
 
 ## 6. 必须满足的挂载映射
 
@@ -194,19 +201,22 @@ bash deploy/scripts/02_build_backend.sh
    - `soffice` 可执行
    - `rg` 可执行
 
-## 10. 启动 API 与 Worker
+## 10. 启动模型服务、API 与 Worker
 
 ```bash
+bash deploy/scripts/02_start_model_service.sh
 bash deploy/scripts/03_start_api.sh
 bash deploy/scripts/04_start_worker.sh
 ```
 
 说明：
 
+- 模型服务会常驻加载 Embedding/Reranker，本地模型缓存只在该容器内维护。
+- 启用 `MODEL_SERVICE_ENABLED=true` 时，API/Worker 启动前会检查模型服务健康状态。
 - API 容器启动前会执行 `alembic upgrade head`。
+- API 容器启动前会执行 `python -m app.scripts.configure_model_service`，把默认 Embedding/Reranker 配置同步为 `model_service`。
 - API 与 Worker 均不会使用 `--reload`。
 - API/Worker 都会把日志写入宿主机 `/data/botree/logs/`。
-- 默认 reranker 配置会在应用启动时自动补到 `model_configs` 表：前提是 `RERANKER_PROVIDER` 与 `RERANKER_MODEL` 已正确配置，且数据库中还没有默认 reranker。
 
 ## 11. 构建并发布前端
 
@@ -304,6 +314,7 @@ bash deploy/scripts/09_backup_files.sh
 bash deploy/scripts/00_create_dirs.sh
 bash deploy/scripts/01_start_middlewares.sh
 bash deploy/scripts/02_build_backend.sh
+bash deploy/scripts/02_start_model_service.sh
 bash deploy/scripts/03_start_api.sh
 bash deploy/scripts/04_start_worker.sh
 bash deploy/scripts/05_build_frontend.sh
