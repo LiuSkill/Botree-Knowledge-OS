@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -570,7 +571,7 @@ def test_libreoffice_conversion_service_reuses_existing_pdf() -> None:
             output_pdf.write_bytes(b"%PDF-1.5 cached")
 
             with patch.object(service, "_resolve_binary", return_value="soffice"):
-                with patch("app.services.libreoffice_conversion_service.subprocess.run") as mocked_run:
+                with patch.object(service, "_run_command") as mocked_run:
                     result = service.convert(source_path, document_id=8, version_no=2)
 
             assert result.reused is True
@@ -579,6 +580,73 @@ def test_libreoffice_conversion_service_reuses_existing_pdf() -> None:
     finally:
         service.settings.libreoffice_work_dir = original_work_dir
         Path(source_path).unlink(missing_ok=True)
+
+
+def test_libreoffice_conversion_service_uses_isolated_profile_and_cleans_it() -> None:
+    """
+    LibreOffice 转换必须使用独立 profile，避免卡死实例污染后续任务。
+    """
+
+    service = LibreOfficeConversionService()
+    original_work_dir = service.settings.libreoffice_work_dir
+    source_path = with_temp_file(".docx", b"fake-docx")
+    captured: dict[str, object] = {}
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service.settings.libreoffice_work_dir = temp_dir
+
+            def fake_run(command: list[str], timeout_seconds: int) -> subprocess.CompletedProcess[str]:
+                captured["command"] = command
+                captured["timeout_seconds"] = timeout_seconds
+                profile_arg = next(arg for arg in command if arg.startswith("-env:UserInstallation=file://"))
+                profile_path = Path(profile_arg.removeprefix("-env:UserInstallation=file://"))
+                captured["profile_path"] = profile_path
+                assert profile_path.exists()
+
+                output_dir = Path(command[command.index("--outdir") + 1])
+                output_pdf = output_dir / f"{Path(source_path).stem}.pdf"
+                output_pdf.write_bytes(b"%PDF-1.5 converted")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch.object(service, "_resolve_binary", return_value="soffice"):
+                with patch.object(service, "_run_command", side_effect=fake_run):
+                    result = service.convert(source_path, document_id=12, version_no=4)
+
+            command = captured["command"]
+            assert isinstance(command, list)
+            assert result.reused is False
+            assert result.pdf_path.endswith(".pdf")
+            assert captured["timeout_seconds"] == service.settings.libreoffice_timeout_seconds
+            assert "--nolockcheck" in command
+            assert "--norestore" in command
+            assert not Path(captured["profile_path"]).exists()
+    finally:
+        service.settings.libreoffice_work_dir = original_work_dir
+        Path(source_path).unlink(missing_ok=True)
+
+
+def test_libreoffice_run_command_terminates_process_group_on_timeout() -> None:
+    """
+    底层 soffice 超时时必须终止整个进程组，避免残留 soffice.bin。
+    """
+
+    service = LibreOfficeConversionService()
+    process = Mock()
+    process.communicate.side_effect = subprocess.TimeoutExpired(["soffice"], 1)
+    process.pid = 12345
+
+    with patch("app.services.libreoffice_conversion_service.subprocess.Popen", return_value=process) as mocked_popen:
+        with patch.object(service, "_terminate_process_tree") as mocked_terminate:
+            try:
+                service._run_command(["soffice"], timeout_seconds=1)
+                raise AssertionError("LibreOffice 超时应继续抛出 TimeoutExpired")
+            except subprocess.TimeoutExpired:
+                pass
+
+    mocked_terminate.assert_called_once_with(process)
+    assert mocked_popen.call_args.kwargs["shell"] is False
+    assert mocked_popen.call_args.kwargs["text"] is True
 
 
 def test_document_asset_service_accepts_inline_image_payload() -> None:
@@ -628,6 +696,8 @@ def main() -> None:
     test_parser_service_uses_simple_parser_when_mineru_is_unconfigured()
     test_parser_service_converts_office_before_mineru()
     test_libreoffice_conversion_service_reuses_existing_pdf()
+    test_libreoffice_conversion_service_uses_isolated_profile_and_cleans_it()
+    test_libreoffice_run_command_terminates_process_group_on_timeout()
     test_document_asset_service_accepts_inline_image_payload()
     test_simple_text_parser_rejects_invalid_pdf_header()
     logger.info("Parser Service 单元测试通过")

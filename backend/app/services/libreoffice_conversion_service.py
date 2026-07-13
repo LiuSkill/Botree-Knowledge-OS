@@ -10,8 +10,11 @@ LibreOffice Conversion Service
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import signal
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +22,7 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 
 logger = logging.getLogger(__name__)
+PROCESS_TERMINATE_GRACE_SECONDS = 5
 
 OFFICE_CONVERTIBLE_SUFFIXES = {
     ".doc",
@@ -102,33 +106,22 @@ class LibreOfficeConversionService:
             )
             return LibreOfficeConversionResult(pdf_path=str(output_pdf), reused=True, source_path=str(source_path))
 
-        command = [
-            binary,
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(output_dir),
-            str(source_path),
-        ]
+        self._cleanup_stale_target_artifacts(output_dir, output_pdf)
+
+        profile_dir = Path(tempfile.mkdtemp(prefix=".libreoffice-profile-", dir=str(output_dir)))
+        command = self._build_command(binary, output_dir, source_path, profile_dir)
         logger.info(
-            "开始执行 LibreOffice 转换: document_id=%s version_no=%s source=%s output_dir=%s timeout_seconds=%s",
+            "开始执行 LibreOffice 转换: document_id=%s version_no=%s source=%s output_dir=%s timeout_seconds=%s profile_dir=%s",
             document_id,
             version_no,
             source_path.name,
             output_dir,
             self.settings.libreoffice_timeout_seconds,
+            profile_dir,
         )
 
         try:
-            completed = subprocess.run(
-                command,
-                check=False,
-                shell=False,
-                capture_output=True,
-                text=True,
-                timeout=self.settings.libreoffice_timeout_seconds,
-            )
+            completed = self._run_command(command, self.settings.libreoffice_timeout_seconds)
         except subprocess.TimeoutExpired as exc:
             logger.exception("LibreOffice 转换超时: document_id=%s version_no=%s source=%s", document_id, version_no, source_path.name)
             raise AppException(
@@ -139,6 +132,8 @@ class LibreOfficeConversionService:
         except OSError as exc:
             logger.exception("LibreOffice 转换执行失败: document_id=%s version_no=%s source=%s", document_id, version_no, source_path.name)
             raise AppException(f"LibreOffice 转换执行失败：file={source_path.name} error={exc}", status_code=500, code=500) from exc
+        finally:
+            shutil.rmtree(profile_dir, ignore_errors=True)
 
         if completed.returncode != 0:
             logger.error(
@@ -191,3 +186,94 @@ class LibreOfficeConversionService:
             return resolved
 
         raise AppException(f"未找到 LibreOffice 可执行文件：{configured}", status_code=500, code=500)
+
+    def _build_command(self, binary: str, output_dir: Path, source_path: Path, profile_dir: Path) -> list[str]:
+        """构建带独立用户 profile 的 LibreOffice 转换命令。"""
+
+        profile_uri = profile_dir.resolve().as_uri()
+        return [
+            binary,
+            f"-env:UserInstallation={profile_uri}",
+            "--headless",
+            "--nologo",
+            "--nofirststartwizard",
+            "--nodefault",
+            "--norestore",
+            "--nolockcheck",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(output_dir),
+            str(source_path),
+        ]
+
+    def _run_command(self, command: list[str], timeout_seconds: int) -> subprocess.CompletedProcess[str]:
+        """运行 LibreOffice 命令，并在超时时终止整个进程组。"""
+
+        popen_kwargs: dict[str, object] = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "shell": False,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        else:
+            popen_kwargs["start_new_session"] = True
+
+        process = subprocess.Popen(command, **popen_kwargs)
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            self._terminate_process_tree(process)
+            raise
+
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+    def _terminate_process_tree(self, process: subprocess.Popen[str]) -> None:
+        """终止 LibreOffice launcher 以及它派生出的 soffice.bin。"""
+
+        if process.poll() is not None:
+            return
+
+        try:
+            if os.name == "nt":
+                process.terminate()
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except OSError:
+            logger.warning("LibreOffice 进程组 SIGTERM 失败，尝试终止主进程: pid=%s", process.pid, exc_info=True)
+            process.terminate()
+
+        try:
+            process.wait(timeout=PROCESS_TERMINATE_GRACE_SECONDS)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+        try:
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        except OSError:
+            logger.warning("LibreOffice 进程组 SIGKILL 失败，尝试强杀主进程: pid=%s", process.pid, exc_info=True)
+            process.kill()
+
+        try:
+            process.wait(timeout=PROCESS_TERMINATE_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.error("LibreOffice 进程超时后仍未退出: pid=%s", process.pid)
+
+    def _cleanup_stale_target_artifacts(self, output_dir: Path, output_pdf: Path) -> None:
+        """清理当前目标 PDF 的陈旧 LibreOffice 锁文件。"""
+
+        if output_pdf.exists() and output_pdf.is_file() and output_pdf.stat().st_size <= 0:
+            output_pdf.unlink(missing_ok=True)
+
+        lock_path = output_dir / f".~lock.{output_pdf.name}#"
+        lock_path.unlink(missing_ok=True)
