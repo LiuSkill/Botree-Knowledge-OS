@@ -906,6 +906,13 @@ class RetrievalRouter:
             return user
         roles: list[Any] = []
         for role in list(getattr(user, "roles", []) or []):
+            permissions = [
+                SimpleNamespace(
+                    id=getattr(permission, "id", None),
+                    code=getattr(permission, "code", ""),
+                )
+                for permission in list(getattr(role, "permissions", []) or [])
+            ]
             roles.append(
                 SimpleNamespace(
                     id=getattr(role, "id", None),
@@ -913,11 +920,15 @@ class RetrievalRouter:
                     name=getattr(role, "name", ""),
                     enabled=getattr(role, "enabled", True),
                     security_level=getattr(role, "security_level", None),
+                    data_scope=getattr(role, "data_scope", None),
+                    permissions=permissions,
                 )
             )
         return SimpleNamespace(
             id=getattr(user, "id", None),
             username=getattr(user, "username", ""),
+            department=getattr(user, "department", None),
+            department_id=getattr(user, "department_id", None),
             roles=roles,
         )
 

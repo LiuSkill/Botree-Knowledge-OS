@@ -580,20 +580,22 @@ def test_draft_version_can_be_parsed_for_review_preview() -> None:
         db.commit()
 
         service = DocumentService(db)
-        with patch.object(
-            service,
-            "_parse_to_chunks",
-            return_value=[
-                DocumentChunk(
-                    knowledge_base_id=1,
-                    document_id=document.id,
-                    knowledge_type="base",
-                    version_no=1,
-                    chunk_status="active",
-                    chunk_index=1,
-                    content="draft preview content",
-                )
-            ],
+        parsed_result = SimpleNamespace()
+        mineru_summary = {"copied_artifact_count": 0, "image_resolution_failures": 0}
+        chunks = [
+            DocumentChunk(
+                knowledge_base_id=1,
+                document_id=document.id,
+                knowledge_type="base",
+                version_no=1,
+                chunk_status="active",
+                chunk_index=1,
+                content="draft preview content",
+            )
+        ]
+        with (
+            patch.object(service, "_parse_document_source", return_value=(parsed_result, mineru_summary)),
+            patch.object(service, "_persist_parsed_result_as_chunks", return_value=chunks),
         ):
             result = service.parse_document_version(document.id, 1, operator)
 
@@ -606,6 +608,84 @@ def test_draft_version_can_be_parsed_for_review_preview() -> None:
         assert version.parse_status == "success"
         assert len(chunks) == 1
         assert chunks[0].content == "draft preview content"
+    finally:
+        db.close()
+
+
+def test_parse_version_retries_deadlock_when_persisting_parse_result() -> None:
+    """解析结果写库遇到 MySQL deadlock 时，应 rollback 后重试，不重复调用解析器。"""
+
+    db = make_session()
+    try:
+        operator = make_operator()
+        document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="draft.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/draft.md",
+            document_status="pending_review",
+            parse_status="unparsed",
+            review_status="draft",
+            index_status="not_indexed",
+            version_no=1,
+            current_version=False,
+        )
+        db.add(document)
+        db.flush()
+        version = DocumentVersion(
+            document_id=document.id,
+            version_no=1,
+            category_id=1,
+            file_name="draft.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/draft.md",
+            version_status="draft",
+            parse_status="unparsed",
+            review_status="draft",
+            index_status="not_indexed",
+            is_current=False,
+        )
+        db.add(version)
+        db.commit()
+
+        deadlock_error = OperationalError(
+            "INSERT INTO document_pages (...) VALUES (...)",
+            {},
+            Exception(1213, "Deadlock found when trying to get lock; try restarting transaction"),
+        )
+        parsed_result = SimpleNamespace()
+        mineru_summary = {"copied_artifact_count": 0, "image_resolution_failures": 0}
+        retry_chunks = [
+            DocumentChunk(
+                knowledge_base_id=1,
+                document_id=document.id,
+                knowledge_type="base",
+                version_no=1,
+                chunk_status="active",
+                chunk_index=1,
+                content="retry content",
+            )
+        ]
+
+        service = DocumentService(db)
+        with (
+            patch.object(service, "_parse_document_source", return_value=(parsed_result, mineru_summary)) as parse_source,
+            patch.object(service, "_persist_parsed_result_as_chunks", side_effect=[deadlock_error, retry_chunks]) as persist_result,
+            patch("app.services.document_service.time.sleep", return_value=None),
+        ):
+            result = service.parse_document_version(document.id, 1, operator)
+
+        stored_chunks = db.scalars(select(DocumentChunk).where(DocumentChunk.document_id == document.id)).all()
+
+        assert result["chunk_count"] == 1
+        assert parse_source.call_count == 1
+        assert persist_result.call_count == 2
+        assert len(stored_chunks) == 1
+        assert stored_chunks[0].content == "retry content"
+        assert db.get(DocumentVersion, version.id).parse_status == "success"
     finally:
         db.close()
 
@@ -658,21 +738,27 @@ def test_parse_version_commits_running_status_before_parsing() -> None:
             commit_count += 1
             original_commit()
 
-        def fake_parse(_: object) -> list[DocumentChunk]:
+        def fake_parse(_: object) -> tuple[SimpleNamespace, dict[str, int]]:
             assert commit_count == 1
-            return [
-                DocumentChunk(
-                    knowledge_base_id=1,
-                    document_id=document.id,
-                    knowledge_type="base",
-                    version_no=1,
-                    chunk_status="active",
-                    chunk_index=1,
-                    content="draft preview content",
-                )
-            ]
+            return SimpleNamespace(), {"copied_artifact_count": 0, "image_resolution_failures": 0}
 
-        with patch.object(db, "commit", side_effect=tracked_commit), patch.object(service, "_parse_to_chunks", side_effect=fake_parse):
+        chunks = [
+            DocumentChunk(
+                knowledge_base_id=1,
+                document_id=document.id,
+                knowledge_type="base",
+                version_no=1,
+                chunk_status="active",
+                chunk_index=1,
+                content="draft preview content",
+            )
+        ]
+
+        with (
+            patch.object(db, "commit", side_effect=tracked_commit),
+            patch.object(service, "_parse_document_source", side_effect=fake_parse),
+            patch.object(service, "_persist_parsed_result_as_chunks", return_value=chunks),
+        ):
             service.parse_document_version(document.id, 1, operator)
 
         assert commit_count == 2

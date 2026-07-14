@@ -14,6 +14,7 @@ import json
 import logging
 from pathlib import Path
 import shutil
+import time
 from threading import Thread
 from types import SimpleNamespace
 
@@ -38,6 +39,7 @@ from app.knowledge.indexing.milvus_indexer import MilvusIndexer
 from app.knowledge.indexing.index_service import IndexService
 from app.knowledge.ingestion.upload_service import UploadService
 from app.knowledge.parsing.parsed_content_cleaner import ParsedContentCleaner
+from app.knowledge.parsing.parsed_document import ParsedDocumentResult
 from app.knowledge.parsing.parser_service import ParserService
 from app.models.document_asset import DocumentAsset
 from app.models.document import Document, DocumentChunk, DocumentVersion
@@ -86,6 +88,9 @@ DOCUMENT_STATUS_INACTIVE = "inactive"
 DOCUMENT_STATUS_ARCHIVED = "archived"
 PROJECT_DOCUMENT_STATUS_PENDING = "待审核"
 PROJECT_DOCUMENT_STATUS_PUBLISHED = "已发布"
+
+PARSE_DB_WRITE_MAX_ATTEMPTS = 3
+PARSE_DB_WRITE_RETRY_BASE_DELAY_SECONDS = 0.2
 
 PARSE_STATUS_UNPARSED = "unparsed"
 PARSE_STATUS_PARSING = "parsing"
@@ -1626,37 +1631,63 @@ class DocumentService:
         )
 
         try:
-            chunks = self._parse_to_chunks(context)  # type: ignore[arg-type]
-            self.repository.replace_chunks(document.id, chunks, version_no=version.version_no)
-            finished_at = now_utc()
-            parse_log = json.dumps(
-                {"chunk_count": len(chunks), "version_no": version.version_no, "finished_at": finished_at.isoformat()},
-                ensure_ascii=False,
-            )
-            version.parse_status = PARSE_STATUS_SUCCESS
-            version.parse_finished_at = finished_at
-            version.parse_error = None
-            version.parse_log = parse_log
-            if not self.repository.get_current_version(document.id) or document.version_no == version.version_no:
-                document.parse_status = PARSE_STATUS_SUCCESS
-                document.parse_finished_at = finished_at
-                document.parse_error = None
-                document.parse_log = parse_log
-            self.db.commit()
-            logger.info(
-                "MinerU 解析成功: document_id=%s version_id=%s version_no=%s project_id=%s file_name=%s operation=%s status=%s error_message=%s timestamp=%s chunks=%s",
-                document.id,
-                version.id,
-                version.version_no,
-                document.project_id,
-                version.file_name,
-                "mineru_parse",
-                "success",
-                None,
-                finished_at.isoformat(),
-                len(chunks),
-            )
-            return {"document_id": document.id, "version_id": version.id, "version_no": version.version_no, "chunk_count": len(chunks)}
+            parsed_result, mineru_artifact_summary = self._parse_document_source(context)  # type: ignore[arg-type]
+            for attempt in range(1, PARSE_DB_WRITE_MAX_ATTEMPTS + 1):
+                try:
+                    chunks = self._persist_parsed_result_as_chunks(context, parsed_result, mineru_artifact_summary)  # type: ignore[arg-type]
+                    self.repository.replace_chunks(document.id, chunks, version_no=version.version_no)
+                    finished_at = now_utc()
+                    parse_log = json.dumps(
+                        {"chunk_count": len(chunks), "version_no": version.version_no, "finished_at": finished_at.isoformat()},
+                        ensure_ascii=False,
+                    )
+                    version.parse_status = PARSE_STATUS_SUCCESS
+                    version.parse_finished_at = finished_at
+                    version.parse_error = None
+                    version.parse_log = parse_log
+                    if not self.repository.get_current_version(document.id) or document.version_no == version.version_no:
+                        document.parse_status = PARSE_STATUS_SUCCESS
+                        document.parse_finished_at = finished_at
+                        document.parse_error = None
+                        document.parse_log = parse_log
+                    self.db.commit()
+                    logger.info(
+                        "MinerU 解析成功: document_id=%s version_id=%s version_no=%s project_id=%s file_name=%s operation=%s status=%s error_message=%s timestamp=%s chunks=%s",
+                        document.id,
+                        version.id,
+                        version.version_no,
+                        document.project_id,
+                        version.file_name,
+                        "mineru_parse",
+                        "success",
+                        None,
+                        finished_at.isoformat(),
+                        len(chunks),
+                    )
+                    return {
+                        "document_id": document.id,
+                        "version_id": version.id,
+                        "version_no": version.version_no,
+                        "chunk_count": len(chunks),
+                    }
+                except OperationalError as exc:
+                    if not is_database_lock_error(exc) or attempt >= PARSE_DB_WRITE_MAX_ATTEMPTS:
+                        raise
+                    self.db.rollback()
+                    logger.warning(
+                        "MinerU 解析结果写库遇到数据库锁冲突，准备重试: document_id=%s version_no=%s attempt=%s max_attempts=%s error=%s",
+                        document_id,
+                        version_no,
+                        attempt,
+                        PARSE_DB_WRITE_MAX_ATTEMPTS,
+                        exc,
+                    )
+                    time.sleep(PARSE_DB_WRITE_RETRY_BASE_DELAY_SECONDS * attempt)
+                    document = self.get_document(document_id, operator)
+                    version = self.repository.get_version(document.id, version_no)
+                    if version is None:
+                        raise AppException("目标版本不存在", status_code=404, code=404)
+                    context = self._build_version_context(document, version, operator.id)
         except Exception as exc:
             self.db.rollback()
             document = self.get_document(document_id, operator)
@@ -1664,7 +1695,10 @@ class DocumentService:
             if version is None:
                 raise
             finished_at = now_utc()
-            error_message = str(exc)[:2000]
+            if is_database_lock_error(exc):
+                error_message = "数据库正在处理同一文档解析结果，请稍后重试"
+            else:
+                error_message = str(exc)[:2000]
             version.parse_status = PARSE_STATUS_FAILED
             version.parse_finished_at = finished_at
             version.parse_error = error_message
@@ -2035,12 +2069,21 @@ class DocumentService:
             待写入数据库的 Chunk 列表
         """
 
+        parsed_result, mineru_artifact_summary = self._parse_document_source(document)
+        return self._persist_parsed_result_as_chunks(document, parsed_result, mineru_artifact_summary)
+
+    def _parse_document_source(self, document: Document | SimpleNamespace) -> tuple[ParsedDocumentResult, dict[str, int]]:
+        """
+        调用解析器并清洗页级结果，不写数据库。
+
+        说明：
+            数据库写回阶段可能因并发解析出现 MySQL 1205/1213，需要可重试；
+            外部解析服务耗时较长，只应执行一次。
+        """
+
         resolved_storage_path = self.settings.resolve_local_path(document.storage_path)
         if not resolved_storage_path.exists():
             raise AppException("源文件不存在，无法解析")
-
-        asset_service = DocumentAssetService(self.db)
-        asset_service.prepare_version_parse_refresh(document.id, document.version_no)
 
         parser_service = ParserService()
         parsed_result = parser_service.parse_document(
@@ -2061,13 +2104,29 @@ class DocumentService:
             cleaning_summary.get("repeated_noise_line_count"),
             cleaning_summary.get("cleaned_markdown"),
         )
+        mineru_artifact_summary = DocumentAssetService(self.db).materialize_mineru_output(document, parsed_result)
+        return parsed_result, mineru_artifact_summary
+
+    def _persist_parsed_result_as_chunks(
+        self,
+        document: Document | SimpleNamespace,
+        parsed_result: ParsedDocumentResult,
+        mineru_artifact_summary: dict[str, int],
+    ) -> list[DocumentChunk]:
+        """
+        将已解析结果写入页模型、资产和待替换 Chunk。
+
+        该方法必须保持幂等：调用方在数据库死锁/锁等待后会 rollback 并重试整个写库阶段。
+        """
+
+        asset_service = DocumentAssetService(self.db)
+        asset_service.prepare_version_parse_refresh(document.id, document.version_no)
         if parsed_result.parse_source.converted_pdf_path:
             asset_service.get_or_create_converted_pdf(
                 document=document,
                 pdf_path=parsed_result.parse_source.converted_pdf_path,
                 created_by=document.built_by or document.created_by,
             )
-        mineru_artifact_summary = asset_service.materialize_mineru_output(document, parsed_result)
 
         page_replace_result = PageIndexService(self.db).replace_pages_from_parse(document, parsed_result.pages)
         mineru_result_asset: DocumentAsset | None = None

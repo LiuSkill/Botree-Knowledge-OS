@@ -25,6 +25,7 @@ from app.retrieval.base import DEFAULT_RETRIEVER_TOP_K  # noqa: E402
 from app.retrieval.router import RetrievalRouter  # noqa: E402
 from app.retrieval.schemas import Evidence  # noqa: E402
 from app.services.evidence_access_guard_service import EvidenceAccessGuardService  # noqa: E402
+from app.services.project_access_service import ProjectAccessService  # noqa: E402
 from app.services.retrieval_planner_service import RetrievalPlannerService  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -220,6 +221,41 @@ def build_router(*retrievers: FakeRetriever) -> RetrievalRouter:
 
     router._prepare_scope = prepare_scope  # type: ignore[method-assign]
     return router
+
+
+def test_snapshot_user_preserves_project_permission_context() -> None:
+    """
+    检索线程使用用户快照校验项目权限，快照必须保留角色权限和数据范围。
+    """
+
+    router = object.__new__(RetrievalRouter)
+    user = SimpleNamespace(
+        id=10,
+        username="engineer",
+        department_id=3,
+        department="工程部",
+        roles=[
+            SimpleNamespace(
+                id=2,
+                code="project_member",
+                name="项目成员",
+                enabled=True,
+                security_level="confidential",
+                data_scope="department",
+                permissions=[
+                    SimpleNamespace(id=100, code="project"),
+                    SimpleNamespace(id=101, code="project:view"),
+                ],
+            )
+        ],
+    )
+
+    snapshot = router._snapshot_user(user)
+
+    assert snapshot.department_id == 3
+    assert snapshot.roles[0].data_scope == "department"
+    assert [permission.code for permission in snapshot.roles[0].permissions] == ["project", "project:view"]
+    assert ProjectAccessService.has_permission(object.__new__(ProjectAccessService), snapshot, "project:view")
 
 
 def test_rule_planner_exact_lookup() -> None:
