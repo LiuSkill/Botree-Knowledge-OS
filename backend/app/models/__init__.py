@@ -20,8 +20,11 @@ from app.models.model_config import ModelConfig
 from app.models.operation_log import OperationLog
 from app.models.page_index import DocumentPage, DocumentPageBlock, PageIndex
 from app.models.process_config import (
+    ProcessCalculationImportBatch,
+    ProcessCalculationOutput,
     ProcessConsumable,
     ProcessMaterial,
+    ProcessMaterialComposition,
     ProcessNode,
     ProcessNodeConsumable,
     ProcessNodeEquipment,
@@ -62,7 +65,10 @@ __all__ = [
     "DocumentPageBlock",
     "PageIndex",
     "ProcessConsumable",
+    "ProcessCalculationImportBatch",
+    "ProcessCalculationOutput",
     "ProcessMaterial",
+    "ProcessMaterialComposition",
     "ProcessNode",
     "ProcessNodeConsumable",
     "ProcessNodeEquipment",

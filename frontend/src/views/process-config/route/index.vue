@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AddIcon, BrowseIcon, CopyIcon, DeleteIcon, DownloadIcon, EditIcon, RefreshIcon, TimeIcon, UploadIcon } from 'tdesign-icons-vue-next';
+import { AddIcon, BrowseIcon, CopyIcon, DeleteIcon, DownloadIcon, EditIcon, FileSearchIcon, RefreshIcon, TimeIcon, UploadIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -55,6 +55,7 @@ const permissions = {
   export: PERMISSIONS.PROCESS_CONFIG_ROUTE_EXPORT,
   copy: PERMISSIONS.PROCESS_CONFIG_ROUTE_COPY,
   version: PERMISSIONS.PROCESS_CONFIG_ROUTE_VERSION,
+  preview: PERMISSIONS.PROCESS_CONFIG_ROUTE_PREVIEW,
 } as const;
 
 const router = useRouter();
@@ -112,7 +113,7 @@ const columns = [
   { colKey: 'node_count', title: '节点数', width: 90, align: 'center' as const },
   { colKey: 'status', title: '状态', width: 100, align: 'center' as const },
   { colKey: 'updated_at', title: '更新时间', width: 170 },
-  { colKey: 'operation', title: '操作', width: 232, fixed: 'right' as const },
+  { colKey: 'operation', title: '操作', width: 272, fixed: 'right' as const },
 ];
 
 const statCards = computed(() => [
@@ -215,7 +216,7 @@ async function loadOptions(force = false): Promise<void> {
   try {
     const [materials, products, nodes] = await Promise.all([
       listProcessLibraryOptions('materials'),
-      listProcessLibraryOptions('products'),
+      listProcessLibraryOptions('products', { output_type: 'product' }),
       loadAllNodeOptions(),
     ]);
     materialOptions.value = materials;
@@ -335,6 +336,11 @@ function openVersionDialog(row: ProcessRouteItem): void {
 
 function openDetailPage(row: ProcessRouteItem): void {
   router.push(`/process-config/routes/${row.id}`);
+}
+
+function openPreviewPage(row: ProcessRouteItem): void {
+  const target = router.resolve(`/process-config/routes/${row.id}/preview`);
+  window.open(target.href, '_blank', 'noopener,noreferrer');
 }
 
 function handleImport(): void {
@@ -474,6 +480,9 @@ function formatAverage(value: number): string {
           <t-space size="small">
             <TableActionButton label="查看详情" :permission="permissions.view" @click="openDetailPage(row)">
               <BrowseIcon />
+            </TableActionButton>
+            <TableActionButton label="线路预览" :permission="permissions.preview" @click="openPreviewPage(row)">
+              <FileSearchIcon />
             </TableActionButton>
             <TableActionButton label="编辑" :permission="permissions.update" :loading="editLoadingId === row.id" @click="openEditDialog(row)">
               <EditIcon />

@@ -104,6 +104,7 @@ export const ACTION_PERMISSIONS = {
   PROCESS_CONFIG_ROUTE_EXPORT: 'process_config:route:export',
   PROCESS_CONFIG_ROUTE_COPY: 'process_config:route:copy',
   PROCESS_CONFIG_ROUTE_VERSION: 'process_config:route:version',
+  PROCESS_CONFIG_ROUTE_PREVIEW: 'process_config:route:preview',
 
   AI_PROJECT_CHAT_VIEW: 'ai:project-chat:view',
   AI_PROJECT_CHAT_CREATE_SESSION: 'ai:project-chat:create-session',
@@ -372,6 +373,7 @@ export const ACTION_PERMISSION_GROUPS: ActionGroupDefinition[] = [
       { action: 'export', name: '导出工艺路线', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_EXPORT },
       { action: 'copy', name: '复制工艺路线', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_COPY },
       { action: 'version', name: '管理工艺路线版本', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_VERSION },
+      { action: 'preview', name: '线路预览', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_PREVIEW },
     ],
   },
   {

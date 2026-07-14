@@ -142,6 +142,60 @@ export interface RouteFlowNode {
 
 export interface RouteNodeOption extends ProcessNodeItem {}
 
+export type RouteTreePreviewNodeKind = 'material' | 'node' | 'product' | 'waste';
+
+export interface RouteTreePreviewNode {
+  key: string;
+  label: string;
+  code?: string | null;
+  meta?: string | null;
+  kind: RouteTreePreviewNodeKind;
+  active: boolean;
+  children: RouteTreePreviewNode[];
+}
+
+export interface ProcessRouteTreeLibraryItem {
+  id: number;
+  code: string;
+  name: string;
+  unit?: string | null;
+  output_type?: string | null;
+}
+
+export interface ProcessRouteTreeNodeOutput {
+  id: number;
+  product_id: number;
+  output_type: 'product' | 'byproduct' | 'solid_waste' | 'wastewater';
+  product?: ProcessRouteTreeLibraryItem | null;
+}
+
+export interface ProcessRouteTreeNode {
+  route_node_id: number;
+  node_id: number;
+  code: string;
+  name: string;
+  node_type: string;
+  version: string;
+  sort_order: number;
+  outputs: ProcessRouteTreeNodeOutput[];
+}
+
+export interface ProcessRouteTreeRoute {
+  id: number;
+  code: string;
+  name: string;
+  version: string;
+  sort_order: number;
+  input_material: ProcessRouteTreeLibraryItem;
+  final_product: ProcessRouteTreeLibraryItem;
+  nodes: ProcessRouteTreeNode[];
+}
+
+export interface ProcessRouteTreePreview {
+  current_route_id: number;
+  routes: ProcessRouteTreeRoute[];
+}
+
 export const PROCESS_ROUTE_STATUS_OPTIONS: readonly { label: string; value: ProcessLibraryStatus }[] = [
   { label: '启用', value: 'enabled' },
   { label: '草稿', value: 'draft' },
@@ -154,9 +208,9 @@ export function createEmptyRoutePayload(): ProcessRoutePayload {
     name: '',
     input_material_id: null,
     final_product_id: null,
-    version: 'v1.0',
+    version: 'V1',
     description: '',
-    status: 'draft',
+    status: 'enabled',
     sort_order: 0,
     remark: '',
     nodes: [],

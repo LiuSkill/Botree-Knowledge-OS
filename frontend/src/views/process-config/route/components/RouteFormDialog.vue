@@ -57,9 +57,9 @@ function resetForm(): void {
     name: routeDetail?.route.name || '',
     input_material_id: routeDetail?.route.input_material_id ?? null,
     final_product_id: routeDetail?.route.final_product_id ?? null,
-    version: routeDetail?.route.version || 'v1.0',
+    version: routeDetail?.route.version || 'V1',
     description: routeDetail?.route.description || '',
-    status: routeDetail?.route.status || 'draft',
+    status: routeDetail?.route.status || 'enabled',
     sort_order: routeDetail?.route.sort_order ?? 0,
     remark: routeDetail?.route.remark || '',
     nodes: (routeDetail?.nodes || [])
@@ -184,7 +184,7 @@ function handleSubmit(): void {
               </t-select>
             </t-form-item>
             <t-form-item label="版本号" required-mark>
-              <t-input v-model="form.version" clearable maxlength="50" placeholder="例如 v1.0" />
+              <t-input v-model="form.version" clearable maxlength="50" placeholder="例如 V1" />
             </t-form-item>
             <t-form-item label="状态" required-mark>
               <t-radio-group v-model="form.status">

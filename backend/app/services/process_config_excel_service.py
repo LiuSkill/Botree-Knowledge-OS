@@ -231,6 +231,8 @@ class ProcessConfigExcelService:
         result = self.process_service.list_library(
             config.library_kind,
             keyword=self._optional_text(filters.get("keyword")),
+            type_code=self._optional_text(filters.get("type")),
+            output_type=self._optional_text(filters.get("output_type")),
             status=self._optional_text(filters.get("status")),
             page=1,
             page_size=MAX_EXPORT_PAGE_SIZE,
@@ -503,8 +505,8 @@ class ProcessConfigExcelService:
             node_type = self._parse_node_type(row.get("节点类型"), "节点基础信息", row_no, "节点类型", errors)
             staff = self._parse_decimal(row.get("人员"), "节点基础信息", row_no, "人员", errors, default=Decimal("0"))
             area = self._parse_decimal(row.get("占地面积"), "节点基础信息", row_no, "占地面积", errors, default=Decimal("0"))
-            status = self._parse_status(row.get("状态"), "节点基础信息", row_no, "状态", errors, default="draft")
-            version = self._parse_required_or_default_text(row.get("版本"), "1.0")
+            status = self._parse_status(row.get("状态"), "节点基础信息", row_no, "状态", errors, default="enabled")
+            version = self._parse_required_or_default_text(row.get("版本"), "V1")
             sort_order = self._parse_int(row.get("排序"), "节点基础信息", row_no, "排序", errors, default=0)
 
             if code:
@@ -649,9 +651,9 @@ class ProcessConfigExcelService:
             name = self._required_text(row, "路线名称", "路线基础信息", row_no, errors)
             input_material_code = self._required_text(row, "输入原料编码", "路线基础信息", row_no, errors)
             final_product_code = self._required_text(row, "最终产品编码", "路线基础信息", row_no, errors)
-            status = self._parse_status(row.get("状态"), "路线基础信息", row_no, "状态", errors, default="draft")
+            status = self._parse_status(row.get("状态"), "路线基础信息", row_no, "状态", errors, default="enabled")
             sort_order = self._parse_int(row.get("排序"), "路线基础信息", row_no, "排序", errors, default=0)
-            version = self._parse_required_or_default_text(row.get("版本"), "1.0")
+            version = self._parse_required_or_default_text(row.get("版本"), "V1")
 
             if code:
                 if code in seen_codes:

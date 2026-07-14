@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppException
 from app.models.process_config import (
+    ProcessCalculationOutput,
     ProcessConsumable,
     ProcessMaterial,
+    ProcessMaterialComposition,
     ProcessNode,
     ProcessNodeConsumable,
     ProcessNodeEquipment,
@@ -30,19 +32,27 @@ from app.models.process_config import (
 )
 from app.models.user import User
 from app.repositories.process_config_repository import (
+    ProcessCalculationImportBatchRepository,
+    ProcessCalculationOutputRepository,
     ProcessLibraryModel,
     ProcessLibraryRepository,
+    ProcessMaterialCompositionRepository,
     ProcessNodeChildModel,
     ProcessNodeRepository,
     ProcessRouteRepository,
 )
 from app.schemas.process_config import (
+    ProcessCalculationImportBatchOut,
+    ProcessCalculationOutputOut,
+    ProcessCalculationOutputReplacePayload,
     ProcessLibraryCreateWithPrices,
     ProcessLibraryOutWithPrices,
     ProcessLibraryRegionPricePayload,
     ProcessLibraryStatusUpdate,
     ProcessLibraryUpdateWithPrices,
     ProcessMaterialOutWithPrices,
+    ProcessMaterialCompositionOut,
+    ProcessMaterialCompositionReplacePayload,
     ProcessNodeConsumablePayload,
     ProcessNodeConsumableOut,
     ProcessNodeCreateWithChildren,
@@ -67,6 +77,7 @@ from app.schemas.process_config import (
     ProcessRouteNodePayload,
     ProcessRouteNodeReorderPayload,
     ProcessRouteOut,
+    ProcessRouteTreePreviewOut,
     ProcessRouteUpdateWithNodes,
     ProcessRouteVersionCreatePayload,
     ProcessRouteVersionOut,
@@ -81,6 +92,7 @@ ProcessLibraryKind = Literal["material", "product", "consumable", "public_servic
 
 VALID_PROCESS_STATUSES = {"enabled", "draft", "disabled"}
 VALID_PROCESS_NODE_TYPES = {"pretreatment", "hydrometallurgy", "pyrometallurgy", "post_treatment"}
+VALID_CALCULATION_IMPORT_STATUSES = {"pending", "success", "failed", "partial_success"}
 REGION_ORDER = ("asia", "europe", "americas")
 REGION_CONFIG = {
     "asia": {"region_name": "亚洲", "currency": "CNY"},
@@ -124,6 +136,8 @@ class ProcessConfigService:
         self,
         kind: ProcessLibraryKind,
         keyword: str | None = None,
+        type_code: str | None = None,
+        output_type: str | None = None,
         status: str | None = None,
         page: int = 1,
         page_size: int = 10,
@@ -132,7 +146,10 @@ class ProcessConfigService:
 
         self._validate_status_filter(status)
         repo = self._repository(kind)
-        items = [self._serialize_library(repo, item) for item in repo.list(keyword=keyword, status=status)]
+        items = [
+            self._serialize_library(repo, item)
+            for item in repo.list(keyword=keyword, type_code=type_code, output_type=output_type, status=status)
+        ]
         return paginate(items, page, page_size)
 
     def get_library(self, kind: ProcessLibraryKind, item_id: int) -> dict:
@@ -219,7 +236,12 @@ class ProcessConfigService:
         self.db.commit()
         logger.info("工艺基础库删除完成: kind=%s id=%s operator_id=%s", kind, item.id, operator.id)
 
-    def list_options(self, kind: ProcessLibraryKind) -> list[dict]:
+    def list_options(
+        self,
+        kind: ProcessLibraryKind,
+        type_code: str | None = None,
+        output_type: str | None = None,
+    ) -> list[dict]:
         """查询启用基础库下拉选项。"""
 
         repo = self._repository(kind)
@@ -231,9 +253,83 @@ class ProcessConfigService:
                 "type": item.type,
                 "unit": item.unit,
                 "status": item.status,
+                "output_type": getattr(item, "output_type", None),
             }
-            for item in repo.list_options()
+            for item in repo.list_options(type_code=type_code, output_type=output_type)
         ]
+
+    def list_material_compositions(self, material_id: int) -> list[dict]:
+        """查询指定原料的元素组成。"""
+
+        material_repo = self._repository("material")
+        self._get_existing(material_repo, material_id)
+        repo = ProcessMaterialCompositionRepository(self.db)
+        return [self._serialize_material_composition(item) for item in repo.list_by_material(material_id)]
+
+    def replace_material_compositions(
+        self,
+        material_id: int,
+        payload: ProcessMaterialCompositionReplacePayload,
+        operator: User,
+    ) -> list[dict]:
+        """整体替换原料元素组成，保持历史记录软删除。"""
+
+        material_repo = self._repository("material")
+        material = self._get_existing(material_repo, material_id)
+        self._validate_unique_payload_field(payload.items, "element_code", "元素编码不能重复")
+
+        repo = ProcessMaterialCompositionRepository(self.db)
+        repo.replace(material.id, [row.model_dump() for row in payload.items], operator.id)
+        material.updated_by = operator.id
+
+        self.system_service.record_operation(operator, "维护原料元素组成", "process_material", material.id, f"维护原料元素组成 {material.name}")
+        self.db.commit()
+        logger.info("原料元素组成维护完成: material_id=%s operator_id=%s count=%s", material.id, operator.id, len(payload.items))
+        return [self._serialize_material_composition(item) for item in repo.list_by_material(material.id)]
+
+    def list_route_calculation_outputs(self, route_id: int) -> list[dict]:
+        """查询指定路线的测算产出系数配置。"""
+
+        route_repo = ProcessRouteRepository(self.db)
+        route = self._get_existing_route(route_repo, route_id)
+        repo = ProcessCalculationOutputRepository(self.db)
+        return [self._serialize_calculation_output(item) for item in repo.list_by_route(route.id)]
+
+    def replace_route_calculation_outputs(
+        self,
+        route_id: int,
+        payload: ProcessCalculationOutputReplacePayload,
+        operator: User,
+    ) -> list[dict]:
+        """整体替换路线测算产出配置，支撑产品、废固和废水产出系数。"""
+
+        route_repo = ProcessRouteRepository(self.db)
+        route = self._get_existing_route(route_repo, route_id)
+        self._validate_calculation_output_payload(route, payload)
+
+        repo = ProcessCalculationOutputRepository(self.db)
+        repo.replace(route.id, [row.model_dump() for row in payload.items], operator.id)
+        route.updated_by = operator.id
+
+        self.system_service.record_operation(operator, "维护路线测算产出", "process_route", route.id, f"维护路线测算产出 {route.name}")
+        self.db.commit()
+        logger.info("路线测算产出维护完成: route_id=%s operator_id=%s count=%s", route.id, operator.id, len(payload.items))
+        return [self._serialize_calculation_output(item) for item in repo.list_by_route(route.id)]
+
+    def list_calculation_import_batches(
+        self,
+        import_type: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict:
+        """查询快速财务计算器 Excel 导入批次。"""
+
+        if status is not None and status not in VALID_CALCULATION_IMPORT_STATUSES:
+            raise AppException("导入批次状态仅支持 pending/success/failed/partial_success")
+        repo = ProcessCalculationImportBatchRepository(self.db)
+        items = [ProcessCalculationImportBatchOut.model_validate(item).model_dump(mode="json") for item in repo.list(import_type, status)]
+        return paginate(items, page, page_size)
 
     def list_nodes(
         self,
@@ -349,6 +445,54 @@ class ProcessConfigService:
         repo = ProcessRouteRepository(self.db)
         route = self._get_existing_route(repo, route_id)
         return self._serialize_route_detail(repo, route)
+
+    def get_route_tree_preview(self, route_id: int) -> dict:
+        """批量生成路线树预览数据，供前端一次请求渲染完整工艺树。"""
+
+        repo = ProcessRouteRepository(self.db)
+        data = repo.get_tree_preview_data()
+        routes: list[ProcessRoute] = data["routes"]
+        if not any(route.id == route_id for route in routes):
+            raise AppException("工艺路线不存在或已删除")
+
+        material_map: dict[int, ProcessMaterial] = {item.id: item for item in data["materials"]}
+        product_map: dict[int, ProcessProduct] = {item.id: item for item in data["products"]}
+        node_map: dict[int, ProcessNode] = {item.id: item for item in data["nodes"]}
+        route_nodes_by_route_id: dict[int, list[ProcessRouteNode]] = {}
+        outputs_by_node_id: dict[int, list[ProcessNodeOutput]] = {}
+
+        for route_node in data["route_nodes"]:
+            route_nodes_by_route_id.setdefault(route_node.route_id, []).append(route_node)
+        for output in data["outputs"]:
+            outputs_by_node_id.setdefault(output.node_id, []).append(output)
+
+        preview_routes: list[dict[str, Any]] = []
+        for route in routes:
+            material = material_map.get(route.input_material_id)
+            final_product = product_map.get(route.final_product_id)
+            if material is None or final_product is None:
+                logger.warning("路线树预览跳过引用缺失路线: route_id=%s", route.id)
+                continue
+
+            preview_routes.append(
+                {
+                    "id": route.id,
+                    "code": route.code,
+                    "name": route.name,
+                    "version": route.version,
+                    "sort_order": route.sort_order,
+                    "input_material": self._serialize_route_tree_library_item(material),
+                    "final_product": self._serialize_route_tree_library_item(final_product),
+                    "nodes": [
+                        self._serialize_route_tree_node(route_node, node_map, outputs_by_node_id, product_map)
+                        for route_node in route_nodes_by_route_id.get(route.id, [])
+                        if route_node.node_id in node_map
+                    ],
+                }
+            )
+
+        payload = ProcessRouteTreePreviewOut(current_route_id=route_id, routes=preview_routes)
+        return payload.model_dump(mode="json")
 
     def create_route(self, payload: ProcessRouteCreateWithNodes, operator: User) -> dict:
         """创建工艺路线并可一次性保存节点链路。"""
@@ -509,7 +653,7 @@ class ProcessConfigService:
         logger.info("工艺路线节点删除完成: route_id=%s route_node_id=%s operator_id=%s", route.id, route_node.id, operator.id)
 
     def copy_route(self, route_id: int, operator: User) -> dict:
-        """复制工艺路线主信息与节点链路，新路线默认草稿状态。"""
+        """复制工艺路线主信息与节点链路，新路线默认启用。"""
 
         repo = ProcessRouteRepository(self.db)
         route = self._get_existing_route(repo, route_id)
@@ -521,7 +665,7 @@ class ProcessConfigService:
             final_product_id=route.final_product_id,
             version=route.version,
             description=route.description,
-            status="draft",
+            status="enabled",
             sort_order=route.sort_order,
             remark=route.remark,
             created_by=operator.id,
@@ -811,6 +955,31 @@ class ProcessConfigService:
         if len(sort_orders) != len(set(sort_orders)):
             raise AppException("节点顺序不能重复")
 
+    def _validate_unique_payload_field(self, rows: list[Any], field_name: str, message: str) -> None:
+        seen: set[Any] = set()
+        for row in rows:
+            value = getattr(row, field_name)
+            key = value.strip().lower() if isinstance(value, str) else value
+            if key in seen:
+                raise AppException(message)
+            seen.add(key)
+
+    def _validate_calculation_output_payload(
+        self,
+        route: ProcessRoute,
+        payload: ProcessCalculationOutputReplacePayload,
+    ) -> None:
+        product_repo = self._repository("product")
+        require_enabled_refs = route.status == "enabled"
+        for row in payload.items:
+            if row.product_id is None:
+                continue
+            product = product_repo.get_by_id(row.product_id)
+            if not product:
+                raise AppException(f"引用的产品不存在或已删除: id={row.product_id}")
+            if require_enabled_refs and product.status != "enabled":
+                raise AppException(f"启用路线时，测算产出引用的产品必须为启用状态: id={row.product_id}")
+
     def _replace_node_children(
         self,
         repo: ProcessNodeRepository,
@@ -864,7 +1033,10 @@ class ProcessConfigService:
             | ProcessNodeOutputPayload
         ),
     ) -> dict[str, Any]:
-        return payload.model_dump()
+        data = payload.model_dump()
+        if "amount_per_ton_bm" in data and "amount_per_ton_bm" not in payload.model_fields_set:
+            data["amount_per_ton_bm"] = data.get("amount_per_ton", Decimal("0"))
+        return data
 
     def _serialize_route_base(self, route: ProcessRoute) -> dict[str, Any]:
         return ProcessRouteOut.model_validate(route).model_dump(mode="json")
@@ -916,6 +1088,48 @@ class ProcessConfigService:
         }
         return ProcessRouteDetailOut.model_validate(data).model_dump(mode="json")
 
+    def _serialize_route_tree_library_item(self, item: ProcessMaterial | ProcessProduct) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "id": item.id,
+            "code": item.code,
+            "name": item.name,
+            "unit": item.unit,
+            "output_type": None,
+        }
+        if isinstance(item, ProcessProduct):
+            data["output_type"] = item.output_type
+        return data
+
+    def _serialize_route_tree_node(
+        self,
+        route_node: ProcessRouteNode,
+        node_map: dict[int, ProcessNode],
+        outputs_by_node_id: dict[int, list[ProcessNodeOutput]],
+        product_map: dict[int, ProcessProduct],
+    ) -> dict[str, Any]:
+        node = node_map[route_node.node_id]
+        outputs = []
+        for output in outputs_by_node_id.get(node.id, []):
+            product = product_map.get(output.product_id)
+            outputs.append(
+                {
+                    "id": output.id,
+                    "product_id": output.product_id,
+                    "output_type": output.output_type,
+                    "product": self._serialize_route_tree_library_item(product) if product else None,
+                }
+            )
+        return {
+            "route_node_id": route_node.id,
+            "node_id": node.id,
+            "code": node.code,
+            "name": node.name,
+            "node_type": node.node_type,
+            "version": node.version,
+            "sort_order": route_node.sort_order,
+            "outputs": outputs,
+        }
+
     def _serialize_route_version(self, version: ProcessRouteVersion) -> dict[str, Any]:
         return ProcessRouteVersionOut.model_validate(version).model_dump(mode="json")
 
@@ -961,6 +1175,12 @@ class ProcessConfigService:
     ) -> list[dict]:
         return [schema.model_validate(child).model_dump(mode="json") for child in repo.list_children(model, node_id)]
 
+    def _serialize_material_composition(self, composition: ProcessMaterialComposition) -> dict:
+        return ProcessMaterialCompositionOut.model_validate(composition).model_dump(mode="json")
+
+    def _serialize_calculation_output(self, output: ProcessCalculationOutput) -> dict:
+        return ProcessCalculationOutputOut.model_validate(output).model_dump(mode="json")
+
     def _serialize_library(self, repo: ProcessLibraryRepository, item: Any) -> dict:
         region_order = {region_code: index for index, region_code in enumerate(REGION_ORDER)}
         prices = sorted(repo.list_region_prices(item.id), key=lambda price: region_order.get(price.region_code, 99))
@@ -982,4 +1202,13 @@ class ProcessConfigService:
             "updated_at": item.updated_at,
             "region_prices": [ProcessRegionPriceOut.model_validate(price).model_dump(mode="json") for price in prices],
         }
+        if repo.owner_type == "product":
+            data.update(
+                {
+                    "output_type": getattr(item, "output_type", "product"),
+                    "spec": getattr(item, "spec", None),
+                    "treatment_cost": getattr(item, "treatment_cost", Decimal("0")),
+                }
+            )
+            return ProcessProductOutWithPrices.model_validate(data).model_dump(mode="json")
         return ProcessLibraryOutWithPrices.model_validate(data).model_dump(mode="json")

@@ -160,12 +160,6 @@ class EmbeddingService:
 
         runtime_config = self._runtime_config()
         if not self._is_local_embedding(runtime_config):
-            logger.info(
-                "跳过本地Embedding预热: provider=%s model=%s is_local=%s",
-                runtime_config.provider,
-                runtime_config.model_name,
-                False,
-            )
             return
 
         from app.services.embedding_local import is_local_embedding_loaded

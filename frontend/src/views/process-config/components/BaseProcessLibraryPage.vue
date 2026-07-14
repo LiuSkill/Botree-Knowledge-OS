@@ -27,12 +27,13 @@ import ProcessConfigImportDialog from '@/views/process-config/components/Process
 import ProcessLibraryFormDialog from '@/views/process-config/components/ProcessLibraryFormDialog.vue';
 import type {
   ProcessLibraryItem,
+  ProcessLibraryListParams,
   ProcessLibraryPageConfig,
   ProcessLibraryPayload,
   ProcessLibraryStatus,
   ProcessRegionPrice,
 } from '@/views/process-config/types';
-import { normalizeRegionPrices } from '@/views/process-config/types';
+import { normalizeRegionPrices, processLibraryTypeLabel } from '@/views/process-config/types';
 import { buildProcessConfigExportFileName, triggerBlobDownload } from '@/views/process-config/utils';
 import { formatDateTime } from '@/utils/format';
 import type { PageResult } from '@/types/api';
@@ -54,6 +55,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 const filters = reactive({
   keyword: '',
+  type: '',
   status: '' as ProcessLibraryStatus | '',
 });
 const page = ref(1);
@@ -90,6 +92,7 @@ const columns = [
 ];
 
 const listTitle = computed(() => `${props.config.title}列表`);
+const typeOptions = computed(() => props.config.typeOptions || []);
 
 onMounted(() => {
   loadItems();
@@ -103,19 +106,21 @@ watch(
   },
 );
 
-function buildQueryParams(): { keyword?: string; status?: ProcessLibraryStatus; page: number; page_size: number } {
-  const params: { keyword?: string; status?: ProcessLibraryStatus; page: number; page_size: number } = {
+function buildQueryParams(): ProcessLibraryListParams {
+  const params: ProcessLibraryListParams = {
     page: page.value,
     page_size: pageSize.value,
   };
   if (filters.keyword.trim()) params.keyword = filters.keyword.trim();
+  if (filters.type) params.type = filters.type;
   if (filters.status) params.status = filters.status;
   return params;
 }
 
-function buildExportParams(): { keyword?: string; status?: ProcessLibraryStatus } {
-  const params: { keyword?: string; status?: ProcessLibraryStatus } = {};
+function buildExportParams(): { keyword?: string; type?: string; status?: ProcessLibraryStatus } {
+  const params: { keyword?: string; type?: string; status?: ProcessLibraryStatus } = {};
   if (filters.keyword.trim()) params.keyword = filters.keyword.trim();
+  if (filters.type) params.type = filters.type;
   if (filters.status) params.status = filters.status;
   return params;
 }
@@ -140,6 +145,7 @@ function handleSearch(): void {
 
 function clearFilters(reload = true): void {
   filters.keyword = '';
+  filters.type = '';
   filters.status = '';
   page.value = 1;
   if (reload) loadItems();
@@ -263,6 +269,10 @@ function statusConfirmText(row: ProcessLibraryItem): string {
   return `确认${statusActionLabel(row)}该${props.config.entityName}吗？`;
 }
 
+function typeLabel(type: string): string {
+  return processLibraryTypeLabel(props.config.moduleKey, type);
+}
+
 function displayRegionPrices(row: ProcessLibraryItem): ProcessRegionPrice[] {
   return normalizeRegionPrices(row.region_prices, row.unit);
 }
@@ -277,6 +287,11 @@ function formatPrice(price: ProcessRegionPrice): string {
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
       <t-form-item v-permission="config.permissions.view" label="关键字">
         <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="编码 / 名称 / 类型 / 描述" @enter="handleSearch" />
+      </t-form-item>
+      <t-form-item v-if="typeOptions.length" v-permission="config.permissions.view" label="类型">
+        <t-select v-model="filters.type" class="filter-select" clearable placeholder="全部类型" @change="handleSearch">
+          <t-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
+        </t-select>
       </t-form-item>
       <t-form-item v-permission="config.permissions.view" label="状态">
         <t-select v-model="filters.status" class="filter-select" clearable placeholder="全部状态" @change="handleSearch">
@@ -336,6 +351,9 @@ function formatPrice(price: ProcessRegionPrice): string {
             </t-tag>
           </div>
         </template>
+        <template #type="{ row }">
+          {{ typeLabel(row.type) }}
+        </template>
         <template #status="{ row }">
           <t-tag size="small" variant="light" :theme="statusTheme(row.status)">{{ statusLabel(row.status) }}</t-tag>
         </template>
@@ -383,6 +401,7 @@ function formatPrice(price: ProcessRegionPrice): string {
       :entity-name="config.entityName"
       :data="editingItem"
       :loading="submitting"
+      :type-options="typeOptions"
       @submit="handleSubmit"
     />
 
@@ -399,7 +418,7 @@ function formatPrice(price: ProcessRegionPrice): string {
           <t-descriptions bordered :column="2" size="small">
             <t-descriptions-item label="编码">{{ selectedItem.code }}</t-descriptions-item>
             <t-descriptions-item label="名称">{{ selectedItem.name }}</t-descriptions-item>
-            <t-descriptions-item label="类型">{{ selectedItem.type }}</t-descriptions-item>
+            <t-descriptions-item label="类型">{{ typeLabel(selectedItem.type) }}</t-descriptions-item>
             <t-descriptions-item label="单位">{{ selectedItem.unit }}</t-descriptions-item>
             <t-descriptions-item label="状态">
               <t-tag size="small" variant="light" :theme="statusTheme(selectedItem.status)">{{ statusLabel(selectedItem.status) }}</t-tag>

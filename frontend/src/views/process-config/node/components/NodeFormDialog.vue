@@ -54,8 +54,8 @@ const form = reactive<ProcessNodePayload>({
   staff: 0,
   area: 0,
   description: '',
-  status: 'draft',
-  version: 'v1.0',
+  status: 'enabled',
+  version: 'V1',
   sort_order: 0,
   remark: '',
   material_inputs: [],
@@ -91,8 +91,8 @@ function resetForm(): void {
     staff: node?.staff ?? 0,
     area: node?.area ?? 0,
     description: node?.description || '',
-    status: node?.status || 'draft',
-    version: node?.version || 'v1.0',
+    status: node?.status || 'enabled',
+    version: node?.version || 'V1',
     sort_order: node?.sort_order ?? 0,
     remark: node?.remark || '',
     material_inputs: (node?.material_inputs || []).map((item) => ({
@@ -327,7 +327,7 @@ function handleSubmit(): void {
               </t-select>
             </t-form-item>
             <t-form-item label="版本号" required-mark>
-              <t-input v-model="form.version" clearable maxlength="50" placeholder="例如 v1.0" />
+              <t-input v-model="form.version" clearable maxlength="50" placeholder="例如 V1" />
             </t-form-item>
             <t-form-item label="人员" required-mark>
               <t-input-number v-model="form.staff" :min="0" :step="1" theme="normal" />

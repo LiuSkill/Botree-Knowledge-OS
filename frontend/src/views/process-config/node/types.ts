@@ -11,6 +11,7 @@ export interface ProcessLibraryOptionItem {
   type: string;
   unit: string;
   status: ProcessLibraryStatus;
+  output_type?: string | null;
 }
 
 export interface ProcessNodeMaterialInputPayload {
@@ -111,6 +112,7 @@ export interface ProcessNodeEquipment extends ProcessNodeChildBase {
 
 export interface ProcessNodeOutput extends ProcessNodeChildBase {
   product_id: number;
+  output_type?: string | null;
   output_per_ton: string;
   is_main_product: boolean;
 }

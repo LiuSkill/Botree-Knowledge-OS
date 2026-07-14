@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeftIcon, EditIcon, RefreshIcon, SaveIcon, TimeIcon } from 'tdesign-icons-vue-next';
+import { ArrowLeftIcon, BrowseIcon, EditIcon, RefreshIcon, SaveIcon, TimeIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -23,6 +23,7 @@ const permissions = {
   view: PERMISSIONS.PROCESS_CONFIG_ROUTE_VIEW,
   update: PERMISSIONS.PROCESS_CONFIG_ROUTE_UPDATE,
   version: PERMISSIONS.PROCESS_CONFIG_ROUTE_VERSION,
+  preview: PERMISSIONS.PROCESS_CONFIG_ROUTE_PREVIEW,
 } as const;
 
 const STATS_FETCH_PAGE_SIZE = 100;
@@ -47,6 +48,7 @@ const nodeLibraryKeyword = ref('');
 
 const materialOptions = ref<ProcessLibraryOptionItem[]>([]);
 const productOptions = ref<ProcessLibraryOptionItem[]>([]);
+const outputOptions = ref<ProcessLibraryOptionItem[]>([]);
 const consumableOptions = ref<ProcessLibraryOptionItem[]>([]);
 const publicServiceOptions = ref<ProcessLibraryOptionItem[]>([]);
 const nodeOptions = ref<RouteNodeOption[]>([]);
@@ -170,17 +172,27 @@ async function loadPage(): Promise<void> {
 }
 
 async function loadOptions(force = false): Promise<void> {
-  if (materialOptions.value.length && productOptions.value.length && consumableOptions.value.length && publicServiceOptions.value.length && !force) return;
+  if (
+    materialOptions.value.length &&
+    productOptions.value.length &&
+    outputOptions.value.length &&
+    consumableOptions.value.length &&
+    publicServiceOptions.value.length &&
+    !force
+  )
+    return;
   optionsLoading.value = true;
   try {
-    const [materials, products, consumables, publicServices] = await Promise.all([
+    const [materials, products, outputs, consumables, publicServices] = await Promise.all([
       listProcessLibraryOptions('materials'),
+      listProcessLibraryOptions('products', { output_type: 'product' }),
       listProcessLibraryOptions('products'),
       listProcessLibraryOptions('consumables'),
       listProcessLibraryOptions('public-services'),
     ]);
     materialOptions.value = materials;
     productOptions.value = products;
+    outputOptions.value = outputs;
     consumableOptions.value = consumables;
     publicServiceOptions.value = publicServices;
   } finally {
@@ -238,6 +250,12 @@ function syncDetail(result: ProcessRouteDetail): void {
 function openEditDialog(): void {
   if (!detail.value) return;
   formVisible.value = true;
+}
+
+function openPreviewPage(): void {
+  if (!detail.value) return;
+  const target = router.resolve(`/process-config/routes/${detail.value.route.id}/preview`);
+  window.open(target.href, '_blank', 'noopener,noreferrer');
 }
 
 function addNodeToRoute(node: NodeLibraryRecord): void {
@@ -397,6 +415,10 @@ function nodeTypeLabel(value: string): string {
           <template #icon><EditIcon /></template>
           编辑路线
         </t-button>
+        <t-button v-permission="permissions.preview" theme="default" variant="outline" :disabled="!detail" @click="openPreviewPage">
+          <template #icon><BrowseIcon /></template>
+          线路预览
+        </t-button>
         <t-button v-permission="permissions.version" theme="default" variant="outline" @click="versionDialogVisible = true">
           <template #icon><TimeIcon /></template>
           版本管理
@@ -498,7 +520,7 @@ function nodeTypeLabel(value: string): string {
                 :node="selectedNodeDetail"
                 :loading="selectedNodeLoading"
                 :material-options="materialOptions"
-                :product-options="productOptions"
+                :product-options="outputOptions"
                 :consumable-options="consumableOptions"
                 :public-service-options="publicServiceOptions"
               />

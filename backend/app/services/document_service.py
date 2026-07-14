@@ -1642,21 +1642,6 @@ class DocumentService:
                 document.parse_finished_at = finished_at
                 document.parse_error = None
                 document.parse_log = parse_log
-            SystemService(self.db).record_operation(
-                operator,
-                "解析失败重试",
-                TARGET_TYPE_DOCUMENT,
-                document.id,
-                json.dumps(
-                    {
-                        "version_id": version.id,
-                        "version_no": version.version_no,
-                        "chunk_count": len(chunks),
-                    },
-                    ensure_ascii=False,
-                ),
-                project_id=document.project_id,
-            )
             self.db.commit()
             logger.info(
                 "MinerU 解析成功: document_id=%s version_id=%s version_no=%s project_id=%s file_name=%s operation=%s status=%s error_message=%s timestamp=%s chunks=%s",
@@ -2582,21 +2567,6 @@ class DocumentService:
         self._ensure_no_active_index_build(document, version)
         task = IndexTaskService(self.db).create_build_task(document.id, version.version_no, user, version.id)
         self._mark_index_build_started(document, version, user.id)
-        SystemService(self.db).record_operation(
-            user,
-            "索引失败重试",
-            TARGET_TYPE_DOCUMENT,
-            document.id,
-            json.dumps(
-                {
-                    "task_id": task.id,
-                    "version_id": version.id,
-                    "version_no": version.version_no,
-                },
-                ensure_ascii=False,
-            ),
-            project_id=document.project_id,
-        )
         self.db.commit()
         self.db.refresh(task)
         return task

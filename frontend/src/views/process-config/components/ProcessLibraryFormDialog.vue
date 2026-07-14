@@ -7,6 +7,7 @@ import type {
   ProcessLibraryItem,
   ProcessLibraryPayload,
   ProcessLibraryStatus,
+  ProcessLibraryTypeOption,
   ProcessRegionPrice,
 } from '@/views/process-config/types';
 import { normalizeRegionPrices } from '@/views/process-config/types';
@@ -20,10 +21,12 @@ const props = withDefaults(
     entityName: string;
     data?: ProcessLibraryItem | null;
     loading?: boolean;
+    typeOptions?: readonly ProcessLibraryTypeOption[];
   }>(),
   {
     data: null,
     loading: false,
+    typeOptions: () => [],
   },
 );
 
@@ -50,6 +53,7 @@ const visibleProxy = computed({
 });
 
 const dialogTitle = computed(() => (props.mode === 'create' ? `新增${props.entityName}` : `编辑${props.entityName}`));
+const hasTypeOptions = computed(() => props.typeOptions.length > 0);
 
 watch(
   () => [props.visible, props.data, props.mode] as const,
@@ -153,7 +157,10 @@ function handleConfirm(): void {
           <t-input v-model="form.name" clearable maxlength="200" placeholder="请输入名称" />
         </t-form-item>
         <t-form-item label="类型" required-mark>
-          <t-input v-model="form.type" clearable maxlength="100" placeholder="请输入类型" />
+          <t-select v-if="hasTypeOptions" v-model="form.type" clearable placeholder="请选择类型">
+            <t-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </t-select>
+          <t-input v-else v-model="form.type" clearable maxlength="100" placeholder="请输入类型" />
         </t-form-item>
         <t-form-item label="单位" required-mark>
           <t-input v-model="form.unit" clearable maxlength="50" placeholder="请输入主单位" />

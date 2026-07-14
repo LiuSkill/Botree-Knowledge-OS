@@ -9,8 +9,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.process_config import (
+    ProcessCalculationImportBatch,
+    ProcessCalculationOutput,
     ProcessConsumable,
     ProcessMaterial,
+    ProcessMaterialComposition,
     ProcessNode,
     ProcessNodeConsumable,
     ProcessNodeEquipment,
@@ -49,7 +52,13 @@ class ProcessLibraryRepository:
         self.model = model
         self.owner_type = owner_type
 
-    def list(self, keyword: str | None = None, status: str | None = None) -> list[Any]:
+    def list(
+        self,
+        keyword: str | None = None,
+        type_code: str | None = None,
+        output_type: str | None = None,
+        status: str | None = None,
+    ) -> list[Any]:
         """查询未删除基础库数据。"""
 
         stmt = select(self.model).where(self.model.is_deleted.is_(False))
@@ -65,10 +74,14 @@ class ProcessLibraryRepository:
             )
         if status:
             stmt = stmt.where(self.model.status == status)
+        if type_code:
+            stmt = stmt.where(self.model.type == type_code)
+        if output_type and hasattr(self.model, "output_type"):
+            stmt = stmt.where(self.model.output_type == output_type)
         stmt = stmt.order_by(self.model.sort_order.asc(), self.model.id.desc())
         return list(self.db.scalars(stmt).all())
 
-    def list_options(self) -> list[Any]:
+    def list_options(self, type_code: str | None = None, output_type: str | None = None) -> list[Any]:
         """查询启用状态的下拉选项。"""
 
         stmt = (
@@ -76,6 +89,10 @@ class ProcessLibraryRepository:
             .where(self.model.is_deleted.is_(False), self.model.status == "enabled")
             .order_by(self.model.sort_order.asc(), self.model.id.desc())
         )
+        if type_code:
+            stmt = stmt.where(self.model.type == type_code)
+        if output_type and hasattr(self.model, "output_type"):
+            stmt = stmt.where(self.model.output_type == output_type)
         return list(self.db.scalars(stmt).all())
 
     def get_by_id(self, item_id: int, include_deleted: bool = False) -> Any | None:
@@ -129,6 +146,11 @@ class ProcessLibraryRepository:
             price.is_deleted = True
             price.deleted_at = now
             price.status = "disabled"
+        if self.owner_type == "material":
+            for composition in ProcessMaterialCompositionRepository(self.db).list_by_material(item.id):
+                composition.is_deleted = True
+                composition.deleted_at = now
+                composition.updated_by = item.updated_by
         self.db.flush()
 
     def count_references(self, item_id: int) -> int:
@@ -137,7 +159,11 @@ class ProcessLibraryRepository:
         if self.owner_type == "material":
             return self._count_active(ProcessNodeMaterialInput, "material_id", item_id) + self._count_active(ProcessRoute, "input_material_id", item_id)
         if self.owner_type == "product":
-            return self._count_active(ProcessNodeOutput, "product_id", item_id) + self._count_active(ProcessRoute, "final_product_id", item_id)
+            return (
+                self._count_active(ProcessNodeOutput, "product_id", item_id)
+                + self._count_active(ProcessRoute, "final_product_id", item_id)
+                + self._count_active(ProcessCalculationOutput, "product_id", item_id)
+            )
         if self.owner_type == "consumable":
             return self._count_active(ProcessNodeConsumable, "consumable_id", item_id)
         if self.owner_type == "public_service":
@@ -186,6 +212,99 @@ class ProcessRouteRepository:
             stmt = stmt.where(ProcessRoute.final_product_id == final_product_id)
         stmt = stmt.order_by(ProcessRoute.sort_order.asc(), ProcessRoute.id.desc())
         return list(self.db.scalars(stmt).all())
+
+    def get_tree_preview_data(self) -> dict[str, list[Any]]:
+        """批量获取路线树预览所需数据，避免前端逐条路线查询详情。"""
+
+        routes = list(
+            self.db.scalars(
+                select(ProcessRoute)
+                .where(ProcessRoute.is_deleted.is_(False))
+                .order_by(ProcessRoute.sort_order.asc(), ProcessRoute.id.asc())
+            ).all()
+        )
+        route_ids = [route.id for route in routes]
+        if not route_ids:
+            return {
+                "routes": [],
+                "route_nodes": [],
+                "nodes": [],
+                "outputs": [],
+                "materials": [],
+                "products": [],
+            }
+
+        route_nodes = list(
+            self.db.scalars(
+                select(ProcessRouteNode)
+                .where(
+                    ProcessRouteNode.route_id.in_(route_ids),
+                    ProcessRouteNode.is_deleted.is_(False),
+                )
+                .order_by(ProcessRouteNode.route_id.asc(), ProcessRouteNode.sort_order.asc(), ProcessRouteNode.id.asc())
+            ).all()
+        )
+        node_ids = sorted({row.node_id for row in route_nodes})
+        nodes = (
+            list(
+                self.db.scalars(
+                    select(ProcessNode)
+                    .where(
+                        ProcessNode.id.in_(node_ids),
+                        ProcessNode.is_deleted.is_(False),
+                    )
+                    .order_by(ProcessNode.sort_order.asc(), ProcessNode.id.asc())
+                ).all()
+            )
+            if node_ids
+            else []
+        )
+        outputs = (
+            list(
+                self.db.scalars(
+                    select(ProcessNodeOutput)
+                    .where(
+                        ProcessNodeOutput.node_id.in_(node_ids),
+                        ProcessNodeOutput.output_type.in_(("solid_waste", "wastewater")),
+                        ProcessNodeOutput.is_deleted.is_(False),
+                    )
+                    .order_by(ProcessNodeOutput.node_id.asc(), ProcessNodeOutput.sort_order.asc(), ProcessNodeOutput.id.asc())
+                ).all()
+            )
+            if node_ids
+            else []
+        )
+
+        material_ids = sorted({route.input_material_id for route in routes})
+        product_ids = sorted({route.final_product_id for route in routes} | {output.product_id for output in outputs})
+        materials = list(
+            self.db.scalars(
+                select(ProcessMaterial)
+                .where(
+                    ProcessMaterial.id.in_(material_ids),
+                    ProcessMaterial.is_deleted.is_(False),
+                )
+                .order_by(ProcessMaterial.sort_order.asc(), ProcessMaterial.id.asc())
+            ).all()
+        )
+        products = list(
+            self.db.scalars(
+                select(ProcessProduct)
+                .where(
+                    ProcessProduct.id.in_(product_ids),
+                    ProcessProduct.is_deleted.is_(False),
+                )
+                .order_by(ProcessProduct.sort_order.asc(), ProcessProduct.id.asc())
+            ).all()
+        )
+        return {
+            "routes": routes,
+            "route_nodes": route_nodes,
+            "nodes": nodes,
+            "outputs": outputs,
+            "materials": materials,
+            "products": products,
+        }
 
     def get_by_id(self, route_id: int, include_deleted: bool = False) -> ProcessRoute | None:
         route = self.db.get(ProcessRoute, route_id)
@@ -276,7 +395,96 @@ class ProcessRouteRepository:
         for version in self.list_versions(route.id):
             version.is_deleted = True
             version.deleted_at = now
+        for output in ProcessCalculationOutputRepository(self.db).list_by_route(route.id):
+            output.is_deleted = True
+            output.deleted_at = now
+            output.updated_by = route.updated_by
         self.db.flush()
+
+
+class ProcessMaterialCompositionRepository:
+    """原料元素组成仓储，子配置采用整体替换并保留软删除历史。"""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def list_by_material(self, material_id: int, include_deleted: bool = False) -> list[ProcessMaterialComposition]:
+        stmt = select(ProcessMaterialComposition).where(ProcessMaterialComposition.material_id == material_id)
+        if not include_deleted:
+            stmt = stmt.where(ProcessMaterialComposition.is_deleted.is_(False))
+        stmt = stmt.order_by(ProcessMaterialComposition.element_code.asc(), ProcessMaterialComposition.id.asc())
+        return list(self.db.scalars(stmt).all())
+
+    def replace(self, material_id: int, rows: list[dict[str, Any]], operator_id: int | None) -> None:
+        now = _utc_now()
+        for composition in self.list_by_material(material_id):
+            composition.is_deleted = True
+            composition.deleted_at = now
+            composition.updated_by = operator_id
+        for row in rows:
+            self.db.add(
+                ProcessMaterialComposition(
+                    material_id=material_id,
+                    created_by=operator_id,
+                    updated_by=operator_id,
+                    is_deleted=False,
+                    **row,
+                )
+            )
+        self.db.flush()
+
+
+class ProcessCalculationOutputRepository:
+    """路线测算产出仓储，承接产品、副产物、废固和废水系数。"""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def list_by_route(self, route_id: int, include_deleted: bool = False) -> list[ProcessCalculationOutput]:
+        stmt = select(ProcessCalculationOutput).where(ProcessCalculationOutput.route_id == route_id)
+        if not include_deleted:
+            stmt = stmt.where(ProcessCalculationOutput.is_deleted.is_(False))
+        stmt = stmt.order_by(ProcessCalculationOutput.sort_order.asc(), ProcessCalculationOutput.id.asc())
+        return list(self.db.scalars(stmt).all())
+
+    def replace(self, route_id: int, rows: list[dict[str, Any]], operator_id: int | None) -> None:
+        now = _utc_now()
+        for output in self.list_by_route(route_id):
+            output.is_deleted = True
+            output.deleted_at = now
+            output.updated_by = operator_id
+        for row in rows:
+            self.db.add(
+                ProcessCalculationOutput(
+                    route_id=route_id,
+                    created_by=operator_id,
+                    updated_by=operator_id,
+                    is_deleted=False,
+                    **row,
+                )
+            )
+        self.db.flush()
+
+
+class ProcessCalculationImportBatchRepository:
+    """快速财务计算器 Excel 导入批次仓储。"""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def add(self, batch: ProcessCalculationImportBatch) -> ProcessCalculationImportBatch:
+        self.db.add(batch)
+        self.db.flush()
+        return batch
+
+    def list(self, import_type: str | None = None, status: str | None = None) -> list[ProcessCalculationImportBatch]:
+        stmt = select(ProcessCalculationImportBatch).where(ProcessCalculationImportBatch.is_deleted.is_(False))
+        if import_type:
+            stmt = stmt.where(ProcessCalculationImportBatch.import_type == import_type)
+        if status:
+            stmt = stmt.where(ProcessCalculationImportBatch.status == status)
+        stmt = stmt.order_by(ProcessCalculationImportBatch.id.desc())
+        return list(self.db.scalars(stmt).all())
 
 
 class ProcessNodeRepository:

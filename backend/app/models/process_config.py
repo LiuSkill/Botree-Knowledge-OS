@@ -60,6 +60,27 @@ class ProcessMaterial(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
     remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
 
 
+class ProcessMaterialComposition(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
+    """原料元素组成，用于快速财务计算器按元素含量做产品产出测算。"""
+
+    __tablename__ = "process_material_compositions"
+    __table_args__ = (
+        Index("idx_process_material_compositions_material_id", "material_id"),
+        Index("idx_process_material_compositions_element_code", "element_code"),
+        Index("idx_process_material_compositions_is_deleted", "is_deleted"),
+        Index("idx_process_material_compositions_deleted_at", "deleted_at"),
+        {"comment": "工艺配置原料元素组成"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    material_id: Mapped[int] = mapped_column(ForeignKey("process_materials.id"), nullable=False, comment="原料ID")
+    element_code: Mapped[str] = mapped_column(String(30), nullable=False, comment="元素编码")
+    element_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="元素名称")
+    content_ratio: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="含量比例")
+    unit: Mapped[str] = mapped_column(String(50), default="%", nullable=False, comment="单位")
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
 class ProcessProduct(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
     """产品库主表。"""
 
@@ -69,6 +90,7 @@ class ProcessProduct(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
         Index("idx_process_products_type", "type"),
         Index("idx_process_products_status", "status"),
         Index("idx_process_products_sort_order", "sort_order"),
+        Index("idx_process_products_output_type", "output_type"),
         Index("idx_process_products_is_deleted", "is_deleted"),
         Index("idx_process_products_deleted_at", "deleted_at"),
         {"comment": "工艺配置产品库"},
@@ -80,6 +102,9 @@ class ProcessProduct(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
     type: Mapped[str] = mapped_column(String(100), nullable=False, comment="产品类型")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="描述信息")
     unit: Mapped[str] = mapped_column(String(50), nullable=False, comment="单位")
+    output_type: Mapped[str] = mapped_column(String(30), default="product", nullable=False, comment="产出物类型：product/byproduct/solid_waste/wastewater")
+    spec: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="规格")
+    treatment_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="处理成本")
     status: Mapped[str] = mapped_column(String(30), default="enabled", nullable=False, comment="状态：enabled/draft/disabled")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
     remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
@@ -184,8 +209,8 @@ class ProcessNode(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
     staff: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=0, nullable=False, comment="人员数量")
     area: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=0, nullable=False, comment="占地面积")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="描述信息")
-    status: Mapped[str] = mapped_column(String(30), default="draft", nullable=False, comment="状态：enabled/draft/disabled")
-    version: Mapped[str] = mapped_column(String(50), default="1.0", nullable=False, comment="版本号")
+    status: Mapped[str] = mapped_column(String(30), default="enabled", nullable=False, comment="状态：enabled/draft/disabled")
+    version: Mapped[str] = mapped_column(String(50), default="V1", nullable=False, comment="版本号")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
     remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
 
@@ -225,6 +250,12 @@ class ProcessNodeConsumable(TimestampMixin, SoftDeleteMixin, Base):
     node_id: Mapped[int] = mapped_column(ForeignKey("process_nodes.id"), nullable=False, comment="工艺节点ID")
     consumable_id: Mapped[int] = mapped_column(ForeignKey("process_consumables.id"), nullable=False, comment="消耗品ID")
     amount_per_ton: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="每吨原料消耗量")
+    formula_type: Mapped[str] = mapped_column(String(30), default="fixed", nullable=False, comment="系数类型：fixed/expression")
+    amount_per_ton_bm: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="每吨黑粉BM消耗系数")
+    expression: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="表达式系数")
+    scale_param: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="规模修正参数JSON")
+    source_template_id: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="来源测算模板/导入批次ID")
+    balance_weight: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="水平衡权重值")
     unit: Mapped[str] = mapped_column(String(50), nullable=False, comment="单位")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
     remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
@@ -245,6 +276,12 @@ class ProcessNodePublicService(TimestampMixin, SoftDeleteMixin, Base):
     node_id: Mapped[int] = mapped_column(ForeignKey("process_nodes.id"), nullable=False, comment="工艺节点ID")
     public_service_id: Mapped[int] = mapped_column(ForeignKey("process_public_services.id"), nullable=False, comment="公共服务ID")
     amount_per_ton: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="每吨原料消耗量")
+    formula_type: Mapped[str] = mapped_column(String(30), default="fixed", nullable=False, comment="系数类型：fixed/expression")
+    amount_per_ton_bm: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="每吨黑粉BM消耗系数")
+    expression: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="表达式系数")
+    scale_param: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="规模修正参数JSON")
+    source_template_id: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="来源测算模板/导入批次ID")
+    balance_weight: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="水平衡权重值")
     unit: Mapped[str] = mapped_column(String(50), nullable=False, comment="单位")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
     remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
@@ -272,20 +309,28 @@ class ProcessNodeEquipment(TimestampMixin, SoftDeleteMixin, Base):
 
 
 class ProcessNodeOutput(TimestampMixin, SoftDeleteMixin, Base):
-    """工艺节点输出产品。"""
+    """工艺节点输出物，覆盖产品、副产物和节点产生的三废。"""
 
     __tablename__ = "process_node_outputs"
     __table_args__ = (
         Index("idx_process_node_outputs_node_id", "node_id"),
         Index("idx_process_node_outputs_product_id", "product_id"),
+        Index("idx_process_node_outputs_output_type", "output_type"),
         Index("idx_process_node_outputs_is_deleted", "is_deleted"),
-        {"comment": "工艺节点输出产品"},
+        {"comment": "工艺节点输出物"},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
     node_id: Mapped[int] = mapped_column(ForeignKey("process_nodes.id"), nullable=False, comment="工艺节点ID")
     product_id: Mapped[int] = mapped_column(ForeignKey("process_products.id"), nullable=False, comment="产品ID")
+    output_type: Mapped[str] = mapped_column(String(30), default="product", nullable=False, comment="产出物类型：product/byproduct/solid_waste/wastewater")
     output_per_ton: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="每吨原料产出量")
+    formula_type: Mapped[str] = mapped_column(String(30), default="fixed", nullable=False, comment="系数类型：fixed/expression")
+    expression: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="表达式系数")
+    scale_param: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="规模修正参数JSON")
+    source_template_id: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="来源测算模板/导入批次ID")
+    balance_weight: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="水平衡权重值")
+    treatment_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="节点处理成本")
     unit: Mapped[str] = mapped_column(String(50), nullable=False, comment="单位")
     is_main_product: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否主产品")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
@@ -312,9 +357,41 @@ class ProcessRoute(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False, comment="路线名称")
     input_material_id: Mapped[int] = mapped_column(ForeignKey("process_materials.id"), nullable=False, comment="输入原料ID")
     final_product_id: Mapped[int] = mapped_column(ForeignKey("process_products.id"), nullable=False, comment="最终产品ID")
-    version: Mapped[str] = mapped_column(String(50), default="1.0", nullable=False, comment="版本号")
+    version: Mapped[str] = mapped_column(String(50), default="V1", nullable=False, comment="版本号")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="描述信息")
-    status: Mapped[str] = mapped_column(String(30), default="draft", nullable=False, comment="状态：enabled/draft/disabled")
+    status: Mapped[str] = mapped_column(String(30), default="enabled", nullable=False, comment="状态：enabled/draft/disabled")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class ProcessCalculationOutput(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
+    """路线维度测算产出配置，覆盖产品、副产物、废固和废水。"""
+
+    __tablename__ = "process_calculation_outputs"
+    __table_args__ = (
+        Index("idx_process_calculation_outputs_route_id", "route_id"),
+        Index("idx_process_calculation_outputs_product_id", "product_id"),
+        Index("idx_process_calculation_outputs_output_type", "output_type"),
+        Index("idx_process_calculation_outputs_sort_order", "sort_order"),
+        Index("idx_process_calculation_outputs_is_deleted", "is_deleted"),
+        Index("idx_process_calculation_outputs_deleted_at", "deleted_at"),
+        {"comment": "快速财务计算器路线产出系数"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    route_id: Mapped[int] = mapped_column(ForeignKey("process_routes.id"), nullable=False, comment="工艺路线ID")
+    output_type: Mapped[str] = mapped_column(String(30), nullable=False, comment="产出类型：product/byproduct/solid_waste/wastewater")
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("process_products.id"), nullable=True, comment="产品库ID")
+    output_name: Mapped[str] = mapped_column(String(150), nullable=False, comment="产出物名称")
+    spec: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="规格")
+    formula_type: Mapped[str] = mapped_column(String(30), default="fixed", nullable=False, comment="系数类型：fixed/expression")
+    recovery_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="收率")
+    balance_weight: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="水平衡权重值")
+    unit: Mapped[str] = mapped_column(String(50), nullable=False, comment="单位")
+    output_ratio: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="产出系数")
+    expression: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="表达式系数")
+    scale_param: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="规模修正参数JSON")
+    treatment_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0, nullable=False, comment="处理成本")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
     remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
 
@@ -356,3 +433,26 @@ class ProcessRouteVersion(TimestampMixin, SoftDeleteMixin, Base):
     snapshot_json: Mapped[str] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=False, comment="路线快照JSON")
     change_log: Mapped[str | None] = mapped_column(Text, nullable=True, comment="变更说明")
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, comment="创建人ID，关联users.id")
+
+
+class ProcessCalculationImportBatch(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
+    """快速财务计算器 Excel 导入批次，保留文件和校验结果的审计轨迹。"""
+
+    __tablename__ = "process_calculation_import_batches"
+    __table_args__ = (
+        Index("idx_process_calculation_import_batches_import_type", "import_type"),
+        Index("idx_process_calculation_import_batches_status", "status"),
+        Index("idx_process_calculation_import_batches_created_by", "created_by"),
+        Index("idx_process_calculation_import_batches_is_deleted", "is_deleted"),
+        Index("idx_process_calculation_import_batches_deleted_at", "deleted_at"),
+        {"comment": "快速财务计算器Excel导入批次"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="原始文件名")
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="文件保存路径")
+    import_type: Mapped[str] = mapped_column(String(50), nullable=False, comment="导入类型")
+    status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False, comment="状态：pending/success/failed/partial_success")
+    success_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="成功数量")
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="失败数量")
+    error_message: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True, comment="错误信息")

@@ -247,6 +247,7 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
             ActionPermission("export", "导出工艺路线", "process_config:route:export"),
             ActionPermission("copy", "复制工艺路线", "process_config:route:copy"),
             ActionPermission("version", "管理工艺路线版本", "process_config:route:version"),
+            ActionPermission("preview", "线路预览", "process_config:route:preview"),
         ),
     ),
     ActionGroup(

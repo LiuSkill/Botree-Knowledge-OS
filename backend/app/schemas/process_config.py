@@ -18,6 +18,9 @@ ProcessOwnerType = Literal["material", "product", "consumable", "public_service"
 ProcessRegionCode = Literal["asia", "europe", "americas"]
 ProcessCurrency = Literal["CNY", "EUR", "USD"]
 ProcessNodeType = Literal["pretreatment", "hydrometallurgy", "pyrometallurgy", "post_treatment"]
+ProcessFormulaType = Literal["fixed", "expression"]
+ProcessOutputType = Literal["product", "byproduct", "solid_waste", "wastewater"]
+ProcessCalculationImportStatus = Literal["pending", "success", "failed", "partial_success"]
 
 
 class _TrimTextMixin(BaseModel):
@@ -29,6 +32,17 @@ class _TrimTextMixin(BaseModel):
         "type",
         "unit",
         "region_name",
+        "element_code",
+        "element_name",
+        "output_type",
+        "output_name",
+        "spec",
+        "formula_type",
+        "expression",
+        "import_type",
+        "file_name",
+        "file_path",
+        "error_message",
         "equipment_name",
         "equipment_type",
         "version",
@@ -47,7 +61,7 @@ class _TrimTextMixin(BaseModel):
         value = value.strip()
         return value or None
 
-    @field_validator("node_params_json", "snapshot_json", mode="before", check_fields=False)
+    @field_validator("node_params_json", "snapshot_json", "scale_param", mode="before", check_fields=False)
     @classmethod
     def _normalize_json_text(cls, value: Any) -> str | None:
         if value is None:
@@ -112,16 +126,62 @@ class ProcessMaterialOut(ProcessLibraryOut):
     """原料响应。"""
 
 
+class ProcessMaterialCompositionPayload(_TrimTextMixin):
+    """原料元素组成配置。"""
+
+    element_code: str = Field(..., min_length=1, max_length=30, description="元素编码")
+    element_name: str = Field(..., min_length=1, max_length=100, description="元素名称")
+    content_ratio: Decimal = Field(default=Decimal("0"), ge=0, description="含量比例")
+    unit: str = Field(default="%", min_length=1, max_length=50, description="单位")
+    remark: str | None = Field(default=None, description="备注")
+
+
+class ProcessMaterialCompositionReplacePayload(BaseModel):
+    """整体替换指定原料的元素组成。"""
+
+    items: list[ProcessMaterialCompositionPayload] = Field(default_factory=list, description="元素组成")
+
+
+class ProcessMaterialCompositionOut(ProcessMaterialCompositionPayload):
+    """原料元素组成响应。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    material_id: int
+    created_by: int | None = None
+    updated_by: int | None = None
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ProcessProductCreate(ProcessLibraryBase):
     """创建产品。"""
+
+
+    output_type: ProcessOutputType = Field(default="product", description="产出物类型")
+    spec: str | None = Field(default=None, max_length=100, description="规格")
+    treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="处理成本")
 
 
 class ProcessProductUpdate(ProcessLibraryUpdate):
     """更新产品。"""
 
 
+    output_type: ProcessOutputType | None = Field(default=None, description="产出物类型")
+    spec: str | None = Field(default=None, max_length=100, description="规格")
+    treatment_cost: Decimal | None = Field(default=None, ge=0, description="处理成本")
+
+
 class ProcessProductOut(ProcessLibraryOut):
     """产品响应。"""
+
+
+    output_type: ProcessOutputType = Field(default="product", description="产出物类型")
+    spec: str | None = Field(default=None, description="规格")
+    treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="处理成本")
 
 
 class ProcessConsumableCreate(ProcessLibraryBase):
@@ -194,8 +254,8 @@ class ProcessNodeCreate(_TrimTextMixin):
     staff: Decimal = Field(default=Decimal("0"), ge=0, description="人员数量")
     area: Decimal = Field(default=Decimal("0"), ge=0, description="占地面积")
     description: str | None = Field(default=None, description="描述信息")
-    status: ProcessStatus = Field(default="draft", description="状态")
-    version: str = Field(default="1.0", min_length=1, max_length=50, description="版本号")
+    status: ProcessStatus = Field(default="enabled", description="状态")
+    version: str = Field(default="V1", min_length=1, max_length=50, description="版本号")
     sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
     remark: str | None = Field(default=None, description="备注")
 
@@ -273,6 +333,14 @@ class ProcessNodeConsumableCreate(_TrimTextMixin):
     remark: str | None = Field(default=None, description="备注")
 
 
+    formula_type: ProcessFormulaType = Field(default="fixed", description="系数类型")
+    amount_per_ton_bm: Decimal = Field(default=Decimal("0"), ge=0, description="每吨黑粉BM消耗系数")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    source_template_id: int | None = Field(default=None, gt=0, description="来源测算模板/导入批次ID")
+    balance_weight: Decimal = Field(default=Decimal("0"), description="水平衡权重值")
+
+
 class ProcessNodeConsumableUpdate(_TrimTextMixin):
     """更新节点消耗品。"""
 
@@ -281,6 +349,14 @@ class ProcessNodeConsumableUpdate(_TrimTextMixin):
     unit: str | None = Field(default=None, min_length=1, max_length=50, description="单位")
     sort_order: int | None = Field(default=None, ge=0, le=999999, description="排序值")
     remark: str | None = Field(default=None, description="备注")
+
+
+    formula_type: ProcessFormulaType | None = Field(default=None, description="系数类型")
+    amount_per_ton_bm: Decimal | None = Field(default=None, ge=0, description="每吨黑粉BM消耗系数")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    source_template_id: int | None = Field(default=None, gt=0, description="来源测算模板/导入批次ID")
+    balance_weight: Decimal | None = Field(default=None, description="水平衡权重值")
 
 
 class ProcessNodeConsumableOut(ProcessNodeConsumableCreate):
@@ -306,6 +382,14 @@ class ProcessNodePublicServiceCreate(_TrimTextMixin):
     remark: str | None = Field(default=None, description="备注")
 
 
+    formula_type: ProcessFormulaType = Field(default="fixed", description="系数类型")
+    amount_per_ton_bm: Decimal = Field(default=Decimal("0"), ge=0, description="每吨黑粉BM消耗系数")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    source_template_id: int | None = Field(default=None, gt=0, description="来源测算模板/导入批次ID")
+    balance_weight: Decimal = Field(default=Decimal("0"), description="水平衡权重值")
+
+
 class ProcessNodePublicServiceUpdate(_TrimTextMixin):
     """更新节点公共服务消耗。"""
 
@@ -314,6 +398,14 @@ class ProcessNodePublicServiceUpdate(_TrimTextMixin):
     unit: str | None = Field(default=None, min_length=1, max_length=50, description="单位")
     sort_order: int | None = Field(default=None, ge=0, le=999999, description="排序值")
     remark: str | None = Field(default=None, description="备注")
+
+
+    formula_type: ProcessFormulaType | None = Field(default=None, description="系数类型")
+    amount_per_ton_bm: Decimal | None = Field(default=None, ge=0, description="每吨黑粉BM消耗系数")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    source_template_id: int | None = Field(default=None, gt=0, description="来源测算模板/导入批次ID")
+    balance_weight: Decimal | None = Field(default=None, description="水平衡权重值")
 
 
 class ProcessNodePublicServiceOut(ProcessNodePublicServiceCreate):
@@ -366,11 +458,18 @@ class ProcessNodeEquipmentOut(ProcessNodeEquipmentCreate):
 
 
 class ProcessNodeOutputCreate(_TrimTextMixin):
-    """创建节点输出产品。"""
+    """创建节点输出物。"""
 
     node_id: int = Field(..., gt=0, description="节点ID")
     product_id: int = Field(..., gt=0, description="产品ID")
+    output_type: ProcessOutputType = Field(default="product", description="产出物类型")
     output_per_ton: Decimal = Field(default=Decimal("0"), ge=0, description="每吨原料产出量")
+    formula_type: ProcessFormulaType = Field(default="fixed", description="系数类型")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    source_template_id: int | None = Field(default=None, gt=0, description="来源测算模板/导入批次ID")
+    balance_weight: Decimal = Field(default=Decimal("0"), description="水平衡权重值")
+    treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="节点处理成本")
     unit: str = Field(..., min_length=1, max_length=50, description="单位")
     is_main_product: bool = Field(default=False, description="是否主产品")
     sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
@@ -378,10 +477,17 @@ class ProcessNodeOutputCreate(_TrimTextMixin):
 
 
 class ProcessNodeOutputUpdate(_TrimTextMixin):
-    """更新节点输出产品。"""
+    """更新节点输出物。"""
 
     product_id: int | None = Field(default=None, gt=0, description="产品ID")
+    output_type: ProcessOutputType | None = Field(default=None, description="产出物类型")
     output_per_ton: Decimal | None = Field(default=None, ge=0, description="每吨原料产出量")
+    formula_type: ProcessFormulaType | None = Field(default=None, description="系数类型")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    source_template_id: int | None = Field(default=None, gt=0, description="来源测算模板/导入批次ID")
+    balance_weight: Decimal | None = Field(default=None, description="水平衡权重值")
+    treatment_cost: Decimal | None = Field(default=None, ge=0, description="节点处理成本")
     unit: str | None = Field(default=None, min_length=1, max_length=50, description="单位")
     is_main_product: bool | None = Field(default=None, description="是否主产品")
     sort_order: int | None = Field(default=None, ge=0, le=999999, description="排序值")
@@ -389,7 +495,7 @@ class ProcessNodeOutputUpdate(_TrimTextMixin):
 
 
 class ProcessNodeOutputOut(ProcessNodeOutputCreate):
-    """节点输出产品响应。"""
+    """节点输出物响应。"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -420,6 +526,14 @@ class ProcessNodeConsumablePayload(_TrimTextMixin):
     remark: str | None = Field(default=None, description="备注")
 
 
+    formula_type: ProcessFormulaType = Field(default="fixed", description="系数类型")
+    amount_per_ton_bm: Decimal = Field(default=Decimal("0"), ge=0, description="每吨黑粉BM消耗系数")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    source_template_id: int | None = Field(default=None, gt=0, description="来源测算模板/导入批次ID")
+    balance_weight: Decimal = Field(default=Decimal("0"), description="水平衡权重值")
+
+
 class ProcessNodePublicServicePayload(_TrimTextMixin):
     """节点维护时提交的公共服务消耗，不要求前端传 node_id。"""
 
@@ -428,6 +542,14 @@ class ProcessNodePublicServicePayload(_TrimTextMixin):
     unit: str = Field(..., min_length=1, max_length=50, description="单位")
     sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
     remark: str | None = Field(default=None, description="备注")
+
+
+    formula_type: ProcessFormulaType = Field(default="fixed", description="系数类型")
+    amount_per_ton_bm: Decimal = Field(default=Decimal("0"), ge=0, description="每吨黑粉BM消耗系数")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    source_template_id: int | None = Field(default=None, gt=0, description="来源测算模板/导入批次ID")
+    balance_weight: Decimal = Field(default=Decimal("0"), description="水平衡权重值")
 
 
 class ProcessNodeEquipmentPayload(_TrimTextMixin):
@@ -443,10 +565,17 @@ class ProcessNodeEquipmentPayload(_TrimTextMixin):
 
 
 class ProcessNodeOutputPayload(_TrimTextMixin):
-    """节点维护时提交的输出产品，不要求前端传 node_id。"""
+    """节点维护时提交的输出物，不要求前端传 node_id。"""
 
     product_id: int = Field(..., gt=0, description="产品ID")
+    output_type: ProcessOutputType = Field(default="product", description="产出物类型")
     output_per_ton: Decimal = Field(default=Decimal("0"), ge=0, description="每吨产出量")
+    formula_type: ProcessFormulaType = Field(default="fixed", description="系数类型")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    source_template_id: int | None = Field(default=None, gt=0, description="来源测算模板/导入批次ID")
+    balance_weight: Decimal = Field(default=Decimal("0"), description="水平衡权重值")
+    treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="节点处理成本")
     unit: str = Field(..., min_length=1, max_length=50, description="单位")
     is_main_product: bool = Field(default=False, description="是否主产品")
     sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
@@ -460,7 +589,7 @@ class ProcessNodeCreateWithChildren(ProcessNodeCreate):
     consumables: list[ProcessNodeConsumablePayload] = Field(default_factory=list, description="消耗品")
     public_services: list[ProcessNodePublicServicePayload] = Field(default_factory=list, description="公共服务")
     equipment: list[ProcessNodeEquipmentPayload] = Field(default_factory=list, description="设备/投资")
-    outputs: list[ProcessNodeOutputPayload] = Field(default_factory=list, description="输出产品")
+    outputs: list[ProcessNodeOutputPayload] = Field(default_factory=list, description="输出物")
 
 
 class ProcessNodeUpdateWithChildren(ProcessNodeUpdate):
@@ -470,7 +599,7 @@ class ProcessNodeUpdateWithChildren(ProcessNodeUpdate):
     consumables: list[ProcessNodeConsumablePayload] = Field(default_factory=list, description="消耗品")
     public_services: list[ProcessNodePublicServicePayload] = Field(default_factory=list, description="公共服务")
     equipment: list[ProcessNodeEquipmentPayload] = Field(default_factory=list, description="设备/投资")
-    outputs: list[ProcessNodeOutputPayload] = Field(default_factory=list, description="输出产品")
+    outputs: list[ProcessNodeOutputPayload] = Field(default_factory=list, description="输出物")
 
 
 class ProcessNodeOutWithChildren(ProcessNodeOut):
@@ -480,7 +609,7 @@ class ProcessNodeOutWithChildren(ProcessNodeOut):
     consumables: list[ProcessNodeConsumableOut] = Field(default_factory=list, description="消耗品")
     public_services: list[ProcessNodePublicServiceOut] = Field(default_factory=list, description="公共服务")
     equipment: list[ProcessNodeEquipmentOut] = Field(default_factory=list, description="设备/投资")
-    outputs: list[ProcessNodeOutputOut] = Field(default_factory=list, description="输出产品")
+    outputs: list[ProcessNodeOutputOut] = Field(default_factory=list, description="输出物")
 
 
 class ProcessRouteCreate(_TrimTextMixin):
@@ -490,9 +619,9 @@ class ProcessRouteCreate(_TrimTextMixin):
     name: str = Field(..., min_length=1, max_length=150, description="路线名称")
     input_material_id: int = Field(..., gt=0, description="输入原料ID")
     final_product_id: int = Field(..., gt=0, description="最终产品ID")
-    version: str = Field(default="1.0", min_length=1, max_length=50, description="版本号")
+    version: str = Field(default="V1", min_length=1, max_length=50, description="版本号")
     description: str | None = Field(default=None, description="描述信息")
-    status: ProcessStatus = Field(default="draft", description="状态")
+    status: ProcessStatus = Field(default="enabled", description="状态")
     sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
     remark: str | None = Field(default=None, description="备注")
 
@@ -640,12 +769,27 @@ class ProcessProductCreateWithPrices(ProcessLibraryCreateWithPrices):
     """创建产品。"""
 
 
+    output_type: ProcessOutputType = Field(default="product", description="产出物类型")
+    spec: str | None = Field(default=None, max_length=100, description="规格")
+    treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="处理成本")
+
+
 class ProcessProductUpdateWithPrices(ProcessLibraryUpdateWithPrices):
     """编辑产品。"""
 
 
+    output_type: ProcessOutputType | None = Field(default=None, description="产出物类型")
+    spec: str | None = Field(default=None, max_length=100, description="规格")
+    treatment_cost: Decimal | None = Field(default=None, ge=0, description="处理成本")
+
+
 class ProcessProductOutWithPrices(ProcessLibraryOutWithPrices):
     """产品详情。"""
+
+
+    output_type: ProcessOutputType = Field(default="product", description="产出物类型")
+    spec: str | None = Field(default=None, description="规格")
+    treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="处理成本")
 
 
 class ProcessConsumableCreateWithPrices(ProcessLibraryCreateWithPrices):
@@ -670,6 +814,46 @@ class ProcessPublicServiceUpdateWithPrices(ProcessLibraryUpdateWithPrices):
 
 class ProcessPublicServiceOutWithPrices(ProcessLibraryOutWithPrices):
     """公共服务详情。"""
+
+class ProcessCalculationOutputPayload(_TrimTextMixin):
+    """路线维度的测算产出系数配置。"""
+
+    output_type: ProcessOutputType = Field(..., description="产出物类型")
+    product_id: int | None = Field(default=None, gt=0, description="产品库ID")
+    output_name: str = Field(..., min_length=1, max_length=150, description="产出物名称")
+    spec: str | None = Field(default=None, max_length=100, description="规格")
+    formula_type: ProcessFormulaType = Field(default="fixed", description="系数类型")
+    recovery_rate: Decimal = Field(default=Decimal("0"), ge=0, description="收率")
+    balance_weight: Decimal = Field(default=Decimal("0"), ge=0, description="水平衡权重值")
+    unit: str = Field(..., min_length=1, max_length=50, description="单位")
+    output_ratio: Decimal = Field(default=Decimal("0"), ge=0, description="产出系数")
+    expression: str | None = Field(default=None, description="表达式系数")
+    scale_param: str | None = Field(default=None, description="规模修正参数JSON")
+    treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="处理成本")
+    sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
+    remark: str | None = Field(default=None, description="备注")
+
+
+class ProcessCalculationOutputReplacePayload(BaseModel):
+    """整体替换指定路线的测算产出配置。"""
+
+    items: list[ProcessCalculationOutputPayload] = Field(default_factory=list, description="测算产出配置")
+
+
+class ProcessCalculationOutputOut(ProcessCalculationOutputPayload):
+    """路线测算产出系数响应。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    route_id: int
+    created_by: int | None = None
+    updated_by: int | None = None
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
 
 class ProcessRouteNodePayload(_TrimTextMixin):
     """Route node payload submitted by the route maintenance API."""
@@ -737,6 +921,79 @@ class ProcessRouteDetailOut(BaseModel):
     input_material: ProcessMaterialOutWithPrices
     final_product: ProcessProductOutWithPrices
     nodes: list[ProcessRouteNodeDetailOut] = Field(default_factory=list, description="Route nodes")
+
+
+class ProcessRouteTreeLibraryItemOut(BaseModel):
+    """路线树预览中的基础库精简信息。"""
+
+    id: int
+    code: str
+    name: str
+    unit: str | None = None
+    output_type: str | None = None
+
+
+class ProcessRouteTreeNodeOutputOut(BaseModel):
+    """路线树预览中的节点三废输出。"""
+
+    id: int
+    product_id: int
+    output_type: ProcessOutputType
+    product: ProcessRouteTreeLibraryItemOut | None = None
+
+
+class ProcessRouteTreeNodeOut(BaseModel):
+    """路线树预览中的工艺节点精简信息。"""
+
+    route_node_id: int
+    node_id: int
+    code: str
+    name: str
+    node_type: ProcessNodeType
+    version: str
+    sort_order: int
+    outputs: list[ProcessRouteTreeNodeOutputOut] = Field(default_factory=list, description="节点三废输出")
+
+
+class ProcessRouteTreeRouteOut(BaseModel):
+    """路线树预览中的路线精简信息。"""
+
+    id: int
+    code: str
+    name: str
+    version: str
+    sort_order: int
+    input_material: ProcessRouteTreeLibraryItemOut
+    final_product: ProcessRouteTreeLibraryItemOut
+    nodes: list[ProcessRouteTreeNodeOut] = Field(default_factory=list, description="路线节点")
+
+
+class ProcessRouteTreePreviewOut(BaseModel):
+    """工艺路线完整树预览数据。"""
+
+    current_route_id: int
+    routes: list[ProcessRouteTreeRouteOut] = Field(default_factory=list, description="完整路线树数据")
+
+
+class ProcessCalculationImportBatchOut(_TrimTextMixin):
+    """快速财务计算器 Excel 导入批次响应。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    file_name: str
+    file_path: str | None = None
+    import_type: str
+    status: ProcessCalculationImportStatus
+    success_count: int = Field(default=0, ge=0, description="成功数量")
+    failed_count: int = Field(default=0, ge=0, description="失败数量")
+    error_message: str | None = None
+    created_by: int | None = None
+    updated_by: int | None = None
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ProcessConfigImportErrorOut(BaseModel):

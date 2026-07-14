@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -14,10 +14,12 @@ from app.core.exceptions import AppException
 from app.core.response import success
 from app.models.user import User
 from app.schemas.process_config import (
+    ProcessCalculationOutputReplacePayload,
     ProcessConsumableCreateWithPrices,
     ProcessConsumableUpdateWithPrices,
     ProcessLibraryStatusUpdate,
     ProcessMaterialCreateWithPrices,
+    ProcessMaterialCompositionReplacePayload,
     ProcessMaterialUpdateWithPrices,
     ProcessNodeCreateWithChildren,
     ProcessNodeUpdateWithChildren,
@@ -56,16 +58,29 @@ async def _read_upload_file(upload_file: UploadFile) -> bytes:
     return content
 
 
+@router.get("/calculation-import-batches", summary="快速财务计算器Excel导入批次")
+def list_calculation_import_batches(
+    import_type: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_permission("process_config:route:import")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).list_calculation_import_batches(import_type=import_type, status=status, page=page, page_size=page_size))
+
+
 @router.get("/materials", summary="原料库列表")
 def list_materials(
     keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
     status: str | None = None,
     page: int = 1,
     page_size: int = 10,
     _: User = Depends(require_permission("process_config:material:view")),
     db: Session = Depends(get_db),
 ) -> dict:
-    return success(ProcessConfigService(db).list_library("material", keyword=keyword, status=status, page=page, page_size=page_size))
+    return success(ProcessConfigService(db).list_library("material", keyword=keyword, type_code=type_code, status=status, page=page, page_size=page_size))
 
 
 @router.get("/materials/template", summary="下载原料库导入模板", response_model=None)
@@ -80,11 +95,12 @@ def download_material_template(
 @router.get("/materials/export", summary="导出原料库数据", response_model=None)
 def export_materials(
     keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
     status: str | None = None,
     _: User = Depends(require_permission("process_config:material:export")),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    content, filename = ProcessConfigExcelService(db).export_module("materials", {"keyword": keyword, "status": status})
+    content, filename = ProcessConfigExcelService(db).export_module("materials", {"keyword": keyword, "type": type_code, "status": status})
     return _excel_response(content, filename)
 
 
@@ -113,6 +129,25 @@ def get_material(
     db: Session = Depends(get_db),
 ) -> dict:
     return success(ProcessConfigService(db).get_library("material", material_id))
+
+
+@router.get("/materials/{material_id}/compositions", summary="原料元素组成")
+def list_material_compositions(
+    material_id: int,
+    _: User = Depends(require_permission("process_config:material:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).list_material_compositions(material_id))
+
+
+@router.put("/materials/{material_id}/compositions", summary="维护原料元素组成")
+def replace_material_compositions(
+    material_id: int,
+    payload: ProcessMaterialCompositionReplacePayload,
+    current_user: User = Depends(require_permission("process_config:material:update")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).replace_material_compositions(material_id, payload, current_user))
 
 
 @router.put("/materials/{material_id}", summary="编辑原料")
@@ -148,13 +183,25 @@ def delete_material(
 @router.get("/products", summary="产品库列表")
 def list_products(
     keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
+    output_type: str | None = None,
     status: str | None = None,
     page: int = 1,
     page_size: int = 10,
     _: User = Depends(require_permission("process_config:product:view")),
     db: Session = Depends(get_db),
 ) -> dict:
-    return success(ProcessConfigService(db).list_library("product", keyword=keyword, status=status, page=page, page_size=page_size))
+    return success(
+        ProcessConfigService(db).list_library(
+            "product",
+            keyword=keyword,
+            type_code=type_code,
+            output_type=output_type,
+            status=status,
+            page=page,
+            page_size=page_size,
+        )
+    )
 
 
 @router.get("/products/template", summary="下载产品库导入模板", response_model=None)
@@ -169,11 +216,13 @@ def download_product_template(
 @router.get("/products/export", summary="导出产品库数据", response_model=None)
 def export_products(
     keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
+    output_type: str | None = None,
     status: str | None = None,
     _: User = Depends(require_permission("process_config:product:export")),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    content, filename = ProcessConfigExcelService(db).export_module("products", {"keyword": keyword, "status": status})
+    content, filename = ProcessConfigExcelService(db).export_module("products", {"keyword": keyword, "type": type_code, "output_type": output_type, "status": status})
     return _excel_response(content, filename)
 
 
@@ -237,13 +286,14 @@ def delete_product(
 @router.get("/consumables", summary="消耗品库列表")
 def list_consumables(
     keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
     status: str | None = None,
     page: int = 1,
     page_size: int = 10,
     _: User = Depends(require_permission("process_config:consumable:view")),
     db: Session = Depends(get_db),
 ) -> dict:
-    return success(ProcessConfigService(db).list_library("consumable", keyword=keyword, status=status, page=page, page_size=page_size))
+    return success(ProcessConfigService(db).list_library("consumable", keyword=keyword, type_code=type_code, status=status, page=page, page_size=page_size))
 
 
 @router.get("/consumables/template", summary="下载消耗品库导入模板", response_model=None)
@@ -258,11 +308,12 @@ def download_consumable_template(
 @router.get("/consumables/export", summary="导出消耗品库数据", response_model=None)
 def export_consumables(
     keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
     status: str | None = None,
     _: User = Depends(require_permission("process_config:consumable:export")),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    content, filename = ProcessConfigExcelService(db).export_module("consumables", {"keyword": keyword, "status": status})
+    content, filename = ProcessConfigExcelService(db).export_module("consumables", {"keyword": keyword, "type": type_code, "status": status})
     return _excel_response(content, filename)
 
 
@@ -326,13 +377,14 @@ def delete_consumable(
 @router.get("/public-services", summary="公共服务库列表")
 def list_public_services(
     keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
     status: str | None = None,
     page: int = 1,
     page_size: int = 10,
     _: User = Depends(require_permission("process_config:public_service:view")),
     db: Session = Depends(get_db),
 ) -> dict:
-    return success(ProcessConfigService(db).list_library("public_service", keyword=keyword, status=status, page=page, page_size=page_size))
+    return success(ProcessConfigService(db).list_library("public_service", keyword=keyword, type_code=type_code, status=status, page=page, page_size=page_size))
 
 
 @router.get("/public-services/template", summary="下载公共服务库导入模板", response_model=None)
@@ -347,11 +399,12 @@ def download_public_service_template(
 @router.get("/public-services/export", summary="导出公共服务库数据", response_model=None)
 def export_public_services(
     keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
     status: str | None = None,
     _: User = Depends(require_permission("process_config:public_service:export")),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    content, filename = ProcessConfigExcelService(db).export_module("public-services", {"keyword": keyword, "status": status})
+    content, filename = ProcessConfigExcelService(db).export_module("public-services", {"keyword": keyword, "type": type_code, "status": status})
     return _excel_response(content, filename)
 
 
@@ -584,6 +637,34 @@ def get_route(
     return success(ProcessConfigService(db).get_route(route_id))
 
 
+@router.get("/routes/{route_id}/tree-preview", summary="工艺路线树形预览")
+def get_route_tree_preview(
+    route_id: int,
+    _: User = Depends(require_permission("process_config:route:preview")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).get_route_tree_preview(route_id))
+
+
+@router.get("/routes/{route_id}/calculation-outputs", summary="路线测算产出系数")
+def list_route_calculation_outputs(
+    route_id: int,
+    _: User = Depends(require_permission("process_config:route:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).list_route_calculation_outputs(route_id))
+
+
+@router.put("/routes/{route_id}/calculation-outputs", summary="维护路线测算产出系数")
+def replace_route_calculation_outputs(
+    route_id: int,
+    payload: ProcessCalculationOutputReplacePayload,
+    current_user: User = Depends(require_permission("process_config:route:update")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).replace_route_calculation_outputs(route_id, payload, current_user))
+
+
 @router.put("/routes/{route_id}", summary="编辑工艺路线")
 def update_route(
     route_id: int,
@@ -665,31 +746,36 @@ def create_route_version(
 
 @router.get("/options/materials", summary="原料下拉选项")
 def material_options(
+    type_code: str | None = Query(default=None, alias="type"),
     _: User = Depends(require_permission("process_config:material:view")),
     db: Session = Depends(get_db),
 ) -> dict:
-    return success(ProcessConfigService(db).list_options("material"))
+    return success(ProcessConfigService(db).list_options("material", type_code=type_code))
 
 
 @router.get("/options/products", summary="产品下拉选项")
 def product_options(
+    type_code: str | None = Query(default=None, alias="type"),
+    output_type: str | None = None,
     _: User = Depends(require_permission("process_config:product:view")),
     db: Session = Depends(get_db),
 ) -> dict:
-    return success(ProcessConfigService(db).list_options("product"))
+    return success(ProcessConfigService(db).list_options("product", type_code=type_code, output_type=output_type))
 
 
 @router.get("/options/consumables", summary="消耗品下拉选项")
 def consumable_options(
+    type_code: str | None = Query(default=None, alias="type"),
     _: User = Depends(require_permission("process_config:consumable:view")),
     db: Session = Depends(get_db),
 ) -> dict:
-    return success(ProcessConfigService(db).list_options("consumable"))
+    return success(ProcessConfigService(db).list_options("consumable", type_code=type_code))
 
 
 @router.get("/options/public-services", summary="公共服务下拉选项")
 def public_service_options(
+    type_code: str | None = Query(default=None, alias="type"),
     _: User = Depends(require_permission("process_config:public_service:view")),
     db: Session = Depends(get_db),
 ) -> dict:
-    return success(ProcessConfigService(db).list_options("public_service"))
+    return success(ProcessConfigService(db).list_options("public_service", type_code=type_code))

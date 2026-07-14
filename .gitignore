@@ -17,6 +17,7 @@ backend/tmp_*
 backend/storage/derived/
 backend/storage/page_index/
 backend/storage/mineru-output/
+backend/storage/process-calculation-imports/
 backend/storage/uploads/*
 backend/storage/smoke_uploads/
 !backend/storage/uploads/.gitkeep
@@ -33,5 +34,6 @@ frontend/*.tsbuildinfo
 
 # Logs and editor files
 *.log
+tmp/
 .idea/
 .vscode/

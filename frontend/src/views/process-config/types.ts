@@ -5,6 +5,11 @@ export type ProcessRegionCode = 'asia' | 'europe' | 'americas';
 export type ProcessRegionCurrency = 'CNY' | 'EUR' | 'USD';
 export type ProcessConfigModuleKey = 'materials' | 'products' | 'consumables' | 'public-services' | 'nodes' | 'routes';
 
+export interface ProcessLibraryTypeOption {
+  label: string;
+  value: string;
+}
+
 export interface ProcessRegionDefinition {
   region_code: ProcessRegionCode;
   region_name: string;
@@ -90,6 +95,7 @@ export interface ProcessLibraryPayload {
 
 export interface ProcessLibraryListParams {
   keyword?: string;
+  type?: string;
   status?: ProcessLibraryStatus;
   page?: number;
   page_size?: number;
@@ -109,7 +115,33 @@ export interface ProcessLibraryPageConfig {
   entityName: string;
   moduleKey: ProcessConfigModuleKey;
   apiBasePath: string;
+  typeOptions?: readonly ProcessLibraryTypeOption[];
   permissions: ProcessLibraryPermissions;
+}
+
+export const PROCESS_LIBRARY_TYPE_OPTIONS_MAP: Partial<Record<ProcessConfigModuleKey, readonly ProcessLibraryTypeOption[]>> = {
+  materials: [
+    { label: '\u9ed1\u7c89\u539f\u6599', value: 'battery_black_mass' },
+    { label: '\u539f\u6599', value: 'raw_material' },
+  ],
+  products: [
+    { label: '\u4ea7\u54c1', value: 'product' },
+    { label: '\u526f\u4ea7\u7269', value: 'byproduct' },
+    { label: '\u5e9f\u56fa', value: 'solid_waste' },
+    { label: '\u5e9f\u6c34', value: 'wastewater' },
+  ],
+  consumables: [
+    { label: '\u5316\u5b66\u54c1', value: 'chemical' },
+    { label: '\u836f\u5242', value: 'reagent' },
+  ],
+  'public-services': [
+    { label: '\u516c\u8f85', value: 'utility' },
+    { label: '\u516c\u5171\u670d\u52a1', value: 'public_service' },
+  ],
+};
+
+export function processLibraryTypeLabel(moduleKey: ProcessConfigModuleKey, type: string): string {
+  return PROCESS_LIBRARY_TYPE_OPTIONS_MAP[moduleKey]?.find((item) => item.value === type)?.label || type || '-';
 }
 
 export function getProcessConfigModuleMeta(moduleKey: ProcessConfigModuleKey): ProcessConfigModuleMeta {

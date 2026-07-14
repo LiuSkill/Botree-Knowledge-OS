@@ -27,6 +27,15 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   {
+    path: '/process-config/routes/:id/preview',
+    name: 'process-route-preview',
+    component: () => import('@/views/process-config/route/preview.vue'),
+    meta: {
+      permission: 'process_config:route',
+      title: '线路预览',
+    },
+  },
+  {
     path: '/',
     name: ROOT_ROUTE_NAME,
     component: () => import('@/layouts/BasicLayout.vue'),

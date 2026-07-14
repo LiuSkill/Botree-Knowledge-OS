@@ -22,6 +22,7 @@ import type {
   ProcessRouteNodeAddPayload,
   ProcessRouteNodeReorderPayload,
   ProcessRoutePayload,
+  ProcessRouteTreePreview,
   ProcessRouteVersion,
   ProcessRouteVersionCreatePayload,
 } from '@/views/process-config/route/types';
@@ -79,8 +80,11 @@ export function updateProcessLibraryStatus(
   return request.patch(`${basePath}/${id}/status`, { status }) as Promise<ProcessLibraryItem>;
 }
 
-export function listProcessLibraryOptions(optionPath: string): Promise<ProcessLibraryOptionItem[]> {
-  return request.get(`/process-config/options/${optionPath}`) as Promise<ProcessLibraryOptionItem[]>;
+export function listProcessLibraryOptions(
+  optionPath: string,
+  params?: Record<string, unknown>,
+): Promise<ProcessLibraryOptionItem[]> {
+  return request.get(`/process-config/options/${optionPath}`, { params }) as Promise<ProcessLibraryOptionItem[]>;
 }
 
 export function listProcessNodes(params?: ProcessNodeListParams): Promise<PageResult<ProcessNodeItem>> {
@@ -113,6 +117,10 @@ export function createProcessRoute(payload: ProcessRoutePayload): Promise<Proces
 
 export function getProcessRoute(id: number): Promise<ProcessRouteDetail> {
   return request.get(`/process-config/routes/${id}`) as Promise<ProcessRouteDetail>;
+}
+
+export function getProcessRouteTreePreview(id: number): Promise<ProcessRouteTreePreview> {
+  return request.get(`/process-config/routes/${id}/tree-preview`) as Promise<ProcessRouteTreePreview>;
 }
 
 export function updateProcessRoute(id: number, payload: ProcessRoutePayload): Promise<ProcessRouteDetail> {

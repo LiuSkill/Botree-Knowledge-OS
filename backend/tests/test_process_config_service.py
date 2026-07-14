@@ -273,6 +273,7 @@ def test_process_config_api_routes_are_registered_and_protected(api_db_session: 
     assert "/api/process-config/routes/template" in paths
     assert "/api/process-config/routes/export" in paths
     assert "/api/process-config/routes/import" in paths
+    assert "/api/process-config/routes/{route_id}/tree-preview" in paths
     assert "/api/process-config/routes/{route_id}/copy" in paths
     assert "/api/process-config/routes/{route_id}/versions" in paths
     assert "/api/process-config/options/materials" in paths
@@ -548,7 +549,7 @@ def test_route_api_crud_roundtrip(api_db_session: Session) -> None:
     copy_response = client.post(f"/api/process-config/routes/{created['route']['id']}/copy")
     assert copy_response.status_code == 200
     copied = copy_response.json()["data"]
-    assert copied["route"]["status"] == "draft"
+    assert copied["route"]["status"] == "enabled"
     assert copied["route"]["code"].startswith("R-API_COPY")
     assert len(copied["nodes"]) == 2
 
@@ -784,7 +785,7 @@ def test_route_crud_snapshot_copy_and_delete(db_session: Session) -> None:
     assert versions[0]["version_no"] == 1
 
     copied = service.copy_route(created["route"]["id"], operator)
-    assert copied["route"]["status"] == "draft"
+    assert copied["route"]["status"] == "enabled"
     assert copied["route"]["code"].startswith("R001_COPY")
     assert len(copied["nodes"]) == 2
 

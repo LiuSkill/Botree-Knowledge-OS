@@ -7,8 +7,12 @@ Database Infrastructure
 3. 创建默认管理员、角色、权限和基础知识库
 """
 
+import json
 import logging
 from collections.abc import Generator
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
 
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -110,6 +114,7 @@ def init_database() -> None:
         seed_base_categories(db)
         seed_project_categories(db)
         seed_model_config(db)
+        seed_process_config_defaults(db)
         db.commit()
     logger.info("数据库初始化完成")
 
@@ -1355,13 +1360,346 @@ def seed_model_config(db: Session) -> None:
     _seed_default_reranker_config(db, disabled_providers)
 
 
+def seed_process_config_defaults(db: Session) -> None:
+    """Seed process configuration defaults when the process configuration module is empty."""
+
+    from app.models.process_config import (
+        ProcessCalculationOutput,
+        ProcessConsumable,
+        ProcessMaterial,
+        ProcessMaterialComposition,
+        ProcessNode,
+        ProcessProduct,
+        ProcessPublicService,
+        ProcessRegionPrice,
+        ProcessRoute,
+        ProcessRouteNode,
+    )
+
+    seed_models = (ProcessMaterial, ProcessProduct, ProcessConsumable, ProcessPublicService, ProcessNode, ProcessRoute)
+    if any(db.scalar(select(model.id).where(model.is_deleted.is_(False)).limit(1)) for model in seed_models):
+        logger.info("工艺配置默认数据已存在，跳过初始化")
+        return
+
+    defaults_path = Path(__file__).with_name("process_config_defaults.json")
+    if not defaults_path.exists():
+        logger.warning("工艺配置默认数据文件不存在，跳过初始化: %s", defaults_path)
+        return
+
+    data = json.loads(defaults_path.read_text(encoding="utf-8"))
+    db.flush()
+    admin = db.scalar(select(User).where(User.username == settings.default_admin_username))
+    operator_id = admin.id if admin else None
+
+    material_map: dict[str, ProcessMaterial] = {}
+    product_map: dict[str, ProcessProduct] = {}
+    consumable_map: dict[str, ProcessConsumable] = {}
+    service_map: dict[str, ProcessPublicService] = {}
+    node_map: dict[str, ProcessNode] = {}
+
+    def add_region_prices(owner_type: str, owner_id: int, rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            db.add(
+                ProcessRegionPrice(
+                    owner_type=owner_type,
+                    owner_id=owner_id,
+                    region_code=row["region_code"],
+                    region_name=row["region_name"],
+                    currency=row["currency"],
+                    unit_price=_seed_decimal(row.get("unit_price")),
+                    unit=row["unit"],
+                    status=row.get("status") or "enabled",
+                    created_by=operator_id,
+                    updated_by=operator_id,
+                    is_deleted=False,
+                )
+            )
+
+    for row in data.get("materials", []):
+        item = ProcessMaterial(**_seed_library_fields(row), created_by=operator_id, updated_by=operator_id, is_deleted=False)
+        db.add(item)
+        db.flush()
+        material_map[item.code] = item
+        add_region_prices("material", item.id, row.get("region_prices", []))
+        for comp in row.get("compositions", []):
+            db.add(
+                ProcessMaterialComposition(
+                    material_id=item.id,
+                    element_code=comp["element_code"],
+                    element_name=comp["element_name"],
+                    content_ratio=_seed_decimal(comp.get("content_ratio")),
+                    unit=comp.get("unit") or "%",
+                    remark=comp.get("remark"),
+                    created_by=operator_id,
+                    updated_by=operator_id,
+                    is_deleted=False,
+                )
+            )
+
+    for row in data.get("products", []):
+        item = ProcessProduct(
+            **_seed_library_fields(row),
+            output_type=row.get("output_type") or "product",
+            spec=row.get("spec"),
+            treatment_cost=_seed_decimal(row.get("treatment_cost")),
+            created_by=operator_id,
+            updated_by=operator_id,
+            is_deleted=False,
+        )
+        db.add(item)
+        db.flush()
+        product_map[item.code] = item
+        add_region_prices("product", item.id, row.get("region_prices", []))
+
+    for row in data.get("consumables", []):
+        item = ProcessConsumable(**_seed_library_fields(row), created_by=operator_id, updated_by=operator_id, is_deleted=False)
+        db.add(item)
+        db.flush()
+        consumable_map[item.code] = item
+        add_region_prices("consumable", item.id, row.get("region_prices", []))
+
+    for row in data.get("public_services", []):
+        item = ProcessPublicService(**_seed_library_fields(row), created_by=operator_id, updated_by=operator_id, is_deleted=False)
+        db.add(item)
+        db.flush()
+        service_map[item.code] = item
+        add_region_prices("public_service", item.id, row.get("region_prices", []))
+
+    for row in data.get("nodes", []):
+        node = ProcessNode(
+            code=row["code"],
+            name=row["name"],
+            node_type=row["node_type"],
+            staff=_seed_decimal(row.get("staff")),
+            area=_seed_decimal(row.get("area")),
+            description=row.get("description"),
+            status=row.get("status") or "enabled",
+            version=row.get("version") or "V1",
+            sort_order=int(row.get("sort_order") or 0),
+            remark=row.get("remark"),
+            created_by=operator_id,
+            updated_by=operator_id,
+            is_deleted=False,
+        )
+        db.add(node)
+        db.flush()
+        node_map[node.code] = node
+        _seed_process_node_children(db, node, row, material_map, product_map, consumable_map, service_map)
+
+    for row in data.get("routes", []):
+        material = material_map.get(row.get("input_material_code"))
+        product = product_map.get(row.get("final_product_code"))
+        if material is None or product is None:
+            logger.warning("跳过工艺路线默认数据，原料或最终产品不存在: route_code=%s", row.get("code"))
+            continue
+        route = ProcessRoute(
+            code=row["code"],
+            name=row["name"],
+            input_material_id=material.id,
+            final_product_id=product.id,
+            version=row.get("version") or "V1",
+            description=row.get("description"),
+            status=row.get("status") or "enabled",
+            sort_order=int(row.get("sort_order") or 0),
+            remark=row.get("remark"),
+            created_by=operator_id,
+            updated_by=operator_id,
+            is_deleted=False,
+        )
+        db.add(route)
+        db.flush()
+        for child in row.get("nodes", []):
+            child_node = node_map.get(child.get("node_code"))
+            if child_node is None:
+                logger.warning("跳过工艺路线节点默认数据，节点不存在: route_code=%s node_code=%s", route.code, child.get("node_code"))
+                continue
+            db.add(
+                ProcessRouteNode(
+                    route_id=route.id,
+                    node_id=child_node.id,
+                    sort_order=int(child.get("sort_order") or 0),
+                    node_params_json=child.get("node_params_json"),
+                    remark=child.get("remark"),
+                    is_deleted=False,
+                )
+            )
+        for child in row.get("calculation_outputs", []):
+            child_product = product_map.get(child.get("product_code")) if child.get("product_code") else None
+            db.add(
+                ProcessCalculationOutput(
+                    route_id=route.id,
+                    output_type=child["output_type"],
+                    product_id=child_product.id if child_product else None,
+                    output_name=child["output_name"],
+                    spec=child.get("spec"),
+                    formula_type=child.get("formula_type") or "fixed",
+                    recovery_rate=_seed_decimal(child.get("recovery_rate")),
+                    balance_weight=_seed_decimal(child.get("balance_weight")),
+                    unit=child["unit"],
+                    output_ratio=_seed_decimal(child.get("output_ratio")),
+                    expression=child.get("expression"),
+                    scale_param=child.get("scale_param"),
+                    treatment_cost=_seed_decimal(child.get("treatment_cost")),
+                    sort_order=int(child.get("sort_order") or 0),
+                    remark=child.get("remark"),
+                    created_by=operator_id,
+                    updated_by=operator_id,
+                    is_deleted=False,
+                )
+            )
+
+    logger.info(
+        "工艺配置默认数据初始化完成: materials=%s products=%s consumables=%s public_services=%s nodes=%s routes=%s",
+        len(material_map),
+        len(product_map),
+        len(consumable_map),
+        len(service_map),
+        len(node_map),
+        len(data.get("routes", [])),
+    )
+
+
+def _seed_decimal(value: Any, default: str = "0") -> Decimal:
+    return Decimal(str(default if value is None or value == "" else value))
+
+
+def _seed_library_fields(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": row["code"],
+        "name": row["name"],
+        "type": row["type"],
+        "description": row.get("description"),
+        "unit": row["unit"],
+        "status": row.get("status") or "enabled",
+        "sort_order": int(row.get("sort_order") or 0),
+        "remark": row.get("remark"),
+    }
+
+
+def _seed_process_node_children(
+    db: Session,
+    node: Any,
+    row: dict[str, Any],
+    material_map: dict[str, Any],
+    product_map: dict[str, Any],
+    consumable_map: dict[str, Any],
+    service_map: dict[str, Any],
+) -> None:
+    from app.models.process_config import (
+        ProcessNodeConsumable,
+        ProcessNodeEquipment,
+        ProcessNodeMaterialInput,
+        ProcessNodeOutput,
+        ProcessNodePublicService,
+    )
+
+    for child in row.get("material_inputs", []):
+        material = material_map.get(child.get("material_code"))
+        if material is None:
+            logger.warning("跳过节点原料默认数据，原料不存在: node_code=%s material_code=%s", node.code, child.get("material_code"))
+            continue
+        db.add(
+            ProcessNodeMaterialInput(
+                node_id=node.id,
+                material_id=material.id,
+                amount_per_ton=_seed_decimal(child.get("amount_per_ton")),
+                unit=child["unit"],
+                sort_order=int(child.get("sort_order") or 0),
+                remark=child.get("remark"),
+                is_deleted=False,
+            )
+        )
+
+    for child in row.get("consumables", []):
+        consumable = consumable_map.get(child.get("consumable_code"))
+        if consumable is None:
+            logger.warning("跳过节点消耗品默认数据，消耗品不存在: node_code=%s consumable_code=%s", node.code, child.get("consumable_code"))
+            continue
+        db.add(
+            ProcessNodeConsumable(
+                node_id=node.id,
+                consumable_id=consumable.id,
+                amount_per_ton=_seed_decimal(child.get("amount_per_ton")),
+                formula_type=child.get("formula_type") or "fixed",
+                amount_per_ton_bm=_seed_decimal(child.get("amount_per_ton_bm")),
+                expression=child.get("expression"),
+                scale_param=child.get("scale_param"),
+                balance_weight=_seed_decimal(child.get("balance_weight")),
+                unit=child["unit"],
+                sort_order=int(child.get("sort_order") or 0),
+                remark=child.get("remark"),
+                is_deleted=False,
+            )
+        )
+
+    for child in row.get("public_services", []):
+        service = service_map.get(child.get("public_service_code"))
+        if service is None:
+            logger.warning("跳过节点公辅默认数据，公共服务不存在: node_code=%s service_code=%s", node.code, child.get("public_service_code"))
+            continue
+        db.add(
+            ProcessNodePublicService(
+                node_id=node.id,
+                public_service_id=service.id,
+                amount_per_ton=_seed_decimal(child.get("amount_per_ton")),
+                formula_type=child.get("formula_type") or "fixed",
+                amount_per_ton_bm=_seed_decimal(child.get("amount_per_ton_bm")),
+                expression=child.get("expression"),
+                scale_param=child.get("scale_param"),
+                balance_weight=_seed_decimal(child.get("balance_weight")),
+                unit=child["unit"],
+                sort_order=int(child.get("sort_order") or 0),
+                remark=child.get("remark"),
+                is_deleted=False,
+            )
+        )
+
+    for child in row.get("equipment", []):
+        db.add(
+            ProcessNodeEquipment(
+                node_id=node.id,
+                equipment_name=child["equipment_name"],
+                equipment_type=child.get("equipment_type"),
+                quantity=_seed_decimal(child.get("quantity")),
+                investment_amount=_seed_decimal(child.get("investment_amount")),
+                currency=child.get("currency") or "CNY",
+                sort_order=int(child.get("sort_order") or 0),
+                remark=child.get("remark"),
+                is_deleted=False,
+            )
+        )
+
+    for child in row.get("outputs", []):
+        product = product_map.get(child.get("product_code"))
+        if product is None:
+            logger.warning("跳过节点产出默认数据，产出物不存在: node_code=%s product_code=%s", node.code, child.get("product_code"))
+            continue
+        db.add(
+            ProcessNodeOutput(
+                node_id=node.id,
+                product_id=product.id,
+                output_type=child.get("output_type") or "product",
+                output_per_ton=_seed_decimal(child.get("output_per_ton")),
+                formula_type=child.get("formula_type") or "fixed",
+                expression=child.get("expression"),
+                scale_param=child.get("scale_param"),
+                balance_weight=_seed_decimal(child.get("balance_weight")),
+                treatment_cost=_seed_decimal(child.get("treatment_cost")),
+                unit=child["unit"],
+                is_main_product=bool(child.get("is_main_product")),
+                sort_order=int(child.get("sort_order") or 0),
+                remark=child.get("remark"),
+                is_deleted=False,
+            )
+        )
+
+
 def _seed_default_reranker_config(db: Session, disabled_providers: set[str]) -> None:
     """初始化默认 Reranker 配置，供试用环境首启自动预热。"""
 
     settings = get_settings()
     exists = db.scalar(select(ModelConfig).where(ModelConfig.model_type == "reranker", ModelConfig.is_default.is_(True)))
     if exists:
-        logger.info("榛樿Reranker妯″瀷閰嶇疆宸插瓨鍦紝璺宠繃鍒濆鍖?")
         return
 
     provider = str(getattr(settings, "reranker_provider", "") or "").strip()
@@ -1374,16 +1712,12 @@ def _seed_default_reranker_config(db: Session, disabled_providers: set[str]) -> 
         api_key = api_key or getattr(settings, "model_service_api_key", None)
 
     if not provider:
-        logger.warning("鏈厤缃?RERANKER_PROVIDER锛岃烦杩囬粯璁eranker閰嶇疆鍒濆鍖?")
         return
     if provider_key in disabled_providers:
-        logger.warning("RERANKER_PROVIDER 涓虹鐢ㄧ殑鍗犱綅渚涘簲鍟嗭紝璺宠繃榛樿Reranker閰嶇疆鍒濆鍖?")
         return
     if not model_name:
-        logger.warning("鏈厤缃?RERANKER_MODEL锛岃烦杩囬粯璁eranker閰嶇疆鍒濆鍖?")
         return
     if provider_key not in LOCAL_RERANKER_PROVIDERS and not api_base:
-        logger.warning("闈炴湰鍦癛eranker 缂哄皯 RERANKER_API_BASE锛岃烦杩囬粯璁ら厤缃垵濮嬪寲")
         return
 
     db.add(

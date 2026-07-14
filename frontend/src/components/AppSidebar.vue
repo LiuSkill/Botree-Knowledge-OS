@@ -240,15 +240,18 @@ function isActiveBranch(item: MenuItem): boolean {
   justify-content: space-between;
   border-right: 1px solid #e5e7eb;
   background: #fff;
+  overflow: hidden;
   padding: 16px 12px;
 }
 
 .menu {
   display: flex;
+  flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;
   gap: 6px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .menu-item {
@@ -257,6 +260,7 @@ function isActiveBranch(item: MenuItem): boolean {
   justify-content: flex-start;
   gap: 10px;
   width: 100%;
+  flex: 0 0 auto;
   height: 42px;
   border-radius: 8px;
   color: #4b5563;
@@ -308,6 +312,7 @@ function isActiveBranch(item: MenuItem): boolean {
 
 .submenu {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 4px;
   margin: 0 0 4px 12px;
