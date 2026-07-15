@@ -97,6 +97,7 @@ def test_process_config_menu_and_action_catalog_use_registered_permissions(db_se
     actions = SystemService(db_session).list_action_permissions()
     process_menu = next(menu for menu in menus if menu["id"] == "process_config")
     route_group = next(group for group in actions if group["module"] == "process-config-route")
+    calculator_group = next(group for group in actions if group["module"] == "process-config-calculator")
 
     assert [(child["id"], child["path"]) for child in process_menu["children"]] == [
         ("process_config:material", "/process-config/materials"),
@@ -105,6 +106,7 @@ def test_process_config_menu_and_action_catalog_use_registered_permissions(db_se
         ("process_config:public_service", "/process-config/public-services"),
         ("process_config:node", "/process-config/nodes"),
         ("process_config:route", "/process-config/routes"),
+        ("process_config:calculator", "/process-config/calculator"),
     ]
     assert all(isinstance(child["permission_id"], int) for child in process_menu["children"])
     assert route_group["menu_ids"] == ["process_config:route"]
@@ -117,8 +119,15 @@ def test_process_config_menu_and_action_catalog_use_registered_permissions(db_se
         "process_config:route:export",
         "process_config:route:copy",
         "process_config:route:version",
+        "process_config:route:preview",
     }
     assert all(isinstance(action["permission_id"], int) for action in route_group["actions"])
+    assert calculator_group["menu_ids"] == ["process_config:calculator"]
+    assert {action["code"] for action in calculator_group["actions"]} == {
+        "process_config:calculator:view",
+        "process_config:calculator:calculate",
+    }
+    assert all(isinstance(action["permission_id"], int) for action in calculator_group["actions"])
 
 
 def test_current_permissions_filter_actions_without_bound_page(db_session: Session) -> None:

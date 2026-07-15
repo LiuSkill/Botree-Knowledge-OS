@@ -8,6 +8,7 @@ import { computed, ref, watch, type Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   BookOpenIcon,
+  CalculatorIcon,
   ChatBubbleIcon,
   ChatBubbleHelpIcon,
   ChatIcon,
@@ -57,6 +58,7 @@ const iconByMenuId: Record<string, Component> = {
   'process_config:public_service': BookOpenIcon,
   'process_config:node': SitemapIcon,
   'process_config:route': HistoryIcon,
+  'process_config:calculator': CalculatorIcon,
   ai: ChatBubbleHelpIcon,
   'ai:project-chat': ChatBubbleIcon,
   'ai:base-chat': ChatIcon,
@@ -104,12 +106,21 @@ function navigate(path: string): void {
   router.push(path);
 }
 
+function navigateMenuItem(item: MenuItem): void {
+  if (item.id === 'process_config:calculator') {
+    const target = router.resolve(item.path);
+    window.open(target.href, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  navigate(item.path);
+}
+
 function handleMenuClick(item: MenuItem): void {
   if (item.children.length) {
     toggleMenu(item);
     return;
   }
-  navigate(item.path);
+  navigateMenuItem(item);
 }
 
 function toggleMenu(item: MenuItem): void {
@@ -214,7 +225,7 @@ function isActiveBranch(item: MenuItem): boolean {
             :class="{ active: isActive(child), 'active-branch': isActiveBranch(child) }"
             block
             variant="text"
-            @click="navigate(child.path)"
+            @click="navigateMenuItem(child)"
           >
             <span class="menu-icon">
               <component :is="child.icon" />

@@ -27,6 +27,19 @@ import type {
   ProcessRouteVersionCreatePayload,
 } from '@/views/process-config/route/types';
 import type { PageResult } from '@/types/api';
+import type {
+  ProcessCalculatorOptions,
+  ProcessCalculatorRequest,
+  ProcessCalculatorResult,
+} from '@/views/process-config/calculator/types';
+
+export function getProcessCalculatorOptions(): Promise<ProcessCalculatorOptions> {
+  return request.get('/process-config/calculator/options') as Promise<ProcessCalculatorOptions>;
+}
+
+export function calculateProcessFinancialModel(payload: ProcessCalculatorRequest): Promise<ProcessCalculatorResult> {
+  return request.post('/process-config/calculator/calculate', payload) as Promise<ProcessCalculatorResult>;
+}
 
 export function downloadProcessConfigTemplate(moduleKey: ProcessConfigModuleKey): Promise<Blob> {
   return request.get(`/process-config/${moduleKey}/template`, {

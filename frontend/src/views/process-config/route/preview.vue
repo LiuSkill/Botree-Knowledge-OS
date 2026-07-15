@@ -28,13 +28,22 @@ const treeNaturalSize = ref({ width: 1200, height: 520 });
 
 const routeId = computed(() => Number(route.params.id));
 const currentRoute = computed(() => previewData.value?.routes.find((item) => item.id === routeId.value) || null);
-const previewTree = computed(() => buildPreviewTree(previewData.value?.routes || [], currentRoute.value));
+const selectedRouteIds = computed(() => {
+  const ids = String(route.query.routes || '')
+    .split(',')
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0);
+  return new Set([routeId.value, ...ids]);
+});
+const selectedRoutes = computed(() =>
+  (previewData.value?.routes || []).filter((item) => selectedRouteIds.value.has(item.id)),
+);
+const previewTree = computed(() => buildPreviewTree(previewData.value?.routes || [], selectedRouteIds.value));
 const zoomPercent = computed(() => `${Math.round(zoom.value * 100)}%`);
 
 const routeSummary = computed(() => {
-  if (!currentRoute.value) return '';
-  const current = currentRoute.value;
-  return current.name;
+  if (!selectedRoutes.value.length) return currentRoute.value?.name || '';
+  return selectedRoutes.value.map((item) => item.name).join(' + ');
 });
 
 const stageStyle = computed(() => ({
@@ -83,13 +92,13 @@ async function loadPreviewData(): Promise<void> {
   }
 }
 
-function buildPreviewTree(routes: ProcessRouteTreeRoute[], current: ProcessRouteTreeRoute | null): RouteTreePreviewNodeData[] {
+function buildPreviewTree(routes: ProcessRouteTreeRoute[], activeRouteIds: Set<number>): RouteTreePreviewNodeData[] {
   const roots: RouteTreePreviewNodeData[] = [];
   const renderedWasteKeys = new Set<string>();
   const orderedRoutes = routes.slice().sort((left, right) => left.sort_order - right.sort_order || left.id - right.id);
 
   orderedRoutes.forEach((routeDetail) => {
-    const isCurrentRoute = routeDetail.id === current?.id;
+    const isCurrentRoute = activeRouteIds.has(routeDetail.id);
     const material = routeDetail.input_material;
     let cursor = ensureChild(roots, `material:${material.code}`, () => ({
       key: `material:${material.code}`,

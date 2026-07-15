@@ -53,6 +53,7 @@ const pageComponents: Record<string, RouteComponent> = {
   '/process-config/public-services': () => import('@/views/process-config/PublicServiceLibraryPage.vue'),
   '/process-config/nodes': () => import('@/views/process-config/ProcessNodeLibraryPage.vue'),
   '/process-config/routes': () => import('@/views/process-config/ProcessRouteLibraryPage.vue'),
+  '/process-config/calculator': () => import('@/views/process-config/FinancialCalculatorPage.vue'),
   '/ai/project-chat': () => import('@/views/ai/ProjectChatPage.vue'),
   '/ai/base-chat': () => import('@/views/ai/BaseChatPage.vue'),
   '/system/users': () => import('@/views/system/UserManagePage.vue'),

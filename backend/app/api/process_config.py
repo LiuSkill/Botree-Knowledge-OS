@@ -33,6 +33,8 @@ from app.schemas.process_config import (
     ProcessRouteUpdateWithNodes,
     ProcessRouteVersionCreatePayload,
 )
+from app.schemas.process_calculator import ProcessCalculatorRequest
+from app.services.process_calculator_service import ProcessCalculatorService
 from app.services.process_config_excel_service import ProcessConfigExcelService
 from app.services.process_config_service import ProcessConfigService
 
@@ -56,6 +58,23 @@ async def _read_upload_file(upload_file: UploadFile) -> bytes:
     if not content:
         raise AppException("导入文件内容为空")
     return content
+
+
+@router.get("/calculator/options", summary="快速财务计算器选项")
+def get_calculator_options(
+    _: User = Depends(require_permission("process_config:calculator:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessCalculatorService(db).get_options())
+
+
+@router.post("/calculator/calculate", summary="执行快速财务测算")
+def calculate_financial_model(
+    payload: ProcessCalculatorRequest,
+    _: User = Depends(require_permission("process_config:calculator:calculate")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessCalculatorService(db).calculate(payload))
 
 
 @router.get("/calculation-import-batches", summary="快速财务计算器Excel导入批次")

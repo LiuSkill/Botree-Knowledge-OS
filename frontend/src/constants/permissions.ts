@@ -12,6 +12,7 @@ export const MENU_PERMISSIONS = {
   PROCESS_CONFIG_PUBLIC_SERVICE: 'process_config:public_service',
   PROCESS_CONFIG_NODE: 'process_config:node',
   PROCESS_CONFIG_ROUTE: 'process_config:route',
+  PROCESS_CONFIG_CALCULATOR: 'process_config:calculator',
   AI_PROJECT_CHAT: 'ai:project-chat',
   AI_BASE_CHAT: 'ai:base-chat',
   SYSTEM_USER: 'system:user',
@@ -106,6 +107,9 @@ export const ACTION_PERMISSIONS = {
   PROCESS_CONFIG_ROUTE_VERSION: 'process_config:route:version',
   PROCESS_CONFIG_ROUTE_PREVIEW: 'process_config:route:preview',
 
+  PROCESS_CONFIG_CALCULATOR_VIEW: 'process_config:calculator:view',
+  PROCESS_CONFIG_CALCULATOR_CALCULATE: 'process_config:calculator:calculate',
+
   AI_PROJECT_CHAT_VIEW: 'ai:project-chat:view',
   AI_PROJECT_CHAT_CREATE_SESSION: 'ai:project-chat:create-session',
   AI_PROJECT_CHAT_SEND_MESSAGE: 'ai:project-chat:send-message',
@@ -190,6 +194,7 @@ export const MENU_PERMISSION_TREE: MenuDefinition[] = [
       { id: MENU_PERMISSIONS.PROCESS_CONFIG_PUBLIC_SERVICE, name: '公共服务库', path: '/process-config/public-services', children: [] },
       { id: MENU_PERMISSIONS.PROCESS_CONFIG_NODE, name: '工艺节点库', path: '/process-config/nodes', children: [] },
       { id: MENU_PERMISSIONS.PROCESS_CONFIG_ROUTE, name: '工艺路线库', path: '/process-config/routes', children: [] },
+      { id: MENU_PERMISSIONS.PROCESS_CONFIG_CALCULATOR, name: '快速财务计算器', path: '/process-config/calculator', children: [] },
     ],
   },
   {
@@ -374,6 +379,15 @@ export const ACTION_PERMISSION_GROUPS: ActionGroupDefinition[] = [
       { action: 'copy', name: '复制工艺路线', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_COPY },
       { action: 'version', name: '管理工艺路线版本', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_VERSION },
       { action: 'preview', name: '线路预览', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_PREVIEW },
+    ],
+  },
+  {
+    module: 'process-config-calculator',
+    module_name: '快速财务计算器',
+    menu_ids: [MENU_PERMISSIONS.PROCESS_CONFIG_CALCULATOR],
+    actions: [
+      { action: 'view', name: '查看快速财务计算器', code: ACTION_PERMISSIONS.PROCESS_CONFIG_CALCULATOR_VIEW },
+      { action: 'calculate', name: '执行快速财务测算', code: ACTION_PERMISSIONS.PROCESS_CONFIG_CALCULATOR_CALCULATE },
     ],
   },
   {

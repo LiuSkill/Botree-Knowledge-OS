@@ -13,6 +13,7 @@ const descriptionByMenuId: Record<string, string> = {
   [MENU_PERMISSIONS.PROCESS_CONFIG_PUBLIC_SERVICE]: '维护公共服务项、计量单位、区域价格与使用状态。',
   [MENU_PERMISSIONS.PROCESS_CONFIG_NODE]: '维护工艺节点、物料关系、设备投资和输出产品配置。',
   [MENU_PERMISSIONS.PROCESS_CONFIG_ROUTE]: '维护工艺路线、节点链路、版本快照和路线详情。',
+  [MENU_PERMISSIONS.PROCESS_CONFIG_CALCULATOR]: '按原料、目标产品和区域价格匹配路线并完成快速财务测算。',
 };
 
 const pageTitle = computed(() => (route.meta.title as string | undefined) || '工艺配置');

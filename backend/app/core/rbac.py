@@ -59,6 +59,7 @@ MENU_TREE: tuple[MenuNode, ...] = (
             MenuNode("process_config:public_service", "公共服务库", "/process-config/public-services"),
             MenuNode("process_config:node", "工艺节点库", "/process-config/nodes"),
             MenuNode("process_config:route", "工艺路线库", "/process-config/routes"),
+            MenuNode("process_config:calculator", "快速财务计算器", "/process-config/calculator"),
         ),
     ),
     MenuNode(
@@ -248,6 +249,15 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
             ActionPermission("copy", "复制工艺路线", "process_config:route:copy"),
             ActionPermission("version", "管理工艺路线版本", "process_config:route:version"),
             ActionPermission("preview", "线路预览", "process_config:route:preview"),
+        ),
+    ),
+    ActionGroup(
+        "process-config-calculator",
+        "快速财务计算器",
+        ("process_config:calculator",),
+        (
+            ActionPermission("view", "查看快速财务计算器", "process_config:calculator:view"),
+            ActionPermission("calculate", "执行快速财务测算", "process_config:calculator:calculate"),
         ),
     ),
     ActionGroup(

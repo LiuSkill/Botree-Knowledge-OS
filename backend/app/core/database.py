@@ -115,6 +115,9 @@ def init_database() -> None:
         seed_project_categories(db)
         seed_model_config(db)
         seed_process_config_defaults(db)
+        from app.services.process_price_default_service import ProcessPriceDefaultService
+
+        ProcessPriceDefaultService(db).sync_zero_prices()
         db.commit()
     logger.info("数据库初始化完成")
 
