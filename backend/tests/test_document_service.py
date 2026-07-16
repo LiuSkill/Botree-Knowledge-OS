@@ -947,11 +947,29 @@ def test_list_review_tasks_includes_document_display_fields() -> None:
             review_comment="待审核",
         )
         db.add(task)
+        deleted_document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="deleted.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/deleted.md",
+            review_status="reviewing",
+            index_status="not_indexed",
+            is_deleted=True,
+        )
+        db.add(deleted_document)
+        db.flush()
+        deleted_task = ReviewTask(document_id=deleted_document.id, version_no=1, review_status="reviewing")
+        db.add(deleted_task)
         db.commit()
 
-        result = ReviewService(db).list_tasks()
+        service = ReviewService(db)
+        result = service.list_tasks()
 
         assert len(result) == 1
+        assert service.repository.get_task(deleted_task.id) is None
+        assert service.repository.get_open_task_by_document(deleted_document.id) is None
         item = result[0]
         assert item.document_file_name == "new.md"
         assert item.document_category_name == "工艺资料"
@@ -985,6 +1003,20 @@ def test_review_task_page_returns_total_and_page_items() -> None:
             db.add(document)
             db.flush()
             db.add(ReviewTask(document_id=document.id, version_no=1, review_status="reviewing"))
+        deleted_document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="deleted-task.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/deleted-task.md",
+            review_status="reviewing",
+            index_status="not_indexed",
+            is_deleted=True,
+        )
+        db.add(deleted_document)
+        db.flush()
+        db.add(ReviewTask(document_id=deleted_document.id, version_no=1, review_status="reviewing"))
         db.commit()
 
         result = ReviewService(db).list_tasks_page(page=2, page_size=2)

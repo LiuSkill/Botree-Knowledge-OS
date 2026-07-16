@@ -31,11 +31,16 @@ class ReviewRepository:
     def list_tasks(self, status: str | None = None, project_id: int | None = None) -> list[ReviewTask]:
         """查询审核任务。"""
 
-        stmt = select(ReviewTask).order_by(ReviewTask.id.desc())
+        stmt = (
+            select(ReviewTask)
+            .join(Document, Document.id == ReviewTask.document_id)
+            .where(Document.is_deleted.is_(False))
+            .order_by(ReviewTask.id.desc())
+        )
         if status:
             stmt = stmt.where(ReviewTask.review_status == status)
         if project_id is not None:
-            stmt = stmt.join(Document, Document.id == ReviewTask.document_id).where(Document.project_id == project_id)
+            stmt = stmt.where(Document.project_id == project_id)
         return list(self.db.scalars(stmt).all())
 
     def count_distinct_review_documents(
@@ -78,13 +83,14 @@ class ReviewRepository:
         safe_page = max(page, 1)
         safe_size = max(min(page_size, 100), 1)
         offset = (safe_page - 1) * safe_size
-        filters = []
+        filters = [Document.is_deleted.is_(False)]
 
-        stmt = select(ReviewTask)
-        count_stmt = select(func.count(ReviewTask.id))
+        stmt = select(ReviewTask).join(Document, Document.id == ReviewTask.document_id)
+        count_stmt = select(func.count(ReviewTask.id)).select_from(ReviewTask).join(
+            Document,
+            Document.id == ReviewTask.document_id,
+        )
         if project_id is not None:
-            stmt = stmt.join(Document, Document.id == ReviewTask.document_id)
-            count_stmt = count_stmt.select_from(ReviewTask).join(Document, Document.id == ReviewTask.document_id)
             filters.append(Document.project_id == project_id)
         if status:
             filters.append(ReviewTask.review_status == status)
@@ -103,12 +109,24 @@ class ReviewRepository:
     def get_task(self, task_id: int) -> ReviewTask | None:
         """按 ID 查询审核任务。"""
 
-        return self.db.get(ReviewTask, task_id)
+        return self.db.scalar(
+            select(ReviewTask)
+            .join(Document, Document.id == ReviewTask.document_id)
+            .where(ReviewTask.id == task_id, Document.is_deleted.is_(False))
+        )
 
     def get_open_task_by_document(self, document_id: int, version_id: int | None = None) -> ReviewTask | None:
         """查询文档未完成审核任务。"""
 
-        stmt = select(ReviewTask).where(ReviewTask.document_id == document_id, ReviewTask.review_status == "reviewing")
+        stmt = (
+            select(ReviewTask)
+            .join(Document, Document.id == ReviewTask.document_id)
+            .where(
+                ReviewTask.document_id == document_id,
+                ReviewTask.review_status == "reviewing",
+                Document.is_deleted.is_(False),
+            )
+        )
         if version_id is not None:
             stmt = stmt.where(ReviewTask.version_id == version_id)
         return self.db.scalar(stmt)

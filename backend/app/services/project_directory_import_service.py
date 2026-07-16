@@ -28,16 +28,26 @@ from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.knowledge_category import KnowledgeCategoryCreate
 from app.schemas.project import ProjectCreate
-from app.services.document_service import DocumentService
+from app.services.document_service import (
+    INDEX_STATUS_INDEXED,
+    PARSE_STATUS_SUCCESS,
+    PROJECT_DOCUMENT_STATUS_PUBLISHED,
+    REVIEW_STATUS_APPROVED,
+    DocumentService,
+)
 from app.services.knowledge_category_service import KnowledgeCategoryService
 from app.services.project_service import ProjectService
 from app.services.system_service import SystemService
+from app.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
 ACTION_IMPORT_PROJECT_DIRECTORY = "导入项目目录"
+ACTION_REMOVE_DUPLICATE_PROJECT_IMPORTS = "清理项目导入重复数据"
 TARGET_TYPE_PROJECT = "project"
 IMPORT_SOURCE = "project_directory_import"
+LEGACY_ARCHIVE_IMPORT_SOURCE = "archive_original_second_level_import"
+SUPPORTED_IMPORT_SOURCES = frozenset({IMPORT_SOURCE, LEGACY_ARCHIVE_IMPORT_SOURCE})
 DEFAULT_PLACEHOLDER = "待补充"
 DEFAULT_PROJECT_DESCRIPTION = "BC2413 西班牙LFP项目资料建档导入"
 DIRECTORY_CODE_PREFIX = "IMP-"
@@ -320,6 +330,132 @@ class ProjectDirectoryImportService:
         )
         return report
 
+    def remove_duplicate_imports(
+        self,
+        *,
+        project_id: int,
+        operator_username: str,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """清理同一项目中由目录导入产生的重复内容文档。"""
+
+        started_at = time.perf_counter()
+        operator = self._resolve_operator(operator_username)
+        project = self.project_repository.get(project_id)
+        if project is None or project.is_deleted:
+            raise AppException(f"项目不存在或已删除：{project_id}", status_code=404, code=404)
+        self.document_service.access_service.ensure_project_access(
+            project.id,
+            operator,
+            permission_codes=("project:document:delete",),
+        )
+
+        duplicate_groups = self._existing_duplicate_import_groups(project.id)
+        duplicate_document_ids = [
+            duplicate.id
+            for _source_sha256, _keeper, duplicates in duplicate_groups
+            for duplicate in duplicates
+        ]
+        report: dict[str, Any] = {
+            "dry_run": dry_run,
+            "project_id": project.id,
+            "project_code": project.code,
+            "duplicate_group_count": len(duplicate_groups),
+            "duplicate_document_count": len(duplicate_document_ids),
+            "would_remove_documents": len(duplicate_document_ids),
+            "duplicate_document_ids_sample": duplicate_document_ids[:100],
+            "keeper_document_ids_sample": [keeper.id for _hash, keeper, _duplicates in duplicate_groups[:100]],
+            "removed_documents": 0,
+            "deleted_chunks": 0,
+            "deleted_pages": 0,
+            "failed_documents": [],
+            "failed_document_count": 0,
+            "elapsed_ms": self._elapsed_ms(started_at),
+        }
+        if dry_run:
+            logger.info(
+                "项目导入重复数据 dry-run 完成: project_id=%s groups=%s would_remove=%s",
+                project.id,
+                len(duplicate_groups),
+                len(duplicate_document_ids),
+            )
+            return report
+
+        removed_documents = 0
+        deleted_chunks = 0
+        deleted_pages = 0
+        failed_documents: list[dict[str, Any]] = []
+        for source_sha256, keeper, duplicates in duplicate_groups:
+            for duplicate in duplicates:
+                duplicate_id = duplicate.id
+                try:
+                    keeper.remark = self._merged_import_remark(keeper, (duplicate,))
+                    cleanup = self.document_service.purge_document(duplicate_id, operator)
+                    removed_documents += 1
+                    deleted_chunks += int(cleanup["document_chunks"])
+                    deleted_pages += int(cleanup["document_pages"])
+                except Exception as exc:
+                    self.db.rollback()
+                    failed_documents.append(
+                        {
+                            "source_sha256": source_sha256,
+                            "keeper_document_id": keeper.id,
+                            "duplicate_document_id": duplicate_id,
+                            "error": self._safe_error_message(exc),
+                        }
+                    )
+                    logger.exception(
+                        "项目导入重复文档物理删除失败: project_id=%s keeper_id=%s duplicate_id=%s",
+                        project.id,
+                        keeper.id,
+                        duplicate_id,
+                    )
+
+        report.update(
+            {
+                "removed_documents": removed_documents,
+                "deleted_chunks": deleted_chunks,
+                "deleted_pages": deleted_pages,
+                "failed_documents": failed_documents,
+                "failed_document_count": len(failed_documents),
+                "elapsed_ms": self._elapsed_ms(started_at),
+            }
+        )
+        detail = json.dumps(
+            {
+                key: report[key]
+                for key in (
+                    "project_code",
+                    "duplicate_group_count",
+                    "duplicate_document_count",
+                    "removed_documents",
+                    "deleted_chunks",
+                    "deleted_pages",
+                    "failed_document_count",
+                    "elapsed_ms",
+                )
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        SystemService(self.db).record_operation(
+            operator,
+            ACTION_REMOVE_DUPLICATE_PROJECT_IMPORTS,
+            TARGET_TYPE_PROJECT,
+            project.id,
+            detail,
+            result="success" if not failed_documents else "partial_failed",
+            project_id=project.id,
+            auto_commit=True,
+        )
+        logger.info(
+            "项目导入重复数据清理完成: project_id=%s removed=%s elapsed_ms=%s",
+            project.id,
+            removed_documents,
+            report["elapsed_ms"],
+        )
+        return report
+
     def _resolve_source_path(self, source: str | Path) -> Path:
         source_path = Path(source).expanduser()
         try:
@@ -497,6 +633,94 @@ class ProjectDirectoryImportService:
                 if isinstance(source_sha256, str) and source_sha256:
                     hashes.add(source_sha256)
         return hashes
+
+    def _existing_duplicate_import_groups(
+        self,
+        project_id: int,
+    ) -> list[tuple[str, Document, tuple[Document, ...]]]:
+        documents = self.db.scalars(
+            select(Document).where(
+                Document.project_id == project_id,
+                Document.is_deleted.is_(False),
+                Document.remark.is_not(None),
+            )
+        ).all()
+        by_hash: dict[str, list[Document]] = {}
+        for document in documents:
+            metadata = self._import_metadata(document.remark)
+            if metadata is None or metadata.get("import_source") not in SUPPORTED_IMPORT_SOURCES:
+                continue
+            source_sha256 = metadata.get("source_sha256")
+            if not isinstance(source_sha256, str) or not source_sha256.strip():
+                continue
+            by_hash.setdefault(source_sha256.strip().lower(), []).append(document)
+
+        groups: list[tuple[str, Document, tuple[Document, ...]]] = []
+        for source_sha256, grouped_documents in by_hash.items():
+            if len(grouped_documents) < 2:
+                continue
+            ordered_documents = sorted(grouped_documents, key=self._duplicate_keeper_sort_key)
+            groups.append((source_sha256, ordered_documents[0], tuple(ordered_documents[1:])))
+        return sorted(groups, key=lambda group: (group[1].id, group[0]))
+
+    def _duplicate_keeper_sort_key(self, document: Document) -> tuple[int, int, int, str, int]:
+        workflow_score = 0
+        if document.status == PROJECT_DOCUMENT_STATUS_PUBLISHED:
+            workflow_score += 8
+        if document.index_status == INDEX_STATUS_INDEXED:
+            workflow_score += 4
+        if document.parse_status == PARSE_STATUS_SUCCESS:
+            workflow_score += 2
+        if document.review_status == REVIEW_STATUS_APPROVED:
+            workflow_score += 1
+        metadata = self._import_metadata(document.remark) or {}
+        relative_path = str(metadata.get("source_relative_path") or document.file_name or "")
+        normalized_parts = tuple(part for part in re.split(r"[\\/]", relative_path) if part)
+        root_name = normalized_parts[0] if normalized_parts else ""
+        return (
+            -workflow_score,
+            ROOT_PRIORITY.get(root_name, 50),
+            len(normalized_parts),
+            relative_path.casefold(),
+            document.id,
+        )
+
+    def _merged_import_remark(self, keeper: Document, duplicates: tuple[Document, ...]) -> str:
+        keeper_metadata = dict(self._import_metadata(keeper.remark) or {})
+        keeper_path = str(keeper_metadata.get("source_relative_path") or "").strip()
+        all_paths: list[str] = []
+        for document in (keeper, *duplicates):
+            metadata = self._import_metadata(document.remark) or {}
+            metadata_paths = metadata.get("source_relative_paths")
+            if isinstance(metadata_paths, list):
+                all_paths.extend(str(path).strip() for path in metadata_paths if str(path).strip())
+            source_relative_path = str(metadata.get("source_relative_path") or "").strip()
+            if source_relative_path:
+                all_paths.append(source_relative_path)
+        unique_paths = list(dict.fromkeys(all_paths))
+        if keeper_path:
+            unique_paths = [keeper_path, *(path for path in unique_paths if path != keeper_path)]
+        keeper_metadata["source_relative_paths"] = unique_paths
+        keeper_metadata["duplicate_source_paths"] = [path for path in unique_paths if path != keeper_path]
+        existing_document_ids = keeper_metadata.get("deduplicated_document_ids")
+        deduplicated_document_ids = (
+            [int(document_id) for document_id in existing_document_ids if isinstance(document_id, int)]
+            if isinstance(existing_document_ids, list)
+            else []
+        )
+        deduplicated_document_ids.extend(document.id for document in duplicates)
+        keeper_metadata["deduplicated_document_ids"] = list(dict.fromkeys(deduplicated_document_ids))
+        keeper_metadata["deduplicated_at"] = now_utc().isoformat()
+        return json.dumps(keeper_metadata, ensure_ascii=False, sort_keys=True)
+
+    def _import_metadata(self, remark: str | None) -> dict[str, Any] | None:
+        if not remark:
+            return None
+        try:
+            metadata = json.loads(remark)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        return metadata if isinstance(metadata, dict) else None
 
     def _planned_directory_count(self, candidates: list[ImportCandidate]) -> int:
         planned_keys: set[str] = set()

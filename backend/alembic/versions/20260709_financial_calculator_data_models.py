@@ -21,6 +21,28 @@ depends_on: str | Sequence[str] | None = None
 JSON_TEXT = sa.Text().with_variant(LONGTEXT(), "mysql")
 
 
+def _ensure_alembic_version_capacity() -> None:
+    """Widen Alembic's default revision column before storing long revision IDs."""
+
+    bind = op.get_bind()
+    if bind.dialect.name != "mysql":
+        return
+    version_columns = {
+        column["name"]: column
+        for column in sa.inspect(bind).get_columns("alembic_version")
+    }
+    version_column = version_columns.get("version_num")
+    current_length = getattr(version_column.get("type"), "length", None) if version_column else None
+    if current_length is not None and current_length < 128:
+        op.alter_column(
+            "alembic_version",
+            "version_num",
+            existing_type=sa.String(length=current_length),
+            type_=sa.String(length=128),
+            existing_nullable=False,
+        )
+
+
 def _inspector() -> sa.Inspector:
     return sa.inspect(op.get_bind())
 
@@ -202,6 +224,7 @@ def _backfill_node_bm_amount(table_name: str) -> None:
 
 
 def upgrade() -> None:
+    _ensure_alembic_version_capacity()
     _create_material_compositions_table()
     _create_calculation_outputs_table()
     _create_calculation_import_batches_table()

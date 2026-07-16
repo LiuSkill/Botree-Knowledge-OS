@@ -989,6 +989,13 @@ class DocumentService:
             "pending_asset_object_count": len(asset_object_keys),
         }
 
+    def purge_document(self, document_id: int, operator: User) -> dict[str, int | bool]:
+        """物理删除文档及其全部数据库关联和外部存储资源。"""
+
+        document = self.get_document(document_id, operator)
+        self._ensure_project_document_access(document, operator, "project:document:delete")
+        return self._delete_base_document(document, operator)
+
     def publish_document(self, document_id: int, operator: User) -> Document:
         """发布项目资料，同时写入旧审核字段以兼容现有解析和索引链路。"""
 

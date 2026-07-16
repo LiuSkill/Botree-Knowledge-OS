@@ -166,3 +166,95 @@ def test_project_directory_import_commit_creates_project_documents_and_metadata(
     finally:
         db.close()
         get_settings.cache_clear()
+
+
+def test_remove_duplicate_imports_previews_then_physically_deletes_only_import_duplicates(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:  # noqa: ANN001
+    isolate_storage(monkeypatch, tmp_path)
+    db = make_session()
+    try:
+        operator = create_admin_user(db)
+        source_root = tmp_path / "source"
+        build_source_fixture(source_root)
+        service = ProjectDirectoryImportService(db)
+        import_report = service.import_directory(
+            source=source_root,
+            operator_username="admin",
+            project_code="BC2413-CLEANUP",
+            project_name="重复数据清理测试项目",
+            dry_run=False,
+        )
+
+        original = db.scalar(
+            select(Document).where(
+                Document.project_id == import_report["project_id"],
+                Document.file_name == "duplicate.pdf",
+            )
+        )
+        assert original is not None
+        original_metadata = json.loads(original.remark or "{}")
+        second_path = source_root / "采购" / "duplicate-copy.pdf"
+        second_path.write_bytes((source_root / "设计" / "3）设备" / "设备资料" / "duplicate.pdf").read_bytes())
+        duplicate_metadata = {
+            **original_metadata,
+            "import_source": "archive_original_second_level_import",
+            "source_relative_path": "采购\\duplicate-copy.pdf",
+            "source_relative_paths": ["采购\\duplicate-copy.pdf"],
+            "duplicate_source_paths": [],
+        }
+        duplicate = service.document_service.create_imported_project_document(
+            original.knowledge_base_id,
+            second_path,
+            operator,
+            original.category_id,
+            security_level=original.security_level,
+            remark=json.dumps(duplicate_metadata, ensure_ascii=False),
+        )
+
+        unrelated_path = source_root / "采购" / "ordinary-upload.pdf"
+        unrelated_path.write_bytes(second_path.read_bytes())
+        unrelated = service.document_service.create_imported_project_document(
+            original.knowledge_base_id,
+            unrelated_path,
+            operator,
+            original.category_id,
+            security_level=original.security_level,
+            remark=json.dumps({"source_sha256": original_metadata["source_sha256"]}),
+        )
+
+        preview = service.remove_duplicate_imports(
+            project_id=import_report["project_id"],
+            operator_username="admin",
+            dry_run=True,
+        )
+        assert preview["duplicate_group_count"] == 1
+        assert preview["would_remove_documents"] == 1
+        assert preview["removed_documents"] == 0
+        assert db.get(Document, duplicate.id).is_deleted is False
+
+        report = service.remove_duplicate_imports(
+            project_id=import_report["project_id"],
+            operator_username="admin",
+            dry_run=False,
+        )
+        db.expire_all()
+        assert report["removed_documents"] == 1
+        assert report["failed_document_count"] == 0
+        assert db.get(Document, duplicate.id) is None
+        assert db.get(Document, unrelated.id).is_deleted is False
+        kept_metadata = json.loads(db.get(Document, original.id).remark or "{}")
+        assert "采购\\duplicate-copy.pdf" in kept_metadata["source_relative_paths"]
+        assert kept_metadata["deduplicated_document_ids"] == [duplicate.id]
+
+        rerun = service.remove_duplicate_imports(
+            project_id=import_report["project_id"],
+            operator_username="admin",
+            dry_run=False,
+        )
+        assert rerun["duplicate_group_count"] == 0
+        assert rerun["removed_documents"] == 0
+    finally:
+        db.close()
+        get_settings.cache_clear()
