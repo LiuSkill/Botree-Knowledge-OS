@@ -12,7 +12,7 @@ import {
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import { calculateProcessFinancialModel, getProcessCalculatorOptions } from '@/api/process-config';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -47,7 +47,9 @@ const permissions = {
   preview: PERMISSIONS.PROCESS_CONFIG_ROUTE_PREVIEW,
 } as const;
 
+const route = useRoute();
 const router = useRouter();
+const isStandalone = computed(() => route.name === 'process-calculator-standalone');
 const optionsLoading = ref(false);
 const calculating = ref(false);
 const advancedVisible = ref(false);
@@ -336,7 +338,7 @@ function formatYears(value?: DecimalValue | null): string {
 </script>
 
 <template>
-  <div v-permission="permissions.view" class="calculator-shell system-card">
+  <div v-permission="permissions.view" class="calculator-shell system-card" :class="{ 'calculator-shell--standalone': isStandalone }">
     <aside class="input-pane">
       <div class="input-pane-header">
         <div>
@@ -670,6 +672,13 @@ function formatYears(value?: DecimalValue | null): string {
   border-radius: 6px;
   background: #fff;
   overflow: hidden;
+}
+
+.calculator-shell--standalone {
+  width: 100vw;
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
 }
 
 .input-pane,

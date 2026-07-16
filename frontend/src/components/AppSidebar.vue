@@ -108,7 +108,7 @@ function navigate(path: string): void {
 
 function navigateMenuItem(item: MenuItem): void {
   if (item.id === 'process_config:calculator') {
-    const target = router.resolve(item.path);
+    const target = router.resolve('/process-config/calculator/standalone');
     window.open(target.href, '_blank', 'noopener,noreferrer');
     return;
   }

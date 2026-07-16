@@ -36,6 +36,16 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/process-config/calculator/standalone',
+    name: 'process-calculator-standalone',
+    component: () => import('@/views/process-config/FinancialCalculatorPage.vue'),
+    meta: {
+      permission: 'process_config:calculator',
+      menuId: 'process_config:calculator',
+      title: '快速财务计算器',
+    },
+  },
+  {
     path: '/',
     name: ROOT_ROUTE_NAME,
     component: () => import('@/layouts/BasicLayout.vue'),

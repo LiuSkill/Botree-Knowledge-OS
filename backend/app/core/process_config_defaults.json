@@ -14,24 +14,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t-BM",
+          "unit_price": "570.300000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t-BM",
+          "unit_price": "3863.400000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t-BM",
+          "unit_price": "500.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ],
@@ -113,24 +113,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1419.625391",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "9617.009881",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1244.630362",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -152,24 +152,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "20530.800000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "139082.400000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "18000.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -191,24 +191,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "10500.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "144835.160442",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "11099.421357",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -230,24 +230,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "130.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "880.662809",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "113.975101",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -269,24 +269,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "17868.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "121043.715939",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "15665.439243",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -308,24 +308,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "130.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "880.662809",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "113.975101",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -347,24 +347,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1287.220000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "7912.619853",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1083.087849",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -386,24 +386,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "500.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "3387.164650",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "438.365772",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -425,24 +425,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1535.247600",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "10400.272800",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1346.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -464,24 +464,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "20000.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "135486.586007",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "17534.630896",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -503,24 +503,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "3800.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "25742.451341",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "3331.579870",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -542,24 +542,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "130.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "880.662809",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "113.975101",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -581,24 +581,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "8337.786000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "56482.908000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "7310.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -620,24 +620,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "4168.893000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "28241.454000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "3655.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -659,24 +659,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "165.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1117.764335",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "144.660705",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -698,24 +698,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "3884.883600",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "26317.480800",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "3406.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -737,24 +737,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "200.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1354.865860",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "175.346309",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -776,24 +776,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "173.371200",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1174.473600",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "152.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -815,24 +815,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "173.371200",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1174.473600",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "152.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -854,24 +854,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "173.371200",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1174.473600",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "152.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -893,24 +893,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "173.371200",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1174.473600",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "152.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -932,24 +932,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "173.371200",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1174.473600",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "152.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -971,24 +971,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "173.371200",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1174.473600",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "152.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1010,24 +1010,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1049,24 +1049,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1088,24 +1088,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1127,24 +1127,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1166,24 +1166,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1205,24 +1205,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1244,24 +1244,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1283,24 +1283,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1322,24 +1322,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1361,24 +1361,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1400,24 +1400,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1439,24 +1439,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1478,24 +1478,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1517,24 +1517,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.703000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "38.634000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "5.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1555,24 +1555,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "154.950000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "2004.795013",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "165.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1591,24 +1591,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "599.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "948.406102",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "220.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1627,24 +1627,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "231.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "948.406102",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "186.743819",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1663,24 +1663,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "715.156200",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "4844.703600",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "627.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1699,24 +1699,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "376.398000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "2549.844000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "330.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1735,24 +1735,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "296.556000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "2008.968000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "260.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1771,24 +1771,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "3000.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "20322.987901",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "2630.194634",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1807,24 +1807,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "946.698000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "6413.244000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "830.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1843,24 +1843,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "880.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "4267.827459",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "622.479397",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1879,24 +1879,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "461.943000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "3129.354000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "405.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1915,24 +1915,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "4790.520000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "32452.560000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "4200.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1951,24 +1951,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "47905.200000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "324525.600000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "42000.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -1987,24 +1987,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "7984.200000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "54087.600000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "7000.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -2023,24 +2023,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "34218.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "231804.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "30000.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -2059,24 +2059,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "7984.200000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "54087.600000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "7000.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -2095,24 +2095,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "3193.680000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "21635.040000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "2800.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -2131,24 +2131,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1596.840000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "10817.520000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1400.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -2167,24 +2167,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "15968.400000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "108175.200000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "14000.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -2203,24 +2203,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "690.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "1366.178990",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "245.484833",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -2241,24 +2241,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "KWH/t-BM",
+          "unit_price": "0.081000",
+          "unit": "KWH",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "KWH/t-BM",
+          "unit_price": "0.750000",
+          "unit": "KWH",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "KWH/t-BM",
+          "unit_price": "0.160000",
+          "unit": "KWH",
           "status": "enabled"
         }
       ]
@@ -2277,24 +2277,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "Nm3/t-BM",
+          "unit_price": "0.035000",
+          "unit": "Nm3",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "Nm3/t-BM",
+          "unit_price": "0.237102",
+          "unit": "Nm3",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "Nm3/t-BM",
+          "unit_price": "0.030686",
+          "unit": "Nm3",
           "status": "enabled"
         }
       ]
@@ -2313,24 +2313,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "USRT/t-BM",
+          "unit_price": "1.000000",
+          "unit": "USRT",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "USRT/t-BM",
+          "unit_price": "6.774329",
+          "unit": "USRT",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "USRT/t-BM",
+          "unit_price": "0.876732",
+          "unit": "USRT",
           "status": "enabled"
         }
       ]
@@ -2349,24 +2349,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "m3/t-BM",
+          "unit_price": "1.500000",
+          "unit": "m3",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "m3/t-BM",
+          "unit_price": "6.773600",
+          "unit": "m3",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "m3/t-BM",
+          "unit_price": "6.000000",
+          "unit": "m3",
           "status": "enabled"
         }
       ]
@@ -2385,24 +2385,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "Nm3/t-BM",
+          "unit_price": "0.228000",
+          "unit": "Nm3",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "Nm3/t-BM",
+          "unit_price": "0.470000",
+          "unit": "Nm3",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "Nm3/t-BM",
+          "unit_price": "0.700000",
+          "unit": "Nm3",
           "status": "enabled"
         }
       ]
@@ -2421,24 +2421,24 @@
           "region_code": "americas",
           "region_name": "美洲",
           "currency": "USD",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "25.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "asia",
           "region_name": "亚洲",
           "currency": "CNY",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "180.000000",
+          "unit": "t",
           "status": "enabled"
         },
         {
           "region_code": "europe",
           "region_name": "欧洲",
           "currency": "EUR",
-          "unit_price": "0.000000",
-          "unit": "t/t-BM",
+          "unit_price": "30.000000",
+          "unit": "t",
           "status": "enabled"
         }
       ]
@@ -2461,7 +2461,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.342857",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.342857",
           "expression": "=1*组成!C2*98/14/B2*1.2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":5,\"source_cell\":\"2:5\"}",
@@ -2474,9 +2474,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "36.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "36.000000",
           "expression": "36*n^0.7",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":5,\"source_cell\":\"23:5\"}",
           "balance_weight": "0.000000",
@@ -2487,7 +2487,7 @@
         {
           "public_service_code": "U3",
           "amount_per_ton": "161.122169",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "161.122169",
           "expression": "=E27*34*1000/3600/3.517*0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":25,\"source_col\":5,\"source_cell\":\"25:5\"}",
@@ -2499,7 +2499,7 @@
         {
           "public_service_code": "U5",
           "amount_per_ton": "100.000000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "100.000000",
           "expression": "=100",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":27,\"source_col\":5,\"source_cell\":\"27:5\"}",
@@ -2528,7 +2528,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.870618",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.870618",
           "expression": "=(组成!C2/7/2+组成!C3/58.7+组成!C4/59+组成!C5/55+组成!C6/63.5+组成!C7/27)*98/B2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":18,\"source_cell\":\"2:18\"}",
@@ -2540,7 +2540,7 @@
         {
           "consumable_code": "C10",
           "amount_per_ton": "1.101662",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "1.101662",
           "expression": "=(组成!C3/58+组成!C4/59+组成!C5/55+组成!C6/63.5+组成!C7/27*1.5)*34/B11*1.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":11,\"source_col\":18,\"source_cell\":\"11:18\"}",
@@ -2553,9 +2553,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "120.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "120.000000",
           "expression": "120*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":18,\"source_cell\":\"23:18\"}",
           "balance_weight": "0.000000",
@@ -2565,9 +2565,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "90.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "90.000000",
           "expression": "90*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":18,\"source_cell\":\"24:18\"}",
           "balance_weight": "0.000000",
@@ -2578,7 +2578,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.185841",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.185841",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*4.2*20/2260",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":18,\"source_cell\":\"28:18\"}",
@@ -2607,7 +2607,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "0.112070",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.112070",
           "expression": "=688/6139",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":6,\"source_cell\":\"3:6\"}",
@@ -2619,7 +2619,7 @@
         {
           "consumable_code": "C3",
           "amount_per_ton": "0.009774",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.009774",
           "expression": "=60/6139",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":4,\"source_col\":6,\"source_cell\":\"4:6\"}",
@@ -2632,9 +2632,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "120.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "120.000000",
           "expression": "120*n^0.5",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":6,\"source_cell\":\"23:6\"}",
           "balance_weight": "0.000000",
@@ -2645,7 +2645,7 @@
         {
           "public_service_code": "U3",
           "amount_per_ton": "120.841626",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "120.841626",
           "expression": "=F27*34*1000/3600/3.517",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":25,\"source_col\":6,\"source_cell\":\"25:6\"}",
@@ -2657,7 +2657,7 @@
         {
           "public_service_code": "U5",
           "amount_per_ton": "45.000000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "45.000000",
           "expression": "=45",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":27,\"source_col\":6,\"source_cell\":\"27:6\"}",
@@ -2686,9 +2686,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":7,\"source_cell\":\"23:7\"}",
           "balance_weight": "0.000000",
@@ -2698,9 +2698,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "80.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "80.000000",
           "expression": "80*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":7,\"source_cell\":\"24:7\"}",
           "balance_weight": "0.000000",
@@ -2728,9 +2728,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "60.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "60.000000",
           "expression": "60*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":19,\"source_cell\":\"23:19\"}",
           "balance_weight": "0.000000",
@@ -2740,9 +2740,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":19,\"source_cell\":\"24:19\"}",
           "balance_weight": "0.000000",
@@ -2753,7 +2753,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.266667",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.266667",
           "expression": "=1*组成!C8/0.6*0.4",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":19,\"source_cell\":\"28:19\"}",
@@ -2769,7 +2769,7 @@
           "product_code": "P18",
           "output_type": "solid_waste",
           "output_per_ton": "0.615385",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "=组成!C8*D22/B22",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":22,\"source_cell\":\"22:7\",\"balance_weight_expression\":\"=G22*(1-B22)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"route_tree\",\"node_name\":\"石墨干燥\",\"route_condition\":{}}",
           "balance_weight": "0.023932",
@@ -2797,7 +2797,7 @@
         {
           "consumable_code": "C8",
           "amount_per_ton": "0.028000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.028000",
           "expression": "=1*组成!C6/64*56*1.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":9,\"source_col\":20,\"source_cell\":\"9:20\"}",
@@ -2810,9 +2810,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "48.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "48.000000",
           "expression": "48*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":20,\"source_cell\":\"23:20\"}",
           "balance_weight": "0.000000",
@@ -2822,9 +2822,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "40.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "40.000000",
           "expression": "40*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":20,\"source_cell\":\"24:20\"}",
           "balance_weight": "0.000000",
@@ -2852,7 +2852,7 @@
         {
           "consumable_code": "C9",
           "amount_per_ton": "0.079055",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.079055",
           "expression": "=1*组成!C6/64*158.11*1.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":10,\"source_col\":21,\"source_cell\":\"10:21\"}",
@@ -2865,9 +2865,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "48.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "48.000000",
           "expression": "48*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":21,\"source_cell\":\"23:21\"}",
           "balance_weight": "0.000000",
@@ -2877,9 +2877,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "40.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "40.000000",
           "expression": "40*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":21,\"source_cell\":\"24:21\"}",
           "balance_weight": "0.000000",
@@ -2907,7 +2907,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.034375",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.034375",
           "expression": "=1*组成!C6/64*98/B2*1.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":22,\"source_cell\":\"2:22\"}",
@@ -2919,7 +2919,7 @@
         {
           "consumable_code": "C15",
           "amount_per_ton": "0.000250",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000250",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*50*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":16,\"source_col\":22,\"source_cell\":\"16:22\"}",
@@ -2931,7 +2931,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000250",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000250",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*50*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":22,\"source_cell\":\"17:22\"}",
@@ -2944,9 +2944,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "36.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "36.000000",
           "expression": "36*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":22,\"source_cell\":\"23:22\"}",
           "balance_weight": "0.000000",
@@ -2974,7 +2974,7 @@
         {
           "consumable_code": "C4",
           "amount_per_ton": "0.061808",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.061808",
           "expression": "=(E2-1*组成!C2*98/14/B2)*106/98",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":5,\"source_col\":8,\"source_cell\":\"5:8\"}",
@@ -2987,9 +2987,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":8,\"source_cell\":\"23:8\"}",
           "balance_weight": "0.000000",
@@ -2999,9 +2999,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "50.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "50.000000",
           "expression": "50*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":8,\"source_cell\":\"24:8\"}",
           "balance_weight": "0.000000",
@@ -3012,7 +3012,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.185841",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.185841",
           "expression": "=1*组成!C2*1000/16*4.2*40/2260",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":8,\"source_cell\":\"28:8\"}",
@@ -3041,7 +3041,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.003125",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.003125",
           "expression": "=1*组成!C6/64*98/B2*0.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":23,\"source_cell\":\"2:23\"}",
@@ -3053,7 +3053,7 @@
         {
           "consumable_code": "C15",
           "amount_per_ton": "0.000250",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000250",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*50*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":16,\"source_col\":23,\"source_cell\":\"16:23\"}",
@@ -3065,7 +3065,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000250",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000250",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*50*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":23,\"source_cell\":\"17:23\"}",
@@ -3079,14 +3079,14 @@
         {
           "public_service_code": "U1",
           "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "53.000000",
           "expression": "36*n^0.6+850*组成!C6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":23,\"source_cell\":\"23:23\"}",
           "balance_weight": "0.000000",
           "unit": "KWH/t-BM",
           "sort_order": 1,
-          "remark": null
+          "remark": "按默认组成Cu=0.02、n=1折算结构化系数"
         }
       ],
       "equipment": [],
@@ -3121,9 +3121,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "60.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "60.000000",
           "expression": "60*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":24,\"source_cell\":\"23:24\"}",
           "balance_weight": "0.000000",
@@ -3133,9 +3133,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "80.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "80.000000",
           "expression": "80*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":24,\"source_cell\":\"24:24\"}",
           "balance_weight": "0.000000",
@@ -3146,7 +3146,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.278761",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.278761",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*4.2*30/2260",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":24,\"source_cell\":\"28:24\"}",
@@ -3162,7 +3162,7 @@
           "product_code": "P19",
           "output_type": "solid_waste",
           "output_per_ton": "0.220603",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "=(组成!C6/63.546*55.845*1.6/0.631+组成!C7/0.346+组成!C9/0.543)/B23",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":23,\"source_cell\":\"23:7\",\"balance_weight_expression\":\"=G23*(1-B23)/18*2+组成!C7/27*3\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"route_tree\",\"node_name\":\"水解除杂\",\"route_condition\":{\"required_node_codes\":[\"B4\"]}}",
           "balance_weight": "0.013367",
@@ -3176,7 +3176,7 @@
           "product_code": "P20",
           "output_type": "solid_waste",
           "output_per_ton": "0.131468",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "=(组成!C7/0.346+组成!C9/0.543)/B24",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":24,\"source_cell\":\"24:7\",\"balance_weight_expression\":\"=G24*(1-B24)/18*2+组成!C7/27*3\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"route_tree\",\"node_name\":\"水解除杂\",\"route_condition\":{\"excluded_node_codes\":[\"B4\"]}}",
           "balance_weight": "0.008415",
@@ -3241,9 +3241,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "30.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "30.000000",
           "expression": "30*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":9,\"source_cell\":\"23:9\"}",
           "balance_weight": "0.000000",
@@ -3253,9 +3253,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":9,\"source_cell\":\"24:9\"}",
           "balance_weight": "0.000000",
@@ -3323,9 +3323,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "60.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "60.000000",
           "expression": "60*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":11,\"source_cell\":\"23:11\"}",
           "balance_weight": "0.000000",
@@ -3335,9 +3335,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "40.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "40.000000",
           "expression": "40*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":11,\"source_cell\":\"24:11\"}",
           "balance_weight": "0.000000",
@@ -3348,7 +3348,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.185841",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.185841",
           "expression": "=1*组成!C2*1000/16*4.2*40/2260",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":11,\"source_cell\":\"28:11\"}",
@@ -3364,7 +3364,7 @@
           "product_code": "P21",
           "output_type": "solid_waste",
           "output_per_ton": "0.044269",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "=消耗!K7*164/74.093/B25",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":25,\"source_cell\":\"25:7\",\"balance_weight_expression\":\"=G25*(1-B25)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"route_tree\",\"node_name\":\"硫酸锂深度化学除杂\",\"route_condition\":{}}",
           "balance_weight": "0.002459",
@@ -3429,9 +3429,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":25,\"source_cell\":\"23:25\"}",
           "balance_weight": "0.000000",
@@ -3441,9 +3441,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":25,\"source_cell\":\"24:25\"}",
           "balance_weight": "0.000000",
@@ -3458,7 +3458,7 @@
           "product_code": "P28",
           "output_type": "wastewater",
           "output_per_ton": "0.694444",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "=10000/14400",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":33,\"source_cell\":\"33:7\",\"balance_weight_expression\":\"=G33/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"route_tree\",\"node_name\":\"除氟树脂\",\"route_condition\":{}}",
           "balance_weight": "0.077160",
@@ -3523,9 +3523,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "30.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "30.000000",
           "expression": "30*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":10,\"source_cell\":\"23:10\"}",
           "balance_weight": "0.000000",
@@ -3535,9 +3535,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":10,\"source_cell\":\"24:10\"}",
           "balance_weight": "0.000000",
@@ -3580,7 +3580,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.070000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.070000",
           "expression": "=(L5-1*组成!C2/7/2*106)*98/106",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":12,\"source_cell\":\"2:12\"}",
@@ -3592,7 +3592,7 @@
         {
           "consumable_code": "C4",
           "amount_per_ton": "0.378571",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.378571",
           "expression": "=1*组成!C2/7/2*106*1.25",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":5,\"source_col\":12,\"source_cell\":\"5:12\"}",
@@ -3605,9 +3605,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "150.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "150.000000",
           "expression": "150*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":12,\"source_cell\":\"23:12\"}",
           "balance_weight": "0.000000",
@@ -3618,7 +3618,7 @@
         {
           "public_service_code": "U4",
           "amount_per_ton": "0.883333",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.883333",
           "expression": "=1*组成!C2/7/2*106/0.3*0.7*1.25",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":26,\"source_col\":12,\"source_cell\":\"26:12\"}",
@@ -3630,7 +3630,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.251504",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.251504",
           "expression": "=(1*组成!C2*1000/16+L26)*4.2*40/2260",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":12,\"source_cell\":\"28:12\"}",
@@ -3659,7 +3659,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "1.420018",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "1.420018",
           "expression": "=1*(组成!C3/58.7+组成!C4/59+组成!C5/55)*2*40/B3*1.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":26,\"source_cell\":\"3:26\"}",
@@ -3672,9 +3672,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "150.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "150.000000",
           "expression": "150*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":26,\"source_cell\":\"23:26\"}",
           "balance_weight": "0.000000",
@@ -3684,9 +3684,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "200.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "200.000000",
           "expression": "200*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":26,\"source_cell\":\"24:26\"}",
           "balance_weight": "0.000000",
@@ -3697,7 +3697,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.218523",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.218523",
           "expression": "=(1*(组成!C3+组成!C4+组成!C5)*1000/60+1*(组成!C3+组成!C4+组成!C5)/58*2*40/0.32*0.68)*4.2*20/2260",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":26,\"source_cell\":\"28:26\"}",
@@ -3726,7 +3726,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.027273",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.027273",
           "expression": "=(AC3-1*组成!C5/55*2*40/B3)*B3*98/80/B2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":29,\"source_cell\":\"2:29\"}",
@@ -3738,7 +3738,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "0.295455",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.295455",
           "expression": "=1*组成!C5/55*2*40*1.3/B3",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":29,\"source_cell\":\"3:29\"}",
@@ -3750,7 +3750,7 @@
         {
           "consumable_code": "C5",
           "amount_per_ton": "0.224780",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.224780",
           "expression": "=1*组成!C5/55*2*36.5/B6*1.05",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":6,\"source_col\":29,\"source_cell\":\"6:29\"}",
@@ -3762,7 +3762,7 @@
         {
           "consumable_code": "C11",
           "amount_per_ton": "0.000300",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000300",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":12,\"source_col\":29,\"source_cell\":\"12:29\"}",
@@ -3774,7 +3774,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000330",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000330",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":29,\"source_cell\":\"17:29\"}",
@@ -3786,7 +3786,7 @@
         {
           "consumable_code": "C17",
           "amount_per_ton": "0.005670",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.005670",
           "expression": "=(AC12+AC17)/0.1*0.9",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":18,\"source_col\":29,\"source_cell\":\"18:29\"}",
@@ -3799,9 +3799,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "50.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "50.000000",
           "expression": "50*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":29,\"source_cell\":\"23:29\"}",
           "balance_weight": "0.000000",
@@ -3816,7 +3816,7 @@
           "product_code": "P24",
           "output_type": "wastewater",
           "output_per_ton": "0.004200",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "=42/10000",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":29,\"source_cell\":\"29:7\",\"balance_weight_expression\":\"=G29/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"route_tree\",\"node_name\":\"P204萃取\",\"route_condition\":{}}",
           "balance_weight": "0.000467",
@@ -3830,7 +3830,7 @@
           "product_code": "P25",
           "output_type": "wastewater",
           "output_per_ton": "0.206300",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "=2063/10000",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":30,\"source_cell\":\"30:7\",\"balance_weight_expression\":\"=G30/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"route_tree\",\"node_name\":\"P204萃取\",\"route_condition\":{}}",
           "balance_weight": "0.022922",
@@ -3844,7 +3844,7 @@
           "product_code": "P23",
           "output_type": "solid_waste",
           "output_per_ton": "0.012600",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "活性炭总用量/0.9/产出!B26",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":27,\"source_cell\":\"27:7\",\"balance_weight_expression\":\"活性炭总用量/0.9/产出!B26*(1-产出!B26)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"activated_carbon_consumption\",\"node_name\":\"P204萃取\",\"source_consumable_code\":\"C17\",\"source_consumable_name\":\"活性炭\",\"source_consumption_cell\":\"18:29\",\"source_consumption_amount\":\"0.00567\"}",
           "balance_weight": "0.000000",
@@ -3872,9 +3872,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "60.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "60.000000",
           "expression": "60*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":13,\"source_cell\":\"23:13\"}",
           "balance_weight": "0.000000",
@@ -3884,9 +3884,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":13,\"source_cell\":\"24:13\"}",
           "balance_weight": "0.000000",
@@ -3897,7 +3897,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.023516",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.023516",
           "expression": "=1*组成!C2/0.189/0.9*0.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":13,\"source_cell\":\"28:13\"}",
@@ -3926,7 +3926,7 @@
         {
           "consumable_code": "C19",
           "amount_per_ton": "0.326857",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.326857",
           "expression": "=1*组成!C2/7*44*1.3",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":20,\"source_col\":14,\"source_cell\":\"20:14\"}",
@@ -3939,9 +3939,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "200.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "200.000000",
           "expression": "200*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":14,\"source_cell\":\"23:14\"}",
           "balance_weight": "0.000000",
@@ -3952,7 +3952,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "1.235088",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "1.235088",
           "expression": "=1*组成!C2/0.189/0.9*25*4.2*70/2260+1*组成!C2/0.189/0.9*25*0.08",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":14,\"source_cell\":\"28:14\"}",
@@ -3982,7 +3982,7 @@
         {
           "public_service_code": "U1",
           "amount_per_ton": "338.333333",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "338.333333",
           "expression": "=(1*组成!C2*1000/16+1*组成!C2/7/2*106/0.3*0.7*1.25)*100",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":16,\"source_cell\":\"23:16\"}",
@@ -3994,7 +3994,7 @@
         {
           "public_service_code": "U3",
           "amount_per_ton": "67.339589",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "67.339589",
           "expression": "=(1*组成!C2*1000/16+1*组成!C2/7/2*106/0.3*0.7*1.25)*60*4.2*1000/3600/3.517",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":25,\"source_col\":16,\"source_cell\":\"25:16\"}",
@@ -4006,7 +4006,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.270667",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.270667",
           "expression": "=(1*组成!C2*1000/16+1*组成!C2/7/2*106/0.3*0.7*1.25)*0.08",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":16,\"source_cell\":\"28:16\"}",
@@ -4036,7 +4036,7 @@
         {
           "public_service_code": "U1",
           "amount_per_ton": "587.931034",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "587.931034",
           "expression": "=(1*(组成!C3+组成!C4+组成!C5)*1000/60+1*(组成!C3+组成!C4+组成!C5)/58*2*40/0.32*0.68)*100",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":27,\"source_cell\":\"23:27\"}",
@@ -4048,7 +4048,7 @@
         {
           "public_service_code": "U3",
           "amount_per_ton": "117.017835",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "117.017835",
           "expression": "=(1*(组成!C3+组成!C4+组成!C5)*1000/60+1*(组成!C3+组成!C4+组成!C5)/58*2*40/0.32*0.68)*60*4.2*1000/3600/3.517",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":25,\"source_col\":27,\"source_cell\":\"25:27\"}",
@@ -4060,7 +4060,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.470345",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.470345",
           "expression": "=(1*(组成!C3+组成!C4+组成!C5)*1000/60+1*(组成!C3+组成!C4+组成!C5)/58*2*40/0.32*0.68)*0.08",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":27,\"source_cell\":\"28:27\"}",
@@ -4089,7 +4089,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "0.000625",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000625",
           "expression": "=1*组成!C5*1000/100*10^-2*40/B3/1000",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":30,\"source_cell\":\"3:30\"}",
@@ -4101,7 +4101,7 @@
         {
           "consumable_code": "C9",
           "amount_per_ton": "0.001580",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.001580",
           "expression": "=1*组成!C6*0.02/64*158*1.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":10,\"source_col\":30,\"source_cell\":\"10:30\"}",
@@ -4114,9 +4114,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "30.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "30.000000",
           "expression": "30*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":30,\"source_cell\":\"23:30\"}",
           "balance_weight": "0.000000",
@@ -4126,9 +4126,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "50.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "50.000000",
           "expression": "50*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":30,\"source_cell\":\"24:30\"}",
           "balance_weight": "0.000000",
@@ -4139,7 +4139,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.037168",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.037168",
           "expression": "=1*组成!C5*1000/100*4.2*40/2260",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":30,\"source_cell\":\"28:30\"}",
@@ -4169,7 +4169,7 @@
           "product_code": "P26",
           "output_type": "wastewater",
           "output_per_ton": "0.790666",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "=组成!C5*1000/100+组成!C5/0.437+组成!C5*106/55/0.25-组成!C5/0.478/0.5",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":31,\"source_cell\":\"31:7\",\"balance_weight_expression\":\"=组成!C5*1000/100/18*2+组成!C5*106/55/0.25*0.75/18*2-组成!C5/0.478/0.5*0.5/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"route_tree\",\"node_name\":\"锰溶液除杂\",\"route_condition\":{}}",
           "balance_weight": "0.076054",
@@ -4197,7 +4197,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.510554",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.510554",
           "expression": "=(AH3-1*(组成!C3/58.7+组成!C4/59)*2*40/B3)*B3*98/80/B2+1*(组成!C3/58.7+组成!C4/59)*98/B2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":34,\"source_cell\":\"2:34\"}",
@@ -4209,7 +4209,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "1.276384",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "1.276384",
           "expression": "=1*(组成!C3/58.7+组成!C4/59)*2*40/B3*1.2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":34,\"source_cell\":\"3:34\"}",
@@ -4221,7 +4221,7 @@
         {
           "consumable_code": "C14",
           "amount_per_ton": "0.000363",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000363",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":15,\"source_col\":34,\"source_cell\":\"15:34\"}",
@@ -4233,7 +4233,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000363",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000363",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":34,\"source_cell\":\"17:34\"}",
@@ -4245,7 +4245,7 @@
         {
           "consumable_code": "C17",
           "amount_per_ton": "0.006534",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.006534",
           "expression": "=(AH15+AH17)/0.1*0.9",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":18,\"source_col\":34,\"source_cell\":\"18:34\"}",
@@ -4258,9 +4258,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "200.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "200.000000",
           "expression": "200*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":34,\"source_cell\":\"23:34\"}",
           "balance_weight": "0.000000",
@@ -4289,7 +4289,7 @@
           "product_code": "P23",
           "output_type": "solid_waste",
           "output_per_ton": "0.014520",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "活性炭总用量/0.9/产出!B26",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":27,\"source_cell\":\"27:7\",\"balance_weight_expression\":\"活性炭总用量/0.9/产出!B26*(1-产出!B26)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"activated_carbon_consumption\",\"node_name\":\"BC196共萃\",\"source_consumable_code\":\"C17\",\"source_consumable_name\":\"活性炭\",\"source_consumption_cell\":\"18:34\",\"source_consumption_amount\":\"0.006534000000000001\"}",
           "balance_weight": "0.000000",
@@ -4317,7 +4317,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.110169",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.110169",
           "expression": "=(AQ3-1*组成!C4/59*2*40/B3)*B3*98/80/B2+1*组成!C4/59*98/B2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":43,\"source_cell\":\"2:43\"}",
@@ -4329,7 +4329,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "0.275424",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.275424",
           "expression": "=1*组成!C4/59*2*40*1.3/B3",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":43,\"source_cell\":\"3:43\"}",
@@ -4341,7 +4341,7 @@
         {
           "consumable_code": "C13",
           "amount_per_ton": "0.000363",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000363",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":14,\"source_col\":43,\"source_cell\":\"14:43\"}",
@@ -4353,7 +4353,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000363",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000363",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":43,\"source_cell\":\"17:43\"}",
@@ -4365,7 +4365,7 @@
         {
           "consumable_code": "C17",
           "amount_per_ton": "0.006534",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.006534",
           "expression": "=(AQ14+AQ17)/0.1*0.9",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":18,\"source_col\":43,\"source_cell\":\"18:43\"}",
@@ -4378,9 +4378,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "120.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "120.000000",
           "expression": "120*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":43,\"source_cell\":\"23:43\"}",
           "balance_weight": "0.000000",
@@ -4409,7 +4409,7 @@
           "product_code": "P23",
           "output_type": "solid_waste",
           "output_per_ton": "0.014520",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "活性炭总用量/0.9/产出!B26",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":27,\"source_cell\":\"27:7\",\"balance_weight_expression\":\"活性炭总用量/0.9/产出!B26*(1-产出!B26)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"activated_carbon_consumption\",\"node_name\":\"P507萃取钴\",\"source_consumable_code\":\"C17\",\"source_consumable_name\":\"活性炭\",\"source_consumption_cell\":\"18:43\",\"source_consumption_amount\":\"0.006534000000000001\"}",
           "balance_weight": "0.000000",
@@ -4437,7 +4437,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.408859",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.408859",
           "expression": "=(AR3-1*组成!C3/58.7*2*40/B3)*B3*98/80/B2+1*组成!C3/58.7*98/B2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":44,\"source_cell\":\"2:44\"}",
@@ -4449,7 +4449,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "1.022147",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "1.022147",
           "expression": "=1*组成!C3/58.7*2*40/B3*1.2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":44,\"source_cell\":\"3:44\"}",
@@ -4461,7 +4461,7 @@
         {
           "consumable_code": "C13",
           "amount_per_ton": "0.000399",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000399",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":14,\"source_col\":44,\"source_cell\":\"14:44\"}",
@@ -4473,7 +4473,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000399",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000399",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":44,\"source_cell\":\"17:44\"}",
@@ -4485,7 +4485,7 @@
         {
           "consumable_code": "C17",
           "amount_per_ton": "0.007187",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.007187",
           "expression": "=(AR14+AR17)/0.1*0.9",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":18,\"source_col\":44,\"source_cell\":\"18:44\"}",
@@ -4498,9 +4498,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "200.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "200.000000",
           "expression": "200*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":44,\"source_cell\":\"23:44\"}",
           "balance_weight": "0.000000",
@@ -4529,7 +4529,7 @@
           "product_code": "P23",
           "output_type": "solid_waste",
           "output_per_ton": "0.015972",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "活性炭总用量/0.9/产出!B26",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":27,\"source_cell\":\"27:7\",\"balance_weight_expression\":\"活性炭总用量/0.9/产出!B26*(1-产出!B26)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"activated_carbon_consumption\",\"node_name\":\"P507萃镍镁\",\"source_consumable_code\":\"C17\",\"source_consumable_name\":\"活性炭\",\"source_consumption_cell\":\"18:44\",\"source_consumption_amount\":\"0.0071874\"}",
           "balance_weight": "0.000000",
@@ -4558,7 +4558,7 @@
         {
           "public_service_code": "U1",
           "amount_per_ton": "825.278379",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "825.278379",
           "expression": "=((组成!C3+组成!C4+组成!C5)*1000/60+(组成!C3/58.7*0.2+组成!C4/59*0.3+组成!C5/55*0.3)*98/0.0476*0.9524+L26)*100",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":41,\"source_cell\":\"23:41\"}",
@@ -4570,7 +4570,7 @@
         {
           "public_service_code": "U3",
           "amount_per_ton": "164.257852",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "164.257852",
           "expression": "=((组成!C3+组成!C4+组成!C5)*1000/60+(组成!C3/58.7*0.2+组成!C4/59*0.3+组成!C5/55*0.3)*98/0.0476*0.9524+L26)*4.2*60*1000/3600/3.517",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":25,\"source_col\":41,\"source_cell\":\"25:41\"}",
@@ -4582,7 +4582,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.660223",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.660223",
           "expression": "=((组成!C3+组成!C4+组成!C5)*1000/60+(组成!C3/58.7*0.2+组成!C4/59*0.3+组成!C5/55*0.3)*98/0.0476*0.9524+L26)*0.08",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":41,\"source_cell\":\"28:41\"}",
@@ -4611,9 +4611,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "110.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "110.000000",
           "expression": "110*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":15,\"source_cell\":\"23:15\"}",
           "balance_weight": "0.000000",
@@ -4623,9 +4623,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":15,\"source_cell\":\"24:15\"}",
           "balance_weight": "0.000000",
@@ -4636,7 +4636,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.023516",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.023516",
           "expression": "=1*组成!C2/0.189/0.9*0.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":15,\"source_cell\":\"28:15\"}",
@@ -4665,9 +4665,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":17,\"source_cell\":\"23:17\"}",
           "balance_weight": "0.000000",
@@ -4677,9 +4677,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":17,\"source_cell\":\"24:17\"}",
           "balance_weight": "0.000000",
@@ -4690,7 +4690,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.067619",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.067619",
           "expression": "=1*组成!C2/7*1.2*1.25/2*142/0.9*0.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":17,\"source_cell\":\"28:17\"}",
@@ -4719,9 +4719,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":28,\"source_cell\":\"23:28\"}",
           "balance_weight": "0.000000",
@@ -4731,9 +4731,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":28,\"source_cell\":\"24:28\"}",
           "balance_weight": "0.000000",
@@ -4744,7 +4744,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.111379",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.111379",
           "expression": "=(1*(组成!C3+组成!C4+组成!C5)/58*142+X5*142/106)/0.9*0.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":28,\"source_cell\":\"28:28\"}",
@@ -4773,7 +4773,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.118182",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.118182",
           "expression": "=(AC3-1*组成!C5/55*2*40/B3)*B3*98/80/B2+1*组成!C5/55*98/B2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":31,\"source_cell\":\"2:31\"}",
@@ -4785,7 +4785,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "0.295455",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.295455",
           "expression": "=1*组成!C5/55*2*40*1.3/B3",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":31,\"source_cell\":\"3:31\"}",
@@ -4797,7 +4797,7 @@
         {
           "consumable_code": "C12",
           "amount_per_ton": "0.000042",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000042",
           "expression": "=1*组成!C5*1000/60*50*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":13,\"source_col\":31,\"source_cell\":\"13:31\"}",
@@ -4809,7 +4809,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000042",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000042",
           "expression": "=1*组成!C5*1000/60*50*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":31,\"source_cell\":\"17:31\"}",
@@ -4821,7 +4821,7 @@
         {
           "consumable_code": "C17",
           "amount_per_ton": "0.000750",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000750",
           "expression": "=(AE13+AE17)/0.1*0.9",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":18,\"source_col\":31,\"source_cell\":\"18:31\"}",
@@ -4834,9 +4834,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "60.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "60.000000",
           "expression": "60*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":31,\"source_cell\":\"23:31\"}",
           "balance_weight": "0.000000",
@@ -4851,7 +4851,7 @@
           "product_code": "P27",
           "output_type": "wastewater",
           "output_per_ton": "1.022927",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "=组成!C5*1000/60*1.1+组成!C5/55*2*58.443",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":32,\"source_cell\":\"32:7\",\"balance_weight_expression\":\"=组成!C5*1000/60*1.1/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"route_tree\",\"node_name\":\"C272萃锰\",\"route_condition\":{}}",
           "balance_weight": "0.101852",
@@ -4879,7 +4879,7 @@
           "product_code": "P23",
           "output_type": "solid_waste",
           "output_per_ton": "0.001667",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "活性炭总用量/0.9/产出!B26",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":27,\"source_cell\":\"27:7\",\"balance_weight_expression\":\"活性炭总用量/0.9/产出!B26*(1-产出!B26)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"activated_carbon_consumption\",\"node_name\":\"C272萃锰\",\"source_consumable_code\":\"C17\",\"source_consumable_name\":\"活性炭\",\"source_consumption_cell\":\"18:31\",\"source_consumption_amount\":\"0.00075\"}",
           "balance_weight": "0.000000",
@@ -4907,7 +4907,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.110169",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.110169",
           "expression": "=(AI3-1*组成!C4/59*2*40/B3)*B3*98/80/B2+1*组成!C4/59*98/B2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":35,\"source_cell\":\"2:35\"}",
@@ -4919,7 +4919,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "0.275424",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.275424",
           "expression": "=1*组成!C4/59*2*40*1.3/B3",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":35,\"source_cell\":\"3:35\"}",
@@ -4931,7 +4931,7 @@
         {
           "consumable_code": "C12",
           "amount_per_ton": "0.000363",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000363",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":13,\"source_col\":35,\"source_cell\":\"13:35\"}",
@@ -4943,7 +4943,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000363",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000363",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":35,\"source_cell\":\"17:35\"}",
@@ -4955,7 +4955,7 @@
         {
           "consumable_code": "C17",
           "amount_per_ton": "0.006534",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.006534",
           "expression": "=(AI13+AI17)/0.1*0.9",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":18,\"source_col\":35,\"source_cell\":\"18:35\"}",
@@ -4968,9 +4968,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":35,\"source_cell\":\"23:35\"}",
           "balance_weight": "0.000000",
@@ -4981,7 +4981,7 @@
         {
           "public_service_code": "U3",
           "amount_per_ton": "40.138376",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "40.138376",
           "expression": "=AI28*1000*2260/3600/3.517",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":25,\"source_col\":35,\"source_cell\":\"25:35\"}",
@@ -4993,7 +4993,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.224867",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.224867",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*4.2*20/2260",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":35,\"source_cell\":\"28:35\"}",
@@ -5023,7 +5023,7 @@
           "product_code": "P23",
           "output_type": "solid_waste",
           "output_per_ton": "0.014520",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "活性炭总用量/0.9/产出!B26",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":27,\"source_cell\":\"27:7\",\"balance_weight_expression\":\"活性炭总用量/0.9/产出!B26*(1-产出!B26)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"activated_carbon_consumption\",\"node_name\":\"C272萃取钴\",\"source_consumable_code\":\"C17\",\"source_consumable_name\":\"活性炭\",\"source_consumption_cell\":\"18:35\",\"source_consumption_amount\":\"0.006534000000000001\"}",
           "balance_weight": "0.000000",
@@ -5051,7 +5051,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.408859",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.408859",
           "expression": "=(AL3-1*组成!C3/58.7*2*40/B3)*B3*98/80/B2+1*组成!C3/58.7*98/B2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":38,\"source_cell\":\"2:38\"}",
@@ -5063,7 +5063,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "1.022147",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "1.022147",
           "expression": "=1*组成!C3/58.7*2*40/B3*1.2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":38,\"source_cell\":\"3:38\"}",
@@ -5075,7 +5075,7 @@
         {
           "consumable_code": "C14",
           "amount_per_ton": "0.000399",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000399",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":15,\"source_col\":38,\"source_cell\":\"15:38\"}",
@@ -5087,7 +5087,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000399",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000399",
           "expression": "=1*(组成!C3+组成!C4+组成!C5)*1000/60*1.1*1.1*1.1*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":38,\"source_cell\":\"17:38\"}",
@@ -5099,7 +5099,7 @@
         {
           "consumable_code": "C17",
           "amount_per_ton": "0.007187",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.007187",
           "expression": "=(AL15+AL17)/0.1*0.9",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":18,\"source_col\":38,\"source_cell\":\"18:38\"}",
@@ -5112,9 +5112,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "200.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "200.000000",
           "expression": "200*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":38,\"source_cell\":\"23:38\"}",
           "balance_weight": "0.000000",
@@ -5143,7 +5143,7 @@
           "product_code": "P23",
           "output_type": "solid_waste",
           "output_per_ton": "0.015972",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "活性炭总用量/0.9/产出!B26",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":27,\"source_cell\":\"27:7\",\"balance_weight_expression\":\"活性炭总用量/0.9/产出!B26*(1-产出!B26)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"activated_carbon_consumption\",\"node_name\":\"BC196萃镍\",\"source_consumable_code\":\"C17\",\"source_consumable_name\":\"活性炭\",\"source_consumption_cell\":\"18:38\",\"source_consumption_amount\":\"0.0071874\"}",
           "balance_weight": "0.000000",
@@ -5171,7 +5171,7 @@
         {
           "consumable_code": "C1",
           "amount_per_ton": "0.018950",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.018950",
           "expression": "=(AS3-1*0.005/34.3*2*40/B3)*B3*98/80/B2+1*0.005/34.3*98/B2",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":2,\"source_col\":45,\"source_cell\":\"2:45\"}",
@@ -5183,7 +5183,7 @@
         {
           "consumable_code": "C2",
           "amount_per_ton": "0.047376",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.047376",
           "expression": "=1*0.005/34.3*2*40/B3*1.3",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":3,\"source_col\":45,\"source_cell\":\"3:45\"}",
@@ -5195,7 +5195,7 @@
         {
           "consumable_code": "C12",
           "amount_per_ton": "0.000120",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000120",
           "expression": "=1*组成!C3*1000/100*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":13,\"source_col\":45,\"source_cell\":\"13:45\"}",
@@ -5207,7 +5207,7 @@
         {
           "consumable_code": "C16",
           "amount_per_ton": "0.000120",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.000120",
           "expression": "=1*组成!C3*1000/100*60*10^-6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":17,\"source_col\":45,\"source_cell\":\"17:45\"}",
@@ -5219,7 +5219,7 @@
         {
           "consumable_code": "C17",
           "amount_per_ton": "0.002160",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.002160",
           "expression": "=(AS13+AS17)/0.1*0.9",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":18,\"source_col\":45,\"source_cell\":\"18:45\"}",
@@ -5232,9 +5232,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "60.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "60.000000",
           "expression": "60*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":45,\"source_cell\":\"23:45\"}",
           "balance_weight": "0.000000",
@@ -5263,7 +5263,7 @@
           "product_code": "P23",
           "output_type": "solid_waste",
           "output_per_ton": "0.004800",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "expression": "活性炭总用量/0.9/产出!B26",
           "scale_param": "{\"source_sheet\":\"产出\",\"source_row\":27,\"source_cell\":\"27:7\",\"balance_weight_expression\":\"活性炭总用量/0.9/产出!B26*(1-产出!B26)/18*2\",\"node_output_role\":\"waste_treatment\",\"binding_rule\":\"activated_carbon_consumption\",\"node_name\":\"C272萃取镁\",\"source_consumable_code\":\"C17\",\"source_consumable_name\":\"活性炭\",\"source_consumption_cell\":\"18:45\",\"source_consumption_amount\":\"0.00216\"}",
           "balance_weight": "0.000000",
@@ -5291,9 +5291,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":42,\"source_cell\":\"23:42\"}",
           "balance_weight": "0.000000",
@@ -5303,9 +5303,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":42,\"source_cell\":\"24:42\"}",
           "balance_weight": "0.000000",
@@ -5316,7 +5316,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.130307",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.130307",
           "expression": "=(X5*142/106+(组成!C3/58.7*1.2+组成!C4/59*1.3+组成!C5/55*1.3)*142)/0.9*0.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":42,\"source_cell\":\"28:42\"}",
@@ -5346,7 +5346,7 @@
         {
           "public_service_code": "U1",
           "amount_per_ton": "50.000000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "50.000000",
           "expression": "=1*组成!C5*1000/100*100",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":32,\"source_cell\":\"23:32\"}",
@@ -5358,7 +5358,7 @@
         {
           "public_service_code": "U3",
           "amount_per_ton": "9.951663",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "9.951663",
           "expression": "=1*组成!C5*1000/100*4.2*60*1000/3600/3.517",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":25,\"source_col\":32,\"source_cell\":\"25:32\"}",
@@ -5370,7 +5370,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.040000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.040000",
           "expression": "=1*组成!C5*1000/100*0.08",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":32,\"source_cell\":\"28:32\"}",
@@ -5400,7 +5400,7 @@
         {
           "public_service_code": "U1",
           "amount_per_ton": "50.000000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "50.000000",
           "expression": "=1*组成!C4*1000/100*100",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":36,\"source_cell\":\"23:36\"}",
@@ -5412,7 +5412,7 @@
         {
           "public_service_code": "U3",
           "amount_per_ton": "9.951663",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "9.951663",
           "expression": "=1*组成!C4*1000/100*4.2*60*1000/3600/3.517",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":25,\"source_col\":36,\"source_cell\":\"25:36\"}",
@@ -5424,7 +5424,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.040000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.040000",
           "expression": "=1*组成!C4*1000/100*0.08",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":36,\"source_cell\":\"28:36\"}",
@@ -5454,7 +5454,7 @@
         {
           "public_service_code": "U1",
           "amount_per_ton": "200.000000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "200.000000",
           "expression": "=1*组成!C3*1000/100*100",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":39,\"source_cell\":\"23:39\"}",
@@ -5466,7 +5466,7 @@
         {
           "public_service_code": "U3",
           "amount_per_ton": "39.806653",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "39.806653",
           "expression": "=1*组成!C3*1000/100*4.2*60*1000/3600/3.517",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":25,\"source_col\":39,\"source_cell\":\"25:39\"}",
@@ -5478,7 +5478,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.160000",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.160000",
           "expression": "=1*组成!C3*1000/100*0.08",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":39,\"source_cell\":\"28:39\"}",
@@ -5507,9 +5507,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":33,\"source_cell\":\"23:33\"}",
           "balance_weight": "0.000000",
@@ -5519,9 +5519,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":33,\"source_cell\":\"24:33\"}",
           "balance_weight": "0.000000",
@@ -5532,7 +5532,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.017071",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.017071",
           "expression": "=1*组成!C5/55*169/0.9*0.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":33,\"source_cell\":\"28:33\"}",
@@ -5561,9 +5561,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":37,\"source_cell\":\"23:37\"}",
           "balance_weight": "0.000000",
@@ -5573,9 +5573,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":37,\"source_cell\":\"24:37\"}",
           "balance_weight": "0.000000",
@@ -5586,7 +5586,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.026460",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.026460",
           "expression": "=1*组成!C4/59*281/0.9*0.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":37,\"source_cell\":\"28:37\"}",
@@ -5615,9 +5615,9 @@
       "public_services": [
         {
           "public_service_code": "U1",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "75.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "75.000000",
           "expression": "75*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":23,\"source_col\":40,\"source_cell\":\"23:40\"}",
           "balance_weight": "0.000000",
@@ -5627,9 +5627,9 @@
         },
         {
           "public_service_code": "U2",
-          "amount_per_ton": "0.000000",
-          "formula_type": "expression",
-          "amount_per_ton_bm": "0.000000",
+          "amount_per_ton": "20.000000",
+          "formula_type": "fixed",
+          "amount_per_ton_bm": "20.000000",
           "expression": "20*n^0.6",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":24,\"source_col\":40,\"source_cell\":\"24:40\"}",
           "balance_weight": "0.000000",
@@ -5640,7 +5640,7 @@
         {
           "public_service_code": "U6",
           "amount_per_ton": "0.099565",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "amount_per_ton_bm": "0.099565",
           "expression": "=1*组成!C3/58.7*263/0.9*0.1",
           "scale_param": "{\"source_sheet\":\"消耗\",\"source_row\":28,\"source_col\":40,\"source_cell\":\"28:40\"}",
@@ -5703,7 +5703,7 @@
           "product_code": "P1",
           "output_name": "精制硫酸锂溶液",
           "spec": "16 g/L",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.980000",
           "balance_weight": "0.277778",
           "unit": "t/t-BM",
@@ -5770,7 +5770,7 @@
           "product_code": "P2",
           "output_name": "工业级碳酸锂",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.002522",
           "unit": "t/t-BM",
@@ -5843,7 +5843,7 @@
           "product_code": "P3",
           "output_name": "电池级碳酸锂",
           "spec": "0.995 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.002510",
           "unit": "t/t-BM",
@@ -5916,8 +5916,8 @@
           "product_code": "P4",
           "output_name": "硫酸钠产品(PREL）",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.007746",
           "unit": "t/t-BM",
           "output_ratio": "0.627393",
@@ -5959,7 +5959,7 @@
           "product_code": "P17",
           "output_name": "石墨渣产品",
           "spec": "0.95 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "1.000000",
           "balance_weight": "0.025191",
           "unit": "t/t-BM",
@@ -6014,7 +6014,7 @@
           "product_code": "P17",
           "output_name": "石墨渣产品",
           "spec": "0.95 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "1.000000",
           "balance_weight": "0.025191",
           "unit": "t/t-BM",
@@ -6057,7 +6057,7 @@
           "product_code": "P13",
           "output_name": "粗制海绵铜",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.980000",
           "balance_weight": "0.002178",
           "unit": "t/t-BM",
@@ -6112,7 +6112,7 @@
           "product_code": "P13",
           "output_name": "粗制海绵铜",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.980000",
           "balance_weight": "0.002178",
           "unit": "t/t-BM",
@@ -6155,7 +6155,7 @@
           "product_code": "P14",
           "output_name": "粗制硫化铜",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.980000",
           "balance_weight": "0.003275",
           "unit": "t/t-BM",
@@ -6210,7 +6210,7 @@
           "product_code": "P14",
           "output_name": "粗制硫化铜",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.980000",
           "balance_weight": "0.003275",
           "unit": "t/t-BM",
@@ -6253,7 +6253,7 @@
           "product_code": "P15",
           "output_name": "硫酸铜溶液",
           "spec": "60 g/L",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.980000",
           "balance_weight": "0.036296",
           "unit": "t/t-BM",
@@ -6308,7 +6308,7 @@
           "product_code": "P15",
           "output_name": "硫酸铜溶液",
           "spec": "60 g/L",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.980000",
           "balance_weight": "0.036296",
           "unit": "t/t-BM",
@@ -6357,7 +6357,7 @@
           "product_code": "P16",
           "output_name": "金属铜产品",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.980000",
           "balance_weight": "0.000000",
           "unit": "t/t-BM",
@@ -6418,7 +6418,7 @@
           "product_code": "P16",
           "output_name": "金属铜产品",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.980000",
           "balance_weight": "0.000000",
           "unit": "t/t-BM",
@@ -6479,7 +6479,7 @@
           "product_code": "P5",
           "output_name": "MHP滤饼产品",
           "spec": "0.6 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.970000",
           "balance_weight": "0.044146",
           "unit": "t/t-BM",
@@ -6540,7 +6540,7 @@
           "product_code": "P5",
           "output_name": "MHP滤饼产品",
           "spec": "0.6 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.970000",
           "balance_weight": "0.044146",
           "unit": "t/t-BM",
@@ -6601,7 +6601,7 @@
           "product_code": "P5",
           "output_name": "MHP滤饼产品",
           "spec": "0.6 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.970000",
           "balance_weight": "0.044146",
           "unit": "t/t-BM",
@@ -6674,7 +6674,7 @@
           "product_code": "P5",
           "output_name": "MHP滤饼产品",
           "spec": "0.6 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.970000",
           "balance_weight": "0.044146",
           "unit": "t/t-BM",
@@ -6747,7 +6747,7 @@
           "product_code": "P5",
           "output_name": "MHP滤饼产品",
           "spec": "0.6 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.970000",
           "balance_weight": "0.044146",
           "unit": "t/t-BM",
@@ -6820,7 +6820,7 @@
           "product_code": "P5",
           "output_name": "MHP滤饼产品",
           "spec": "0.6 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.970000",
           "balance_weight": "0.044146",
           "unit": "t/t-BM",
@@ -6893,8 +6893,8 @@
           "product_code": "P6",
           "output_name": "硫酸钠产品(MHP)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.009332",
           "unit": "t/t-BM",
           "output_ratio": "0.755924",
@@ -6966,8 +6966,8 @@
           "product_code": "P6",
           "output_name": "硫酸钠产品(MHP)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.009332",
           "unit": "t/t-BM",
           "output_ratio": "0.755924",
@@ -7039,8 +7039,8 @@
           "product_code": "P6",
           "output_name": "硫酸钠产品(MHP)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.009332",
           "unit": "t/t-BM",
           "output_ratio": "0.755924",
@@ -7124,8 +7124,8 @@
           "product_code": "P6",
           "output_name": "硫酸钠产品(MHP)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.009332",
           "unit": "t/t-BM",
           "output_ratio": "0.755924",
@@ -7209,8 +7209,8 @@
           "product_code": "P6",
           "output_name": "硫酸钠产品(MHP)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.009332",
           "unit": "t/t-BM",
           "output_ratio": "0.755924",
@@ -7294,8 +7294,8 @@
           "product_code": "P6",
           "output_name": "硫酸钠产品(MHP)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.009332",
           "unit": "t/t-BM",
           "output_ratio": "0.755924",
@@ -7379,7 +7379,7 @@
           "product_code": "P7",
           "output_name": "电池级硫酸锰",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.003552",
           "unit": "t/t-BM",
@@ -7464,7 +7464,7 @@
           "product_code": "P7",
           "output_name": "电池级硫酸锰",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.003552",
           "unit": "t/t-BM",
@@ -7549,7 +7549,7 @@
           "product_code": "P7",
           "output_name": "电池级硫酸锰",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.003552",
           "unit": "t/t-BM",
@@ -7646,7 +7646,7 @@
           "product_code": "P7",
           "output_name": "电池级硫酸锰",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.003552",
           "unit": "t/t-BM",
@@ -7743,7 +7743,7 @@
           "product_code": "P7",
           "output_name": "电池级硫酸锰",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.003552",
           "unit": "t/t-BM",
@@ -7840,7 +7840,7 @@
           "product_code": "P7",
           "output_name": "电池级硫酸锰",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.003552",
           "unit": "t/t-BM",
@@ -7907,7 +7907,7 @@
           "product_code": "P8",
           "output_name": "粗制碳酸锰",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.011041",
           "unit": "t/t-BM",
@@ -7974,7 +7974,7 @@
           "product_code": "P8",
           "output_name": "粗制碳酸锰",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.011041",
           "unit": "t/t-BM",
@@ -8041,7 +8041,7 @@
           "product_code": "P8",
           "output_name": "粗制碳酸锰",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.011041",
           "unit": "t/t-BM",
@@ -8120,7 +8120,7 @@
           "product_code": "P8",
           "output_name": "粗制碳酸锰",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.011041",
           "unit": "t/t-BM",
@@ -8199,7 +8199,7 @@
           "product_code": "P8",
           "output_name": "粗制碳酸锰",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.011041",
           "unit": "t/t-BM",
@@ -8278,7 +8278,7 @@
           "product_code": "P8",
           "output_name": "粗制碳酸锰",
           "spec": "0.5 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.011041",
           "unit": "t/t-BM",
@@ -8345,7 +8345,7 @@
           "product_code": "P9",
           "output_name": "硫酸镍钴溶液",
           "spec": "100 g/l",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.263889",
           "unit": "t/t-BM",
@@ -8412,7 +8412,7 @@
           "product_code": "P9",
           "output_name": "硫酸镍钴溶液",
           "spec": "100 g/l",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.263889",
           "unit": "t/t-BM",
@@ -8479,7 +8479,7 @@
           "product_code": "P9",
           "output_name": "硫酸镍钴溶液",
           "spec": "100 g/l",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.263889",
           "unit": "t/t-BM",
@@ -8558,7 +8558,7 @@
           "product_code": "P9",
           "output_name": "硫酸镍钴溶液",
           "spec": "100 g/l",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.263889",
           "unit": "t/t-BM",
@@ -8637,7 +8637,7 @@
           "product_code": "P9",
           "output_name": "硫酸镍钴溶液",
           "spec": "100 g/l",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.263889",
           "unit": "t/t-BM",
@@ -8716,7 +8716,7 @@
           "product_code": "P9",
           "output_name": "硫酸镍钴溶液",
           "spec": "100 g/l",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.263889",
           "unit": "t/t-BM",
@@ -8801,7 +8801,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -8880,7 +8880,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -8965,7 +8965,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9044,7 +9044,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9129,7 +9129,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9208,7 +9208,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9305,7 +9305,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9396,7 +9396,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9493,7 +9493,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9584,7 +9584,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9681,7 +9681,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9772,7 +9772,7 @@
           "product_code": "P10",
           "output_name": "电池级硫酸钴",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.004441",
           "unit": "t/t-BM",
@@ -9857,7 +9857,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -9942,7 +9942,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10027,7 +10027,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10112,7 +10112,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10197,7 +10197,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10282,7 +10282,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10379,7 +10379,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10476,7 +10476,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10573,7 +10573,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10670,7 +10670,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10767,7 +10767,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10864,7 +10864,7 @@
           "product_code": "P11",
           "output_name": "电池级硫酸镍",
           "spec": "0.99 wt%",
-          "formula_type": "expression",
+          "formula_type": "fixed",
           "recovery_rate": "0.950000",
           "balance_weight": "0.017085",
           "unit": "t/t-BM",
@@ -10937,8 +10937,8 @@
           "product_code": "P12",
           "output_name": "硫酸钠产品(SX)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.011516",
           "unit": "t/t-BM",
           "output_ratio": "0.932823",
@@ -11010,8 +11010,8 @@
           "product_code": "P12",
           "output_name": "硫酸钠产品(SX)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.011516",
           "unit": "t/t-BM",
           "output_ratio": "0.932823",
@@ -11083,8 +11083,8 @@
           "product_code": "P12",
           "output_name": "硫酸钠产品(SX)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.011516",
           "unit": "t/t-BM",
           "output_ratio": "0.932823",
@@ -11168,8 +11168,8 @@
           "product_code": "P12",
           "output_name": "硫酸钠产品(SX)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.011516",
           "unit": "t/t-BM",
           "output_ratio": "0.932823",
@@ -11253,8 +11253,8 @@
           "product_code": "P12",
           "output_name": "硫酸钠产品(SX)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.011516",
           "unit": "t/t-BM",
           "output_ratio": "0.932823",
@@ -11338,8 +11338,8 @@
           "product_code": "P12",
           "output_name": "硫酸钠产品(SX)",
           "spec": "0.97 wt%",
-          "formula_type": "expression",
-          "recovery_rate": "0.000000",
+          "formula_type": "fixed",
+          "recovery_rate": "1.000000",
           "balance_weight": "0.011516",
           "unit": "t/t-BM",
           "output_ratio": "0.932823",

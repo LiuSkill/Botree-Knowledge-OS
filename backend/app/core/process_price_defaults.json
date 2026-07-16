@@ -1,53 +1,389 @@
 {
   "source": {
-    "name": "Economic Analysis for Belgium Project - 5000tpa NCM+5000tpa LFP Battery",
+    "name": "Process configuration reference price defaults - Europe",
     "region_code": "europe",
     "region_name": "欧洲",
     "currency": "EUR",
-    "basis": "用户提供的比利时项目经济分析表"
+    "basis": "用户经济分析表、公开市场参考价与ECB 2026-07-15汇率折算的MVP默认价格"
   },
   "prices": [
-    { "owner_type": "consumable", "owner_code": "C1", "unit_price": "165", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C2", "unit_price": "220", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C4", "unit_price": "627", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C5", "unit_price": "330", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C6", "unit_price": "260", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C8", "unit_price": "830", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C10", "unit_price": "405", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C11", "unit_price": "4200", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C12", "unit_price": "42000", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C13", "unit_price": "7000", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C14", "unit_price": "30000", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C16", "unit_price": "2800", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C17", "unit_price": "1400", "unit": "t" },
-    { "owner_type": "consumable", "owner_code": "C18", "unit_price": "14000", "unit": "t" },
-    { "owner_type": "public_service", "owner_code": "U1", "unit_price": "0.16", "unit": "KWH" },
-    { "owner_type": "public_service", "owner_code": "U4", "unit_price": "6", "unit": "m3" },
-    { "owner_type": "public_service", "owner_code": "U5", "unit_price": "0.7", "unit": "Nm3" },
-    { "owner_type": "public_service", "owner_code": "U6", "unit_price": "30", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P2", "unit_price": "18000", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P9", "unit_price": "1346", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P13", "unit_price": "7310", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P16", "unit_price": "3406", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P18", "unit_price": "152", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P19", "unit_price": "152", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P20", "unit_price": "152", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P21", "unit_price": "152", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P22", "unit_price": "152", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P23", "unit_price": "152", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P24", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P25", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P26", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P27", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P28", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P29", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P30", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P31", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P32", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P33", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P34", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P35", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P36", "unit_price": "5", "unit": "t" },
-    { "owner_type": "product", "owner_code": "P37", "unit_price": "5", "unit": "t" }
+    {
+      "owner_type": "material",
+      "owner_code": "M1",
+      "unit_price": "500",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C1",
+      "unit_price": "165",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C2",
+      "unit_price": "220",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C3",
+      "unit_price": "186.743819",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C4",
+      "unit_price": "627",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C5",
+      "unit_price": "330",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C6",
+      "unit_price": "260",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C7",
+      "unit_price": "2630.194634",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C8",
+      "unit_price": "830",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C9",
+      "unit_price": "622.479397",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C10",
+      "unit_price": "405",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C11",
+      "unit_price": "4200",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C12",
+      "unit_price": "42000",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C13",
+      "unit_price": "7000",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C14",
+      "unit_price": "30000",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C15",
+      "unit_price": "7000",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C16",
+      "unit_price": "2800",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C17",
+      "unit_price": "1400",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C18",
+      "unit_price": "14000",
+      "unit": "t"
+    },
+    {
+      "owner_type": "consumable",
+      "owner_code": "C19",
+      "unit_price": "245.484833",
+      "unit": "t"
+    },
+    {
+      "owner_type": "public_service",
+      "owner_code": "U1",
+      "unit_price": "0.16",
+      "unit": "KWH"
+    },
+    {
+      "owner_type": "public_service",
+      "owner_code": "U2",
+      "unit_price": "0.030686",
+      "unit": "Nm3"
+    },
+    {
+      "owner_type": "public_service",
+      "owner_code": "U3",
+      "unit_price": "0.876732",
+      "unit": "USRT"
+    },
+    {
+      "owner_type": "public_service",
+      "owner_code": "U4",
+      "unit_price": "6",
+      "unit": "m3"
+    },
+    {
+      "owner_type": "public_service",
+      "owner_code": "U5",
+      "unit_price": "0.7",
+      "unit": "Nm3"
+    },
+    {
+      "owner_type": "public_service",
+      "owner_code": "U6",
+      "unit_price": "30",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P1",
+      "unit_price": "1244.630362",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P2",
+      "unit_price": "18000",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P3",
+      "unit_price": "11099.421357",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P4",
+      "unit_price": "113.975101",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P5",
+      "unit_price": "15665.439243",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P6",
+      "unit_price": "113.975101",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P7",
+      "unit_price": "1083.087849",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P8",
+      "unit_price": "438.365772",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P9",
+      "unit_price": "1346",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P10",
+      "unit_price": "17534.630896",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P11",
+      "unit_price": "3331.57987",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P12",
+      "unit_price": "113.975101",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P13",
+      "unit_price": "7310",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P14",
+      "unit_price": "3655",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P15",
+      "unit_price": "144.660705",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P16",
+      "unit_price": "3406",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P17",
+      "unit_price": "175.346309",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P18",
+      "unit_price": "152",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P19",
+      "unit_price": "152",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P20",
+      "unit_price": "152",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P21",
+      "unit_price": "152",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P22",
+      "unit_price": "152",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P23",
+      "unit_price": "152",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P24",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P25",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P26",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P27",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P28",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P29",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P30",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P31",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P32",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P33",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P34",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P35",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P36",
+      "unit_price": "5",
+      "unit": "t"
+    },
+    {
+      "owner_type": "product",
+      "owner_code": "P37",
+      "unit_price": "5",
+      "unit": "t"
+    }
   ]
 }
