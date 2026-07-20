@@ -1669,6 +1669,10 @@ onMounted(loadData);
               <div><span>文件大小</span><strong>{{ formatFileSize(selectedDocument.file_size) }}</strong></div>
               <div><span>备注</span><strong>{{ selectedDocument.remark || '-' }}</strong></div>
             </div>
+            <div v-if="selectedDocument.review_status === 'rejected' && selectedDocument.review_comment" class="reject-reason-panel">
+              <div class="reject-reason-title">驳回原因</div>
+              <div class="reject-reason-content">{{ selectedDocument.review_comment }}</div>
+            </div>
           </section>
 
           <section class="drawer-section">
@@ -2848,6 +2852,29 @@ onMounted(loadData);
   font-size: 14px;
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+
+.reject-reason-panel {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+}
+
+.reject-reason-title {
+  margin-bottom: 6px;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reject-reason-content {
+  color: #7f1d1d;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .drawer-info-wide {

@@ -62,6 +62,7 @@ const pageComponents: Record<string, RouteComponent> = {
   '/system/model-configs': () => import('@/views/system/ModelConfigPage.vue'),
   '/system/logs': () => import('@/views/system/OperationLogPage.vue'),
   '/system/qa-audits': () => import('@/views/system/QAAuditPage.vue'),
+  '/system/sensitive-content': () => import('@/views/system/SensitiveContentPage.vue'),
 };
 
 const breadcrumbByMenuPath: Record<string, MenuRouteBreadcrumbConfig> = {

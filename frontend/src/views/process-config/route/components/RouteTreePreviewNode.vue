@@ -20,6 +20,7 @@ function nodePrefix(node: RouteTreePreviewNodeData): string {
   <div class="tree-branch" :class="{ 'tree-branch--leaf': !node.children.length, 'tree-branch--active': node.active }">
     <div
       class="tree-node-label"
+      :data-node-key="node.key"
       :class="[
         `tree-node-label--${node.kind}`,
         {
@@ -57,6 +58,7 @@ function nodePrefix(node: RouteTreePreviewNodeData): string {
   padding: 2px 8px 4px;
   position: relative;
   white-space: nowrap;
+  z-index: 1;
 }
 
 .tree-node-label strong {
@@ -143,45 +145,5 @@ function nodePrefix(node: RouteTreePreviewNodeData): string {
   margin-left: 42px;
   padding-left: 24px;
   position: relative;
-}
-
-.tree-children::before {
-  position: absolute;
-  top: 14px;
-  bottom: 14px;
-  left: 0;
-  width: 1px;
-  background: #d3d9e3;
-  content: '';
-}
-
-.tree-children > .tree-branch::before {
-  position: absolute;
-  top: 14px;
-  left: -24px;
-  width: 24px;
-  height: 1px;
-  background: #d3d9e3;
-  content: '';
-}
-
-.tree-node-label::after {
-  position: absolute;
-  top: 14px;
-  right: -42px;
-  width: 42px;
-  height: 1px;
-  background: #d3d9e3;
-  content: '';
-}
-
-.tree-branch--leaf > .tree-node-label::after {
-  display: none;
-}
-
-.tree-branch--active::before,
-.tree-branch--active > .tree-node-label::after {
-  height: 2px;
-  background: #0052d9;
 }
 </style>

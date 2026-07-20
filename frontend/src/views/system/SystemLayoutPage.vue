@@ -10,6 +10,7 @@ import { useRoute } from 'vue-router';
 const route = useRoute();
 
 const descriptionByMenuId: Record<string, string> = {
+  'system:sensitive-content': '维护敏感信息类型、识别规则和角色查看权限。',
   'system:department:view': '维护组织部门、上下级关系和部门成员归属。',
 };
 

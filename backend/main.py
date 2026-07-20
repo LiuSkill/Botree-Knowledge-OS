@@ -13,7 +13,7 @@ import sys
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, chat, departments, documents, knowledge_bases, knowledge_categories, model_configs, process_config, projects, retrieval, reviews, roles, system, users
+from app.api import auth, chat, departments, documents, knowledge_bases, knowledge_categories, model_configs, process_config, projects, retrieval, reviews, roles, sensitive_content, system, users
 from app.core.audit_context import RequestAuditContext, reset_request_audit_context, set_request_audit_context
 from app.core.config import get_settings
 from app.core.database import SessionLocal, init_database
@@ -85,6 +85,7 @@ app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(users.current_user_router, prefix=settings.api_prefix)
 app.include_router(roles.router, prefix=settings.api_prefix)
+app.include_router(sensitive_content.router, prefix=settings.api_prefix)
 app.include_router(projects.router, prefix=settings.api_prefix)
 app.include_router(knowledge_bases.router, prefix=settings.api_prefix)
 app.include_router(knowledge_categories.router, prefix=settings.api_prefix)

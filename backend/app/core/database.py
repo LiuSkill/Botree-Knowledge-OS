@@ -29,6 +29,7 @@ from app.models.knowledge_category import KnowledgeCategory
 from app.models.model_config import ModelConfig
 from app.models.project import Project
 from app.models.user import Permission, Role, User
+from app.models.sensitive_content import RoleSensitivePermission, SensitiveFilterRule, SensitiveType
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,7 @@ def init_database() -> None:
         seed_project_categories(db)
         seed_model_config(db)
         seed_process_config_defaults(db)
+        seed_sensitive_content(db)
         from app.services.process_price_default_service import ProcessPriceDefaultService
 
         ProcessPriceDefaultService(db).sync_zero_prices()
@@ -1007,6 +1009,49 @@ def _create_composite_index_if_missing(
     columns_sql = ", ".join(column_names)
     connection.execute(text(f"CREATE INDEX {index_name} ON {table_name} ({columns_sql})"))
     logger.info("数据库迁移完成: %s.%s", table_name, index_name)
+
+
+def seed_sensitive_content(db: Session) -> None:
+    """幂等初始化敏感类型、默认规则及现有角色的默认授权。"""
+
+    amount_pattern = r"(?:(?:USD|CNY|RMB|￥|¥|\$)\s*\d+(?:\.\d+)?(?:\s*(?:万|亿|千)?\s*(?:元|人民币|美元|美金))?|\d+(?:\.\d+)?\s*(?:万|亿|千)?\s*(?:元|人民币|美元|美金))(?:\s*/\s*[\u4e00-\u9fa5A-Za-z]+)?"
+    type_defaults = [
+        ("price", "报价信息", "[报价信息已隐藏]"), ("cost", "成本信息", "[成本信息已隐藏]"),
+        ("gross_margin", "利润率信息", "[利润率信息已隐藏]"), ("contract_amount", "合同金额", "[合同金额已隐藏]"),
+        ("payment_terms", "付款条件", "[付款条件已隐藏]"), ("supplier_price", "供应商报价", "[供应商报价已隐藏]"),
+        ("business_strategy", "商务策略", "[商务策略信息已隐藏]"), ("financial_metric", "财务指标", "[财务指标已隐藏]"),
+    ]
+    existing_types = {item.code: item for item in db.scalars(select(SensitiveType)).all()}
+    for code, name, mask in type_defaults:
+        if code not in existing_types:
+            db.add(SensitiveType(code=code, name=name, default_mask_text=mask, enabled=True))
+    db.flush()
+    rule_defaults = [
+        ("supplier_price_rule", "供应商报价识别", "supplier_price", amount_pattern, ["供应商报价", "采购报价", "报价单", "供应商价格"], "[供应商报价已隐藏]", 5),
+        ("price_amount_rule", "报价金额识别", "price", amount_pattern, ["报价", "价格", "销售价", "销售单价", "合同价", "总价", "投标价", "中标价", "商务报价", "供货价"], "[报价信息已隐藏]", 10),
+        ("cost_amount_rule", "成本金额识别", "cost", amount_pattern, ["成本", "采购成本", "设备成本", "制造成本", "建设成本", "成本价", "采购价"], "[成本信息已隐藏]", 20),
+        ("gross_margin_rule", "利润率识别", "gross_margin", r"\d+(?:\.\d+)?\s*%", ["毛利率", "利润率", "毛利", "利润空间"], "[利润率信息已隐藏]", 30),
+        ("contract_amount_rule", "合同金额识别", "contract_amount", amount_pattern, ["合同金额", "合同总价", "合同价", "订单金额", "订单总价"], "[合同金额已隐藏]", 40),
+    ]
+    existing_rules = set(db.scalars(select(SensitiveFilterRule.code)).all())
+    for code, name, type_code, pattern, keywords, mask, priority in rule_defaults:
+        if code not in existing_rules:
+            db.add(SensitiveFilterRule(code=code, name=name, sensitive_type_code=type_code, match_type="keyword_window", pattern=pattern, context_keywords=json.dumps(keywords, ensure_ascii=False), window_size=30, mask_text=mask, priority=priority, enabled=True, version=1))
+    if "payment_terms_rule" not in existing_rules:
+        db.add(SensitiveFilterRule(code="payment_terms_rule", name="付款条件识别", sensitive_type_code="payment_terms", match_type="keyword", pattern=r"预付款|尾款|账期|付款条件|付款方式|验收后支付|合同款", context_keywords="[]", window_size=30, mask_text="[付款条件已隐藏]", priority=50, enabled=True, version=1))
+    keyword_rules = [
+        ("business_strategy_rule", "商务策略识别", "business_strategy", r"让利空间|价格底线|谈判空间|商务条件|底价", "[商务策略信息已隐藏]", 60),
+        ("financial_metric_rule", "财务指标识别", "financial_metric", r"\bIRR\b|\bNPV\b|投资回收期|现金流|财务回报率", "[财务指标已隐藏]", 70),
+    ]
+    for code, name, type_code, pattern, mask, priority in keyword_rules:
+        if code not in existing_rules:
+            db.add(SensitiveFilterRule(code=code, name=name, sensitive_type_code=type_code, match_type="keyword", pattern=pattern, context_keywords="[]", window_size=30, mask_text=mask, priority=priority, enabled=True, version=1))
+    db.flush()
+    existing_permissions = {(item.role_id, item.sensitive_type_code) for item in db.scalars(select(RoleSensitivePermission)).all()}
+    for role in db.scalars(select(Role)).all():
+        for code, _, _ in type_defaults:
+            if (role.id, code) not in existing_permissions:
+                db.add(RoleSensitivePermission(role_id=role.id, sensitive_type_code=code, can_view=role.code == "admin"))
 
 
 def seed_permissions(db: Session) -> None:

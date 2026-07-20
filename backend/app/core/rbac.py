@@ -82,6 +82,7 @@ MENU_TREE: tuple[MenuNode, ...] = (
             MenuNode("system:model-config", "模型配置", "/system/model-configs"),
             MenuNode("system:operation-log", "操作日志", "/system/logs"),
             MenuNode("system:qa-audit", "问答审计", "/system/qa-audits"),
+            MenuNode("system:sensitive-content", "敏感内容管理", "/system/sensitive-content"),
         ),
     ),
 )

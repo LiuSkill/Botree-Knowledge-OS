@@ -1029,6 +1029,77 @@ def test_review_task_page_returns_total_and_page_items() -> None:
         db.close()
 
 
+def test_reject_review_requires_and_persists_reason() -> None:
+    """审核驳回必须填写原因，并同步保存到任务、版本、资料和日志。"""
+
+    db = make_session()
+    try:
+        operator = make_operator()
+        document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="pending.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/pending.md",
+            review_status="reviewing",
+            document_status="pending_review",
+            index_status="not_indexed",
+            version_no=1,
+            current_version=False,
+        )
+        db.add(document)
+        db.flush()
+        version = DocumentVersion(
+            document_id=document.id,
+            version_no=1,
+            file_name="pending.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/pending.md",
+            version_status="pending_review",
+            parse_status="success",
+            review_status="reviewing",
+            index_status="not_indexed",
+            is_current=False,
+        )
+        db.add(version)
+        db.flush()
+        task = ReviewTask(
+            document_id=document.id,
+            version_id=version.id,
+            version_no=version.version_no,
+            review_status="reviewing",
+        )
+        db.add(task)
+        db.commit()
+
+        service = ReviewService(db)
+        try:
+            service.reject(task.id, operator, "   ")
+        except AppException as exc:
+            assert exc.message == "请填写驳回原因"
+        else:
+            raise AssertionError("空驳回原因不应通过审核驳回")
+
+        reason = "资料关键指标缺失，请补充后重新提交"
+        rejected_task = service.reject(task.id, operator, reason)
+        db.refresh(document)
+        db.refresh(version)
+
+        assert rejected_task.review_status == "rejected"
+        assert rejected_task.review_comment == reason
+        assert version.review_status == "rejected"
+        assert version.review_comment == reason
+        assert document.review_status == "rejected"
+        assert document.review_comment == reason
+        log = db.scalar(select(ReviewLog).where(ReviewLog.document_id == document.id, ReviewLog.action == "reject"))
+        assert log is not None
+        assert log.comment == reason
+    finally:
+        db.close()
+
+
 def test_approved_document_page_returns_total_and_page_items() -> None:
     """审核通过资料分页应只返回当前页的已通过资料。"""
 

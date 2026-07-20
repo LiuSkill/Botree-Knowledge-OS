@@ -150,6 +150,9 @@ class ChatCompletionResponse(BaseModel):
     """问答响应。"""
 
     answer: str
+    redacted: bool = False
+    redaction_types: list[str] = Field(default_factory=list)
+    security_notice: str | None = None
     session_id: int
     chat_type: str
     mode: str

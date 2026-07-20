@@ -16,6 +16,21 @@ const MIN_ZOOM = 0.18;
 const MAX_ZOOM = 1.25;
 const ZOOM_STEP = 0.1;
 
+interface PreviewTreeEdgeRef {
+  key: string;
+  fromKey: string;
+  toKey: string;
+  active: boolean;
+  kind: RouteTreePreviewNodeData['kind'];
+}
+
+interface PreviewTreeEdgePath {
+  key: string;
+  path: string;
+  active: boolean;
+  kind: RouteTreePreviewNodeData['kind'];
+}
+
 const route = useRoute();
 const router = useRouter();
 
@@ -25,6 +40,7 @@ const canvasRef = ref<HTMLElement | null>(null);
 const treeContentRef = ref<HTMLElement | null>(null);
 const zoom = ref(1);
 const treeNaturalSize = ref({ width: 1200, height: 520 });
+const treeEdgePaths = ref<PreviewTreeEdgePath[]>([]);
 
 const routeId = computed(() => Number(route.params.id));
 const currentRoute = computed(() => previewData.value?.routes.find((item) => item.id === routeId.value) || null);
@@ -39,6 +55,7 @@ const selectedRoutes = computed(() =>
   (previewData.value?.routes || []).filter((item) => selectedRouteIds.value.has(item.id)),
 );
 const previewTree = computed(() => buildPreviewTree(previewData.value?.routes || [], selectedRouteIds.value));
+const previewTreeEdges = computed(() => collectPreviewTreeEdges(previewTree.value));
 const zoomPercent = computed(() => `${Math.round(zoom.value * 100)}%`);
 
 const routeSummary = computed(() => {
@@ -58,12 +75,14 @@ const treeTransformStyle = computed(() => ({
 onMounted(() => {
   window.addEventListener('wheel', handlePreviewWheel, { passive: false });
   window.addEventListener('keydown', handleShortcutZoom);
+  window.addEventListener('resize', updateTreeGeometry);
   loadPreviewData();
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('wheel', handlePreviewWheel);
   window.removeEventListener('keydown', handleShortcutZoom);
+  window.removeEventListener('resize', updateTreeGeometry);
 });
 
 watch(routeId, () => {
@@ -187,6 +206,24 @@ function appendWasteOutputs(
     });
 }
 
+function collectPreviewTreeEdges(nodes: RouteTreePreviewNodeData[]): PreviewTreeEdgeRef[] {
+  const edges: PreviewTreeEdgeRef[] = [];
+  const visit = (node: RouteTreePreviewNodeData) => {
+    node.children.forEach((child) => {
+      edges.push({
+        key: `${node.key}->${child.key}`,
+        fromKey: node.key,
+        toKey: child.key,
+        active: node.active && child.active,
+        kind: child.kind,
+      });
+      visit(child);
+    });
+  };
+  nodes.forEach(visit);
+  return edges;
+}
+
 function setZoom(value: number): void {
   zoom.value = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(2))));
 }
@@ -235,14 +272,20 @@ function resetZoom(): void {
 }
 
 function fitToWidth(): void {
-  updateTreeNaturalSize();
+  updateTreeGeometry();
   const canvasWidth = canvasRef.value?.clientWidth || 0;
   const treeWidth = treeNaturalSize.value.width;
   if (!canvasWidth || !treeWidth) return;
   setZoom((canvasWidth - 32) / treeWidth);
   nextTick(() => {
     canvasRef.value?.scrollTo({ left: 0, top: 0 });
+    updateTreeEdgePaths();
   });
+}
+
+function updateTreeGeometry(): void {
+  updateTreeNaturalSize();
+  updateTreeEdgePaths();
 }
 
 function updateTreeNaturalSize(): void {
@@ -252,6 +295,74 @@ function updateTreeNaturalSize(): void {
     width: Math.max(treeEl.offsetWidth, 1),
     height: Math.max(treeEl.offsetHeight, 1),
   };
+}
+
+function updateTreeEdgePaths(): void {
+  const treeEl = treeContentRef.value;
+  if (!treeEl) {
+    treeEdgePaths.value = [];
+    return;
+  }
+
+  const labelElements = Array.from(treeEl.querySelectorAll<HTMLElement>('[data-node-key]'));
+  const nodeRects = new Map<string, DOMRectReadOnly>();
+  labelElements.forEach((element) => {
+    const key = element.dataset.nodeKey;
+    if (key) {
+      nodeRects.set(key, getRelativeRect(element, treeEl));
+    }
+  });
+
+  treeEdgePaths.value = previewTreeEdges.value
+    .map((edge) => {
+      const from = nodeRects.get(edge.fromKey);
+      const to = nodeRects.get(edge.toKey);
+      if (!from || !to) return null;
+      const startX = from.x + from.width;
+      const startY = from.y + from.height / 2;
+      const endX = to.x;
+      const endY = to.y + to.height / 2;
+      const middleX = Math.max(startX + 18, startX + Math.max((endX - startX) / 2, 18));
+      return {
+        key: edge.key,
+        path: [
+          `M ${formatSvgNumber(startX)} ${formatSvgNumber(startY)}`,
+          `H ${formatSvgNumber(middleX)}`,
+          `V ${formatSvgNumber(endY)}`,
+          `H ${formatSvgNumber(endX)}`,
+        ].join(' '),
+        active: edge.active,
+        kind: edge.kind,
+      };
+    })
+    .filter((item): item is PreviewTreeEdgePath => Boolean(item));
+}
+
+function getRelativeRect(element: HTMLElement, root: HTMLElement): DOMRectReadOnly {
+  let x = 0;
+  let y = 0;
+  let cursor: HTMLElement | null = element;
+  while (cursor && cursor !== root) {
+    x += cursor.offsetLeft;
+    y += cursor.offsetTop;
+    cursor = cursor.offsetParent as HTMLElement | null;
+  }
+  if (cursor === root) {
+    return new DOMRect(x, y, element.offsetWidth, element.offsetHeight);
+  }
+
+  const elementRect = element.getBoundingClientRect();
+  const rootRect = root.getBoundingClientRect();
+  return new DOMRect(
+    (elementRect.left - rootRect.left) / zoom.value,
+    (elementRect.top - rootRect.top) / zoom.value,
+    elementRect.width / zoom.value,
+    elementRect.height / zoom.value,
+  );
+}
+
+function formatSvgNumber(value: number): string {
+  return Number(value.toFixed(2)).toString();
 }
 
 function backToDetail(): void {
@@ -291,6 +402,26 @@ function backToDetail(): void {
         <t-empty v-if="!previewTree.length" description="暂无可预览的工艺路线" />
         <div v-else class="route-preview-page__stage" :style="stageStyle">
           <div ref="treeContentRef" class="preview-tree" :style="treeTransformStyle">
+            <svg
+              class="preview-tree__edges"
+              :width="treeNaturalSize.width"
+              :height="treeNaturalSize.height"
+              :viewBox="`0 0 ${treeNaturalSize.width} ${treeNaturalSize.height}`"
+              aria-hidden="true"
+            >
+              <path
+                v-for="edge in treeEdgePaths"
+                :key="edge.key"
+                class="preview-tree__edge"
+                :class="[
+                  `preview-tree__edge--${edge.kind}`,
+                  {
+                    'preview-tree__edge--active': edge.active,
+                  },
+                ]"
+                :d="edge.path"
+              />
+            </svg>
             <RouteTreePreviewNode v-for="node in previewTree" :key="node.key" :node="node" />
           </div>
         </div>
@@ -400,7 +531,51 @@ function backToDetail(): void {
   min-width: max-content;
   align-items: start;
   gap: 18px;
+  position: relative;
   transform-origin: left top;
+}
+
+.preview-tree__edges {
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.preview-tree__edge {
+  fill: none;
+  opacity: 0.28;
+  shape-rendering: geometricprecision;
+  stroke: #d8e1ee;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.preview-tree__edge--product {
+  opacity: 0.32;
+  stroke: #efc4c4;
+}
+
+.preview-tree__edge--waste {
+  opacity: 0.34;
+  stroke: #dac4f5;
+}
+
+.preview-tree__edge--active {
+  opacity: 1;
+  stroke: #0052d9;
+  stroke-width: 2;
+}
+
+.preview-tree__edge--product.preview-tree__edge--active {
+  stroke: #d62f2f;
+}
+
+.preview-tree__edge--waste.preview-tree__edge--active {
+  stroke: #7e22ce;
 }
 
 @media (max-width: 900px) {

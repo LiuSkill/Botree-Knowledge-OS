@@ -35,7 +35,7 @@ export function approveReviewTask(id: number, comment = '审核通过'): Promise
   return request.post(`/review-tasks/${id}/approve`, { comment }) as Promise<ReviewTask>;
 }
 
-export function rejectReviewTask(id: number, comment = '审核驳回'): Promise<ReviewTask> {
+export function rejectReviewTask(id: number, comment: string): Promise<ReviewTask> {
   return request.post(`/review-tasks/${id}/reject`, { comment }) as Promise<ReviewTask>;
 }
 

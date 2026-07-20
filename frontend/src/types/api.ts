@@ -223,6 +223,9 @@ export interface DocumentInfo {
   parse_error?: string | null;
   parse_log?: string | null;
   review_status: string;
+  reviewed_by?: number | null;
+  reviewed_at?: string | null;
+  review_comment?: string | null;
   index_status: string;
   version_no: number;
   current_version: boolean;
@@ -542,6 +545,9 @@ export interface ChatProgressEvent {
 
 export interface ChatCompletionResult {
   answer: string;
+  redacted: boolean;
+  redaction_types: string[];
+  security_notice: string | null;
   session_id: number;
   chat_type: 'project_chat' | 'base_chat';
   mode: string;

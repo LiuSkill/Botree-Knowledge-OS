@@ -71,6 +71,7 @@ interface UiChatMessage extends Omit<ChatMessage, 'id' | 'citations'> {
   progressEvents: ChatProgressEvent[];
   status?: '' | 'streaming' | 'complete' | 'stop' | 'error';
   streaming?: boolean;
+  securityNotice?: string | null;
 }
 
 type DetailMode = 'citations' | 'trace';
@@ -819,12 +820,16 @@ async function submitQuestion(): Promise<void> {
             ? markProgressComplete(payload.progress_events)
             : progressEventsFromTrace(payload.agent_trace || [], true);
           queryScope.value = payload.query_scope;
+          const currentAssistant = messages.value.find((item) => item.id === assistantId);
+          if (currentAssistant) currentAssistant.securityNotice = payload.security_notice;
         },
       },
     );
 
     if (finalResult) {
       await refreshSessionState(finalResult.session_id);
+      const latestAssistant = [...messages.value].reverse().find((item) => item.role === 'assistant');
+      if (latestAssistant) latestAssistant.securityNotice = finalResult.security_notice;
     }
   } catch (error) {
     const currentAssistant = messages.value.find((item) => item.id === assistantId);
@@ -987,6 +992,9 @@ onBeforeUnmount(() => {
                   class="chat-message assistant-chat-message"
                 >
                   <ChatRichContent :content="normalizeMarkdownDisplay(message.content)" />
+                  <div v-if="message.securityNotice" class="sensitive-security-notice">
+                    {{ message.securityNotice }}
+                  </div>
                   <div v-if="shouldShowAssistantActions(message)" class="message-action-bar">
                     <t-tooltip v-if="canFeedbackMessage" content="点赞">
                       <t-button
@@ -1531,6 +1539,13 @@ onBeforeUnmount(() => {
 .message-progress {
   width: 100%;
   margin-bottom: 8px;
+}
+
+.sensitive-security-notice {
+  margin-top: 8px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 20px;
 }
 
 .message-progress.with-answer {

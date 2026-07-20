@@ -34,6 +34,7 @@ from app.models.chat import ChatCitation, ChatMessage, ChatSession
 from app.models.document import Document
 from app.models.knowledge_category import KnowledgeCategory
 from app.models.user import User
+from app.models.sensitive_content import SensitiveRedactionAudit
 from app.repositories.chat_repository import ChatRepository
 from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate, ChatSessionUpdate
 from app.services.qwen_orchestration_service import QwenOrchestrationService
@@ -384,6 +385,7 @@ class ChatService:
                 if prepared_state is None:
                     raise AppException("检索准备失败", status_code=502, code=502)
 
+                retrieval_graph.prepare_answer_context(prepared_state)
                 meta_payload = {
                     "session_id": session.id,
                     "chat_type": prepared_state["chat_type"],
@@ -409,8 +411,8 @@ class ChatService:
                         )
                         if answer_progress is not None and self._should_emit_progress(answer_progress, emitted_progress):
                             yield self._encode_sse("progress", answer_progress)
-                    yield self._encode_sse("delta", {"content": answer})
                     agent_result = retrieval_graph.to_agent_result(prepared_state)
+                    yield self._encode_sse("delta", {"content": agent_result["answer"]})
                     result = self._persist_agent_result(payload, user, session, agent_result)
                     yield self._encode_sse("done", self._sanitize_stream_result(result))
                     return
@@ -434,7 +436,6 @@ class ChatService:
                     if not delta:
                         continue
                     answer_chunks.append(delta)
-                    yield self._encode_sse("delta", {"content": delta})
 
                 answer = "".join(answer_chunks).strip()
                 if not answer:
@@ -449,6 +450,7 @@ class ChatService:
                     elapsed_ms=int((time.perf_counter() - answer_started_at) * 1000),
                     trace_sequence=answer_sequence,
                 )
+                yield self._encode_sse("delta", {"content": agent_result["answer"]})
                 if agent_result.get("agent_trace"):
                     final_progress = self._progress_event_from_trace(
                         retrieval_graph.trace_delta_payload(agent_result["agent_trace"][-1])
@@ -868,6 +870,19 @@ class ChatService:
 
         citations = self._build_chat_citations(assistant_message.id, agent_result["evidences"])
         self.repository.add_citations(citations)
+        if agent_result.get("redacted"):
+            self.db.add(
+                SensitiveRedactionAudit(
+                    user_id=user.id,
+                    role_ids=json.dumps([role.id for role in user.roles if role.enabled]),
+                    message_id=assistant_message.id,
+                    chat_type=agent_result["chat_type"],
+                    project_id=payload.project_id,
+                    redaction_types=json.dumps(agent_result.get("redaction_types", []), ensure_ascii=False),
+                    redaction_count=int(agent_result.get("redaction_count") or 0),
+                    final_answer_redacted=bool(agent_result.get("final_answer_redacted")),
+                )
+            )
         if agent_result.get("need_user_confirm") and agent_result.get("pending_action") in {
             "confirm_general_answer",
             "general_answer_confirm",
@@ -933,6 +948,9 @@ class ChatService:
         trace_steps = agent_result.get("trace_steps", agent_result["agent_trace"])
         return {
             "answer": agent_result["answer"],
+            "redacted": bool(agent_result.get("redacted")),
+            "redaction_types": list(agent_result.get("redaction_types", [])),
+            "security_notice": agent_result.get("security_notice"),
             "session_id": session.id,
             "chat_type": agent_result["chat_type"],
             "mode": agent_result["mode"],

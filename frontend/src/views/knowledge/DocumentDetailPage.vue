@@ -293,6 +293,8 @@ const viewedFileSize = computed(() => viewedVersion.value?.file_size ?? document
 const isViewedPdfFile = computed(() => isPdfFile(viewedFileName.value, viewedFileType.value));
 const pdfPreviewButtonLabel = computed(() => (isViewedPdfFile.value ? '预览原始 PDF' : '预览转换 PDF'));
 const viewedReviewStatus = computed(() => viewedVersion.value?.review_status || documentInfo.value?.review_status || 'draft');
+const viewedReviewComment = computed(() => (viewedVersion.value?.review_comment || documentInfo.value?.review_comment || '').trim());
+const showRejectReason = computed(() => viewedReviewStatus.value === 'rejected' && viewedReviewComment.value.length > 0);
 const viewedParseStatus = computed(() => viewedVersion.value?.parse_status || documentInfo.value?.parse_status || 'unparsed');
 const viewedIndexStatus = computed(() => viewedVersion.value?.index_status || documentInfo.value?.index_status || 'not_indexed');
 const documentSecurityLevel = computed<SecurityLevel>(() => (documentInfo.value?.security_level || 'internal') as SecurityLevel);
@@ -1465,6 +1467,10 @@ onBeforeUnmount(() => {
           <div class="summary-line">分类：{{ documentInfo?.category_path || documentInfo?.category_name || '-' }}</div>
           <div class="summary-line">最新任务：{{ taskStatusText(latestIndexTask) }}</div>
           <div class="summary-line">更新时间：{{ formatDateTime(documentInfo?.updated_at) }}</div>
+          <div v-if="showRejectReason" class="reject-reason-panel">
+            <div class="reject-reason-title">驳回原因</div>
+            <div class="reject-reason-content">{{ viewedReviewComment }}</div>
+          </div>
           <div v-if="documentInfo?.build_error" class="error-text">构建错误：{{ documentInfo.build_error }}</div>
         </div>
       </section>
@@ -1866,6 +1872,28 @@ onBeforeUnmount(() => {
   color: #dc2626;
   font-size: 13px;
   line-height: 1.5;
+  word-break: break-word;
+}
+
+.reject-reason-panel {
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+}
+
+.reject-reason-title {
+  margin-bottom: 6px;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reject-reason-content {
+  color: #7f1d1d;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
   word-break: break-word;
 }
 

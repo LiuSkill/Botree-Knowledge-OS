@@ -10,6 +10,8 @@ Retrieval LangGraph
 from __future__ import annotations
 
 import logging
+import hashlib
+from dataclasses import replace
 import re
 import time
 import uuid
@@ -38,6 +40,7 @@ from app.services.rag_prompt_templates import KNOWN_RETRIEVERS
 from app.services.reranker_service import RerankerService
 from app.services.retrieval_planner_service import RetrievalPlannerService
 from app.services.visual_evidence_service import VisualEvidenceService
+from app.services.sensitive_content_service import SECURITY_NOTICE, SensitiveContentService
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +165,7 @@ class RetrievalGraph:
         self.merger = EvidenceMerger()
         self.reranker = RerankerService(db)
         self.visual_evidence_service = VisualEvidenceService(db)
+        self.sensitive_content_service = SensitiveContentService(db)
         self._compiled_graph = self._try_compile_langgraph()
 
     def prepare(
@@ -208,13 +212,13 @@ class RetrievalGraph:
             reranker_score_order=reranker_score_order,
         )
         logger.info(
-            "LangGraph预处理开始: run_id=%s user_id=%s chat_type=%s mode=%s project_id=%s question=%s",
+            "LangGraph预处理开始: run_id=%s user_id=%s chat_type=%s mode=%s project_id=%s question_meta=%s",
             state.get("raw", {}).get("run_id"),
             getattr(user, "id", None),
             chat_type,
             mode,
             project_id,
-            self._clip(question, 300),
+            self._text_log_metadata(question),
         )
         prepared_state = self._run_until_evidence_judge(state)
         logger.info(
@@ -269,13 +273,13 @@ class RetrievalGraph:
             reranker_score_order=reranker_score_order,
         )
         logger.info(
-            "LangGraph预处理流开始: run_id=%s user_id=%s chat_type=%s mode=%s project_id=%s question=%s",
+            "LangGraph预处理流开始: run_id=%s user_id=%s chat_type=%s mode=%s project_id=%s question_meta=%s",
             state.get("raw", {}).get("run_id"),
             getattr(user, "id", None),
             chat_type,
             mode,
             project_id,
-            self._clip(question, 300),
+            self._text_log_metadata(question),
         )
         for trace_key, node in self._prepare_node_specs():
             sequence = self.next_trace_sequence(state)
@@ -345,7 +349,8 @@ class RetrievalGraph:
         将流式收敛后的答案补回状态，并补写回答节点 trace。
         """
 
-        final_state = self._append_answer_trace(state, answer, elapsed_ms, trace_sequence)
+        self._apply_final_answer_filter(state, answer)
+        final_state = self._append_answer_trace(state, str(state.get("answer") or ""), elapsed_ms, trace_sequence)
         logger.info(
             "LangGraph流式回答完成: run_id=%s final_mode=%s evidence_count=%s answer_preview=%s",
             final_state.get("raw", {}).get("run_id"),
@@ -415,18 +420,19 @@ class RetrievalGraph:
         )
         run_id = state.get("raw", {}).get("run_id")
         logger.info(
-            "LangGraph问答开始: run_id=%s user_id=%s chat_type=%s mode=%s project_id=%s question=%s",
+            "LangGraph问答开始: run_id=%s user_id=%s chat_type=%s mode=%s project_id=%s question_meta=%s",
             run_id,
             getattr(user, "id", None),
             chat_type,
             mode,
             project_id,
-            self._clip(question, 300),
+            self._text_log_metadata(question),
         )
         if self._compiled_graph is not None:
             final_state = self._compiled_graph.invoke(state)
         else:
             final_state = self._run_sequential(state)
+        self._apply_final_answer_filter(final_state)
         logger.info(
             "LangGraph问答完成: run_id=%s final_mode=%s evidence_count=%s answer_preview=%s",
             final_state.get("raw", {}).get("run_id"),
@@ -856,10 +862,10 @@ class RetrievalGraph:
                 raw["skip_retrieval"] = True
                 raw["route_reason"] = "命中无效输入门控"
                 logger.info(
-                    "快速门控命中无效输入: run_id=%s chat_type=%s question=%s skip_retrieval=true",
+                    "快速门控命中无效输入: run_id=%s chat_type=%s question_meta=%s skip_retrieval=true",
                     raw.get("run_id"),
                     state.get("chat_type"),
-                    self._clip(state.get("question", ""), 120),
+                    self._text_log_metadata(state.get("question", "")),
                 )
                 return state
 
@@ -1660,6 +1666,9 @@ class RetrievalGraph:
             self._preferred_answer_context(state, list(state.get("evidences", [])), answer_top_k),
             answer_top_k,
         )
+        # 部分纯算法单测使用 object.__new__ 构造不完整实例；正式链路必须具备服务并执行过滤。
+        if hasattr(self, "sensitive_content_service") or hasattr(self, "db"):
+            answer_evidences = self._sanitize_evidences(state, answer_evidences)
         raw = state.setdefault("raw", {})
         raw["answer_top_k"] = answer_top_k
         raw["answer_context_count"] = len(answer_evidences)
@@ -1667,6 +1676,31 @@ class RetrievalGraph:
         raw["final_answer_doc_ids_top5"] = raw["answer_context_doc_ids"][:5]
         raw["final_answer_doc_ids_top10"] = raw["answer_context_doc_ids"][:10]
         return answer_evidences
+
+    def prepare_answer_context(self, state: RetrievalGraphState) -> list[Evidence]:
+        """为流式链路准备安全上下文；返回后可安全进入 LLM 和前端 citation。"""
+
+        evidences = self._record_answer_context(state)
+        state["evidences"] = evidences
+        return evidences
+
+    def _sanitize_evidences(self, state: RetrievalGraphState, evidences: list[Evidence]) -> list[Evidence]:
+        user = state.get("user")
+        if user is None:
+            return []  # 无法判定权限时默认不放行证据内容。
+        safe_evidences: list[Evidence] = []
+        allowed_types, rules = self.sensitive_content_service.runtime_config_for_user(user)
+        redaction_types: set[str] = set(state.get("redaction_types", []))
+        redaction_count = int(state.get("redaction_count") or 0)
+        for evidence in evidences:
+            result = self.sensitive_content_service.runtime_filter.filter(evidence.content, allowed_types, rules)
+            safe_evidences.append(replace(evidence, content=result.safe_content))
+            redaction_types.update(result.redaction_types)
+            redaction_count += result.redaction_count
+        state["redaction_types"] = sorted(redaction_types)
+        state["redaction_count"] = redaction_count
+        state["redacted"] = bool(redaction_types)
+        return safe_evidences
 
     def _preferred_answer_context(
         self,
@@ -1841,7 +1875,7 @@ class RetrievalGraph:
                 query_scope = "通用问答"
                 state["answer_type"] = "general_llm"
 
-            state["answer"] = answer
+            self._apply_final_answer_filter(state, answer)
             state["direct_answer"] = True
             state["direct_answer_type"] = answer_type
             state["intent_type"] = intent_type
@@ -2407,6 +2441,7 @@ class RetrievalGraph:
         """
 
         def run() -> RetrievalGraphState:
+            state["evidences"] = self._sanitize_evidences(state, list(state.get("evidences", [])))
             raw = state.setdefault("raw", {})
             eval_top_k = self._eval_top_k(state)
             before_evidences = self._top_scored_evidences(list(state.get("evidences", [])), eval_top_k)
@@ -2433,6 +2468,7 @@ class RetrievalGraph:
                 }
                 return state
             judge_started_at = time.perf_counter()
+            state["evidences"] = self._sanitize_evidences(state, list(state.get("evidences", [])))
             state["evidence_judgement"] = self.qwen.judge_evidence(
                 state["question"],
                 state.get("evidences", []),
@@ -2767,6 +2803,7 @@ class RetrievalGraph:
                 )
 
             retry_judge_started_at = time.perf_counter()
+            state["evidences"] = self._sanitize_evidences(state, list(state.get("evidences", [])))
             state["evidence_judgement"] = self.qwen.judge_evidence(
                 state["question"],
                 state.get("evidences", []),
@@ -3114,6 +3151,7 @@ class RetrievalGraph:
                     user=state.get("user"),
                     request_id=state.get("raw", {}).get("run_id"),
                 )
+            self._apply_final_answer_filter(state)
             state["evidences"] = answer_evidences
             state["answer_type"] = action
             state["need_user_confirm"] = False
@@ -3438,7 +3476,7 @@ class RetrievalGraph:
         user = state.get("user")
         raw = state.get("raw", {})
         return {
-            "question": self._clip(state.get("question", ""), 300),
+            "question_meta": self._text_log_metadata(state.get("question", "")),
             "chat_type": state.get("chat_type"),
             "mode": state.get("mode"),
             "project_id": state.get("project_id"),
@@ -3448,7 +3486,7 @@ class RetrievalGraph:
             "skip_retrieval": bool(raw.get("skip_retrieval")),
             "direct_answer_type": state.get("direct_answer_type"),
             "reason": raw.get("route_reason"),
-            "sub_queries": [self._clip(item, 160) for item in state.get("sub_queries", [])],
+            "sub_query_count": len(state.get("sub_queries", [])),
             "query_profile": self._query_profile_log_summary(state.get("query_profile", {})),
             "question_understanding": self._question_understanding_log_summary(state.get("question_understanding", {})),
             "policy_resolution": self._policy_resolution_log_summary(state.get("policy_resolution", {})),
@@ -3478,7 +3516,7 @@ class RetrievalGraph:
             "skip_retrieval": bool(state.get("raw", {}).get("skip_retrieval")),
             "direct_answer_type": state.get("direct_answer_type"),
             "reason": state.get("raw", {}).get("route_reason"),
-            "sub_queries": [self._clip(item, 160) for item in state.get("sub_queries", [])],
+            "sub_query_count": len(state.get("sub_queries", [])),
             "query_profile": self._query_profile_log_summary(state.get("query_profile", {})),
             "question_understanding": self._question_understanding_log_summary(state.get("question_understanding", {})),
             "policy_resolution": self._policy_resolution_log_summary(state.get("policy_resolution", {})),
@@ -3531,7 +3569,7 @@ class RetrievalGraph:
             "need_graph_reasoning": bool(profile.get("need_graph_reasoning")),
             "entity_count": len(profile.get("entities") or []),
             "keyword_count": len(profile.get("keywords") or []),
-            "reason": self._clip(str(profile.get("reason") or ""), 240),
+            "reason_present": bool(profile.get("reason")),
         }
 
     def _question_understanding_log_summary(self, understanding: dict[str, Any] | None) -> dict[str, Any]:
@@ -3544,9 +3582,9 @@ class RetrievalGraph:
             "knowledge_scope": data.get("knowledge_scope"),
             "answer_policy": data.get("answer_policy"),
             "retrieval_needs": data.get("retrieval_needs", {}),
-            "query_rewrites": data.get("query_rewrites", [])[:8],
+            "query_rewrite_count": len(data.get("query_rewrites") or []),
             "confidence": data.get("confidence"),
-            "reason": self._clip(str(data.get("reason") or ""), 240),
+            "reason_present": bool(data.get("reason")),
         }
 
     def _policy_resolution_log_summary(self, policy_resolution: dict[str, Any] | None) -> dict[str, Any]:
@@ -3562,7 +3600,7 @@ class RetrievalGraph:
             "answer_policy": data.get("answer_policy"),
             "knowledge_scope": data.get("knowledge_scope"),
             "conflict_detected": data.get("conflict_detected"),
-            "conflict_reason": self._clip(str(data.get("conflict_reason") or ""), 240),
+            "conflict_reason_present": bool(data.get("conflict_reason")),
             "resolution_rule": data.get("resolution_rule"),
         }
 
@@ -4097,7 +4135,7 @@ class RetrievalGraph:
                     "page_no": evidence.page_number,
                     "chunk_id": evidence.chunk_id,
                     "visual_asset_count": len(evidence.assets),
-                    "content_preview": self._clip(evidence.content, 160),
+                    "content_length": len(evidence.content or ""),
                 }
             )
         return summary
@@ -4118,6 +4156,39 @@ class RetrievalGraph:
         if len(text) <= limit:
             return text
         return f"{text[:limit]}..."
+
+    def _text_log_metadata(self, value: Any) -> dict[str, Any]:
+        """生成不可逆文本指纹，日志中不得记录问题或知识内容原文。"""
+
+        text = "" if value is None else str(value)
+        return {
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
+            "length": len(text),
+        }
+
+    def _apply_final_answer_filter(
+        self,
+        state: RetrievalGraphState,
+        answer: str | None = None,
+    ) -> None:
+        """在 trace、日志或响应接触最终答案前执行兜底脱敏。"""
+
+        user = state.get("user")
+        if user is None:
+            state["answer"] = ""
+            return
+        service = getattr(self, "sensitive_content_service", None)
+        if service is None:
+            # 兼容测试和降级构造路径；正式实例仍复用初始化时创建的服务。
+            service = SensitiveContentService(getattr(self, "db", None))
+        source_answer = state.get("answer") if answer is None else answer
+        filtered = service.filter_for_user(str(source_answer or "").strip(), user)
+        state["answer"] = filtered.safe_content
+        combined_types = set(state.get("redaction_types", [])) | set(filtered.redaction_types)
+        state["redaction_types"] = sorted(combined_types)
+        state["redaction_count"] = int(state.get("redaction_count") or 0) + filtered.redaction_count
+        state["redacted"] = bool(combined_types)
+        state["final_answer_redacted"] = bool(state.get("final_answer_redacted") or filtered.redacted)
 
     def _to_agent_result(self, state: RetrievalGraphState) -> dict[str, Any]:
         """
@@ -4159,11 +4230,17 @@ class RetrievalGraph:
                 or state.get("answer_type") == AnswerAction.ASK_GENERAL_CONFIRM.value
             ),
         }
+        self._apply_final_answer_filter(state)
         answer = str(state.get("answer") or "").strip()
         if not answer:
             answer = PROJECT_REFUSAL_ANSWER if state.get("chat_type") == "project_chat" else BASE_GENERAL_CONFIRM_ANSWER
         return {
             "answer": answer,
+            "redacted": bool(state.get("redacted")),
+            "redaction_types": list(state.get("redaction_types", [])),
+            "redaction_count": int(state.get("redaction_count") or 0),
+            "security_notice": SECURITY_NOTICE if state.get("redacted") else None,
+            "final_answer_redacted": bool(state.get("final_answer_redacted")),
             "chat_type": state["chat_type"],
             "mode": state["mode"],
             "answer_type": state.get("answer_type"),

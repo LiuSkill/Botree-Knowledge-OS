@@ -91,6 +91,13 @@ const buildStatusOptions = computed(() => {
    */
   return Object.entries(INDEX_STATUS_TEXT).map(([value, label]) => ({ value, label }));
 });
+const rejectDialogVisible = ref(false);
+const rejectSubmitting = ref(false);
+const pendingRejectTask = ref<ReviewTask | null>(null);
+const rejectForm = reactive({
+  comment: '',
+});
+const pendingRejectTaskName = computed(() => (pendingRejectTask.value ? taskFileName(pendingRejectTask.value) : ''));
 
 const taskColumns = [
   { colKey: 'file_name', title: '文件名', minWidth: 240, ellipsis: true },
@@ -307,10 +314,47 @@ async function decide(action: 'approve' | 'reject', task: ReviewTask): Promise<v
     MessagePlugin.warning('当前账号没有审核驳回权限');
     return;
   }
-  if (action === 'approve') await approveReviewTask(task.id);
-  if (action === 'reject') await rejectReviewTask(task.id);
+  if (action === 'reject') {
+    openRejectDialog(task);
+    return;
+  }
+  await approveReviewTask(task.id);
   MessagePlugin.success('审核操作已完成');
   await loadTasks();
+}
+
+function openRejectDialog(task: ReviewTask): void {
+  pendingRejectTask.value = task;
+  rejectForm.comment = '';
+  rejectDialogVisible.value = true;
+}
+
+function closeRejectDialog(): void {
+  if (rejectSubmitting.value) return;
+  rejectDialogVisible.value = false;
+  pendingRejectTask.value = null;
+  rejectForm.comment = '';
+}
+
+async function confirmRejectTask(): Promise<void> {
+  const comment = rejectForm.comment.trim();
+  if (!comment) {
+    MessagePlugin.warning('请填写驳回原因');
+    return;
+  }
+  if (!pendingRejectTask.value) return;
+
+  rejectSubmitting.value = true;
+  try {
+    await rejectReviewTask(pendingRejectTask.value.id, comment);
+    MessagePlugin.success('已驳回该资料');
+    rejectDialogVisible.value = false;
+    pendingRejectTask.value = null;
+    rejectForm.comment = '';
+    await loadTasks();
+  } finally {
+    rejectSubmitting.value = false;
+  }
 }
 
 async function syncBuildTask(documentId: number): Promise<boolean> {
@@ -842,6 +886,32 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </div>
+
+    <t-dialog
+      v-model:visible="rejectDialogVisible"
+      header="填写驳回原因"
+      width="520px"
+      :confirm-btn="{ content: '确认驳回', theme: 'danger', loading: rejectSubmitting }"
+      :cancel-btn="{ content: '取消', disabled: rejectSubmitting }"
+      :close-on-overlay-click="!rejectSubmitting"
+      @confirm="confirmRejectTask"
+      @close="closeRejectDialog"
+    >
+      <t-form label-align="top">
+        <t-form-item label="被驳回资料">
+          <span class="reject-document-name">{{ pendingRejectTaskName || '-' }}</span>
+        </t-form-item>
+        <t-form-item label="驳回原因">
+          <t-textarea
+            v-model="rejectForm.comment"
+            placeholder="请输入驳回原因，提交后会展示在资料详情中"
+            :autosize="{ minRows: 4, maxRows: 6 }"
+            :maxlength="500"
+            show-limit-number
+          />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </PageContainer>
 </template>
 
@@ -1016,6 +1086,13 @@ onBeforeUnmount(() => {
 
 .error-cell {
   color: #dc2626;
+}
+
+.reject-document-name {
+  color: #0f172a;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-word;
 }
 
 @media (max-width: 820px) {

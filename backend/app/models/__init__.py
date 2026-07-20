@@ -42,6 +42,7 @@ from app.models.project import Project, ProjectMember
 from app.models.retrieval_trace import RetrievalTrace
 from app.models.review import ReviewLog, ReviewTask
 from app.models.system_config import SystemConfig
+from app.models.sensitive_content import RoleSensitivePermission, SensitiveFilterRule, SensitiveRedactionAudit, SensitiveType
 from app.models.user import Permission, Role, User, role_permissions, user_roles
 
 __all__ = [
@@ -89,6 +90,10 @@ __all__ = [
     "ReviewTask",
     "Role",
     "SystemConfig",
+    "SensitiveType",
+    "SensitiveFilterRule",
+    "RoleSensitivePermission",
+    "SensitiveRedactionAudit",
     "User",
     "role_permissions",
     "user_roles",

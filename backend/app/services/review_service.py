@@ -304,6 +304,10 @@ class ReviewService:
     def reject(self, task_id: int, operator: User, comment: str | None = None) -> ReviewTask:
         """审核驳回。"""
 
+        reject_reason = (comment or "").strip()
+        if not reject_reason:
+            raise AppException("请填写驳回原因")
+
         task = self.get_task(task_id)
         document = DocumentService(self.db).get_document(task.document_id, operator)
         if task.review_status != "reviewing":
@@ -315,19 +319,19 @@ class ReviewService:
             raise AppException("审核任务关联的版本不存在", status_code=404, code=404)
         task.review_status = "rejected"
         task.reviewer_id = operator.id
-        task.review_comment = comment
+        task.review_comment = reject_reason
         task.reviewed_at = now_utc()
         version.review_status = "rejected"
         version.version_status = "rejected"
         version.reviewed_by = operator.id
         version.reviewed_at = task.reviewed_at
-        version.review_comment = comment
+        version.review_comment = reject_reason
         if not self.document_repository.get_current_version(document.id) or document.version_no == version.version_no:
             document.review_status = "rejected"
             document.document_status = "pending_review"
             document.reviewed_by = operator.id
             document.reviewed_at = task.reviewed_at
-            document.review_comment = comment
+            document.review_comment = reject_reason
         self.repository.add_log(
             ReviewLog(
                 document_id=document.id,
@@ -335,10 +339,10 @@ class ReviewService:
                 version_no=version.version_no,
                 action="reject",
                 operator_id=operator.id,
-                comment=comment,
+                comment=reject_reason,
             )
         )
-        SystemService(self.db).record_operation(operator, "审核驳回", "document", document.id, comment or "审核驳回")
+        SystemService(self.db).record_operation(operator, "审核驳回", "document", document.id, reject_reason)
         self.db.commit()
         self._attach_task_display_fields([task])
         logger.info(
