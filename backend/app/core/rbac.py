@@ -354,6 +354,22 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
             ActionPermission("view", "查看问答审计", "system:qa-audit:view"),
         ),
     ),
+    ActionGroup(
+        "system-sensitive-content",
+        "敏感内容管理",
+        ("system:sensitive-content",),
+        (
+            ActionPermission("view", "查看敏感内容配置", "system:sensitive-content:view"),
+            ActionPermission("type-create", "新增敏感类型", "system:sensitive-content:type-create"),
+            ActionPermission("type-edit", "编辑/启停敏感类型", "system:sensitive-content:type-edit"),
+            ActionPermission("rule-create", "新增敏感规则", "system:sensitive-content:rule-create"),
+            ActionPermission("rule-edit", "编辑/启停敏感规则", "system:sensitive-content:rule-edit"),
+            ActionPermission("rule-test", "测试敏感规则", "system:sensitive-content:rule-test"),
+            ActionPermission("permission-save", "保存角色敏感权限", "system:sensitive-content:permission-save"),
+            ActionPermission("cache-refresh", "刷新敏感规则缓存", "system:sensitive-content:cache-refresh"),
+            ActionPermission("audit-view", "查看脱敏审计", "system:sensitive-content:audit-view"),
+        ),
+    ),
 )
 
 

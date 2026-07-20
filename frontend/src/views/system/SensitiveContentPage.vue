@@ -12,6 +12,7 @@ import {
   testSensitiveRule, type SensitiveAudit, type SensitiveRoleMatrix, type SensitiveRule, type SensitiveType,
 } from '@/api/sensitiveContent';
 import TableActionButton from '@/components/TableActionButton.vue';
+import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import { formatDateTime } from '@/utils/format';
 
@@ -98,7 +99,7 @@ const auditColumns = [
 ];
 
 async function loadBaseData(): Promise<void> {
-  if (!authStore.isAdmin) return;
+  if (!authStore.hasActionPermission(PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_VIEW)) return;
   loading.value = true;
   try {
     [types.value, rules.value, matrix.value] = await Promise.all([
@@ -194,17 +195,19 @@ function statusTheme(enabled: boolean): TagTheme { return enabled ? 'success' : 
 function matchTypeLabel(value: string): string { return ({ regex: '正则表达式', keyword: '关键词', keyword_window: '关键词窗口' } as Record<string, string>)[value] || value; }
 function chatTypeLabel(value: string): string { return value === 'project_chat' ? '项目问答' : value === 'base_chat' ? '基础问答' : value; }
 
-watch(tab, (value) => { if (value === 'audits' && !audits.value.length) void loadAudits(); });
+watch(tab, (value) => {
+  if (value === 'audits' && !audits.value.length && authStore.hasActionPermission(PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_AUDIT_VIEW)) void loadAudits();
+});
 watch([() => typeFilters.keyword, () => typeFilters.enabled], () => { typePage.value = 1; });
 watch([() => ruleFilters.keyword, () => ruleFilters.sensitive_type_code, () => ruleFilters.match_type, () => ruleFilters.enabled], () => { rulePage.value = 1; });
 onMounted(loadBaseData);
 </script>
 
 <template>
-  <div v-if="authStore.isAdmin" class="system-card sensitive-card">
+  <div v-if="authStore.hasActionPermission(PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_VIEW)" class="system-card sensitive-card">
     <div class="page-actions">
       <span>规则或权限保存后会自动生效；必要时可手动刷新运行时缓存。</span>
-      <t-button theme="default" variant="outline" :loading="refreshingCache" @click="refreshCache">
+      <t-button v-permission="PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_CACHE_REFRESH" theme="default" variant="outline" :loading="refreshingCache" @click="refreshCache">
         <template #icon><RefreshIcon /></template>刷新缓存
       </t-button>
     </div>
@@ -217,12 +220,12 @@ onMounted(loadBaseData);
             <t-form-item label="状态"><t-select v-model="typeFilters.enabled" class="filter-select" clearable placeholder="全部状态"><t-option label="启用" value="enabled" /><t-option label="停用" value="disabled" /></t-select></t-form-item>
             <t-form-item><t-space><t-button theme="primary" @click="typePage = 1"><template #icon><SearchIcon /></template>查询</t-button><t-button @click="resetTypeFilters">重置</t-button></t-space></t-form-item>
           </t-form>
-          <div class="system-section-head"><div class="system-section-title"><h2>敏感类型列表</h2><span>共 {{ filteredTypes.length }} 条数据</span></div><t-space><t-button theme="default" variant="outline" @click="loadBaseData"><template #icon><RefreshIcon /></template>刷新</t-button><t-button theme="primary" @click="editType()">新增敏感类型</t-button></t-space></div>
+          <div class="system-section-head"><div class="system-section-title"><h2>敏感类型列表</h2><span>共 {{ filteredTypes.length }} 条数据</span></div><t-space><t-button theme="default" variant="outline" @click="loadBaseData"><template #icon><RefreshIcon /></template>刷新</t-button><t-button v-permission="PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_TYPE_CREATE" theme="primary" @click="editType()">新增敏感类型</t-button></t-space></div>
           <div class="table-scroll"><t-table row-key="id" bordered table-layout="fixed" :data="visibleTypes" :columns="typeColumns" :loading="loading" empty="暂无敏感类型">
             <template #default_mask_text="{ row }"><t-tooltip :content="row.default_mask_text"><div class="single-line">{{ row.default_mask_text }}</div></t-tooltip></template>
             <template #enabled="{ row }"><t-tag size="small" variant="light" :theme="statusTheme(row.enabled)">{{ row.enabled ? '启用' : '停用' }}</t-tag></template>
             <template #updated_at="{ row }">{{ formatDateTime(row.updated_at) }}</template>
-            <template #operation="{ row }"><t-space size="small"><TableActionButton label="编辑" @click="editType(row)"><EditIcon /></TableActionButton><t-popconfirm :content="`确认${row.enabled ? '停用' : '启用'}该敏感类型？`" @confirm="toggleType(row)"><TableActionButton :label="row.enabled ? '停用' : '启用'"><PoweroffIcon /></TableActionButton></t-popconfirm></t-space></template>
+            <template #operation="{ row }"><t-space size="small"><TableActionButton label="编辑" :permission="PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_TYPE_EDIT" @click="editType(row)"><EditIcon /></TableActionButton><t-popconfirm :content="`确认${row.enabled ? '停用' : '启用'}该敏感类型？`" @confirm="toggleType(row)"><TableActionButton :label="row.enabled ? '停用' : '启用'" :permission="PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_TYPE_EDIT"><PoweroffIcon /></TableActionButton></t-popconfirm></t-space></template>
           </t-table></div>
           <div class="system-pagination"><t-pagination :current="typePage" :page-size="typePageSize" :total="filteredTypes.length" :page-size-options="PAGE_SIZE_OPTIONS" show-jumper @change="handleTypePage" /></div>
         </div>
@@ -237,13 +240,13 @@ onMounted(loadBaseData);
             <t-form-item label="状态"><t-select v-model="ruleFilters.enabled" class="filter-select" clearable placeholder="全部状态"><t-option label="启用" value="enabled" /><t-option label="停用" value="disabled" /></t-select></t-form-item>
             <t-form-item><t-space><t-button theme="primary" @click="rulePage = 1">查询</t-button><t-button @click="resetRuleFilters">重置</t-button></t-space></t-form-item>
           </t-form>
-          <div class="system-section-head"><div class="system-section-title"><h2>敏感规则列表</h2><span>共 {{ filteredRules.length }} 条数据</span></div><t-space><t-button theme="default" variant="outline" @click="openRuleTest"><template #icon><CheckCircleIcon /></template>规则测试</t-button><t-button theme="primary" @click="editRule()">新增敏感规则</t-button></t-space></div>
+          <div class="system-section-head"><div class="system-section-title"><h2>敏感规则列表</h2><span>共 {{ filteredRules.length }} 条数据</span></div><t-space><t-button v-permission="PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_RULE_TEST" theme="default" variant="outline" @click="openRuleTest"><template #icon><CheckCircleIcon /></template>规则测试</t-button><t-button v-permission="PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_RULE_CREATE" theme="primary" @click="editRule()">新增敏感规则</t-button></t-space></div>
           <div class="table-scroll"><t-table row-key="id" bordered table-layout="fixed" :data="visibleRules" :columns="ruleColumns" :loading="loading" empty="暂无敏感规则">
             <template #sensitive_type_code="{ row }">{{ typeNameMap.get(row.sensitive_type_code) || row.sensitive_type_code }}</template>
             <template #match_type="{ row }"><t-tag size="small" variant="light">{{ matchTypeLabel(row.match_type) }}</t-tag></template>
             <template #pattern="{ row }"><t-tooltip :content="row.pattern"><div class="single-line rule-pattern">{{ row.pattern }}</div></t-tooltip></template>
             <template #enabled="{ row }"><t-tag size="small" variant="light" :theme="statusTheme(row.enabled)">{{ row.enabled ? '启用' : '停用' }}</t-tag></template>
-            <template #operation="{ row }"><t-space size="small"><TableActionButton label="编辑" @click="editRule(row)"><EditIcon /></TableActionButton><t-popconfirm :content="`确认${row.enabled ? '停用' : '启用'}该敏感规则？`" @confirm="toggleRule(row)"><TableActionButton :label="row.enabled ? '停用' : '启用'"><PoweroffIcon /></TableActionButton></t-popconfirm></t-space></template>
+            <template #operation="{ row }"><t-space size="small"><TableActionButton label="编辑" :permission="PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_RULE_EDIT" @click="editRule(row)"><EditIcon /></TableActionButton><t-popconfirm :content="`确认${row.enabled ? '停用' : '启用'}该敏感规则？`" @confirm="toggleRule(row)"><TableActionButton :label="row.enabled ? '停用' : '启用'" :permission="PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_RULE_EDIT"><PoweroffIcon /></TableActionButton></t-popconfirm></t-space></template>
           </t-table></div>
           <div class="system-pagination"><t-pagination :current="rulePage" :page-size="rulePageSize" :total="filteredRules.length" :page-size-options="PAGE_SIZE_OPTIONS" show-jumper @change="handleRulePage" /></div>
         </div>
@@ -251,12 +254,12 @@ onMounted(loadBaseData);
 
       <t-tab-panel value="permissions" label="角色敏感权限">
         <div class="tab-content">
-          <div class="matrix-notice"><div><h2>角色敏感权限</h2><p>开关表示该角色可查看对应敏感类型；多角色用户按权限并集计算。</p></div><t-space><t-tag v-if="dirtyRoleIds.size" theme="warning" variant="light">{{ dirtyRoleIds.size }} 个角色有未保存修改</t-tag><t-button theme="primary" :disabled="!dirtyRoleIds.size" :loading="savingPermissions" @click="savePermissions"><template #icon><SettingIcon /></template>保存权限</t-button></t-space></div>
-          <div class="matrix-scroll" v-loading="loading"><table><thead><tr><th class="sticky-role">角色</th><th v-for="item in matrix.types" :key="item.code">{{ item.name }}</th></tr></thead><tbody><tr v-for="role in matrix.roles" :key="role.role_id"><td class="sticky-role"><strong>{{ role.role_name }}</strong></td><td v-for="item in matrix.types" :key="item.code"><t-switch v-model="role.permissions[item.code]" @change="markRoleDirty(role.role_id)" /></td></tr></tbody></table><t-empty v-if="!matrix.roles.length && !loading" description="暂无角色权限数据" /></div>
+          <div class="matrix-notice"><div><h2>角色敏感权限</h2><p>开关表示该角色可查看对应敏感类型；多角色用户按权限并集计算。</p></div><t-space><t-tag v-if="dirtyRoleIds.size" theme="warning" variant="light">{{ dirtyRoleIds.size }} 个角色有未保存修改</t-tag><t-button v-permission="PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_PERMISSION_SAVE" theme="primary" :disabled="!dirtyRoleIds.size" :loading="savingPermissions" @click="savePermissions"><template #icon><SettingIcon /></template>保存权限</t-button></t-space></div>
+          <div class="matrix-scroll" v-loading="loading"><table><thead><tr><th class="sticky-role">角色</th><th v-for="item in matrix.types" :key="item.code">{{ item.name }}</th></tr></thead><tbody><tr v-for="role in matrix.roles" :key="role.role_id"><td class="sticky-role"><strong>{{ role.role_name }}</strong></td><td v-for="item in matrix.types" :key="item.code"><t-switch v-model="role.permissions[item.code]" :disabled="!authStore.hasActionPermission(PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_PERMISSION_SAVE)" @change="markRoleDirty(role.role_id)" /></td></tr></tbody></table><t-empty v-if="!matrix.roles.length && !loading" description="暂无角色权限数据" /></div>
         </div>
       </t-tab-panel>
 
-      <t-tab-panel value="audits" label="脱敏审计">
+      <t-tab-panel v-if="authStore.hasActionPermission(PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_AUDIT_VIEW)" value="audits" label="脱敏审计">
         <div class="tab-content">
           <t-form class="system-filter-form audit-filter" layout="inline" label-align="left" label-width="auto">
             <t-form-item label="时间"><t-date-range-picker v-model="dateRange" class="filter-date-range" clearable value-type="YYYY-MM-DD" format="YYYY-MM-DD" separator="至" :placeholder="['开始日期', '结束日期']" /></t-form-item>

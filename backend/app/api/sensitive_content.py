@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.project import Project
@@ -19,42 +19,42 @@ router = APIRouter(prefix="/sensitive-content", tags=["敏感内容管理"])
 
 
 @router.get("/types")
-def list_types(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def list_types(_: User = Depends(require_permission("system:sensitive-content:view")), db: Session = Depends(get_db)) -> dict:
     return success([SensitiveTypeOut.model_validate(item).model_dump(mode="json") for item in SensitiveContentRepository(db).list_types()])
 
 
 @router.post("/types")
-def create_type(payload: SensitiveTypePayload, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def create_type(payload: SensitiveTypePayload, _: User = Depends(require_permission("system:sensitive-content:type-create")), db: Session = Depends(get_db)) -> dict:
     item = SensitiveContentManagementService(db).save_type(payload.model_dump())
     return success(SensitiveTypeOut.model_validate(item).model_dump(mode="json"))
 
 
 @router.put("/types/{item_id:int}")
-def update_type(item_id: int, payload: SensitiveTypePayload, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def update_type(item_id: int, payload: SensitiveTypePayload, _: User = Depends(require_permission("system:sensitive-content:type-edit")), db: Session = Depends(get_db)) -> dict:
     item = SensitiveContentManagementService(db).save_type(payload.model_dump(), item_id)
     return success(SensitiveTypeOut.model_validate(item).model_dump(mode="json"))
 
 
 @router.get("/rules")
-def list_rules(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def list_rules(_: User = Depends(require_permission("system:sensitive-content:view")), db: Session = Depends(get_db)) -> dict:
     service = SensitiveContentManagementService(db)
     return success([SensitiveRuleOut.model_validate(service.rule_dict(item)).model_dump(mode="json") for item in service.repository.list_rules()])
 
 
 @router.post("/rules")
-def create_rule(payload: SensitiveRulePayload, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def create_rule(payload: SensitiveRulePayload, _: User = Depends(require_permission("system:sensitive-content:rule-create")), db: Session = Depends(get_db)) -> dict:
     service = SensitiveContentManagementService(db)
     return success(SensitiveRuleOut.model_validate(service.rule_dict(service.save_rule(payload.model_dump()))).model_dump(mode="json"))
 
 
 @router.put("/rules/{item_id:int}")
-def update_rule(item_id: int, payload: SensitiveRulePayload, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def update_rule(item_id: int, payload: SensitiveRulePayload, _: User = Depends(require_permission("system:sensitive-content:rule-edit")), db: Session = Depends(get_db)) -> dict:
     service = SensitiveContentManagementService(db)
     return success(SensitiveRuleOut.model_validate(service.rule_dict(service.save_rule(payload.model_dump(), item_id))).model_dump(mode="json"))
 
 
 @router.post("/rules/test")
-def test_rules(payload: RuleTestRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def test_rules(payload: RuleTestRequest, _: User = Depends(require_permission("system:sensitive-content:rule-test")), db: Session = Depends(get_db)) -> dict:
     _, rules = SensitiveRuleService(db).load()
     rule_items = SensitiveContentRepository(db).list_rules()
     rule_id_by_code = {item.code: item.id for item in rule_items}
@@ -69,14 +69,14 @@ def test_rules(payload: RuleTestRequest, _: User = Depends(require_admin), db: S
 
 
 @router.get("/roles/{role_id:int}/permissions")
-def get_role_permissions(role_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def get_role_permissions(role_id: int, _: User = Depends(require_permission("system:sensitive-content:view")), db: Session = Depends(get_db)) -> dict:
     repo = SensitiveContentRepository(db)
     saved = {item.sensitive_type_code: item.can_view for item in repo.list_role_permissions(role_id)}
     return success({item.code: saved.get(item.code, False) for item in repo.list_types()})
 
 
 @router.get("/roles/permissions/matrix")
-def permission_matrix(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def permission_matrix(_: User = Depends(require_permission("system:sensitive-content:view")), db: Session = Depends(get_db)) -> dict:
     repo = SensitiveContentRepository(db)
     role_items = repo.list_roles()
     type_items = repo.list_types()
@@ -88,13 +88,13 @@ def permission_matrix(_: User = Depends(require_admin), db: Session = Depends(ge
 
 
 @router.put("/roles/{role_id:int}/permissions")
-def save_role_permissions(role_id: int, payload: RoleSensitivePermissionSave, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def save_role_permissions(role_id: int, payload: RoleSensitivePermissionSave, _: User = Depends(require_permission("system:sensitive-content:permission-save")), db: Session = Depends(get_db)) -> dict:
     SensitiveContentManagementService(db).save_role_permissions(role_id, payload.permissions)
     return success({"saved": True})
 
 
 @router.post("/cache/refresh")
-def refresh_cache(_: User = Depends(require_admin)) -> dict:
+def refresh_cache(_: User = Depends(require_permission("system:sensitive-content:cache-refresh"))) -> dict:
     SensitiveRuleService.refresh()
     return success({"refreshed": True})
 
@@ -110,7 +110,7 @@ def list_audits(
     final_answer_redacted: bool | None = None,
     chat_type: str | None = None,
     project_id: int | None = None,
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("system:sensitive-content:audit-view")),
     db: Session = Depends(get_db),
 ) -> dict:
     normalized_page = max(1, page)

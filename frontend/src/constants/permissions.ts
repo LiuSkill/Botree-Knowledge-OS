@@ -21,6 +21,7 @@ export const MENU_PERMISSIONS = {
   SYSTEM_MODEL: 'system:model-config',
   SYSTEM_LOG: 'system:operation-log',
   SYSTEM_QA_AUDIT: 'system:qa-audit',
+  SYSTEM_SENSITIVE_CONTENT: 'system:sensitive-content',
 } as const;
 
 export const ACTION_PERMISSIONS = {
@@ -153,6 +154,15 @@ export const ACTION_PERMISSIONS = {
 
   SYSTEM_LOG_VIEW: 'system:log:view',
   SYSTEM_QA_AUDIT_VIEW: 'system:qa-audit:view',
+  SYSTEM_SENSITIVE_CONTENT_VIEW: 'system:sensitive-content:view',
+  SYSTEM_SENSITIVE_CONTENT_TYPE_CREATE: 'system:sensitive-content:type-create',
+  SYSTEM_SENSITIVE_CONTENT_TYPE_EDIT: 'system:sensitive-content:type-edit',
+  SYSTEM_SENSITIVE_CONTENT_RULE_CREATE: 'system:sensitive-content:rule-create',
+  SYSTEM_SENSITIVE_CONTENT_RULE_EDIT: 'system:sensitive-content:rule-edit',
+  SYSTEM_SENSITIVE_CONTENT_RULE_TEST: 'system:sensitive-content:rule-test',
+  SYSTEM_SENSITIVE_CONTENT_PERMISSION_SAVE: 'system:sensitive-content:permission-save',
+  SYSTEM_SENSITIVE_CONTENT_CACHE_REFRESH: 'system:sensitive-content:cache-refresh',
+  SYSTEM_SENSITIVE_CONTENT_AUDIT_VIEW: 'system:sensitive-content:audit-view',
 } as const;
 
 export const PERMISSIONS = {
@@ -217,6 +227,7 @@ export const MENU_PERMISSION_TREE: MenuDefinition[] = [
       { id: MENU_PERMISSIONS.SYSTEM_MODEL, name: '模型配置', path: '/system/model-configs', children: [] },
       { id: MENU_PERMISSIONS.SYSTEM_LOG, name: '操作日志', path: '/system/logs', children: [] },
       { id: MENU_PERMISSIONS.SYSTEM_QA_AUDIT, name: '问答审计', path: '/system/qa-audits', children: [] },
+      { id: MENU_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT, name: '敏感内容管理', path: '/system/sensitive-content', children: [] },
     ],
   },
 ];
@@ -478,6 +489,22 @@ export const ACTION_PERMISSION_GROUPS: ActionGroupDefinition[] = [
     module_name: '问答审计',
     menu_ids: [MENU_PERMISSIONS.SYSTEM_QA_AUDIT],
     actions: [{ action: 'view', name: '查看问答审计', code: ACTION_PERMISSIONS.SYSTEM_QA_AUDIT_VIEW }],
+  },
+  {
+    module: 'system-sensitive-content',
+    module_name: '敏感内容管理',
+    menu_ids: [MENU_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT],
+    actions: [
+      { action: 'view', name: '查看敏感内容配置', code: ACTION_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_VIEW },
+      { action: 'type-create', name: '新增敏感类型', code: ACTION_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_TYPE_CREATE },
+      { action: 'type-edit', name: '编辑/启停敏感类型', code: ACTION_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_TYPE_EDIT },
+      { action: 'rule-create', name: '新增敏感规则', code: ACTION_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_RULE_CREATE },
+      { action: 'rule-edit', name: '编辑/启停敏感规则', code: ACTION_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_RULE_EDIT },
+      { action: 'rule-test', name: '测试敏感规则', code: ACTION_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_RULE_TEST },
+      { action: 'permission-save', name: '保存角色敏感权限', code: ACTION_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_PERMISSION_SAVE },
+      { action: 'cache-refresh', name: '刷新敏感规则缓存', code: ACTION_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_CACHE_REFRESH },
+      { action: 'audit-view', name: '查看脱敏审计', code: ACTION_PERMISSIONS.SYSTEM_SENSITIVE_CONTENT_AUDIT_VIEW },
+    ],
   },
 ];
 

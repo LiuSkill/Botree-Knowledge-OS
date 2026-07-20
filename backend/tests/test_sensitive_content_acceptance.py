@@ -24,7 +24,8 @@ from app.services.sensitive_content_service import (
 def user_with_roles(*roles: tuple[int, str, bool]) -> SimpleNamespace:
     return SimpleNamespace(
         id=9,
-        roles=[SimpleNamespace(id=role_id, code=code, enabled=enabled) for role_id, code, enabled in roles],
+        username="acceptance-user",
+        roles=[SimpleNamespace(id=role_id, code=code, enabled=enabled, permissions=[]) for role_id, code, enabled in roles],
     )
 
 
@@ -81,8 +82,10 @@ def test_evidence_log_summary_contains_no_content_preview() -> None:
 
 
 def test_ordinary_user_cannot_access_sensitive_management_api() -> None:
+    fake_db = SimpleNamespace(add=lambda _item: None, commit=lambda: None, rollback=lambda: None)
+
     def override_db():
-        yield None
+        yield fake_db
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: user_with_roles((1, "ordinary", True))

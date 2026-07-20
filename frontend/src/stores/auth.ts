@@ -19,7 +19,6 @@ const EMPTY_PERMISSIONS: CurrentPermissions = {
   menus: [],
   actions: [],
 };
-const ADMIN_ONLY_MENU_IDS = new Set(['system:sensitive-content']);
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -48,11 +47,8 @@ export const useAuthStore = defineStore('auth', {
       /**
        * 判断当前用户是否拥有菜单/路由访问权限。
        */
-      return (permissionCode: string): boolean => {
-        const isAdmin = Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled));
-        if (ADMIN_ONLY_MENU_IDS.has(permissionCode)) return isAdmin;
-        return isAdmin || state.permissions.menus.includes(permissionCode);
-      };
+      return (permissionCode: string): boolean =>
+        Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled) || state.permissions.menus.includes(permissionCode));
     },
     hasActionPermission: (state) => {
       /**
@@ -67,9 +63,7 @@ export const useAuthStore = defineStore('auth', {
        */
       const isAdmin = Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled));
       const menuCodes = new Set(state.permissions.menus);
-      return normalizeAuthorizedMenuTree(
-        filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || (!ADMIN_ONLY_MENU_IDS.has(menuId) && menuCodes.has(menuId))),
-      );
+      return normalizeAuthorizedMenuTree(filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || menuCodes.has(menuId)));
     },
     firstAccessiblePath: (state): string | null => {
       /**
@@ -77,9 +71,7 @@ export const useAuthStore = defineStore('auth', {
        */
       const isAdmin = Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled));
       const menuCodes = new Set(state.permissions.menus);
-      const authorizedTree = normalizeAuthorizedMenuTree(
-        filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || (!ADMIN_ONLY_MENU_IDS.has(menuId) && menuCodes.has(menuId))),
-      );
+      const authorizedTree = normalizeAuthorizedMenuTree(filterAuthorizedMenuTree(state.menuTree, (menuId) => isAdmin || menuCodes.has(menuId)));
       return preferredFirstMenuPath(authorizedTree);
     },
   },
