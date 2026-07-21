@@ -24,6 +24,8 @@ from app.core.response import success
 from app.models.user import User
 from app.schemas.document import (
     ArchiveRequest,
+    BatchIndexBuildRequest,
+    BatchIndexBuildResultOut,
     DocumentChunkOut,
     DocumentDeleteOut,
     DocumentMetadataUpdate,
@@ -348,6 +350,18 @@ def build_document_index(
     """同步执行文档解析和索引构建。"""
 
     return success(DocumentService(db).build_document_index(document_id, current_user, version_no))
+
+
+@router.post("/indexes/build/batch", summary="批量创建离线索引构建任务")
+def create_index_build_tasks_batch(
+    payload: BatchIndexBuildRequest,
+    current_user: User = Depends(require_permission("review:build-index")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """逐项创建异步索引构建任务。"""
+
+    result = DocumentService(db).create_index_build_tasks_batch(payload.document_ids, current_user)
+    return success(BatchIndexBuildResultOut.model_validate(result).model_dump(mode="json"))
 
 
 @router.get("/{document_id}/indexes", summary="索引状态")

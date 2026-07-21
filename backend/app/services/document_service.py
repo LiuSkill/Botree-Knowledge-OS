@@ -2627,7 +2627,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, user)
-        self._ensure_project_document_access(document, user, "project:document:retry-index")
+        self._ensure_project_document_access(document, user, "review:build-index", "project:document:retry-index")
         version = self._resolve_index_build_version(document, version_no)
         self._ensure_version_review_approved(version, "解析并构建索引")
         self._ensure_no_active_index_build(document, version)
@@ -2636,6 +2636,46 @@ class DocumentService:
         self.db.commit()
         self.db.refresh(task)
         return task
+
+    def create_index_build_tasks_batch(self, document_ids: list[int], user: User) -> dict[str, object]:
+        """逐项创建索引构建任务，返回可审计的部分成功结果。"""
+
+        normalized_ids = list(dict.fromkeys(document_ids))
+        if not normalized_ids or len(normalized_ids) > 50:
+            raise AppException("单次批量构建文档数量必须为1到50条")
+
+        started_at = time.perf_counter()
+        results: list[dict[str, object]] = []
+        for document_id in normalized_ids:
+            try:
+                task = self.create_index_build_task(document_id, user)
+                results.append({"document_id": document_id, "success": True, "message": "构建任务已创建", "task": task})
+            except AppException as exc:
+                self.db.rollback()
+                message = "文档不存在或无权访问" if exc.status_code in {403, 404} else exc.message
+                results.append({"document_id": document_id, "success": False, "message": message, "task": None})
+            except Exception:
+                self.db.rollback()
+                logger.exception("批量索引构建单项执行异常: document_id=%s operator_id=%s", document_id, user.id)
+                results.append(
+                    {"document_id": document_id, "success": False, "message": "系统异常，请联系管理员", "task": None}
+                )
+
+        success_count = sum(1 for item in results if item["success"])
+        logger.info(
+            "批量索引构建任务创建完成: operator_id=%s total=%s success_count=%s failed_count=%s elapsed_ms=%s",
+            user.id,
+            len(results),
+            success_count,
+            len(results) - success_count,
+            int((time.perf_counter() - started_at) * 1000),
+        )
+        return {
+            "total": len(results),
+            "success_count": success_count,
+            "failed_count": len(results) - success_count,
+            "results": results,
+        }
 
     def create_index_publish_task(self, document_id: int, user: User) -> IndexTask:
         """

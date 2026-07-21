@@ -275,6 +275,30 @@ class IndexTaskOut(BaseModel):
     updated_at: datetime
 
 
+class BatchIndexBuildRequest(BaseModel):
+    """批量创建索引构建任务请求。"""
+
+    document_ids: list[int] = Field(..., min_length=1, max_length=50, description="文档ID列表")
+
+
+class BatchIndexBuildResultItem(BaseModel):
+    """单条索引构建任务创建结果。"""
+
+    document_id: int
+    success: bool
+    message: str
+    task: IndexTaskOut | None = None
+
+
+class BatchIndexBuildResultOut(BaseModel):
+    """批量索引构建汇总结果。"""
+
+    total: int
+    success_count: int
+    failed_count: int
+    results: list[BatchIndexBuildResultItem]
+
+
 class DocumentVersionOut(BaseModel):
     """Document version response."""
 

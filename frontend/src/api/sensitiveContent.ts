@@ -4,7 +4,7 @@ export interface SensitiveType {
   id: number; code: string; name: string; default_mask_text: string; enabled: boolean; updated_at: string;
 }
 export interface SensitiveRule {
-  id: number; code: string; name: string; sensitive_type_code: string; match_type: 'regex' | 'keyword' | 'keyword_window';
+  id: number; code: string; name: string; sensitive_type_code: string; match_type: 'regex' | 'keyword' | 'keyword_window' | 'table_column' | 'table_row' | 'table_cell';
   pattern: string; context_keywords: string[]; window_size: number; mask_text: string | null; priority: number;
   enabled: boolean; version: number; updated_at: string;
 }

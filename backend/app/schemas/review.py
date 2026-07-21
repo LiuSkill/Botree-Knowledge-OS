@@ -18,6 +18,30 @@ class ReviewDecisionRequest(BaseModel):
     comment: str | None = Field(default=None, description="审核意见")
 
 
+class ReviewBatchDecisionRequest(BaseModel):
+    """批量审核处理请求。"""
+
+    task_ids: list[int] = Field(..., min_length=1, max_length=50, description="审核任务ID列表")
+    comment: str | None = Field(default=None, max_length=500, description="统一审核意见")
+
+
+class ReviewBatchResultItem(BaseModel):
+    """单条批量审核结果。"""
+
+    task_id: int
+    success: bool
+    message: str
+
+
+class ReviewBatchResultOut(BaseModel):
+    """批量审核汇总结果。"""
+
+    total: int
+    success_count: int
+    failed_count: int
+    results: list[ReviewBatchResultItem]
+
+
 class ReviewTaskOut(BaseModel):
     """审核任务响应。"""
 

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_current_user, get_db
 from app.langgraph.retrieval_graph import RetrievalGraph
+from app.retrieval.schemas import Evidence
 from main import app
 from app.schemas.chat import ChatCompletionRequest
 from app.services.chat_service import ChatService
@@ -79,6 +80,26 @@ def test_evidence_log_summary_contains_no_content_preview() -> None:
     summary = graph._evidence_log_summary([evidence])
     assert summary[0]["content_length"] == len(evidence.content)
     assert evidence.content not in json.dumps(summary, ensure_ascii=False)
+
+
+def test_table_evidence_is_safe_before_answer_generator_and_citation() -> None:
+    graph = object.__new__(RetrievalGraph)
+    graph.sensitive_content_service = SensitiveContentService(None)
+    evidence = Evidence(
+        score=0.9, source_type="chunk", knowledge_base_id=1, project_id=2, document_id=3, chunk_id=4,
+        drawing_no=None, file_name="quote.md", page_number=1,
+        content="| 设备 | 供应商报价 | 成本 | 毛利率 |\n|---|---:|---:|---:|\n| A | 35 万元 | 20 万元 | 42% |",
+        retriever="vector",
+    )
+    state = {"user": user_with_roles((1, "ordinary", True)), "redaction_types": [], "redaction_count": 0}
+
+    safe_evidence = graph._sanitize_evidences(state, [evidence])[0]
+    citation = ChatService._serialize_evidences(object.__new__(ChatService), [safe_evidence])[0]
+
+    for raw_value in ("35 万元", "20 万元", "42%"):
+        assert raw_value not in safe_evidence.content
+        assert raw_value not in citation["content"]
+    assert {"supplier_price", "cost", "gross_margin"}.issubset(state["redaction_types"])
 
 
 def test_ordinary_user_cannot_access_sensitive_management_api() -> None:

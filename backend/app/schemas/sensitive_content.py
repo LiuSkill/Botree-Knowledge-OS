@@ -24,7 +24,7 @@ class SensitiveRulePayload(BaseModel):
     code: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=100)
     sensitive_type_code: str
-    match_type: Literal["regex", "keyword", "keyword_window"]
+    match_type: Literal["regex", "keyword", "keyword_window", "table_column", "table_row", "table_cell"]
     pattern: str = Field(min_length=1)
     context_keywords: list[str] = Field(default_factory=list)
     window_size: int = Field(default=30, ge=0, le=500)

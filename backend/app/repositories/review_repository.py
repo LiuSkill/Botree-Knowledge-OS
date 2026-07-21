@@ -9,7 +9,7 @@ Review Repository
 
 from collections.abc import Collection
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.document import Document
@@ -77,6 +77,11 @@ class ReviewRepository:
         project_id: int | None = None,
         page: int = 1,
         page_size: int = 10,
+        *,
+        security_levels: Collection[str] | None = None,
+        include_base_documents: bool = True,
+        include_project_documents: bool = True,
+        accessible_project_ids: Collection[int] | None = None,
     ) -> dict[str, object]:
         """分页查询审核任务，避免审核中心一次性加载全部历史任务。"""
 
@@ -84,6 +89,19 @@ class ReviewRepository:
         safe_size = max(min(page_size, 100), 1)
         offset = (safe_page - 1) * safe_size
         filters = [Document.is_deleted.is_(False)]
+
+        if security_levels is not None:
+            filters.append(Document.security_level.in_(list(security_levels)))
+
+        access_filters: list[object] = []
+        if include_base_documents and project_id is None:
+            access_filters.append(or_(Document.knowledge_type == "base", Document.project_id.is_(None)))
+        if include_project_documents:
+            if project_id is not None:
+                access_filters.append(Document.project_id == project_id)
+            elif accessible_project_ids:
+                access_filters.append(Document.project_id.in_(list(accessible_project_ids)))
+        filters.append(or_(*access_filters) if access_filters else false())
 
         stmt = select(ReviewTask).join(Document, Document.id == ReviewTask.document_id)
         count_stmt = select(func.count(ReviewTask.id)).select_from(ReviewTask).join(

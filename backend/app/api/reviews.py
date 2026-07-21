@@ -15,7 +15,13 @@ from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
 from app.schemas.document import DocumentOut
-from app.schemas.review import ReviewDecisionRequest, ReviewLogOut, ReviewTaskOut
+from app.schemas.review import (
+    ReviewBatchDecisionRequest,
+    ReviewBatchResultOut,
+    ReviewDecisionRequest,
+    ReviewLogOut,
+    ReviewTaskOut,
+)
 from app.services.review_service import ReviewService
 
 router = APIRouter(prefix="/review-tasks", tags=["审核中心"])
@@ -27,12 +33,12 @@ def list_tasks(
     project_id: int | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: User = Depends(require_permission("review:view")),
+    current_user: User = Depends(require_permission("review:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询审核任务列表。"""
 
-    result = ReviewService(db).list_tasks_page(status, project_id, page, page_size)
+    result = ReviewService(db).list_tasks_page(status, project_id, page, page_size, current_user)
     return success(
         {
             **result,
@@ -73,11 +79,35 @@ def list_approved_documents(
     )
 
 
+@router.post("/batch/approve", summary="批量审核通过")
+def batch_approve(
+    payload: ReviewBatchDecisionRequest,
+    current_user: User = Depends(require_permission("review:approve")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """逐项批量审核通过。"""
+
+    result = ReviewService(db).batch_decide(payload.task_ids, current_user, action="approve", comment=payload.comment)
+    return success(ReviewBatchResultOut.model_validate(result).model_dump(mode="json"))
+
+
+@router.post("/batch/reject", summary="批量审核驳回")
+def batch_reject(
+    payload: ReviewBatchDecisionRequest,
+    current_user: User = Depends(require_permission("review:reject")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """使用统一原因逐项批量驳回。"""
+
+    result = ReviewService(db).batch_decide(payload.task_ids, current_user, action="reject", comment=payload.comment)
+    return success(ReviewBatchResultOut.model_validate(result).model_dump(mode="json"))
+
+
 @router.get("/{task_id}", summary="审核任务详情")
-def get_task(task_id: int, _: User = Depends(require_permission("review:view")), db: Session = Depends(get_db)) -> dict:
+def get_task(task_id: int, current_user: User = Depends(require_permission("review:view")), db: Session = Depends(get_db)) -> dict:
     """查询审核任务详情。"""
 
-    task = ReviewService(db).get_task(task_id)
+    task = ReviewService(db).get_task(task_id, current_user)
     return success(ReviewTaskOut.model_validate(task).model_dump(mode="json"))
 
 

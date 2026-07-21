@@ -8,19 +8,24 @@ Review Service
 """
 
 import logging
+import time
 
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppException, is_database_lock_error
+from app.core.data_scope import enabled_role_data_scopes
+from app.core.security_levels import allowed_security_levels, user_max_security_level
 from app.models.document import Document, DocumentVersion
 from app.models.review import ReviewLog, ReviewTask
 from app.models.user import User
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.review_repository import ReviewRepository
+from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
 from app.services.document_service import DocumentService
 from app.services.knowledge_category_service import KnowledgeCategoryService
+from app.services.project_access_service import ProjectAccessService
 from app.services.system_service import SystemService
 from app.utils.time_utils import now_utc
 
@@ -163,22 +168,115 @@ class ReviewService:
         project_id: int | None = None,
         page: int = 1,
         page_size: int = 10,
+        operator: User | None = None,
     ) -> dict[str, object]:
         """分页查询审核任务。"""
 
-        result = self.repository.list_tasks_page(status, project_id, page, page_size)
+        access_options: dict[str, object] = {}
+        if operator is not None:
+            access_service = ProjectAccessService(self.db)
+            if project_id is not None:
+                access_service.ensure_project_access(project_id, operator, permission_codes=("project:view",))
+            include_projects = access_service.has_permission(operator, "project:view", "project")
+            accessible_project_ids: list[int] = []
+            if project_id is not None:
+                accessible_project_ids = [project_id]
+            elif include_projects:
+                user_department = getattr(operator, "department_id", None) or getattr(operator, "department", None)
+                accessible_project_ids = ProjectRepository(self.db).list_accessible_ids(
+                    user_id=operator.id,
+                    user_department=str(user_department) if user_department else None,
+                    is_admin=access_service.is_admin(operator),
+                    data_scopes=enabled_role_data_scopes(operator),
+                    project_security_levels=allowed_security_levels(user_max_security_level(operator)),
+                )
+            access_options = {
+                "security_levels": allowed_security_levels(user_max_security_level(operator)),
+                "include_base_documents": project_id is None,
+                "include_project_documents": include_projects,
+                "accessible_project_ids": accessible_project_ids,
+            }
+
+        result = self.repository.list_tasks_page(status, project_id, page, page_size, **access_options)
         tasks = list(result["items"])
         self._attach_task_display_fields(tasks)
         return {**result, "items": tasks}
 
-    def get_task(self, task_id: int) -> ReviewTask:
+    def get_task(self, task_id: int, operator: User | None = None) -> ReviewTask:
         """查询审核任务详情。"""
 
         task = self.repository.get_task(task_id)
         if not task:
             raise AppException("审核任务不存在", status_code=404, code=404)
+        if operator is not None:
+            try:
+                document = self.document_repository.get(task.document_id)
+                if document is None:
+                    raise AppException("审核任务不存在", status_code=404, code=404)
+                ProjectAccessService(self.db).ensure_document_access(
+                    document,
+                    operator,
+                    permission_codes=("project:view",),
+                )
+            except AppException as exc:
+                raise AppException("审核任务不存在或无权访问", status_code=404, code=404) from exc
         self._attach_task_display_fields([task])
         return task
+
+    def batch_decide(
+        self,
+        task_ids: list[int],
+        operator: User,
+        *,
+        action: str,
+        comment: str | None = None,
+    ) -> dict[str, object]:
+        """逐项执行批量审核，单项失败不影响其他任务。"""
+
+        normalized_ids = list(dict.fromkeys(task_ids))
+        if not normalized_ids or len(normalized_ids) > 50:
+            raise AppException("单次批量审核任务数量必须为1到50条")
+        if action not in {"approve", "reject"}:
+            raise AppException("不支持的批量审核动作")
+        if action == "reject" and not (comment or "").strip():
+            raise AppException("请填写驳回原因")
+
+        started_at = time.perf_counter()
+        results: list[dict[str, object]] = []
+        for task_id in normalized_ids:
+            try:
+                if action == "approve":
+                    self.approve(task_id, operator, comment)
+                    message = "审核通过"
+                else:
+                    self.reject(task_id, operator, comment)
+                    message = "已驳回"
+                results.append({"task_id": task_id, "success": True, "message": message})
+            except AppException as exc:
+                self.db.rollback()
+                message = "审核任务不存在或无权访问" if exc.status_code in {403, 404} else exc.message
+                results.append({"task_id": task_id, "success": False, "message": message})
+            except Exception:
+                self.db.rollback()
+                logger.exception("批量审核单项执行异常: task_id=%s operator_id=%s action=%s", task_id, operator.id, action)
+                results.append({"task_id": task_id, "success": False, "message": "系统异常，请联系管理员"})
+
+        success_count = sum(1 for item in results if item["success"])
+        logger.info(
+            "批量审核完成: operator_id=%s action=%s total=%s success_count=%s failed_count=%s elapsed_ms=%s",
+            operator.id,
+            action,
+            len(results),
+            success_count,
+            len(results) - success_count,
+            int((time.perf_counter() - started_at) * 1000),
+        )
+        return {
+            "total": len(results),
+            "success_count": success_count,
+            "failed_count": len(results) - success_count,
+            "results": results,
+        }
 
     def _attach_task_display_fields(self, tasks: list[ReviewTask]) -> None:
         """
@@ -244,7 +342,7 @@ class ReviewService:
     def approve(self, task_id: int, operator: User, comment: str | None = None) -> ReviewTask:
         """审核通过。"""
 
-        task = self.get_task(task_id)
+        task = self.get_task(task_id, operator)
         document = DocumentService(self.db).get_document(task.document_id, operator)
         if task.review_status != "reviewing":
             raise AppException("审核任务已处理")
@@ -308,7 +406,7 @@ class ReviewService:
         if not reject_reason:
             raise AppException("请填写驳回原因")
 
-        task = self.get_task(task_id)
+        task = self.get_task(task_id, operator)
         document = DocumentService(self.db).get_document(task.document_id, operator)
         if task.review_status != "reviewing":
             raise AppException("审核任务已处理")

@@ -9,6 +9,7 @@
 
 import { request } from '@/api/request';
 import type {
+  BatchOperationResult,
   DocumentChunk,
   DocumentDeleteResult,
   DocumentIndexSummary,
@@ -112,6 +113,10 @@ export function createDocumentVersion(
 
 export function listDocumentVersions(id: number): Promise<DocumentVersionInfo[]> {
   return request.get(`/documents/${id}/versions`) as Promise<DocumentVersionInfo[]>;
+}
+
+export function createDocumentIndexBuildTasksBatch(documentIds: number[]): Promise<BatchOperationResult> {
+  return request.post('/documents/indexes/build/batch', { document_ids: documentIds }) as Promise<BatchOperationResult>;
 }
 
 export function setDocumentCurrentVersion(id: number, versionId: number): Promise<DocumentInfo> {

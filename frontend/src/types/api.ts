@@ -315,6 +315,21 @@ export interface DocumentChunk {
   security_level: SecurityLevel;
 }
 
+export interface BatchOperationResultItem {
+  task_id?: number;
+  document_id?: number;
+  success: boolean;
+  message: string;
+  task?: IndexTaskInfo | null;
+}
+
+export interface BatchOperationResult {
+  total: number;
+  success_count: number;
+  failed_count: number;
+  results: BatchOperationResultItem[];
+}
+
 export interface DocumentAssetInfo {
   id: number;
   asset_type: string;

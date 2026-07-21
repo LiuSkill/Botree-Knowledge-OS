@@ -8,7 +8,7 @@
  */
 
 import { request } from '@/api/request';
-import type { DocumentInfo, ListQueryParams, PageResult, ReviewTask } from '@/types/api';
+import type { BatchOperationResult, DocumentInfo, ListQueryParams, PageResult, ReviewTask } from '@/types/api';
 
 export interface ReviewTaskListParams extends ListQueryParams {
   status?: string;
@@ -37,6 +37,14 @@ export function approveReviewTask(id: number, comment = '审核通过'): Promise
 
 export function rejectReviewTask(id: number, comment: string): Promise<ReviewTask> {
   return request.post(`/review-tasks/${id}/reject`, { comment }) as Promise<ReviewTask>;
+}
+
+export function approveReviewTasksBatch(taskIds: number[], comment = '批量审核通过'): Promise<BatchOperationResult> {
+  return request.post('/review-tasks/batch/approve', { task_ids: taskIds, comment }) as Promise<BatchOperationResult>;
+}
+
+export function rejectReviewTasksBatch(taskIds: number[], comment: string): Promise<BatchOperationResult> {
+  return request.post('/review-tasks/batch/reject', { task_ids: taskIds, comment }) as Promise<BatchOperationResult>;
 }
 
 export function listApprovedDocuments(params?: ApprovedDocumentListParams): Promise<PageResult<DocumentInfo>> {

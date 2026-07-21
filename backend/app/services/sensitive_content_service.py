@@ -17,6 +17,7 @@ from app.models.sensitive_content import SensitiveFilterRule, SensitiveType
 from app.models.user import User
 from app.models.user import Role
 from app.repositories.sensitive_content_repository import SensitiveContentRepository
+from app.services.table_sensitive_filter import TABLE_MATCH_TYPES, TableSensitiveFilter
 
 logger = logging.getLogger(__name__)
 SECURITY_NOTICE = "部分敏感信息因权限限制未展示。"
@@ -44,11 +45,27 @@ class FilterResult:
 
 
 class SensitiveRuntimeFilter:
-    """纯规则过滤器；先合并重叠区间，再从后向前替换。"""
+    """先执行表格结构过滤，再以文本规则兜底。"""
+
+    def __init__(self) -> None:
+        self.table_filter = TableSensitiveFilter()
 
     def filter(self, content: str, allowed_types: set[str], rules: tuple[CompiledRule, ...]) -> FilterResult:
         if not content:
             return FilterResult(content, False, (), 0)
+        table_result = self.table_filter.filter(content, allowed_types, rules)
+        text_result = self._filter_text(
+            table_result.safe_content,
+            allowed_types,
+            tuple(rule for rule in rules if rule.match_type not in TABLE_MATCH_TYPES),
+        )
+        redaction_types = tuple(sorted(set(table_result.redaction_types) | set(text_result.redaction_types)))
+        matched_codes = tuple(sorted(set(table_result.matched_rule_codes) | set(text_result.matched_rule_codes)))
+        redaction_count = table_result.redaction_count + text_result.redaction_count
+        return FilterResult(text_result.safe_content, redaction_count > 0, redaction_types, redaction_count, matched_codes)
+
+    @staticmethod
+    def _filter_text(content: str, allowed_types: set[str], rules: tuple[CompiledRule, ...]) -> FilterResult:
         matches: list[tuple[int, int, str, str, int, int, str]] = []
         for rule in rules:
             if rule.sensitive_type_code in allowed_types:
@@ -155,7 +172,7 @@ class SensitiveContentService:
 
     @staticmethod
     def validate_rule(rule: SensitiveFilterRule) -> None:
-        if rule.match_type not in {"regex", "keyword", "keyword_window"}:
+        if rule.match_type not in {"regex", "keyword", "keyword_window", "table_column", "table_row", "table_cell"}:
             raise AppException("不支持的敏感规则匹配方式", status_code=422, code=422)
         try:
             re.compile(rule.pattern)
@@ -224,6 +241,12 @@ def _fallback_rules() -> tuple[CompiledRule, ...]:
 
     amount = re.compile(r"(?:(?:USD|CNY|RMB|￥|¥|\$)\s*\d+(?:\.\d+)?(?:\s*(?:万|亿|千)?\s*(?:元|人民币|美元|美金))?|\d+(?:\.\d+)?\s*(?:万|亿|千)?\s*(?:元|人民币|美元|美金))(?:\s*/\s*[\u4e00-\u9fa5A-Za-z]+)?")
     return (
+        CompiledRule("table_supplier_price_column_rule", "supplier_price", "table_column", re.compile(r"供应商报价|采购报价|供应商价格|供应商单价|供货价"), (), 30, "[供应商报价已隐藏]", 5),
+        CompiledRule("table_price_column_rule", "price", "table_column", re.compile(r"报价|价格|单价|销售单价|总价|投标价|中标价|供货价"), (), 30, "[报价信息已隐藏]", 10),
+        CompiledRule("table_cost_column_rule", "cost", "table_column", re.compile(r"成本|采购成本|设备成本|制造成本|建设成本|成本价|采购价"), (), 30, "[成本信息已隐藏]", 20),
+        CompiledRule("table_margin_column_rule", "gross_margin", "table_column", re.compile(r"毛利率|利润率|毛利|利润空间"), (), 30, "[利润率信息已隐藏]", 30),
+        CompiledRule("table_contract_amount_column_rule", "contract_amount", "table_column", re.compile(r"合同金额|合同总价|合同价|订单金额|订单总价"), (), 30, "[合同金额已隐藏]", 40),
+        CompiledRule("table_payment_terms_column_rule", "payment_terms", "table_column", re.compile(r"付款条件|付款方式|预付款|尾款|账期|验收后支付"), (), 30, "[付款条件已隐藏]", 50),
         CompiledRule("supplier_price_rule", "supplier_price", "keyword_window", amount, ("供应商报价", "采购报价", "报价单", "供应商价格"), 30, "[供应商报价已隐藏]", 5),
         CompiledRule("price_amount_rule", "price", "keyword_window", amount, ("报价", "价格", "销售价", "销售单价", "合同价", "总价", "投标价", "中标价", "商务报价", "供货价"), 30, "[报价信息已隐藏]", 10),
         CompiledRule("cost_amount_rule", "cost", "keyword_window", amount, ("成本", "采购成本", "设备成本", "制造成本", "建设成本", "成本价", "采购价"), 30, "[成本信息已隐藏]", 20),
