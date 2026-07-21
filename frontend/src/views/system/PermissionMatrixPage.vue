@@ -20,7 +20,7 @@ import { syncAuthorizedRoutes } from '@/router/dynamicRoutes';
 import { useAuthStore } from '@/stores/auth';
 import type { ActionGroupDefinition } from '@/constants/permissions';
 import type { ActionPermissionGroup, ActionPermissionInfo, DataScope, RoleInfo, SecurityLevel, SystemMenuNode } from '@/types/api';
-import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
+import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
 
 type RoleDialogMode = 'create' | 'edit';
 
@@ -50,7 +50,7 @@ const roleForm = reactive({
   code: '',
   description: '',
   enabled: true,
-  security_level: 'internal' as SecurityLevel,
+  security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
   data_scope: 'own' as DataScope,
 });
 
@@ -301,7 +301,7 @@ function resetRoleForm(): void {
     code: '',
     description: '',
     enabled: true,
-    security_level: 'internal' as SecurityLevel,
+    security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
     data_scope: 'own' as DataScope,
   });
   editingRoleId.value = null;
@@ -603,7 +603,13 @@ onMounted(loadMatrix);
         <t-form-item label="角色说明"><t-textarea v-model="roleForm.description" /></t-form-item>
         <t-form-item label="最高密级">
           <t-select v-model="roleForm.security_level">
-            <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+            <t-option
+              v-for="item in securityLevelOptions(authStore.maxSecurityLevel, roleForm.security_level)"
+              :key="item.value"
+              :value="item.value"
+              :label="item.label"
+              :disabled="item.disabled"
+            />
           </t-select>
         </t-form-item>
         <t-form-item v-if="roleDialogMode === 'edit'" label="状态"><t-switch v-model="roleForm.enabled" /></t-form-item>

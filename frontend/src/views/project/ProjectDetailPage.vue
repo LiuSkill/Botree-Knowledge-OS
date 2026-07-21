@@ -69,7 +69,7 @@ import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { REVIEW_TASK_STATUS } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
-import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
+import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
 import ProjectFormDrawer from '@/views/project/ProjectFormDrawer.vue';
 
 type CategoryDialogMode = 'create' | 'edit';
@@ -280,7 +280,7 @@ const canOpenPendingReviewDocuments = computed(
 
 const uploadForm = reactive({
   category_id: null as number | null,
-  security_level: 'internal' as SecurityLevel,
+  security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
   document_type: '',
   discipline: '',
   remark: '',
@@ -300,7 +300,7 @@ const documentFilters = reactive({
 });
 
 const batchForm = reactive({
-  security_level: 'internal' as SecurityLevel,
+  security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
 });
 
 const metadataForm = reactive({
@@ -324,7 +324,7 @@ const categoryForm = reactive({
   description: '',
   sort_order: 0,
   enabled: true,
-  default_security_level: 'internal' as SecurityLevel,
+  default_security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
 });
 
 const visibleCategoryRows = computed<CategoryRow[]>(() => {
@@ -612,7 +612,10 @@ function openUploadDialog(): void {
   }
   uploadForm.category_id = activeCategoryId.value || categoryOptions.value.find((item) => !item.disabled)?.value || null;
   const selectedCategory = findCategory(categories.value, uploadForm.category_id);
-  uploadForm.security_level = selectedCategory?.default_security_level || project.value?.security_level || 'internal';
+  uploadForm.security_level = clampSecurityLevel(
+    selectedCategory?.default_security_level || project.value?.security_level,
+    authStore.maxSecurityLevel,
+  );
   uploadForm.document_type = '';
   uploadForm.discipline = '';
   uploadForm.remark = '';
@@ -1155,7 +1158,7 @@ function openCreateCategoryDialog(): void {
   categoryForm.description = '';
   categoryForm.sort_order = 0;
   categoryForm.enabled = true;
-  categoryForm.default_security_level = project.value?.security_level || 'internal';
+  categoryForm.default_security_level = clampSecurityLevel(project.value?.security_level, authStore.maxSecurityLevel);
   categoryDialogVisible.value = true;
 }
 
@@ -1717,7 +1720,13 @@ onMounted(loadData);
                 </t-form-item>
                 <t-form-item label="文件密级">
                   <t-select v-model="selectedDocument.security_level" :disabled="!canUpdateDocumentSecurity">
-                    <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+                    <t-option
+                      v-for="item in securityLevelOptions(authStore.maxSecurityLevel, selectedDocument.security_level)"
+                      :key="item.value"
+                      :value="item.value"
+                      :label="item.label"
+                      :disabled="item.disabled"
+                    />
                   </t-select>
                 </t-form-item>
               </div>
@@ -1866,7 +1875,7 @@ onMounted(loadData);
             </t-form-item>
             <t-form-item label="文档密级">
               <t-select v-model="uploadForm.security_level">
-                <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+                <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
               </t-select>
             </t-form-item>
             <t-form-item label="文档类型">
@@ -1957,7 +1966,13 @@ onMounted(loadData);
         <t-form-item label="排序"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
         <t-form-item label="默认密级">
           <t-select v-model="categoryForm.default_security_level">
-            <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+            <t-option
+              v-for="item in securityLevelOptions(authStore.maxSecurityLevel, categoryForm.default_security_level)"
+              :key="item.value"
+              :value="item.value"
+              :label="item.label"
+              :disabled="item.disabled"
+            />
           </t-select>
         </t-form-item>
         <t-form-item label="说明"><t-textarea v-model="categoryForm.description" /></t-form-item>

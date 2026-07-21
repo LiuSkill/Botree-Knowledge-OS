@@ -43,7 +43,7 @@ import { buildCategoryOptions, findCategory } from '@/utils/categories';
 import { INDEX_STATUS_TEXT, PARSE_STATUS_TEXT } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
-import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
+import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
 
 interface DirectoryRow {
   id: number | null;
@@ -107,7 +107,7 @@ const filters = reactive({
 
 const uploadForm = reactive({
   directory_id: null as number | null,
-  security_level: 'internal' as SecurityLevel,
+  security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
 });
 
 const categoryForm = reactive({
@@ -117,7 +117,7 @@ const categoryForm = reactive({
   description: '',
   sort_order: 0,
   enabled: true,
-  default_security_level: 'internal' as SecurityLevel,
+  default_security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
 });
 
 const projectId = computed(() => Number(route.params.id));
@@ -431,7 +431,7 @@ function openUploadDialog(): void {
   const fallbackDirectory = categoryOptions.value.find((item) => !item.disabled)?.value || null;
   const activeCategory = activeDirectoryId.value ? findCategory(categories.value, activeDirectoryId.value) : undefined;
   uploadForm.directory_id = activeCategory?.enabled ? activeDirectoryId.value : fallbackDirectory;
-  uploadForm.security_level = activeCategory?.default_security_level || 'internal';
+  uploadForm.security_level = clampSecurityLevel(activeCategory?.default_security_level, authStore.maxSecurityLevel);
   selectedUploadFiles.value = [];
   uploadDialogVisible.value = true;
 }
@@ -490,7 +490,7 @@ function openCreateDirectoryDialog(): void {
   categoryForm.description = '';
   categoryForm.sort_order = 0;
   categoryForm.enabled = true;
-  categoryForm.default_security_level = activeCategory?.default_security_level || 'internal';
+  categoryForm.default_security_level = clampSecurityLevel(activeCategory?.default_security_level, authStore.maxSecurityLevel);
   categoryDialogVisible.value = true;
 }
 
@@ -757,7 +757,7 @@ onMounted(async () => {
           </t-form-item>
           <t-form-item label="密级">
             <t-select v-model="filters.security_level" class="filter-select" clearable placeholder="全部密级" @change="handleSearch">
-              <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+              <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
           <t-form-item>
@@ -906,7 +906,7 @@ onMounted(async () => {
           </t-form-item>
           <t-form-item label="资料密级">
             <t-select v-model="uploadForm.security_level">
-              <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+              <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
         </div>
@@ -946,7 +946,13 @@ onMounted(async () => {
           <t-form-item label="排序"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
           <t-form-item label="默认密级">
             <t-select v-model="categoryForm.default_security_level">
-              <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+              <t-option
+                v-for="item in securityLevelOptions(authStore.maxSecurityLevel, categoryForm.default_security_level)"
+                :key="item.value"
+                :value="item.value"
+                :label="item.label"
+                :disabled="item.disabled"
+              />
             </t-select>
           </t-form-item>
         </div>

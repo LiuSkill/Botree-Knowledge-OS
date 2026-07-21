@@ -23,7 +23,7 @@ import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel 
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
-import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
+import { clampSecurityLevel, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 type FileTypeFilter = 'all' | 'pdf' | 'word' | 'excel';
 type CategoryDialogMode = 'create' | 'edit';
@@ -57,7 +57,7 @@ const editingCategoryId = ref<number | null>(null);
 
 const uploadForm = reactive({
   category_id: null as number | null,
-  security_level: 'internal' as SecurityLevel,
+  security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
 });
 
 const categoryForm = reactive({
@@ -241,7 +241,7 @@ function openUploadDialog(): void {
     return;
   }
   uploadForm.category_id = activeCategoryId.value || categoryOptions.value.find((item) => !item.disabled)?.value || null;
-  uploadForm.security_level = 'internal';
+  uploadForm.security_level = clampSecurityLevel('internal', authStore.maxSecurityLevel);
   selectedUploadFile.value = null;
   uploadDialogVisible.value = true;
 }
@@ -606,7 +606,7 @@ onMounted(loadEnterpriseKnowledge);
         </t-form-item>
         <t-form-item label="文档密级">
           <t-select v-model="uploadForm.security_level">
-            <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+            <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
         </t-form-item>
         <t-form-item label="文档文件">

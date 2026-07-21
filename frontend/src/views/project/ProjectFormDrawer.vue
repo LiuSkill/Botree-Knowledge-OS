@@ -10,8 +10,9 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, reactive, watch } from 'vue';
 
 import type { ProjectPayload } from '@/api/projects';
+import { useAuthStore } from '@/stores/auth';
 import type { ProjectInfo, ProjectStatus, SecurityLevel } from '@/types/api';
-import { SECURITY_LEVEL_OPTIONS } from '@/utils/securityLevels';
+import { clampSecurityLevel, securityLevelOptions } from '@/utils/securityLevels';
 
 type ProjectFormMode = 'create' | 'edit';
 
@@ -58,6 +59,8 @@ const emit = defineEmits<{
   submit: [payload: ProjectPayload];
 }>();
 
+const authStore = useAuthStore();
+
 const drawerVisible = computed({
   get: () => props.visible,
   set: (visible: boolean) => emit('update:visible', visible),
@@ -73,7 +76,7 @@ const form = reactive<ProjectFormState>({
   customer_name: '',
   owner_name: '',
   project_status: '进行中',
-  security_level: 'internal',
+  security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
   description: '',
   project_english_name: '',
   project_type: '',
@@ -104,7 +107,7 @@ function resetForm(): void {
     customer_name: project?.customer_name || project?.client || '',
     owner_name: project?.owner_name || project?.manager || '',
     project_status: normalizeProjectStatus(project?.project_status || project?.status),
-    security_level: project?.security_level || 'internal',
+    security_level: project?.security_level || clampSecurityLevel('internal', authStore.maxSecurityLevel),
     description: project?.description || '',
     project_english_name: project?.project_english_name || '',
     project_type: project?.project_type || '',
@@ -219,7 +222,13 @@ function submitForm(): void {
           </t-form-item>
           <t-form-item label="项目密级">
             <t-select v-model="form.security_level">
-              <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+              <t-option
+                v-for="item in securityLevelOptions(authStore.maxSecurityLevel, form.security_level)"
+                :key="item.value"
+                :value="item.value"
+                :label="item.label"
+                :disabled="item.disabled"
+              />
             </t-select>
           </t-form-item>
           <t-form-item v-if="props.showProgress && props.mode === 'edit'" label="项目进度">

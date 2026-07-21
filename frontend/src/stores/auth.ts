@@ -14,6 +14,7 @@ import { getSystemMenus } from '@/api/system';
 import type { CurrentPermissions, SystemMenuNode, UserInfo } from '@/types/api';
 import { clearToken, getToken, setToken } from '@/utils/auth';
 import { filterAuthorizedMenuTree, normalizeAuthorizedMenuTree, preferredFirstMenuPath } from '@/utils/rbacMenus';
+import { resolveUserMaxSecurityLevel, securityLevelOptions } from '@/utils/securityLevels';
 
 const EMPTY_PERMISSIONS: CurrentPermissions = {
   menus: [],
@@ -31,6 +32,8 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isLoggedIn: (state) => Boolean(state.token),
     isAdmin: (state) => Boolean(state.user?.roles?.some((role) => role.code === 'admin' && role.enabled)),
+    maxSecurityLevel: (state) => resolveUserMaxSecurityLevel(state.user),
+    allowedSecurityLevelOptions: (state) => securityLevelOptions(resolveUserMaxSecurityLevel(state.user)),
     hasPermission: (state) => {
       /**
        * 判断当前用户是否拥有指定权限编码。

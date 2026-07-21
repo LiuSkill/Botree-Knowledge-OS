@@ -7,15 +7,22 @@
   3. 通过异步索引任务触发“解析并构建索引”，避免前端长时间阻塞
 -->
 <script setup lang="ts">
-import { MessagePlugin } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { CheckCircleIcon, CloseCircleIcon, FileSearchIcon, PlayCircleIcon, RefreshIcon } from 'tdesign-icons-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { createDocumentIndexBuildTask, listDocumentIndexTasks } from '@/api/documents';
+import { createDocumentIndexBuildTask, createDocumentIndexBuildTasksBatch, listDocumentIndexTasks } from '@/api/documents';
 import { listKnowledgeCategories } from '@/api/knowledgeCategories';
 import { listProjects } from '@/api/projects';
-import { approveReviewTask, listApprovedDocuments, listReviewTasks, rejectReviewTask } from '@/api/reviews';
+import {
+  approveReviewTask,
+  approveReviewTasksBatch,
+  listApprovedDocuments,
+  listReviewTasks,
+  rejectReviewTask,
+  rejectReviewTasksBatch,
+} from '@/api/reviews';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
@@ -70,6 +77,9 @@ const pendingBuildDocumentIds = ref<number[]>([]);
 const latestBuildTaskMap = ref<Record<number, IndexTaskInfo | null>>({});
 const buildPollTimer = ref<number | null>(null);
 const buildPollingBusy = ref(false);
+const selectedTaskIds = ref<number[]>([]);
+const selectedDocumentIds = ref<number[]>([]);
+const batchSubmitting = ref(false);
 const notifiedTaskIds = new Set<number>();
 
 const approvedFilters = reactive({
@@ -93,13 +103,25 @@ const buildStatusOptions = computed(() => {
 });
 const rejectDialogVisible = ref(false);
 const rejectSubmitting = ref(false);
+const batchRejectMode = ref(false);
 const pendingRejectTask = ref<ReviewTask | null>(null);
 const rejectForm = reactive({
   comment: '',
 });
-const pendingRejectTaskName = computed(() => (pendingRejectTask.value ? taskFileName(pendingRejectTask.value) : ''));
+const pendingRejectTaskName = computed(() => {
+  if (batchRejectMode.value) return `已选择 ${selectedTaskIds.value.length} 条审核任务`;
+  return pendingRejectTask.value ? taskFileName(pendingRejectTask.value) : '';
+});
 
 const taskColumns = [
+  {
+    colKey: 'row-select',
+    type: 'multiple',
+    width: 48,
+    checkProps: ({ row }: { row: ReviewTask }) => ({
+      disabled: batchSubmitting.value || !isReviewTaskPending(row.review_status) || (!canApproveTask.value && !canRejectTask.value),
+    }),
+  },
   { colKey: 'file_name', title: '文件名', minWidth: 240, ellipsis: true },
   { colKey: 'category', title: '文件分类', width: 180, ellipsis: true },
   { colKey: 'uploader', title: '上传人员', width: 120, ellipsis: true },
@@ -111,6 +133,12 @@ const taskColumns = [
 ];
 
 const approvedColumns = [
+  {
+    colKey: 'row-select',
+    type: 'multiple',
+    width: 48,
+    checkProps: ({ row }: { row: DocumentInfo }) => ({ disabled: batchSubmitting.value || !canRunBuild(row) }),
+  },
   { colKey: 'document', title: '文档', minWidth: 260, ellipsis: true },
   { colKey: 'scope', title: '范围', width: 160, ellipsis: true },
   { colKey: 'category', title: '分类', width: 180, ellipsis: true },
@@ -324,6 +352,7 @@ async function decide(action: 'approve' | 'reject', task: ReviewTask): Promise<v
 }
 
 function openRejectDialog(task: ReviewTask): void {
+  batchRejectMode.value = false;
   pendingRejectTask.value = task;
   rejectForm.comment = '';
   rejectDialogVisible.value = true;
@@ -333,6 +362,7 @@ function closeRejectDialog(): void {
   if (rejectSubmitting.value) return;
   rejectDialogVisible.value = false;
   pendingRejectTask.value = null;
+  batchRejectMode.value = false;
   rejectForm.comment = '';
 }
 
@@ -342,18 +372,91 @@ async function confirmRejectTask(): Promise<void> {
     MessagePlugin.warning('请填写驳回原因');
     return;
   }
-  if (!pendingRejectTask.value) return;
+  if (!batchRejectMode.value && !pendingRejectTask.value) return;
 
   rejectSubmitting.value = true;
   try {
-    await rejectReviewTask(pendingRejectTask.value.id, comment);
-    MessagePlugin.success('已驳回该资料');
+    if (batchRejectMode.value) {
+      const result = await rejectReviewTasksBatch(selectedTaskIds.value, comment);
+      showBatchResult('批量驳回', result.results.map((item) => ({ id: item.task_id, success: item.success, message: item.message })));
+      selectedTaskIds.value = [];
+    } else if (pendingRejectTask.value) {
+      await rejectReviewTask(pendingRejectTask.value.id, comment);
+      MessagePlugin.success('已驳回该资料');
+    }
     rejectDialogVisible.value = false;
     pendingRejectTask.value = null;
+    batchRejectMode.value = false;
     rejectForm.comment = '';
     await loadTasks();
   } finally {
     rejectSubmitting.value = false;
+  }
+}
+
+function showBatchResult(title: string, results: Array<{ id?: number; success: boolean; message: string }>): void {
+  const failed = results.filter((item) => !item.success);
+  const successCount = results.length - failed.length;
+  if (!failed.length) {
+    MessagePlugin.success(`${title}完成，共成功 ${successCount} 条`);
+    return;
+  }
+  DialogPlugin.alert({
+    header: `${title}完成`,
+    body: [`成功 ${successCount} 条，失败 ${failed.length} 条：`, ...failed.map((item) => `#${item.id ?? '-'}：${item.message}`)].join('\n'),
+    theme: successCount ? 'warning' : 'danger',
+    confirmBtn: '知道了',
+  });
+}
+
+async function runBatchApprove(): Promise<void> {
+  if (!selectedTaskIds.value.length || batchSubmitting.value) return;
+  if (!window.confirm(`确认通过选中的 ${selectedTaskIds.value.length} 条审核任务吗？`)) return;
+  batchSubmitting.value = true;
+  try {
+    const result = await approveReviewTasksBatch(selectedTaskIds.value);
+    showBatchResult('批量通过', result.results.map((item) => ({ id: item.task_id, success: item.success, message: item.message })));
+    selectedTaskIds.value = [];
+    await loadTasks();
+  } finally {
+    batchSubmitting.value = false;
+  }
+}
+
+function openBatchRejectDialog(): void {
+  if (!selectedTaskIds.value.length || batchSubmitting.value) return;
+  batchRejectMode.value = true;
+  pendingRejectTask.value = null;
+  rejectForm.comment = '';
+  rejectDialogVisible.value = true;
+}
+
+async function runBatchBuild(): Promise<void> {
+  if (!selectedDocumentIds.value.length || batchSubmitting.value) return;
+  const selectedDocuments = approvedDocuments.value.filter((item) => selectedDocumentIds.value.includes(item.id));
+  const rebuildCount = selectedDocuments.filter((item) => isIndexedIndexStatus(item.index_status)).length;
+  const rebuildNotice = rebuildCount ? `，其中 ${rebuildCount} 条将重新构建并覆盖现有索引` : '';
+  if (!window.confirm(`确认创建 ${selectedDocumentIds.value.length} 条索引构建任务吗${rebuildNotice}？`)) return;
+
+  batchSubmitting.value = true;
+  try {
+    const result = await createDocumentIndexBuildTasksBatch(selectedDocumentIds.value);
+    for (const item of result.results) {
+      if (item.success && item.task) {
+        updateLatestBuildTask(item.task);
+        setPendingBuild(item.document_id || item.task.document_id, true);
+      }
+    }
+    ensureBuildPolling();
+    showBatchResult(
+      '批量构建',
+      result.results.map((item) => ({ id: item.document_id, success: item.success, message: item.message })),
+    );
+    selectedDocumentIds.value = [];
+    await loadApprovedDocuments();
+    void pollBuildTasks();
+  } finally {
+    batchSubmitting.value = false;
   }
 }
 
@@ -549,11 +652,13 @@ function buildActionLabel(document: DocumentInfo): string {
 }
 
 function handleTaskSearch(): void {
+  selectedTaskIds.value = [];
   taskPage.value = 1;
   void loadTasks();
 }
 
 function resetTaskFilters(): void {
+  selectedTaskIds.value = [];
   taskProjectId.value = null;
   taskStatus.value = '';
   taskPage.value = 1;
@@ -561,21 +666,25 @@ function resetTaskFilters(): void {
 }
 
 function refreshTasks(): void {
+  selectedTaskIds.value = [];
   void loadTasks();
 }
 
 function handleTaskPaginationChange(pageInfo: PaginationInfo): void {
+  selectedTaskIds.value = [];
   taskPage.value = pageInfo.current;
   taskPageSize.value = pageInfo.pageSize;
   void loadTasks();
 }
 
 function handleApprovedSearch(): void {
+  selectedDocumentIds.value = [];
   approvedPage.value = 1;
   void loadApprovedDocuments();
 }
 
 function resetApprovedFilters(): void {
+  selectedDocumentIds.value = [];
   approvedFilters.scope_type = '';
   approvedFilters.project_id = null;
   approvedFilters.category_id = null;
@@ -586,10 +695,12 @@ function resetApprovedFilters(): void {
 }
 
 function refreshApprovedDocuments(): void {
+  selectedDocumentIds.value = [];
   void loadApprovedDocuments();
 }
 
 function handleApprovedPaginationChange(pageInfo: PaginationInfo): void {
+  selectedDocumentIds.value = [];
   approvedPage.value = pageInfo.current;
   approvedPageSize.value = pageInfo.pageSize;
   void loadApprovedDocuments();
@@ -600,6 +711,8 @@ function handleTabChange(value: unknown): void {
    * 切换审核中心页签并加载目标页签数据。
    */
   if (value !== 'tasks' && value !== 'approved') return;
+  selectedTaskIds.value = [];
+  selectedDocumentIds.value = [];
   const nextTab = value as ReviewTab;
   if (route.query.tab !== nextTab) {
     void router.replace({ path: route.path, query: { ...route.query, tab: nextTab } });
@@ -607,6 +720,14 @@ function handleTabChange(value: unknown): void {
   }
   activeTab.value = nextTab;
   void refreshActiveTab();
+}
+
+function handleTaskSelectChange(keys: Array<string | number>): void {
+  selectedTaskIds.value = keys.map(Number).filter((item) => Number.isInteger(item));
+}
+
+function handleDocumentSelectChange(keys: Array<string | number>): void {
+  selectedDocumentIds.value = keys.map(Number).filter((item) => Number.isInteger(item));
 }
 
 watch(
@@ -681,10 +802,27 @@ onBeforeUnmount(() => {
             <h2>审核任务</h2>
             <span>共 {{ taskTotal }} 条数据</span>
           </div>
-          <t-button theme="default" variant="outline" :loading="tasksLoading" @click="refreshTasks">
-            <template #icon><RefreshIcon /></template>
-            刷新
-          </t-button>
+          <t-space>
+            <t-button
+              theme="success"
+              :disabled="!selectedTaskIds.length || !canApproveTask || batchSubmitting"
+              :loading="batchSubmitting"
+              @click="runBatchApprove"
+            >
+              批量通过（{{ selectedTaskIds.length }}）
+            </t-button>
+            <t-button
+              theme="danger"
+              :disabled="!selectedTaskIds.length || !canRejectTask || batchSubmitting"
+              @click="openBatchRejectDialog"
+            >
+              批量驳回
+            </t-button>
+            <t-button theme="default" variant="outline" :loading="tasksLoading" @click="refreshTasks">
+              <template #icon><RefreshIcon /></template>
+              刷新
+            </t-button>
+          </t-space>
         </div>
 
         <div class="table-scroll">
@@ -696,7 +834,9 @@ onBeforeUnmount(() => {
             :data="tasks"
             :columns="taskColumns"
             :loading="tasksLoading"
+            :selected-row-keys="selectedTaskIds"
             empty="暂无审核任务"
+            @select-change="handleTaskSelectChange"
           >
             <template #file_name="{ row }">
               <t-link theme="primary" @click="openReviewDetail(row)">
@@ -812,10 +952,20 @@ onBeforeUnmount(() => {
             <h2>索引构建</h2>
             <span>共 {{ approvedTotal }} 条数据</span>
           </div>
-          <t-button theme="default" variant="outline" :loading="approvedLoading" @click="refreshApprovedDocuments">
-            <template #icon><RefreshIcon /></template>
-            刷新
-          </t-button>
+          <t-space>
+            <t-button
+              theme="primary"
+              :disabled="!selectedDocumentIds.length || !canBuildIndex || batchSubmitting"
+              :loading="batchSubmitting"
+              @click="runBatchBuild"
+            >
+              批量构建（{{ selectedDocumentIds.length }}）
+            </t-button>
+            <t-button theme="default" variant="outline" :loading="approvedLoading" @click="refreshApprovedDocuments">
+              <template #icon><RefreshIcon /></template>
+              刷新
+            </t-button>
+          </t-space>
         </div>
 
         <div class="table-scroll">
@@ -827,7 +977,9 @@ onBeforeUnmount(() => {
             :data="approvedDocuments"
             :columns="approvedColumns"
             :loading="approvedLoading"
+            :selected-row-keys="selectedDocumentIds"
             empty="暂无审核通过资料"
+            @select-change="handleDocumentSelectChange"
           >
             <template #document="{ row }">
               <t-link theme="primary" @click="openApprovedDocument(row)">
@@ -889,7 +1041,7 @@ onBeforeUnmount(() => {
 
     <t-dialog
       v-model:visible="rejectDialogVisible"
-      header="填写驳回原因"
+      :header="batchRejectMode ? '批量填写驳回原因' : '填写驳回原因'"
       width="520px"
       :confirm-btn="{ content: '确认驳回', theme: 'danger', loading: rejectSubmitting }"
       :cancel-btn="{ content: '取消', disabled: rejectSubmitting }"

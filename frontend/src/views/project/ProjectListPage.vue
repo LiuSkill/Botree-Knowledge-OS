@@ -14,7 +14,7 @@ import { ROUTE_PATHS } from '@/shared/constants/routes';
 import { useAuthStore } from '@/stores/auth';
 import type { ProjectInfo, ProjectStatus, SecurityLevel } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
-import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
+import { securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 import ProjectFormDrawer from '@/views/project/ProjectFormDrawer.vue';
 
 type ProjectFormMode = 'create' | 'edit';
@@ -244,7 +244,7 @@ onMounted(loadProjects);
         </t-form-item>
         <t-form-item label="项目密级">
           <t-select v-model="filters.security_level" class="filter-select" clearable placeholder="全部密级" @change="handleSearch">
-            <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+            <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
         </t-form-item>
         <t-form-item>

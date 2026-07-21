@@ -24,7 +24,7 @@ import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel 
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
-import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
+import { clampSecurityLevel, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
 const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 
@@ -44,7 +44,7 @@ const filterForm = reactive({
 
 const uploadForm = reactive({
   category_id: null as number | null,
-  security_level: 'internal' as SecurityLevel,
+  security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
 });
 
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
@@ -204,7 +204,7 @@ onMounted(loadData);
             </t-form-item>
             <t-form-item label="文档密级">
               <t-select v-model="uploadForm.security_level">
-                <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+                <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
               </t-select>
             </t-form-item>
             <t-form-item label="资料文件">

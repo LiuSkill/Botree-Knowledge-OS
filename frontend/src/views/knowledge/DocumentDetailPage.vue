@@ -53,7 +53,7 @@ import {
 import { previousBreadcrumbTarget } from '@/utils/breadcrumbContext';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
-import { SECURITY_LEVEL_OPTIONS, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
+import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
 
 type DetailTab = 'preview' | 'cleaning' | 'chunks' | 'versions';
 
@@ -217,7 +217,7 @@ const VERSION_STATUS_TEXT: Record<string, string> = {
 };
 
 const securityForm = reactive({
-  security_level: 'internal' as SecurityLevel,
+  security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
 });
 
 const assetUrlMap = reactive<Record<number, string>>({});
@@ -1753,7 +1753,13 @@ onBeforeUnmount(() => {
         <t-form :data="securityForm" label-align="top">
           <t-form-item label="文档密级">
             <t-select v-model="securityForm.security_level">
-              <t-option v-for="item in SECURITY_LEVEL_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+              <t-option
+                v-for="item in securityLevelOptions(authStore.maxSecurityLevel, securityForm.security_level)"
+                :key="item.value"
+                :value="item.value"
+                :label="item.label"
+                :disabled="item.disabled"
+              />
             </t-select>
           </t-form-item>
           <div class="dialog-hint">修改后会同步当前文档的版本、分块和页索引；已发布索引需要重新构建后生效。</div>

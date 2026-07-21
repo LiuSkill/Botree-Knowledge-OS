@@ -1100,6 +1100,98 @@ def test_reject_review_requires_and_persists_reason() -> None:
         db.close()
 
 
+def test_review_task_page_filters_security_level_before_pagination() -> None:
+    """审核任务分页必须先按文档密级过滤，再计算总数和分页。"""
+
+    db = make_session()
+    try:
+        operator = User(id=99, username="public-reviewer", password_hash="x", real_name="公开审核员")
+        operator.roles = [Role(id=99, name="Public Reviewer", code="public-reviewer", enabled=True, security_level="public")]
+        for index, security_level in enumerate(("public", "internal", "public"), start=1):
+            document = Document(
+                knowledge_base_id=1,
+                knowledge_type="base",
+                file_name=f"security-{index}.md",
+                file_type="md",
+                file_size=10,
+                storage_path=f"storage/uploads/security-{index}.md",
+                review_status="reviewing",
+                index_status="not_indexed",
+                security_level=security_level,
+                version_no=1,
+                current_version=False,
+            )
+            db.add(document)
+            db.flush()
+            db.add(ReviewTask(document_id=document.id, version_no=1, review_status="reviewing"))
+        db.commit()
+
+        result = ReviewService(db).list_tasks_page(page=1, page_size=1, operator=operator)
+
+        assert result["total"] == 2
+        assert len(result["items"]) == 1
+        assert result["items"][0].document_file_name == "security-3.md"
+    finally:
+        db.close()
+
+
+def test_batch_review_keeps_successful_items_when_an_item_fails() -> None:
+    """批量审核采用部分成功语义，并对重复ID去重。"""
+
+    db = make_session()
+    try:
+        service = ReviewService(db)
+        operator = make_operator()
+
+        def approve(task_id: int, _operator: User, _comment: str | None = None) -> ReviewTask:
+            if task_id == 2:
+                raise AppException("审核任务已处理")
+            return ReviewTask(id=task_id, document_id=task_id, version_no=1, review_status="approved")
+
+        service.approve = approve  # type: ignore[method-assign]
+        result = service.batch_decide([1, 2, 1], operator, action="approve", comment="批量通过")
+
+        assert result["total"] == 2
+        assert result["success_count"] == 1
+        assert result["failed_count"] == 1
+        assert result["results"] == [
+            {"task_id": 1, "success": True, "message": "审核通过"},
+            {"task_id": 2, "success": False, "message": "审核任务已处理"},
+        ]
+    finally:
+        db.close()
+
+
+def test_batch_index_build_keeps_successful_items_when_an_item_fails() -> None:
+    """批量索引构建应去重，并保留其他文档已创建的任务。"""
+
+    db = make_session()
+    try:
+        service = DocumentService(db)
+        operator = make_operator()
+
+        def create_task(document_id: int, _operator: User, version_no: int | None = None) -> IndexTask:  # noqa: ARG001
+            if document_id == 2:
+                raise AppException("当前文档索引构建中，请勿重复发起")
+            return IndexTask(id=10, document_id=document_id, version_no=1, task_type="full_build", status="pending")
+
+        service.create_index_build_task = create_task  # type: ignore[method-assign]
+        result = service.create_index_build_tasks_batch([1, 2, 1], operator)
+
+        assert result["total"] == 2
+        assert result["success_count"] == 1
+        assert result["failed_count"] == 1
+        assert result["results"][0]["success"] is True
+        assert result["results"][1] == {
+            "document_id": 2,
+            "success": False,
+            "message": "当前文档索引构建中，请勿重复发起",
+            "task": None,
+        }
+    finally:
+        db.close()
+
+
 def test_approved_document_page_returns_total_and_page_items() -> None:
     """审核通过资料分页应只返回当前页的已通过资料。"""
 
