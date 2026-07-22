@@ -15,6 +15,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { submitDocumentReview } from '@/api/documents';
 import { createKnowledgeCategory, deleteKnowledgeCategory, listKnowledgeCategories, updateKnowledgeCategory } from '@/api/knowledgeCategories';
 import { listKnowledgeBaseDocuments, listKnowledgeBases, uploadKnowledgeDocument } from '@/api/knowledgeBases';
+import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -33,7 +34,12 @@ interface CategoryRow {
   level: number;
 }
 
-const PAGE_SIZE = 6;
+interface PaginationInfo {
+  current: number;
+  pageSize: number;
+}
+
+const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 
 const route = useRoute();
@@ -43,6 +49,7 @@ const loading = ref(false);
 const uploading = ref(false);
 const searchKeyword = ref('');
 const activePage = ref(1);
+const pageSize = ref(PAGE_SIZE_OPTIONS[0]);
 const activeFileType = ref<FileTypeFilter>('all');
 const activeCategoryId = ref<number | null>(null);
 const expandedCategoryIds = ref<number[]>([]);
@@ -111,29 +118,51 @@ const activeCategoryName = computed(() => {
   return findCategory(categories.value, activeCategoryId.value)?.name || '全部知识';
 });
 
-const filteredDocuments = computed(() => {
+const documentsMatchingQuery = computed(() => {
   /**
-   * 按分类、文件类型和搜索关键字过滤企业文档。
+   * 使用与文档列表相同的查询条件计算当前用户可见文档，作为分类统计基数。
    */
   const keyword = normalizeText(searchKeyword.value);
-  const activeCategory = findCategory(categories.value, activeCategoryId.value);
-  const activeCategoryIds = collectCategoryIds(activeCategory);
   return enterpriseDocuments.value.filter((document) => {
-    const matchedCategory = !activeCategoryIds.length || activeCategoryIds.includes(Number(document.category_id));
     const matchedFileType = activeFileType.value === 'all' || getDocumentFileType(document) === activeFileType.value;
     const matchedKeyword = !keyword || normalizeText(document.file_name).includes(keyword);
-    return matchedCategory && matchedFileType && matchedKeyword;
+    return matchedFileType && matchedKeyword;
   });
 });
 
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredDocuments.value.length / PAGE_SIZE)));
+const categoryDocumentCounts = computed(() => {
+  const counts = new Map<number, number>();
+  const walk = (items: KnowledgeCategory[]): void => {
+    for (const category of items) {
+      const categoryIds = collectCategoryIds(category);
+      counts.set(
+        category.id,
+        documentsMatchingQuery.value.filter((document) =>
+          categoryIds.includes(Number(document.category_id ?? document.directory_id)),
+        ).length,
+      );
+      walk(category.children || []);
+    }
+  };
+  walk(categories.value);
+  return counts;
+});
+
+const filteredDocuments = computed(() => {
+  const activeCategory = findCategory(categories.value, activeCategoryId.value);
+  const activeCategoryIds = collectCategoryIds(activeCategory);
+  if (!activeCategoryIds.length) return documentsMatchingQuery.value;
+  return documentsMatchingQuery.value.filter((document) =>
+    activeCategoryIds.includes(Number(document.category_id ?? document.directory_id)),
+  );
+});
 
 const pagedDocuments = computed(() => {
   /**
    * 根据当前页码截取可见文档。
    */
-  const startIndex = (activePage.value - 1) * PAGE_SIZE;
-  return filteredDocuments.value.slice(startIndex, startIndex + PAGE_SIZE);
+  const startIndex = (activePage.value - 1) * pageSize.value;
+  return filteredDocuments.value.slice(startIndex, startIndex + pageSize.value);
 });
 
 watch([activeCategoryId, activeFileType, searchKeyword], () => {
@@ -419,18 +448,17 @@ async function removeActiveCategory(): Promise<void> {
   await loadEnterpriseKnowledge();
 }
 
-function changePage(nextPage: number): void {
-  /**
-   * 控制分页边界。
-   */
-  activePage.value = Math.min(Math.max(nextPage, 1), totalPages.value);
+function handlePaginationChange(pageInfo: PaginationInfo): void {
+  activePage.value = pageInfo.current;
+  pageSize.value = pageInfo.pageSize;
 }
 
 onMounted(loadEnterpriseKnowledge);
 </script>
 
 <template>
-  <div class="knowledge-center-shell">
+  <PageContainer class="knowledge-center-page" title="">
+    <div class="knowledge-center-shell">
     <aside class="knowledge-category-panel">
       <div class="category-title">
         <span>知识分类</span>
@@ -442,7 +470,7 @@ onMounted(loadEnterpriseKnowledge);
       <div class="category-list">
         <t-button class="category-row" :class="{ active: activeCategoryId === null }" block variant="text" @click="selectCategory(null)">
           <span>全部知识</span>
-          <span class="category-count">{{ enterpriseDocuments.length }}</span>
+          <span class="category-count">{{ documentsMatchingQuery.length }}</span>
         </t-button>
 
         <t-button
@@ -467,7 +495,7 @@ onMounted(loadEnterpriseKnowledge);
             <span v-else class="expand-placeholder"></span>
             {{ row.category.name }}
           </span>
-          <span class="category-count">{{ row.category.total_document_count }}</span>
+          <span class="category-count">{{ categoryDocumentCounts.get(row.category.id) || 0 }}</span>
         </t-button>
       </div>
 
@@ -499,36 +527,29 @@ onMounted(loadEnterpriseKnowledge);
     </aside>
 
     <section class="knowledge-document-panel">
-      <header class="document-header">
-        <div class="document-title-area">
-          <h1>知识文档</h1>
-          <div class="result-summary">{{ filteredDocuments.length }} 条结果 · {{ activeCategoryName }}</div>
-        </div>
+      <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
+        <t-form-item label="关键词">
+          <t-input v-model="searchKeyword" class="filter-input" clearable placeholder="搜索文档名称">
+            <template #prefix-icon><SearchIcon /></template>
+          </t-input>
+        </t-form-item>
+        <t-form-item label="文件类型">
+          <t-select v-model="activeFileType" class="filter-select">
+            <t-option v-for="item in fileTypeFilters" :key="item.value" :value="item.value" :label="item.label" />
+          </t-select>
+        </t-form-item>
+      </t-form>
 
-        <div class="file-type-tabs" role="tablist" aria-label="文件类型筛选">
-          <t-button
-            v-for="item in fileTypeFilters"
-            :key="item.value"
-            class="file-type-tab"
-            :class="{ active: activeFileType === item.value }"
-            variant="text"
-            @click="activeFileType = item.value"
-          >
-            {{ item.label }}
-          </t-button>
+      <div class="system-section-head">
+        <div class="system-section-title">
+          <h2>知识文档</h2>
+          <span>共 {{ filteredDocuments.length }} 条数据 · {{ activeCategoryName }}</span>
         </div>
-
-        <div class="document-actions">
-          <label class="search-box">
-            <SearchIcon class="search-icon" />
-            <input v-model="searchKeyword" type="search" placeholder="搜索文档..." />
-          </label>
-          <t-button v-permission="PERMISSIONS.KNOWLEDGE_UPLOAD" class="upload-button" theme="primary" :loading="uploading" @click="openUploadDialog">
-            <template #icon><AddIcon /></template>
-            上传文档
-          </t-button>
-        </div>
-      </header>
+        <t-button v-permission="PERMISSIONS.KNOWLEDGE_UPLOAD" class="upload-button" theme="primary" :loading="uploading" @click="openUploadDialog">
+          <template #icon><AddIcon /></template>
+          上传文档
+        </t-button>
+      </div>
 
       <main class="document-body">
         <div v-if="loading" class="empty-document-card">正在加载知识文档...</div>
@@ -583,14 +604,16 @@ onMounted(loadEnterpriseKnowledge);
           </div>
         </div>
 
-        <footer class="document-pagination">
-          <span>共 {{ filteredDocuments.length }} 条记录，每页 {{ PAGE_SIZE }} 条</span>
-          <div class="pagination-actions">
-            <t-button size="small" variant="outline" :disabled="activePage === 1" @click="changePage(activePage - 1)">上一页</t-button>
-            <t-button size="small" class="current-page" theme="primary">{{ activePage }}</t-button>
-            <t-button size="small" variant="outline" :disabled="activePage === totalPages" @click="changePage(activePage + 1)">下一页</t-button>
-          </div>
-        </footer>
+        <div class="system-pagination">
+          <t-pagination
+            :current="activePage"
+            :page-size="pageSize"
+            :total="filteredDocuments.length"
+            :page-size-options="PAGE_SIZE_OPTIONS"
+            show-jumper
+            @change="handlePaginationChange"
+          />
+        </div>
       </main>
     </section>
 
@@ -635,7 +658,8 @@ onMounted(loadEnterpriseKnowledge);
         <t-form-item label="启用"><t-switch v-model="categoryForm.enabled" /></t-form-item>
       </t-form>
     </t-dialog>
-  </div>
+    </div>
+  </PageContainer>
 </template>
 
 <style scoped>
@@ -646,6 +670,14 @@ onMounted(loadEnterpriseKnowledge);
   grid-template-columns: 256px minmax(0, 1fr);
   background: #f4f7fb;
   overflow: hidden;
+}
+
+.knowledge-center-page {
+  padding-top: 16px;
+}
+
+.knowledge-center-page :deep(.toolbar) {
+  display: none;
 }
 
 .knowledge-category-panel {
@@ -790,93 +822,71 @@ onMounted(loadEnterpriseKnowledge);
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-}
-
-.document-header {
-  display: grid;
-  flex: 0 0 auto;
-  min-height: 68px;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 20px;
-  border-bottom: 1px solid #e5e7eb;
   background: #fff;
-  padding: 14px 20px 12px 24px;
+  padding: 16px;
 }
 
-.document-title-area h1 {
+.system-filter-form {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px 14px;
+  margin-bottom: 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  overflow-x: auto;
+  padding: 14px 16px;
+}
+
+.system-filter-form :deep(.t-form__item) {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.system-filter-form :deep(.t-form__label) {
+  width: auto !important;
+  padding-right: 8px;
+}
+
+.system-filter-form :deep(.t-form__controls) {
+  margin-left: 0 !important;
+}
+
+.filter-input {
+  width: 280px;
+}
+
+.filter-select {
+  width: 150px;
+}
+
+.system-section-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.system-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+}
+
+.system-section-title h2 {
   margin: 0;
   color: #0f172a;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
 }
 
-.result-summary {
-  margin-top: 3px;
+.system-section-title span {
   color: #64748b;
-  font-size: 12px;
-}
-
-.file-type-tabs {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  background: #fff;
-  padding: 8px;
-}
-
-.file-type-tab {
-  height: 32px;
-  min-width: 52px;
-  border-radius: 7px;
-  color: #1f2937;
   font-size: 13px;
-  padding: 0 10px;
-}
-
-.file-type-tab.active {
-  background: #eaf4ff;
-  color: #0474d8;
-  font-weight: 700;
-}
-
-.document-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  background: #fff;
-  padding: 8px;
-}
-
-.search-box {
-  position: relative;
-  display: flex;
-  width: 256px;
-  height: 36px;
-  align-items: center;
-}
-
-.search-icon {
-  position: absolute;
-  left: 12px;
-  color: #94a3b8;
-  font-size: 16px;
-}
-
-.search-box input {
-  width: 100%;
-  height: 100%;
-  border: 1px solid #d8dee8;
-  border-radius: 9px;
-  background: #fff;
-  color: #1f2937;
-  font-size: 13px;
-  outline: none;
-  padding: 0 12px 0 34px;
 }
 
 .upload-button {
@@ -890,7 +900,6 @@ onMounted(loadEnterpriseKnowledge);
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  padding: 24px;
 }
 
 .empty-document-card,
@@ -921,26 +930,16 @@ onMounted(loadEnterpriseKnowledge);
   padding: 14px 12px;
 }
 
-.document-pagination {
+.system-pagination {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: space-between;
-  margin-top: 18px;
-  color: #475569;
-  font-size: 14px;
-}
-
-.pagination-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pagination-actions :deep(.t-button) {
-  min-width: 36px;
-  height: 32px;
-  padding: 0 10px;
+  justify-content: flex-end;
+  min-height: 48px;
+  margin-top: 12px;
+  border-top: 1px solid #edf2f7;
+  background: #fff;
+  padding-top: 12px;
 }
 
 .selected-file {

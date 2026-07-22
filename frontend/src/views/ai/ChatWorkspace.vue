@@ -43,6 +43,7 @@ import AgentTracePanel from '@/components/AgentTracePanel.vue';
 import ChatRichContent from '@/components/ChatRichContent.vue';
 import CitationList from '@/components/CitationList.vue';
 import ProcessingProgressPanel from '@/components/ProcessingProgressPanel.vue';
+import { showConfirmDialog } from '@/utils/confirmDialog';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
@@ -680,7 +681,13 @@ async function confirmRemoveSession(session: ChatSession): Promise<void> {
     MessagePlugin.warning('当前会话正在回答中，暂不能删除');
     return;
   }
-  if (!window.confirm(`确认删除会话“${session.title}”吗？`)) {
+  const confirmed = await showConfirmDialog({
+    header: '确认删除会话',
+    body: `确认删除会话“${session.title}”吗？`,
+    theme: 'danger',
+    confirmBtn: '删除',
+  });
+  if (!confirmed) {
     await focusQuestionInput();
     return;
   }

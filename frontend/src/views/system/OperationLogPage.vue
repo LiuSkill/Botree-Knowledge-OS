@@ -3,15 +3,16 @@
 
   负责：
   1. 展示系统关键操作日志
-  2. 支持按关键字、结果、对象类型和时间分页查询
+  2. 支持按用户、结果和时间分页查询
   3. 使用 TDesign 表格、分页和状态标签统一系统管理体验
 -->
 <script setup lang="ts">
-import { RefreshIcon } from 'tdesign-icons-vue-next';
+import { BrowseIcon, RefreshIcon } from 'tdesign-icons-vue-next';
 import { onMounted, reactive, ref } from 'vue';
 
-import { listOperationLogs, type OperationLogFilters } from '@/api/system';
-import type { OperationLog, PageResult } from '@/types/api';
+import { listOperationLogs, listOperationLogUsers, type OperationLogFilters } from '@/api/system';
+import TableActionButton from '@/components/TableActionButton.vue';
+import type { OperationLog, OperationLogUserOption, PageResult } from '@/types/api';
 import { formatDateTime } from '@/utils/format';
 
 interface PaginationInfo {
@@ -26,22 +27,23 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 const logs = ref<PageResult<OperationLog>>(createEmptyPageResult<OperationLog>());
 const loading = ref(false);
+const detailVisible = ref(false);
+const selectedLog = ref<OperationLog | null>(null);
+const userOptions = ref<OperationLogUserOption[]>([]);
 const page = ref(1);
 const pageSize = ref(DEFAULT_PAGE_SIZE);
 const dateRange = ref<string[]>([]);
 const filters = reactive({
-  keyword: '',
+  user_id: null as number | null,
   result: '',
-  target_type: '',
 });
 
 const columns = [
   { colKey: 'created_at', title: '时间', width: 170 },
   { colKey: 'username', title: '用户', width: 140 },
-  { colKey: 'action', title: '动作', width: 180 },
-  { colKey: 'target', title: '对象', width: 180 },
+  { colKey: 'action', title: '动作', minWidth: 220 },
   { colKey: 'result', title: '结果', width: 110 },
-  { colKey: 'detail', title: '详情', minWidth: 260 },
+  { colKey: 'operation', title: '操作', width: 90, align: 'center' },
 ];
 
 function createEmptyPageResult<T>(): PageResult<T> {
@@ -58,9 +60,8 @@ function buildListParams(): OperationLogFilters {
     page: page.value,
     page_size: pageSize.value,
   };
-  if (filters.keyword.trim()) params.keyword = filters.keyword.trim();
+  if (filters.user_id !== null) params.user_id = filters.user_id;
   if (filters.result) params.result = filters.result;
-  if (filters.target_type.trim()) params.target_type = filters.target_type.trim();
   if (dateRange.value[0]) params.started_at = `${dateRange.value[0]}T00:00:00`;
   if (dateRange.value[1]) params.ended_at = `${dateRange.value[1]}T23:59:59`;
   return params;
@@ -84,7 +85,7 @@ function handleSearch(): void {
 }
 
 function clearFilters(): void {
-  Object.assign(filters, { keyword: '', result: '', target_type: '' });
+  Object.assign(filters, { user_id: null, result: '' });
   dateRange.value = [];
   page.value = 1;
   void loadLogs();
@@ -115,14 +116,39 @@ function targetLabel(log: OperationLog): string {
   return `${log.target_type || '-'} #${targetId}`;
 }
 
-onMounted(loadLogs);
+function openDetail(log: OperationLog): void {
+  selectedLog.value = log;
+  detailVisible.value = true;
+}
+
+function displayValue(value: string | number | null | undefined): string {
+  return value === null || value === undefined || value === '' ? '-' : String(value);
+}
+
+function userDisplayName(log: OperationLog): string {
+  return log.real_name || log.username || '-';
+}
+
+onMounted(async () => {
+  const [, users] = await Promise.all([loadLogs(), listOperationLogUsers()]);
+  userOptions.value = users;
+});
 </script>
 
 <template>
   <div class="system-card scroll-card">
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item label="关键字">
-        <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="用户 / 动作 / 详情" @enter="handleSearch" />
+      <t-form-item label="用户">
+        <t-select
+          v-model="filters.user_id"
+          class="filter-input"
+          clearable
+          filterable
+          placeholder="请选择用户"
+          @change="handleSearch"
+        >
+          <t-option v-for="user in userOptions" :key="user.id" :value="user.id" :label="user.real_name || user.username" />
+        </t-select>
       </t-form-item>
       <t-form-item label="结果">
         <t-select v-model="filters.result" class="filter-select" clearable placeholder="全部结果" @change="handleSearch">
@@ -130,10 +156,7 @@ onMounted(loadLogs);
           <t-option label="失败" value="failed" />
         </t-select>
       </t-form-item>
-      <t-form-item label="对象">
-        <t-input v-model="filters.target_type" class="target-input" clearable placeholder="对象类型" @enter="handleSearch" />
-      </t-form-item>
-      <t-form-item label="时间">
+      <t-form-item label="时间段">
         <t-date-range-picker
           v-model="dateRange"
           class="filter-date-range"
@@ -179,16 +202,15 @@ onMounted(loadLogs);
           {{ formatDateTime(row.created_at) }}
         </template>
         <template #username="{ row }">
-          {{ row.username || '-' }}
-        </template>
-        <template #target="{ row }">
-          {{ targetLabel(row) }}
+          {{ userDisplayName(row) }}
         </template>
         <template #result="{ row }">
           <t-tag size="small" variant="light" :theme="resultTheme(row.result)">{{ resultLabel(row.result) }}</t-tag>
         </template>
-        <template #detail="{ row }">
-          <div class="log-detail">{{ row.detail || '-' }}</div>
+        <template #operation="{ row }">
+          <TableActionButton label="查看详情" @click="openDetail(row)">
+            <BrowseIcon />
+          </TableActionButton>
         </template>
       </t-table>
     </div>
@@ -203,6 +225,27 @@ onMounted(loadLogs);
         @change="handlePaginationChange"
       />
     </div>
+
+    <t-dialog v-model:visible="detailVisible" header="日志详情" width="720px" :footer="false">
+      <t-descriptions v-if="selectedLog" bordered :column="2" label-align="left">
+        <t-descriptions-item label="时间">{{ formatDateTime(selectedLog.created_at) }}</t-descriptions-item>
+        <t-descriptions-item label="用户">{{ userDisplayName(selectedLog) }}</t-descriptions-item>
+        <t-descriptions-item label="动作">{{ displayValue(selectedLog.action) }}</t-descriptions-item>
+        <t-descriptions-item label="结果">
+          <t-tag size="small" variant="light" :theme="resultTheme(selectedLog.result)">{{ resultLabel(selectedLog.result) }}</t-tag>
+        </t-descriptions-item>
+        <t-descriptions-item label="操作对象">{{ targetLabel(selectedLog) }}</t-descriptions-item>
+        <t-descriptions-item label="项目ID">{{ displayValue(selectedLog.project_id) }}</t-descriptions-item>
+        <t-descriptions-item label="IP地址">{{ displayValue(selectedLog.ip_address) }}</t-descriptions-item>
+        <t-descriptions-item label="用户ID">{{ displayValue(selectedLog.user_id) }}</t-descriptions-item>
+        <t-descriptions-item label="操作详情" :span="2">
+          <pre class="detail-content">{{ displayValue(selectedLog.detail) }}</pre>
+        </t-descriptions-item>
+        <t-descriptions-item label="客户端信息" :span="2">
+          <div class="detail-content">{{ displayValue(selectedLog.user_agent) }}</div>
+        </t-descriptions-item>
+      </t-descriptions>
+    </t-dialog>
   </div>
 </template>
 
@@ -266,20 +309,15 @@ onMounted(loadLogs);
   width: 132px;
 }
 
-.target-input {
-  width: 160px;
-}
-
 .filter-date-range {
   width: 260px;
 }
 
-.log-detail {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-height: 1.6;
+.detail-content {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
   word-break: break-word;
 }
 

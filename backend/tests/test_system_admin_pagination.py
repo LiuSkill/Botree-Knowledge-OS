@@ -214,11 +214,12 @@ def test_model_config_list_filters_and_paginates(db_session: Session) -> None:
 
 
 def test_operation_log_list_filters_and_paginates(db_session: Session) -> None:
-    """Operation logs support keyword, result, target, time and page parameters."""
+    """Operation logs support username, keyword, result, target, time and page parameters."""
 
     seed_operation_logs(db_session)
 
     page_result = SystemService(db_session).list_logs(page=1, page_size=2)
+    username_result = SystemService(db_session).list_logs(username="ali")
     failed_result = SystemService(db_session).list_logs(result="failed")
     target_result = SystemService(db_session).list_logs(target_type="model_config")
     keyword_result = SystemService(db_session).list_logs(keyword="recycle")
@@ -230,6 +231,8 @@ def test_operation_log_list_filters_and_paginates(db_session: Session) -> None:
     assert page_result["total"] == 3
     assert page_result["page_size"] == 2
     assert len(page_result["items"]) == 2
+    assert username_result["total"] == 1
+    assert username_result["items"][0].username == "alice"
     assert failed_result["total"] == 1
     assert failed_result["items"][0].username == "bob"
     assert target_result["items"][0].action == "test model"

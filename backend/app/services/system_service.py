@@ -30,6 +30,7 @@ from app.repositories.chat_repository import ChatRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.review_repository import ReviewRepository
 from app.repositories.system_repository import SystemRepository
+from app.repositories.user_repository import UserRepository
 from app.services.project_access_service import ProjectAccessService
 from app.services.retrieval_trace_service import RetrievalTraceService
 from app.utils.pagination import paginate
@@ -290,6 +291,8 @@ class SystemService:
     def list_logs(
         self,
         keyword: str | None = None,
+        username: str | None = None,
+        user_id: int | None = None,
         result: str | None = None,
         target_type: str | None = None,
         started_at: datetime | None = None,
@@ -304,8 +307,10 @@ class SystemService:
             日志列表。
         """
 
-        return paginate(
+        result = paginate(
             self.repository.list_logs(
+                username=username,
+                user_id=user_id,
                 keyword=keyword,
                 result=result,
                 target_type=target_type,
@@ -315,6 +320,20 @@ class SystemService:
             page,
             page_size,
         )
+        users = UserRepository(self.db).list_by_ids(
+            [item.user_id for item in result["items"] if item.user_id is not None],
+            include_deleted=True,
+        )
+        real_names = {user.id: user.real_name for user in users}
+        for item in result["items"]:
+            setattr(item, "real_name", real_names.get(item.user_id))
+        return result
+
+    def list_operation_log_user_options(self) -> list[dict[str, Any]]:
+        """返回操作日志筛选使用的用户选项，包含已删除的历史用户。"""
+
+        users = UserRepository(self.db).list(include_deleted=True)
+        return [{"id": user.id, "username": user.username, "real_name": user.real_name} for user in users]
 
     def qa_audit_sessions(
         self,

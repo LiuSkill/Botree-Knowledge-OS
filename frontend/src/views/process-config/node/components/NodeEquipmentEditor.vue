@@ -30,7 +30,6 @@ const columns = [
   { colKey: 'quantity', title: '数量', width: 120 },
   { colKey: 'investment_amount', title: '投资额', width: 140 },
   { colKey: 'currency', title: '币种', width: 100 },
-  { colKey: 'sort_order', title: '排序', width: 96 },
   { colKey: 'remark', title: '备注', minWidth: 160 },
   { colKey: 'operation', title: '操作', width: 72, align: 'center' },
 ];
@@ -112,9 +111,6 @@ function emitRows(): void {
           <t-select v-model="row.currency" :disabled="disabled" @change="emitRows">
             <t-option v-for="currency in CURRENCY_OPTIONS" :key="currency" :label="currency" :value="currency" />
           </t-select>
-        </template>
-        <template #sort_order="{ row }">
-          <t-input-number v-model="row.sort_order" :disabled="disabled" :min="0" :max="999999" :step="1" theme="normal" @update:model-value="emitRows" />
         </template>
         <template #remark="{ row }">
           <t-input v-model="row.remark" clearable :disabled="disabled" placeholder="备注" @update:model-value="emitRows" />

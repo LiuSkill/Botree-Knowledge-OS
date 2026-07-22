@@ -29,7 +29,6 @@ const rows = ref<EditableRouteNodeRow[]>([]);
 let rowSeed = 0;
 
 const columns = [
-  { colKey: 'sort_order', title: '顺序', width: 72, align: 'center' },
   { colKey: 'node_id', title: '工艺节点', minWidth: 240 },
   { colKey: 'node_type', title: '节点类型', width: 120 },
   { colKey: 'status', title: '状态', width: 100, align: 'center' },
@@ -191,9 +190,6 @@ function nodeVersion(nodeId: number | null): string {
         :data="rows"
         empty="暂无路线节点配置"
       >
-        <template #sort_order="{ rowIndex }">
-          {{ rowIndex + 1 }}
-        </template>
         <template #node_id="{ row }">
           <t-select
             filterable

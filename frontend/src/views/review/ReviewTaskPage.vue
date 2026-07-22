@@ -33,6 +33,7 @@ import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions } from '@/utils/categories';
 import { INDEX_STATUS_TEXT, INDEX_TASK_STATUS_TEXT, REVIEW_TASK_STATUS, isReviewTaskPending } from '@/utils/constants';
 import { formatDateTime } from '@/utils/format';
+import { showConfirmDialog } from '@/utils/confirmDialog';
 import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
 
 type ReviewTab = 'tasks' | 'approved';
@@ -411,7 +412,12 @@ function showBatchResult(title: string, results: Array<{ id?: number; success: b
 
 async function runBatchApprove(): Promise<void> {
   if (!selectedTaskIds.value.length || batchSubmitting.value) return;
-  if (!window.confirm(`确认通过选中的 ${selectedTaskIds.value.length} 条审核任务吗？`)) return;
+  const confirmed = await showConfirmDialog({
+    header: '确认批量通过',
+    body: `确认通过选中的 ${selectedTaskIds.value.length} 条审核任务吗？`,
+    confirmBtn: '确认通过',
+  });
+  if (!confirmed) return;
   batchSubmitting.value = true;
   try {
     const result = await approveReviewTasksBatch(selectedTaskIds.value);
@@ -436,7 +442,12 @@ async function runBatchBuild(): Promise<void> {
   const selectedDocuments = approvedDocuments.value.filter((item) => selectedDocumentIds.value.includes(item.id));
   const rebuildCount = selectedDocuments.filter((item) => isIndexedIndexStatus(item.index_status)).length;
   const rebuildNotice = rebuildCount ? `，其中 ${rebuildCount} 条将重新构建并覆盖现有索引` : '';
-  if (!window.confirm(`确认创建 ${selectedDocumentIds.value.length} 条索引构建任务吗${rebuildNotice}？`)) return;
+  const confirmed = await showConfirmDialog({
+    header: '确认批量构建索引',
+    body: `确认创建 ${selectedDocumentIds.value.length} 条索引构建任务吗${rebuildNotice}？`,
+    confirmBtn: '开始构建',
+  });
+  if (!confirmed) return;
 
   batchSubmitting.value = true;
   try {

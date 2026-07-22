@@ -86,7 +86,6 @@ const columns = [
   { colKey: 'unit', title: '单位', width: 90, ellipsis: true },
   { colKey: 'region_prices', title: '区域单价', minWidth: 280 },
   { colKey: 'status', title: '状态', width: 100, align: 'center' as const },
-  { colKey: 'sort_order', title: '排序', width: 80, align: 'center' as const },
   { colKey: 'updated_at', title: '更新时间', width: 170 },
   { colKey: 'operation', title: '操作', width: 210, fixed: 'right' as const },
 ];

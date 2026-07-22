@@ -34,6 +34,7 @@ import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
 import ZoomPreviewDialog from '@/components/ZoomPreviewDialog.vue';
+import { showConfirmDialog } from '@/utils/confirmDialog';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type {
@@ -1329,7 +1330,12 @@ async function removeDocument(): Promise<void> {
    * 在前端二次确认后删除文档，并清理全部检索相关数据。
    */
   if (!documentInfo.value || deleting.value) return;
-  const confirmed = window.confirm(`确认删除文档“${documentInfo.value.file_name}”吗？删除后将立即清理数据库检索数据，外部文件和向量会在后台回收。`);
+  const confirmed = await showConfirmDialog({
+    header: '确认删除文档',
+    body: `确认删除文档“${documentInfo.value.file_name}”吗？删除后将立即清理数据库检索数据，外部文件和向量会在后台回收。`,
+    theme: 'danger',
+    confirmBtn: '删除',
+  });
   if (!confirmed) return;
 
   deleting.value = true;

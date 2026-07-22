@@ -13,6 +13,7 @@ import type {
   DashboardStats,
   ListQueryParams,
   OperationLog,
+  OperationLogUserOption,
   PageResult,
   QAAuditDetail,
   QAAuditFilters,
@@ -33,6 +34,8 @@ export function getActionPermissions(): Promise<ActionPermissionGroup[]> {
 }
 
 export interface OperationLogFilters extends ListQueryParams {
+  user_id?: number;
+  username?: string;
   keyword?: string;
   result?: string;
   target_type?: string;
@@ -42,6 +45,10 @@ export interface OperationLogFilters extends ListQueryParams {
 
 export function listOperationLogs(params?: OperationLogFilters): Promise<PageResult<OperationLog>> {
   return request.get('/system/operation-logs', { params }) as Promise<PageResult<OperationLog>>;
+}
+
+export function listOperationLogUsers(): Promise<OperationLogUserOption[]> {
+  return request.get('/system/operation-log-users') as Promise<OperationLogUserOption[]>;
 }
 
 export function listQAAuditSessions(params?: QAAuditFilters): Promise<PageResult<QAAuditSession>> {

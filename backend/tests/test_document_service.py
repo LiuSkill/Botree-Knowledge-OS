@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -1025,6 +1025,44 @@ def test_review_task_page_returns_total_and_page_items() -> None:
         assert result["page"] == 2
         assert result["page_size"] == 2
         assert [item.document_file_name for item in result["items"]] == ["task-1.md"]
+    finally:
+        db.close()
+
+
+def test_review_task_page_only_returns_latest_task_per_document() -> None:
+    """同一文档重新提交后，任务列表只展示最新状态，历史任务仍保留用于审计。"""
+
+    db = make_session()
+    try:
+        document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="resubmitted.md",
+            file_type="md",
+            file_size=10,
+            storage_path="storage/uploads/resubmitted.md",
+            review_status="reviewing",
+            index_status="not_indexed",
+            version_no=1,
+            current_version=False,
+        )
+        db.add(document)
+        db.flush()
+        db.add(ReviewTask(document_id=document.id, version_no=1, review_status="rejected", review_comment="补充资料"))
+        db.flush()
+        latest_task = ReviewTask(document_id=document.id, version_no=1, review_status="reviewing", review_comment="重新提交")
+        db.add(latest_task)
+        db.commit()
+
+        service = ReviewService(db)
+        result = service.list_tasks_page(page=1, page_size=10)
+        rejected_result = service.list_tasks_page(status="rejected", page=1, page_size=10)
+
+        assert result["total"] == 1
+        assert [item.id for item in result["items"]] == [latest_task.id]
+        assert rejected_result["total"] == 0
+        assert service.repository.list_tasks()[0].id == latest_task.id
+        assert db.scalar(select(func.count(ReviewTask.id))) == 2
     finally:
         db.close()
 

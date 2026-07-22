@@ -19,7 +19,6 @@ import {
   FolderOpenIcon,
   HomeIcon,
   HistoryIcon,
-  SecuredIcon,
   ServerIcon,
   Setting1Icon,
   SettingIcon,
@@ -45,11 +44,13 @@ type MenuItem = {
   children: MenuItem[];
 };
 
+/** 暂不开放的功能入口对所有角色隐藏，但保留路由和权限数据以兼容历史配置。 */
+const HIDDEN_MENU_IDS = new Set(['authorization']);
+
 const iconByMenuId: Record<string, Component> = {
   dashboard: HomeIcon,
   knowledge: BookOpenIcon,
   project: FolderOpenIcon,
-  authorization: SecuredIcon,
   review: CheckCircleIcon,
   process_config: SettingIcon,
   'process_config:material': TableIcon,
@@ -138,6 +139,7 @@ function expandMenu(menuId: string): void {
 }
 
 function toMenuItem(node: SystemMenuNode): MenuItem | null {
+  if (HIDDEN_MENU_IDS.has(node.id)) return null;
   const children = (node.children || [])
     .map((child) => toMenuItem(child))
     .filter((item): item is MenuItem => Boolean(item));

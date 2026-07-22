@@ -76,6 +76,7 @@ const authStore = useAuthStore();
 const categories = ref<KnowledgeCategory[]>([]);
 const documents = ref<DocumentInfo[]>([]);
 const documentTotal = ref(0);
+const directoryDocumentTotal = ref(0);
 const project = ref<ProjectInfo | null>(null);
 const activeDirectoryId = ref<number | null>(null);
 const expandedDirectoryKeys = ref<string[]>([ALL_DIRECTORY_KEY]);
@@ -153,7 +154,7 @@ const directoryRows = computed<DirectoryRow[]>(() => {
       id: null,
       key: ALL_DIRECTORY_KEY,
       name: '全部资料',
-      count: project.value ? project.value.document_count : 0,
+      count: directoryDocumentTotal.value,
       level: 0,
       enabled: true,
       children: categories.value,
@@ -205,7 +206,7 @@ async function loadData(): Promise<void> {
   try {
     const [projectResult, directoryResult, documentResult] = await Promise.allSettled([
       getProject(projectId.value),
-      listProjectDirectories(projectId.value),
+      listProjectDirectories(projectId.value, directoryFilterParams()),
       listProjectDocumentsPage(projectId.value, documentQueryParams()),
     ]);
 
@@ -247,12 +248,37 @@ async function loadDocuments(): Promise<void> {
   }
 }
 
+async function loadDocumentsAndDirectories(): Promise<void> {
+  if (!canViewDocuments.value) return;
+  loading.value = true;
+  try {
+    const [documentResult, directoryResult] = await Promise.all([
+      listProjectDocumentsPage(projectId.value, documentQueryParams()),
+      listProjectDirectories(projectId.value, directoryFilterParams()),
+    ]);
+    applyDocumentPage(documentResult);
+    applyDirectoryTree(directoryResult);
+  } finally {
+    loading.value = false;
+  }
+}
+
 function documentQueryParams() {
   return {
     page: currentPage.value,
     page_size: pageSize.value,
     keyword: filters.keyword.trim() || undefined,
     directory_id: activeDirectoryId.value,
+    status: filters.document_status || undefined,
+    security_level: filters.security_level || undefined,
+    parse_status: filters.parse_status || undefined,
+    index_status: filters.index_status || undefined,
+  };
+}
+
+function directoryFilterParams() {
+  return {
+    keyword: filters.keyword.trim() || undefined,
     status: filters.document_status || undefined,
     security_level: filters.security_level || undefined,
     parse_status: filters.parse_status || undefined,
@@ -274,6 +300,7 @@ function syncExpandedDirectories(items: KnowledgeCategory[]): void {
 
 function applyDirectoryTree(tree: KnowledgeCategory[]): void {
   categories.value = tree;
+  directoryDocumentTotal.value = tree.reduce((total, category) => total + category.total_document_count, 0);
   syncExpandedDirectories(tree);
 }
 
@@ -409,12 +436,12 @@ function resetFilters(): void {
   filters.index_status = '';
   filters.security_level = '';
   currentPage.value = 1;
-  void loadDocuments();
+  void loadDocumentsAndDirectories();
 }
 
 function handleSearch(): void {
   currentPage.value = 1;
-  void loadDocuments();
+  void loadDocumentsAndDirectories();
 }
 
 function handlePaginationChange(pageInfo: PaginationInfo): void {
@@ -561,7 +588,7 @@ async function confirmCategoryDialog(): Promise<void> {
       : null;
 
   if (result?.tree) {
-    applyDirectoryTree(result.tree);
+    applyDirectoryTree(await listProjectDirectories(projectId.value, directoryFilterParams()));
   }
   MessagePlugin.success('目录配置已保存');
   categoryDialogVisible.value = false;
@@ -583,7 +610,7 @@ async function confirmDeleteDirectory(): Promise<void> {
     }
     pendingDeleteDirectory.value = null;
     deleteDirectoryDialogVisible.value = false;
-    applyDirectoryTree(await listProjectDirectories(projectId.value));
+    applyDirectoryTree(await listProjectDirectories(projectId.value, directoryFilterParams()));
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '目录删除失败');
   } finally {
@@ -617,7 +644,7 @@ async function submitReview(document: DocumentInfo): Promise<void> {
   try {
     await submitDocumentReview(document.id);
     MessagePlugin.success('已提交审核');
-    await loadDocuments();
+    await loadDocumentsAndDirectories();
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '提交审核失败');
   } finally {
@@ -638,7 +665,7 @@ async function createIndexBuild(document: DocumentInfo): Promise<void> {
   try {
     await createDocumentIndexBuildTask(document.id, document.version_no);
     MessagePlugin.success('索引构建任务已创建');
-    await loadDocuments();
+    await loadDocumentsAndDirectories();
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '索引任务创建失败');
   } finally {

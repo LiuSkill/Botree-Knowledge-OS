@@ -40,6 +40,7 @@ class OperationLogOut(BaseModel):
     id: int
     user_id: int | None = None
     username: str | None = None
+    real_name: str | None = None
     action: str
     target_type: str
     target_id: str | None = None
@@ -50,6 +51,14 @@ class OperationLogOut(BaseModel):
     result: str
     created_at: datetime
     updated_at: datetime
+
+
+class OperationLogUserOption(BaseModel):
+    """操作日志用户筛选选项。"""
+
+    id: int
+    username: str
+    real_name: str
 
 
 class QAAuditOut(BaseModel):

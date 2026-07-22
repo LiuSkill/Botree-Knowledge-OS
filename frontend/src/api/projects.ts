@@ -98,8 +98,17 @@ export function getProjectOverview(id: number): Promise<ProjectOverviewInfo> {
   return request.get(`/projects/${id}/overview`) as Promise<ProjectOverviewInfo>;
 }
 
-export function listProjectDirectories(projectId: number): Promise<KnowledgeCategory[]> {
-  return request.get(`/projects/${projectId}/directories`) as Promise<KnowledgeCategory[]>;
+export function listProjectDirectories(
+  projectId: number,
+  params?: {
+    keyword?: string;
+    status?: string;
+    security_level?: string;
+    parse_status?: string;
+    index_status?: string;
+  },
+): Promise<KnowledgeCategory[]> {
+  return request.get(`/projects/${projectId}/directories`, { params }) as Promise<KnowledgeCategory[]>;
 }
 
 export function createProjectDirectory(projectId: number, payload: ProjectDirectoryPayload): Promise<{ category_id: number; tree: KnowledgeCategory[] }> {

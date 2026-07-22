@@ -36,7 +36,18 @@ class KnowledgeCategoryService:
         self.db = db
         self.repository = KnowledgeCategoryRepository(db)
 
-    def list_tree(self, user: User, scope_type: str, project_id: int | None = None) -> list[dict]:
+    def list_tree(
+        self,
+        user: User,
+        scope_type: str,
+        project_id: int | None = None,
+        *,
+        keyword: str | None = None,
+        document_status: str | None = None,
+        security_level: str | None = None,
+        parse_status: str | None = None,
+        index_status: str | None = None,
+    ) -> list[dict]:
         """查询分类树。"""
 
         normalized_project_id = self._normalize_scope(
@@ -59,6 +70,11 @@ class KnowledgeCategoryService:
         direct_counts = self.repository.count_documents_by_category(
             [category.id for category in categories],
             security_levels=allowed_security_levels(user_max_security_level(user)),
+            keyword=keyword,
+            document_status=document_status,
+            security_level=security_level,
+            parse_status=parse_status,
+            index_status=index_status,
         )
         return self._build_tree(categories, direct_counts)
 

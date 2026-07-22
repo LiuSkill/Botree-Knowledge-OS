@@ -46,7 +46,6 @@ const columns = computed(() => {
     { colKey: 'resource', title: props.resourceLabel, minWidth: 220 },
     { colKey: 'amount', title: props.amountLabel, width: 140 },
     { colKey: 'unit', title: '单位', width: 110 },
-    { colKey: 'sort_order', title: '排序', width: 96 },
   ];
   if (props.showMainProduct) {
     baseColumns.push({ colKey: 'is_main_product', title: '主产品', width: 96 });
@@ -177,17 +176,6 @@ function emitRows(): void {
             :model-value="String(row.unit || '')"
             placeholder="单位"
             @update:model-value="(value) => updateField(row, 'unit', value as RelationFieldValue)"
-          />
-        </template>
-        <template #sort_order="{ row }">
-          <t-input-number
-            :disabled="disabled"
-            :min="0"
-            :max="999999"
-            :step="1"
-            theme="normal"
-            :model-value="Number(row.sort_order || 0)"
-            @update:model-value="(value) => updateField(row, 'sort_order', value as RelationFieldValue)"
           />
         </template>
         <template #is_main_product="{ row }">

@@ -42,6 +42,8 @@ class SystemRepository:
     def list_logs(
         self,
         keyword: str | None = None,
+        username: str | None = None,
+        user_id: int | None = None,
         result: str | None = None,
         target_type: str | None = None,
         started_at: datetime | None = None,
@@ -50,6 +52,10 @@ class SystemRepository:
         """查询操作日志列表。"""
 
         stmt = select(OperationLog).order_by(OperationLog.id.desc())
+        if username:
+            stmt = stmt.where(OperationLog.username.like(f"%{username}%"))
+        if user_id is not None:
+            stmt = stmt.where(OperationLog.user_id == user_id)
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(

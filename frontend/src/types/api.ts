@@ -672,13 +672,25 @@ export interface ListQueryParams {
 
 export interface OperationLog {
   id: number;
+  user_id?: number | null;
   username?: string | null;
+  real_name?: string | null;
   action: string;
   target_type: string;
   target_id?: string | null;
+  project_id?: number | null;
   detail?: string | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
   result: string;
   created_at: string;
+  updated_at: string;
+}
+
+export interface OperationLogUserOption {
+  id: number;
+  username: string;
+  real_name: string;
 }
 
 export interface PageResult<T> {

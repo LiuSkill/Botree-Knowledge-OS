@@ -90,6 +90,11 @@ def delete_project(
 @router.get("/{project_id}/directories", summary="项目资料目录")
 def list_project_directories(
     project_id: int,
+    keyword: str | None = None,
+    status: str | None = None,
+    security_level: str | None = None,
+    parse_status: str | None = None,
+    index_status: str | None = None,
     current_user: User = Depends(
         require_any_permission(
             "project:view",
@@ -99,7 +104,16 @@ def list_project_directories(
 ) -> dict:
     """查询项目资料目录树。"""
 
-    tree = KnowledgeCategoryService(db).list_tree(current_user, "project", project_id)
+    tree = KnowledgeCategoryService(db).list_tree(
+        current_user,
+        "project",
+        project_id,
+        keyword=keyword,
+        document_status=status,
+        security_level=security_level,
+        parse_status=parse_status,
+        index_status=index_status,
+    )
     return success([KnowledgeCategoryOut.model_validate(item).model_dump(mode="json") for item in tree])
 
 

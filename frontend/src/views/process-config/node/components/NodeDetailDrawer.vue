@@ -37,7 +37,6 @@ const materialColumns = [
   { colKey: 'material', title: '原料', minWidth: 220 },
   { colKey: 'amount_per_ton', title: '吨耗', width: 120 },
   { colKey: 'unit', title: '单位', width: 100 },
-  { colKey: 'sort_order', title: '排序', width: 80, align: 'center' },
   { colKey: 'remark', title: '备注', minWidth: 160 },
 ];
 
@@ -45,7 +44,6 @@ const consumableColumns = [
   { colKey: 'consumable', title: '消耗品', minWidth: 220 },
   { colKey: 'amount_per_ton', title: '吨耗', width: 120 },
   { colKey: 'unit', title: '单位', width: 100 },
-  { colKey: 'sort_order', title: '排序', width: 80, align: 'center' },
   { colKey: 'remark', title: '备注', minWidth: 160 },
 ];
 
@@ -53,7 +51,6 @@ const publicServiceColumns = [
   { colKey: 'public_service', title: '公共服务', minWidth: 220 },
   { colKey: 'amount_per_ton', title: '吨耗', width: 120 },
   { colKey: 'unit', title: '单位', width: 100 },
-  { colKey: 'sort_order', title: '排序', width: 80, align: 'center' },
   { colKey: 'remark', title: '备注', minWidth: 160 },
 ];
 
@@ -63,7 +60,6 @@ const equipmentColumns = [
   { colKey: 'quantity', title: '数量', width: 110 },
   { colKey: 'investment_amount', title: '投资额', width: 130 },
   { colKey: 'currency', title: '币种', width: 90 },
-  { colKey: 'sort_order', title: '排序', width: 80, align: 'center' },
   { colKey: 'remark', title: '备注', minWidth: 160 },
 ];
 
@@ -72,7 +68,6 @@ const outputColumns = [
   { colKey: 'output_per_ton', title: '产出量', width: 120 },
   { colKey: 'unit', title: '单位', width: 100 },
   { colKey: 'is_main_product', title: '主产品', width: 90, align: 'center' },
-  { colKey: 'sort_order', title: '排序', width: 80, align: 'center' },
   { colKey: 'remark', title: '备注', minWidth: 160 },
 ];
 

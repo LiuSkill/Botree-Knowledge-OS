@@ -26,21 +26,18 @@ const materialColumns = [
   { colKey: 'material', title: '输入原料', minWidth: 200 },
   { colKey: 'amount_per_ton', title: '吨耗', width: 110 },
   { colKey: 'unit', title: '单位', width: 90 },
-  { colKey: 'sort_order', title: '排序', width: 80, align: 'center' },
 ];
 
 const consumableColumns = [
   { colKey: 'consumable', title: '消耗品', minWidth: 200 },
   { colKey: 'amount_per_ton', title: '吨耗', width: 110 },
   { colKey: 'unit', title: '单位', width: 90 },
-  { colKey: 'sort_order', title: '排序', width: 80, align: 'center' },
 ];
 
 const publicServiceColumns = [
   { colKey: 'public_service', title: '公共服务', minWidth: 200 },
   { colKey: 'amount_per_ton', title: '吨耗', width: 110 },
   { colKey: 'unit', title: '单位', width: 90 },
-  { colKey: 'sort_order', title: '排序', width: 80, align: 'center' },
 ];
 
 const equipmentColumns = [

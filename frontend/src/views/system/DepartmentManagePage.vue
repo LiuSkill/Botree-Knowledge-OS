@@ -37,6 +37,7 @@ interface TreeOption {
 }
 
 const departments = ref<DepartmentInfo[]>([]);
+const expandedDepartmentIds = ref<Array<string | number>>([]);
 const leaderOptions = ref<DepartmentUserOption[]>([]);
 const selectedDepartment = ref<DepartmentInfo | null>(null);
 const loading = ref(false);
@@ -65,10 +66,8 @@ const form = reactive({
 
 const columns = [
   { colKey: 'name', title: '部门名称', minWidth: 180 },
-  { colKey: 'code', title: '部门编码', width: 140, ellipsis: true },
   { colKey: 'parent_name', title: '上级部门', width: 150, ellipsis: true },
   { colKey: 'leader_name', title: '部门负责人', width: 150, ellipsis: true },
-  { colKey: 'sort_order', title: '排序', width: 90, align: 'center' },
   { colKey: 'status', title: '状态', width: 100, align: 'center' },
   { colKey: 'created_at', title: '创建时间', width: 170 },
   { colKey: 'operation', title: '操作', width: 230, fixed: 'right' },
@@ -77,7 +76,6 @@ const columns = [
 const treeConfig = {
   childrenKey: 'children',
   treeNodeColumnIndex: 0,
-  defaultExpandAll: true,
 };
 
 const dialogTitle = computed(() => (dialogMode.value === 'create' ? '新增部门' : '编辑部门'));
@@ -98,6 +96,7 @@ async function loadDepartments(): Promise<void> {
   loading.value = true;
   try {
     departments.value = await listDepartmentTree(buildQueryParams());
+    expandedDepartmentIds.value = collectExpandableDepartmentIds(departments.value);
   } finally {
     loading.value = false;
   }
@@ -299,6 +298,13 @@ function countDepartments(items: DepartmentInfo[]): number {
   return items.reduce((total, item) => total + 1 + countDepartments(item.children || []), 0);
 }
 
+function collectExpandableDepartmentIds(items: DepartmentInfo[]): number[] {
+  return items.flatMap((item) => {
+    if (!item.children?.length) return [];
+    return [item.id, ...collectExpandableDepartmentIds(item.children)];
+  });
+}
+
 onMounted(async () => {
   await refreshAll();
 });
@@ -349,6 +355,7 @@ onMounted(async () => {
         :data="departments"
         :columns="columns"
         :tree="treeConfig"
+        v-model:expanded-tree-nodes="expandedDepartmentIds"
         :loading="loading"
         empty="暂无部门"
       >

@@ -16,7 +16,7 @@ from app.api.deps import get_current_user, require_permission
 from app.core.database import get_db
 from app.core.response import success
 from app.models.user import User
-from app.schemas.system import OperationLogOut
+from app.schemas.system import OperationLogOut, OperationLogUserOption
 from app.services.system_service import SystemService
 
 router = APIRouter(prefix="/system", tags=["系统管理"])
@@ -46,6 +46,8 @@ def action_permissions(_: User = Depends(require_permission("system:permission:v
 
 @router.get("/operation-logs", summary="操作日志")
 def operation_logs(
+    user_id: int | None = None,
+    username: str | None = None,
     keyword: str | None = None,
     result: str | None = None,
     target_type: str | None = None,
@@ -59,6 +61,8 @@ def operation_logs(
     """查询操作日志。"""
 
     logs = SystemService(db).list_logs(
+        user_id=user_id,
+        username=username,
         keyword=keyword,
         result=result,
         target_type=target_type,
@@ -73,6 +77,17 @@ def operation_logs(
             "items": [OperationLogOut.model_validate(item).model_dump(mode="json") for item in logs["items"]],
         }
     )
+
+
+@router.get("/operation-log-users", summary="操作日志用户选项")
+def operation_log_users(
+    _: User = Depends(require_permission("system:log:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """查询操作日志筛选下拉框可选用户。"""
+
+    users = SystemService(db).list_operation_log_user_options()
+    return success([OperationLogUserOption.model_validate(item).model_dump(mode="json") for item in users])
 
 
 @router.get("/qa-audit-sessions", summary="问答会话审计")

@@ -29,10 +29,16 @@ class ReviewRepository:
         self.db = db
 
     def list_tasks(self, status: str | None = None, project_id: int | None = None) -> list[ReviewTask]:
-        """查询审核任务。"""
+        """查询每份文档最新的审核任务，历史任务仅用于审计。"""
 
+        latest_task_ids = (
+            select(func.max(ReviewTask.id).label("task_id"))
+            .group_by(ReviewTask.document_id)
+            .subquery()
+        )
         stmt = (
             select(ReviewTask)
+            .join(latest_task_ids, latest_task_ids.c.task_id == ReviewTask.id)
             .join(Document, Document.id == ReviewTask.document_id)
             .where(Document.is_deleted.is_(False))
             .order_by(ReviewTask.id.desc())
@@ -103,10 +109,24 @@ class ReviewRepository:
                 access_filters.append(Document.project_id.in_(list(accessible_project_ids)))
         filters.append(or_(*access_filters) if access_filters else false())
 
-        stmt = select(ReviewTask).join(Document, Document.id == ReviewTask.document_id)
-        count_stmt = select(func.count(ReviewTask.id)).select_from(ReviewTask).join(
+        latest_task_ids = (
+            select(func.max(ReviewTask.id).label("task_id"))
+            .group_by(ReviewTask.document_id)
+            .subquery()
+        )
+        stmt = (
+            select(ReviewTask)
+            .join(latest_task_ids, latest_task_ids.c.task_id == ReviewTask.id)
+            .join(Document, Document.id == ReviewTask.document_id)
+        )
+        count_stmt = (
+            select(func.count(ReviewTask.id))
+            .select_from(ReviewTask)
+            .join(latest_task_ids, latest_task_ids.c.task_id == ReviewTask.id)
+            .join(
             Document,
             Document.id == ReviewTask.document_id,
+            )
         )
         if project_id is not None:
             filters.append(Document.project_id == project_id)

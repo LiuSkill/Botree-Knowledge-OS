@@ -477,9 +477,8 @@ onMounted(loadMatrix);
                 内置
               </t-tag>
             </div>
-            <p>{{ role.description || '未填写角色说明' }}</p>
-            <div class="role-meta">
-              <span>{{ role.code }}</span>
+            <div class="role-description-row">
+              <p>{{ role.description || '未填写角色说明' }}</p>
               <span>{{ rolePermissionCount(role) }} 个权限</span>
             </div>
             <div class="role-actions">
@@ -554,7 +553,6 @@ onMounted(loadMatrix);
                     <tr v-for="group in actionGroups" :key="group.module" :class="{ muted: selectedRoleLocked || !isActionGroupEnabled(group) }">
                       <td>
                         <strong>{{ group.module_name }}</strong>
-                        <small>{{ group.module }}</small>
                       </td>
                       <td>{{ boundMenuLabel(group) }}</td>
                       <td>
@@ -739,21 +737,29 @@ h3 {
   white-space: nowrap;
 }
 
-.role-card p {
-  margin-top: 6px;
-  min-height: 18px;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.role-meta {
+.role-description-row {
   display: flex;
+  min-width: 0;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 6px;
   color: #94a3b8;
   font-size: 12px;
+}
+
+.role-description-row p {
+  min-width: 0;
+  min-height: 18px;
+  overflow: hidden;
+  color: #64748b;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-description-row span {
+  flex: 0 0 auto;
 }
 
 .role-actions {

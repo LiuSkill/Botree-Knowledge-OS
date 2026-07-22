@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.document import Document
@@ -118,8 +118,14 @@ class KnowledgeCategoryRepository:
         self,
         category_ids: list[int],
         security_levels: list[str] | None = None,
+        *,
+        keyword: str | None = None,
+        document_status: str | None = None,
+        security_level: str | None = None,
+        parse_status: str | None = None,
+        index_status: str | None = None,
     ) -> dict[int, int]:
-        """批量统计分类文档数量。"""
+        """按文档列表相同口径批量统计分类文档数量。"""
 
         if not category_ids:
             return {}
@@ -131,4 +137,38 @@ class KnowledgeCategoryRepository:
         )
         if security_levels is not None:
             stmt = stmt.where(Document.security_level.in_(security_levels))
+        if keyword:
+            like = f"%{keyword}%"
+            stmt = stmt.where(
+                or_(
+                    Document.file_name.like(like),
+                    Document.document_name.like(like),
+                    Document.document_type.like(like),
+                    Document.discipline.like(like),
+                )
+            )
+        if document_status == "published":
+            stmt = stmt.where(
+                or_(
+                    Document.status.in_(("已发布", "published", "active")),
+                    Document.document_status.in_(("reviewed", "active")),
+                    Document.review_status == "approved",
+                )
+            )
+        elif document_status == "pending_review":
+            stmt = stmt.where(
+                or_(
+                    Document.status.in_(("待审核", "pending", "pending_review")),
+                    Document.document_status == "pending_review",
+                    Document.review_status.in_(("draft", "reviewing", "rejected")),
+                )
+            )
+        elif document_status:
+            stmt = stmt.where(Document.status == document_status)
+        if security_level:
+            stmt = stmt.where(Document.security_level == security_level)
+        if parse_status:
+            stmt = stmt.where(Document.parse_status == parse_status)
+        if index_status:
+            stmt = stmt.where(Document.index_status == index_status)
         return {int(category_id): int(count) for category_id, count in self.db.execute(stmt).all() if category_id is not None}

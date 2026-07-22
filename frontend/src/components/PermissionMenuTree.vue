@@ -48,7 +48,6 @@ function isIndeterminate(node: SystemMenuNode): boolean {
         @change="(checked) => emit('toggleNode', node, Boolean(checked))"
       >
         <span class="node-label">{{ node.name }}</span>
-        <small v-if="node.path">{{ node.path }}</small>
       </t-checkbox>
       <PermissionMenuTree
         v-if="node.children.length"
@@ -87,9 +86,4 @@ function isIndeterminate(node: SystemMenuNode): boolean {
   font-weight: 600;
 }
 
-small {
-  margin-left: 8px;
-  color: #94a3b8;
-  font-size: 12px;
-}
 </style>
