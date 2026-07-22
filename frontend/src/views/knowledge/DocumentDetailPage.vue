@@ -9,7 +9,7 @@
 <script setup lang="ts">
 import MarkdownIt from 'markdown-it';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { AssignmentCheckedIcon, DownloadIcon, FileSearchIcon, PlayCircleIcon, RefreshIcon, UploadIcon } from 'tdesign-icons-vue-next';
+import { AssignmentCheckedIcon, DownloadIcon, FileSearchIcon, FullscreenIcon, PlayCircleIcon, RefreshIcon, UploadIcon } from 'tdesign-icons-vue-next';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { Directive } from 'vue';
@@ -33,6 +33,7 @@ import {
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
+import ZoomPreviewDialog from '@/components/ZoomPreviewDialog.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type {
@@ -190,6 +191,7 @@ const pdfPreviewLoading = ref(false);
 const pdfPreviewUrl = ref('');
 const pdfPreviewTitle = ref('PDF 预览');
 const pdfPreviewError = ref('');
+const zoomPreviewVisible = ref(false);
 const securityDialogVisible = ref(false);
 const securitySaving = ref(false);
 const versionDialogVisible = ref(false);
@@ -1498,6 +1500,16 @@ onBeforeUnmount(() => {
                   回到当前版本
                 </t-button>
                 <t-button
+                  size="small"
+                  variant="text"
+                  class="preview-toolbar-link"
+                  :disabled="previewLoading || !markdownContent"
+                  @click="zoomPreviewVisible = true"
+                >
+                  <template #icon><FullscreenIcon /></template>
+                  放大预览
+                </t-button>
+                <t-button
                   v-if="documentInfo && canPreviewDocument"
                   size="small"
                   variant="text"
@@ -1786,6 +1798,40 @@ onBeforeUnmount(() => {
           <div v-else class="empty-panel">暂无可预览 PDF。</div>
         </div>
       </t-dialog>
+
+      <ZoomPreviewDialog
+        v-model:visible="zoomPreviewVisible"
+        :title="viewedFileName"
+        :version-label="viewedVersionLabel"
+      >
+        <article class="markdown-preview" v-html="renderedMarkdownHtml" />
+        <div v-if="structuredPreviewPages.length" class="structured-preview">
+          <article v-for="page in structuredPreviewPages" :key="`zoom-${page.id}`" class="page-preview-card">
+            <div class="page-preview-title">Page {{ page.page_no }}</div>
+            <img
+              v-if="page.page_preview_asset?.status === 'ready'"
+              v-asset-lazy="page.page_preview_asset"
+              class="page-preview-image"
+              :src="assetBlobUrl(page.page_preview_asset) || IMAGE_PLACEHOLDER_SRC"
+              :alt="`Page ${page.page_no}`"
+              loading="lazy"
+              decoding="async"
+            />
+            <div v-if="page.blocks.some((block) => block.image_asset?.status === 'ready')" class="block-image-grid">
+              <img
+                v-for="block in page.blocks.filter((item) => item.image_asset?.status === 'ready')"
+                :key="block.id"
+                v-asset-lazy="block.image_asset"
+                class="block-preview-image"
+                :src="assetBlobUrl(block.image_asset) || IMAGE_PLACEHOLDER_SRC"
+                :alt="block.text || `Block ${block.block_index}`"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+          </article>
+        </div>
+      </ZoomPreviewDialog>
     </div>
   </PageContainer>
 </template>
