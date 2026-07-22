@@ -7,9 +7,9 @@ System Repository
 3. 系统配置查询扩展
 """
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
-from sqlalchemy import case, false, func, or_, select
+from sqlalchemy import and_, case, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.chat import ChatMessage, ChatSession
@@ -18,7 +18,6 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.operation_log import OperationLog
 from app.models.project import Project
 from app.models.review import ReviewTask
-from app.models.user import User
 
 
 class SystemRepository:
@@ -88,6 +87,60 @@ class SystemRepository:
             ),
         }
 
+    def count_accessible_document_chunks(
+        self,
+        *,
+        security_levels: list[str],
+        include_base_documents: bool,
+        include_project_documents: bool,
+        accessible_project_ids: list[int],
+    ) -> int:
+        """统计当前用户可访问且有效的知识条目。"""
+
+        access_filters: list[object] = []
+        if include_base_documents:
+            access_filters.append(or_(Document.knowledge_type == "base", Document.project_id.is_(None)))
+        if include_project_documents and accessible_project_ids:
+            access_filters.append(Document.project_id.in_(accessible_project_ids))
+        stmt = (
+            select(func.count(DocumentChunk.id))
+            .join(Document, Document.id == DocumentChunk.document_id)
+            .where(
+                DocumentChunk.chunk_status == "active",
+                Document.is_deleted.is_(False),
+                Document.review_status == "approved",
+                Document.security_level.in_(security_levels),
+                or_(*access_filters) if access_filters else false(),
+            )
+        )
+        return int(self.db.scalar(stmt) or 0)
+
+    def count_accessible_ai_answers(
+        self,
+        *,
+        user_id: int | None,
+        include_enterprise: bool,
+        include_project: bool,
+        accessible_project_ids: list[int],
+    ) -> int:
+        """沿用顶部累计口径，统计当前用户范围内的助手回答消息。"""
+
+        type_filters: list[object] = []
+        if include_enterprise:
+            type_filters.append(ChatSession.chat_type == "base_chat")
+        if include_project and accessible_project_ids:
+            type_filters.append(
+                and_(ChatSession.chat_type == "project_chat", ChatSession.project_id.in_(accessible_project_ids))
+            )
+        filters: list[object] = [
+            ChatMessage.role == "assistant",
+            or_(*type_filters) if type_filters else false(),
+        ]
+        if user_id is not None:
+            filters.append(ChatSession.user_id == user_id)
+        stmt = select(func.count(ChatMessage.id)).join(ChatSession, ChatSession.id == ChatMessage.session_id).where(*filters)
+        return int(self.db.scalar(stmt) or 0)
+
     def list_document_type_distribution(
         self,
         *,
@@ -124,18 +177,94 @@ class SystemRepository:
         )
         return [(str(type_name), int(count)) for type_name, count in self.db.execute(stmt).all()]
 
-    def list_recent_user_questions(self, limit: int = 4) -> list[tuple[ChatMessage, ChatSession, User]]:
-        """查询最近用户提问及其会话上下文。"""
+    def list_knowledge_asset_distribution(
+        self,
+        *,
+        security_levels: list[str],
+        include_base_documents: bool,
+        include_project_documents: bool,
+        accessible_project_ids: list[int],
+    ) -> list[tuple[int | None, str | None, int]]:
+        """按企业公共知识和可访问项目一次聚合有效文档数量。"""
 
-        stmt = (
-            select(ChatMessage, ChatSession, User)
-            .join(ChatSession, ChatSession.id == ChatMessage.session_id)
-            .join(User, User.id == func.coalesce(ChatMessage.user_id, ChatSession.user_id))
-            .where(ChatMessage.role == "user")
-            .order_by(ChatMessage.id.desc())
-            .limit(limit)
+        access_filters: list[object] = []
+        if include_base_documents:
+            access_filters.append(or_(Document.knowledge_type == "base", Document.project_id.is_(None)))
+        if include_project_documents and accessible_project_ids:
+            access_filters.append(Document.project_id.in_(accessible_project_ids))
+        scope_project_id = case(
+            (or_(Document.knowledge_type == "base", Document.project_id.is_(None)), None),
+            else_=Document.project_id,
         )
-        return list(self.db.execute(stmt).all())
+        stmt = (
+            select(scope_project_id.label("scope_project_id"), Project.name, func.count(Document.id))
+            .outerjoin(Project, Project.id == scope_project_id)
+            .where(
+                Document.is_deleted.is_(False),
+                Document.review_status == "approved",
+                Document.security_level.in_(security_levels),
+                or_(*access_filters) if access_filters else false(),
+            )
+            .group_by(scope_project_id, Project.name)
+        )
+        return [
+            (int(project_id) if project_id is not None else None, str(project_name) if project_name else None, int(count))
+            for project_id, project_name, count in self.db.execute(stmt).all()
+        ]
+
+    def list_qa_trend_counts(
+        self,
+        *,
+        started_at: datetime,
+        ended_at: datetime,
+        timezone_offset: timedelta,
+        user_id: int | None,
+        include_enterprise: bool,
+        include_project: bool,
+        accessible_project_ids: list[int],
+    ) -> list[tuple[date, str, int]]:
+        """按业务日期和问答类型聚合正式用户问题。"""
+
+        offset_seconds = int(timezone_offset.total_seconds())
+        dialect_name = self.db.bind.dialect.name if self.db.bind is not None else ""
+        if dialect_name == "sqlite":
+            modifier = f"{offset_seconds:+d} seconds"
+            business_date = func.date(func.datetime(ChatMessage.created_at, modifier))
+        elif dialect_name in {"mysql", "mariadb"}:
+            hours, remainder = divmod(abs(offset_seconds), 3600)
+            minutes = remainder // 60
+            sign = "-" if offset_seconds < 0 else ""
+            business_date = func.date(func.addtime(ChatMessage.created_at, f"{sign}{hours:02d}:{minutes:02d}:00"))
+        else:
+            business_date = func.date(ChatMessage.created_at + timezone_offset)
+
+        type_filters: list[object] = []
+        if include_enterprise:
+            type_filters.append(ChatSession.chat_type == "base_chat")
+        if include_project and accessible_project_ids:
+            type_filters.append(
+                and_(ChatSession.chat_type == "project_chat", ChatSession.project_id.in_(accessible_project_ids))
+            )
+
+        filters: list[object] = [
+            ChatMessage.role == "user",
+            ChatMessage.created_at >= started_at,
+            ChatMessage.created_at < ended_at,
+            or_(*type_filters) if type_filters else false(),
+        ]
+        if user_id is not None:
+            filters.append(func.coalesce(ChatMessage.user_id, ChatSession.user_id) == user_id)
+        stmt = (
+            select(business_date.label("business_date"), ChatSession.chat_type, func.count(ChatMessage.id))
+            .join(ChatSession, ChatSession.id == ChatMessage.session_id)
+            .where(*filters)
+            .group_by(business_date, ChatSession.chat_type)
+            .order_by(business_date.asc())
+        )
+        return [
+            (raw_date if isinstance(raw_date, date) else date.fromisoformat(str(raw_date)), str(chat_type), int(count))
+            for raw_date, chat_type, count in self.db.execute(stmt).all()
+        ]
 
     def list_user_login_logs(self, user_id: int, limit: int = 2) -> list[OperationLog]:
         """查询指定用户最近登录日志。"""

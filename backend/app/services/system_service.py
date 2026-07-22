@@ -9,12 +9,14 @@ System Service
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
 from app.core.audit_context import current_audit_context
+from app.core.config import get_settings
 from app.core.data_scope import enabled_role_data_scopes
 from app.core.exceptions import AppException
 from app.core.rbac import ACTION_GROUPS, MENU_TREE, ActionGroup, MenuNode
@@ -25,7 +27,6 @@ from app.models.knowledge_category import KnowledgeCategory
 from app.models.operation_log import OperationLog
 from app.models.user import Permission, User
 from app.repositories.chat_repository import ChatRepository
-from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.review_repository import ReviewRepository
 from app.repositories.system_repository import SystemRepository
@@ -45,7 +46,8 @@ DOCUMENT_TYPE_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
     ("other", "其他", "#64748b"),
 )
 QA_FEEDBACK_FILTERS: set[str] = {"like", "dislike", "none"}
-DASHBOARD_RECENT_ITEM_LIMIT = 6
+QA_TREND_DAYS = 7
+DEFAULT_BUSINESS_TIMEZONE = "Asia/Shanghai"
 
 
 class SystemService:
@@ -142,30 +144,25 @@ class SystemService:
             工作台统计对象。
         """
 
+        document_scope = self._dashboard_document_scope(current_user)
+        qa_scope = self._dashboard_qa_scope(current_user, document_scope)
         counts = self.repository.dashboard_counts()
-        documents = DocumentRepository(self.db).list()
         projects = ProjectRepository(self.db).list(admin=True)[:5]
         reviews = ReviewRepository(self.db).list_tasks(status="reviewing")[:5]
-        recent_questions = self.repository.list_recent_user_questions(limit=DASHBOARD_RECENT_ITEM_LIMIT)
-        document_scope = self._dashboard_document_scope(current_user)
         document_type_counts = self.repository.list_document_type_distribution(**document_scope)
         document_type_distribution = self._build_document_type_distribution(document_type_counts)
+        knowledge_asset_distribution = self._build_knowledge_asset_distribution(
+            self.repository.list_knowledge_asset_distribution(**document_scope)
+        )
         counts["document_count"] = sum(int(item["count"]) for item in document_type_distribution)
+        counts["knowledge_entry_count"] = self.repository.count_accessible_document_chunks(**document_scope)
+        counts["project_count"] = len(document_scope["accessible_project_ids"])
+        counts["ai_answer_count"] = self.repository.count_accessible_ai_answers(**qa_scope)
+        qa_trend = self._build_qa_trend(current_user)
         login_logs = self.repository.list_user_login_logs(current_user.id, limit=2) if current_user else []
         counts.update(
             {
                 "last_login_at": self._resolve_last_login_at(login_logs),
-                "recent_documents": [
-                    {
-                        "id": item.id,
-                        "file_name": item.file_name,
-                        "file_type": item.file_type,
-                        "review_status": item.review_status,
-                        "index_status": item.index_status,
-                        "created_at": item.created_at,
-                    }
-                    for item in documents[:DASHBOARD_RECENT_ITEM_LIMIT]
-                ],
                 "recent_projects": [
                     {"id": item.id, "name": item.name, "code": item.code, "progress": item.progress, "status": item.status}
                     for item in projects
@@ -174,25 +171,70 @@ class SystemService:
                     {"id": item.id, "document_id": item.document_id, "review_status": item.review_status}
                     for item in reviews
                 ],
-                "recent_ai_questions": [
-                    {
-                        "id": message.id,
-                        "session_id": session.id,
-                        "user_id": user.id,
-                        "username": user.username,
-                        "real_name": user.real_name,
-                        "avatar_url": avatar_url_for_user(user),
-                        "avatar_updated_at": user.avatar_updated_at,
-                        "question": message.content,
-                        "chat_type": session.chat_type,
-                        "created_at": message.created_at,
-                    }
-                    for message, session, user in recent_questions
-                ],
+                "qa_trend": qa_trend,
                 "document_type_distribution": document_type_distribution,
+                "knowledge_asset_distribution": knowledge_asset_distribution,
             }
         )
         return counts
+
+    def _build_qa_trend(self, current_user: User | None, *, now: datetime | None = None) -> dict[str, Any]:
+        """按业务时区构建最近七个自然日的问答趋势。"""
+
+        business_timezone = self._business_timezone()
+        current_time = now or datetime.now(UTC)
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=UTC)
+        end_date = current_time.astimezone(business_timezone).date()
+        start_date = end_date - timedelta(days=QA_TREND_DAYS - 1)
+        local_start = datetime.combine(start_date, time.min, tzinfo=business_timezone)
+        local_end = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=business_timezone)
+
+        rows: list[tuple[date, str, int]] = []
+        if current_user is not None:
+            document_scope = self._dashboard_document_scope(current_user)
+            qa_scope = self._dashboard_qa_scope(current_user, document_scope)
+            rows = self.repository.list_qa_trend_counts(
+                started_at=local_start.astimezone(UTC).replace(tzinfo=None),
+                ended_at=local_end.astimezone(UTC).replace(tzinfo=None),
+                timezone_offset=local_start.utcoffset() or timedelta(0),
+                **qa_scope,
+            )
+
+        counts_by_date = {(row_date, chat_type): count for row_date, chat_type, count in rows}
+        daily: list[dict[str, int | str]] = []
+        for day_offset in range(QA_TREND_DAYS):
+            current_date = start_date + timedelta(days=day_offset)
+            enterprise_count = counts_by_date.get((current_date, "base_chat"), 0)
+            project_count = counts_by_date.get((current_date, "project_chat"), 0)
+            daily.append(
+                {
+                    "date": current_date.isoformat(),
+                    "enterprise_count": enterprise_count,
+                    "project_count": project_count,
+                    "total_count": enterprise_count + project_count,
+                }
+            )
+        enterprise_total = sum(int(item["enterprise_count"]) for item in daily)
+        project_total = sum(int(item["project_count"]) for item in daily)
+        return {
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "total": enterprise_total + project_total,
+            "enterprise_total": enterprise_total,
+            "project_total": project_total,
+            "daily": daily,
+        }
+
+    def _business_timezone(self) -> ZoneInfo:
+        """读取统一业务时区，配置错误时记录日志并回退默认时区。"""
+
+        timezone_name = get_settings().app_timezone
+        try:
+            return ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            logger.warning("无效业务时区，回退默认值: timezone=%s default=%s", timezone_name, DEFAULT_BUSINESS_TIMEZONE)
+            return ZoneInfo(DEFAULT_BUSINESS_TIMEZONE)
 
     def _dashboard_document_scope(self, current_user: User | None) -> dict[str, Any]:
         """复用文档列表的密级、项目权限和数据范围规则。"""
@@ -205,6 +247,7 @@ class SystemService:
                 "accessible_project_ids": [],
             }
         access_service = ProjectAccessService(self.db)
+        include_base_documents = access_service.has_permission(current_user, "knowledge:view", "knowledge")
         include_projects = access_service.has_permission(current_user, "project:view", "project")
         user_department = getattr(current_user, "department_id", None) or getattr(current_user, "department", None)
         security_levels = allowed_security_levels(user_max_security_level(current_user))
@@ -221,9 +264,27 @@ class SystemService:
         )
         return {
             "security_levels": security_levels,
-            "include_base_documents": True,
+            "include_base_documents": include_base_documents,
             "include_project_documents": include_projects,
             "accessible_project_ids": project_ids,
+        }
+
+    def _dashboard_qa_scope(self, current_user: User | None, document_scope: dict[str, Any]) -> dict[str, Any]:
+        """构建累计问答和趋势统计共用的用户、类型及项目权限范围。"""
+
+        if current_user is None:
+            return {
+                "user_id": None,
+                "include_enterprise": False,
+                "include_project": False,
+                "accessible_project_ids": [],
+            }
+        access_service = ProjectAccessService(self.db)
+        return {
+            "user_id": None if access_service.is_admin(current_user) else current_user.id,
+            "include_enterprise": access_service.has_permission(current_user, "ai:base-chat:view"),
+            "include_project": access_service.has_permission(current_user, "ai:project-chat:view"),
+            "accessible_project_ids": list(document_scope["accessible_project_ids"]),
         }
 
     def list_logs(
@@ -577,3 +638,54 @@ class SystemService:
         ]
         order = {type_name: index for index, (type_name, _, _) in enumerate(DOCUMENT_TYPE_DEFINITIONS)}
         return sorted(result, key=lambda item: (-int(item["count"]), order[str(item["type"])]))
+
+    def _build_knowledge_asset_distribution(
+        self,
+        rows: list[tuple[int | None, str | None, int]],
+    ) -> dict[str, Any]:
+        """企业公共知识固定首项，项目 Top 5 之外合并为其他项目。"""
+
+        enterprise_count = sum(count for project_id, _, count in rows if project_id is None)
+        projects = sorted(
+            ((project_id, name or "未命名项目", count) for project_id, name, count in rows if project_id is not None),
+            key=lambda item: (-item[2], item[1]),
+        )
+        total_document_count = enterprise_count + sum(item[2] for item in projects)
+        if total_document_count == 0:
+            return {"total_document_count": 0, "items": []}
+
+        items: list[dict[str, Any]] = []
+        if enterprise_count > 0:
+            items.append(
+                {
+                    "scope_type": "enterprise",
+                    "scope_id": None,
+                    "name": "企业公共知识",
+                    "document_count": enterprise_count,
+                    "percentage": round(enterprise_count / total_document_count * 100, 1),
+                }
+            )
+        for project_id, name, count in projects[:5]:
+            items.append(
+                {
+                    "scope_type": "project",
+                    "scope_id": project_id,
+                    "name": name,
+                    "document_count": count,
+                    "percentage": round(count / total_document_count * 100, 1),
+                }
+            )
+        remaining_projects = projects[5:]
+        other_count = sum(item[2] for item in remaining_projects)
+        if other_count > 0:
+            items.append(
+                {
+                    "scope_type": "other_projects",
+                    "scope_id": None,
+                    "name": "其他项目",
+                    "document_count": other_count,
+                    "project_count": len(remaining_projects),
+                    "percentage": round(other_count / total_document_count * 100, 1),
+                }
+            )
+        return {"total_document_count": total_document_count, "items": items}

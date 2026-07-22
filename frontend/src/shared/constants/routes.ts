@@ -62,6 +62,11 @@ export const ROUTE_PATHS = {
    * 系统管理路径
    */
   system: '/system',
+
+  /**
+   * 问答审计路径
+   */
+  qaAudit: '/system/qa-audits',
 } as const;
 
 export type RoutePath = (typeof ROUTE_PATHS)[keyof typeof ROUTE_PATHS];

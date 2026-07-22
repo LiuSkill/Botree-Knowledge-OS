@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-dashboard-types-32bytes")
 
-from app.models import Base, Document, KnowledgeBase, Permission, Project, Role, User  # noqa: E402
+from app.models import Base, Document, DocumentChunk, KnowledgeBase, Permission, Project, Role, User  # noqa: E402
 from app.repositories.system_repository import SystemRepository  # noqa: E402
 from app.services.system_service import SystemService  # noqa: E402
 
@@ -88,12 +88,27 @@ def test_dashboard_scope_reuses_role_security_and_project_permissions(db_session
     knowledge_base = KnowledgeBase(name="项目库", code="project", type="project", project_id=project.id)
     db_session.add(knowledge_base)
     db_session.flush()
+    documents = [
+        _document(knowledge_base.id, "pdf", project_id=project.id),
+        _document(knowledge_base.id, "docx", security_level="confidential"),
+        _document(knowledge_base.id, "xlsx", is_deleted=True),
+        _document(knowledge_base.id, "pptx", review_status="draft"),
+    ]
+    db_session.add_all(documents)
+    db_session.flush()
     db_session.add_all(
         [
-            _document(knowledge_base.id, "pdf", project_id=project.id),
-            _document(knowledge_base.id, "docx", security_level="confidential"),
-            _document(knowledge_base.id, "xlsx", is_deleted=True),
-            _document(knowledge_base.id, "pptx", review_status="draft"),
+            DocumentChunk(
+                knowledge_base_id=knowledge_base.id,
+                document_id=document.id,
+                project_id=document.project_id,
+                knowledge_type=document.knowledge_type,
+                chunk_index=0,
+                content="测试条目",
+                chunk_status="active",
+                security_level=document.security_level,
+            )
+            for document in documents
         ]
     )
     db_session.commit()
@@ -103,7 +118,11 @@ def test_dashboard_scope_reuses_role_security_and_project_permissions(db_session
 
     assert regular_result["document_count"] == 0
     assert regular_result["document_type_distribution"] == []
+    assert regular_result["knowledge_asset_distribution"] == {"total_document_count": 0, "items": []}
     assert admin_result["document_count"] == 2
+    assert regular_result["knowledge_entry_count"] == 0
+    assert admin_result["knowledge_entry_count"] == 2
+    assert admin_result["knowledge_asset_distribution"]["total_document_count"] == admin_result["document_count"]
     assert {item["type"]: item["count"] for item in admin_result["document_type_distribution"]} == {
         "pdf": 1,
         "word": 1,

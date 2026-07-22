@@ -25,11 +25,11 @@ class DashboardStats(BaseModel):
     ai_answer_count: int = Field(default=0, description="AI 回答次数")
     pending_review_count: int
     last_login_at: datetime | None = Field(default=None, description="上次登录时间")
-    recent_documents: list[dict] = Field(default_factory=list, description="最近资料")
     recent_projects: list[dict] = Field(default_factory=list, description="最近项目")
     todo_reviews: list[dict] = Field(default_factory=list, description="待办审核")
-    recent_ai_questions: list[dict] = Field(default_factory=list, description="最近 AI 提问")
+    qa_trend: dict = Field(default_factory=dict, description="近 7 天 AI 问答趋势")
     document_type_distribution: list[dict] = Field(default_factory=list, description="文档类型分布")
+    knowledge_asset_distribution: dict = Field(default_factory=dict, description="知识资产分布")
 
 
 class OperationLogOut(BaseModel):

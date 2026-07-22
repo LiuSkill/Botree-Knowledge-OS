@@ -25,7 +25,7 @@ health_router = APIRouter(tags=["健康检查"])
 
 @router.get("/dashboard", summary="首页工作台统计")
 def dashboard(current_user: User = Depends(require_permission("dashboard:view")), db: Session = Depends(get_db)) -> dict:
-    """查询首页统计和最近数据。"""
+    """查询当前用户权限范围内的首页统计数据。"""
 
     return success(SystemService(db).dashboard(current_user))
 

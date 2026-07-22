@@ -609,33 +609,41 @@ export interface DashboardStats {
   ai_answer_count?: number;
   pending_review_count: number;
   last_login_at?: string | null;
-  recent_documents: DashboardDocumentSummary[];
   recent_projects: Array<Record<string, unknown>>;
   todo_reviews: Array<Record<string, unknown>>;
-  recent_ai_questions?: DashboardAiQuestion[];
+  qa_trend: DashboardQaTrend;
   document_type_distribution?: DashboardDocumentTypeStat[];
+  knowledge_asset_distribution: DashboardKnowledgeAssetDistribution;
 }
 
-export interface DashboardDocumentSummary {
-  id: number;
-  file_name: string;
-  file_type?: string | null;
-  review_status?: string | null;
-  index_status?: string | null;
-  created_at?: string | null;
+export interface DashboardKnowledgeAssetItem {
+  scope_type: 'enterprise' | 'project' | 'other_projects';
+  scope_id: number | null;
+  name: string;
+  document_count: number;
+  project_count?: number;
+  percentage: number;
 }
 
-export interface DashboardAiQuestion {
-  id: number;
-  session_id: number;
-  user_id?: number | null;
-  username?: string | null;
-  real_name?: string | null;
-  avatar_url?: string | null;
-  avatar_updated_at?: string | null;
-  question: string;
-  chat_type: 'project_chat' | 'base_chat';
-  created_at?: string | null;
+export interface DashboardKnowledgeAssetDistribution {
+  total_document_count: number;
+  items: DashboardKnowledgeAssetItem[];
+}
+
+export interface DashboardQaTrendDaily {
+  date: string;
+  enterprise_count: number;
+  project_count: number;
+  total_count: number;
+}
+
+export interface DashboardQaTrend {
+  start_date: string;
+  end_date: string;
+  total: number;
+  enterprise_total: number;
+  project_total: number;
+  daily: DashboardQaTrendDaily[];
 }
 
 export interface DashboardDocumentTypeStat {
