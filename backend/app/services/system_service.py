@@ -15,8 +15,10 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.audit_context import current_audit_context
+from app.core.data_scope import enabled_role_data_scopes
 from app.core.exceptions import AppException
 from app.core.rbac import ACTION_GROUPS, MENU_TREE, ActionGroup, MenuNode
+from app.core.security_levels import allowed_security_levels, user_max_security_level
 from app.models.chat import ChatCitation
 from app.models.document import Document
 from app.models.knowledge_category import KnowledgeCategory
@@ -27,14 +29,23 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.review_repository import ReviewRepository
 from app.repositories.system_repository import SystemRepository
+from app.services.project_access_service import ProjectAccessService
 from app.services.retrieval_trace_service import RetrievalTraceService
 from app.utils.pagination import paginate
 from app.utils.user_avatar import avatar_url_for_user
 
 logger = logging.getLogger(__name__)
 
-CATEGORY_CHART_COLORS: tuple[str, ...] = ("#4ea3f7", "#b678f4", "#ff8a1f", "#f36eae", "#2fcf72", "#64748b")
+DOCUMENT_TYPE_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
+    ("pdf", "PDF", "#4ea3f7"),
+    ("word", "Word", "#b678f4"),
+    ("excel", "Excel", "#2fcf72"),
+    ("powerpoint", "PowerPoint", "#ff8a1f"),
+    ("image", "图片", "#f36eae"),
+    ("other", "其他", "#64748b"),
+)
 QA_FEEDBACK_FILTERS: set[str] = {"like", "dislike", "none"}
+DASHBOARD_RECENT_ITEM_LIMIT = 6
 
 
 class SystemService:
@@ -135,8 +146,11 @@ class SystemService:
         documents = DocumentRepository(self.db).list()
         projects = ProjectRepository(self.db).list(admin=True)[:5]
         reviews = ReviewRepository(self.db).list_tasks(status="reviewing")[:5]
-        recent_questions = self.repository.list_recent_user_questions(limit=4)
-        category_stats = self.repository.list_document_category_stats()
+        recent_questions = self.repository.list_recent_user_questions(limit=DASHBOARD_RECENT_ITEM_LIMIT)
+        document_scope = self._dashboard_document_scope(current_user)
+        document_type_counts = self.repository.list_document_type_distribution(**document_scope)
+        document_type_distribution = self._build_document_type_distribution(document_type_counts)
+        counts["document_count"] = sum(int(item["count"]) for item in document_type_distribution)
         login_logs = self.repository.list_user_login_logs(current_user.id, limit=2) if current_user else []
         counts.update(
             {
@@ -150,7 +164,7 @@ class SystemService:
                         "index_status": item.index_status,
                         "created_at": item.created_at,
                     }
-                    for item in documents[:5]
+                    for item in documents[:DASHBOARD_RECENT_ITEM_LIMIT]
                 ],
                 "recent_projects": [
                     {"id": item.id, "name": item.name, "code": item.code, "progress": item.progress, "status": item.status}
@@ -175,10 +189,42 @@ class SystemService:
                     }
                     for message, session, user in recent_questions
                 ],
-                "knowledge_category_stats": self._build_knowledge_category_stats(category_stats),
+                "document_type_distribution": document_type_distribution,
             }
         )
         return counts
+
+    def _dashboard_document_scope(self, current_user: User | None) -> dict[str, Any]:
+        """复用文档列表的密级、项目权限和数据范围规则。"""
+
+        if current_user is None:
+            return {
+                "security_levels": [],
+                "include_base_documents": False,
+                "include_project_documents": False,
+                "accessible_project_ids": [],
+            }
+        access_service = ProjectAccessService(self.db)
+        include_projects = access_service.has_permission(current_user, "project:view", "project")
+        user_department = getattr(current_user, "department_id", None) or getattr(current_user, "department", None)
+        security_levels = allowed_security_levels(user_max_security_level(current_user))
+        project_ids = (
+            ProjectRepository(self.db).list_accessible_ids(
+                user_id=current_user.id,
+                user_department=str(user_department) if user_department else None,
+                is_admin=access_service.is_admin(current_user),
+                data_scopes=enabled_role_data_scopes(current_user),
+                project_security_levels=security_levels,
+            )
+            if include_projects
+            else []
+        )
+        return {
+            "security_levels": security_levels,
+            "include_base_documents": True,
+            "include_project_documents": include_projects,
+            "accessible_project_ids": project_ids,
+        }
 
     def list_logs(
         self,
@@ -512,27 +558,22 @@ class SystemService:
         log = login_logs[1] if len(login_logs) > 1 else login_logs[0]
         return log.created_at.isoformat()
 
-    def _build_knowledge_category_stats(self, category_stats: list[tuple[str, int]]) -> list[dict[str, int | str]]:
-        """
-        构建知识分类统计
+    def _build_document_type_distribution(self, type_counts: list[tuple[str, int]]) -> list[dict[str, int | float | str]]:
+        """补齐文件类型元数据，并按数量及固定类型顺序排序。"""
 
-        参数:
-            category_stats: 真实分类名称和文档数量
-
-        返回:
-            包含名称、数量、百分比和颜色的分类统计。
-        """
-
-        if not category_stats:
+        counts = dict(type_counts)
+        total_count = sum(counts.values())
+        if total_count == 0:
             return []
-
-        total_count = max(sum(count for _, count in category_stats), 1)
-        return [
+        result = [
             {
-                "name": name,
-                "value": count,
-                "percent": round(count / total_count * 100),
-                "color": CATEGORY_CHART_COLORS[index % len(CATEGORY_CHART_COLORS)],
+                "type": type_name,
+                "name": display_name,
+                "count": counts.get(type_name, 0),
+                "percentage": round(counts.get(type_name, 0) / total_count * 100, 1),
+                "color": color,
             }
-            for index, (name, count) in enumerate(category_stats)
+            for type_name, display_name, color in DOCUMENT_TYPE_DEFINITIONS
         ]
+        order = {type_name: index for index, (type_name, _, _) in enumerate(DOCUMENT_TYPE_DEFINITIONS)}
+        return sorted(result, key=lambda item: (-int(item["count"]), order[str(item["type"])]))

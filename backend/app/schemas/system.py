@@ -29,7 +29,7 @@ class DashboardStats(BaseModel):
     recent_projects: list[dict] = Field(default_factory=list, description="最近项目")
     todo_reviews: list[dict] = Field(default_factory=list, description="待办审核")
     recent_ai_questions: list[dict] = Field(default_factory=list, description="最近 AI 提问")
-    knowledge_category_stats: list[dict] = Field(default_factory=list, description="知识分类统计")
+    document_type_distribution: list[dict] = Field(default_factory=list, description="文档类型分布")
 
 
 class OperationLogOut(BaseModel):

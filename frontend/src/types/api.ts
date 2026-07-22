@@ -613,7 +613,7 @@ export interface DashboardStats {
   recent_projects: Array<Record<string, unknown>>;
   todo_reviews: Array<Record<string, unknown>>;
   recent_ai_questions?: DashboardAiQuestion[];
-  knowledge_category_stats?: DashboardCategoryStat[];
+  document_type_distribution?: DashboardDocumentTypeStat[];
 }
 
 export interface DashboardDocumentSummary {
@@ -638,10 +638,11 @@ export interface DashboardAiQuestion {
   created_at?: string | null;
 }
 
-export interface DashboardCategoryStat {
+export interface DashboardDocumentTypeStat {
+  type: 'pdf' | 'word' | 'excel' | 'powerpoint' | 'image' | 'other';
   name: string;
-  value: number;
-  percent: number;
+  count: number;
+  percentage: number;
   color: string;
 }
 

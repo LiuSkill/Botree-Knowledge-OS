@@ -3,7 +3,7 @@
 
   负责：
   1. 按首页工作台原型展示欢迎区、指标卡片和快捷入口
-  2. 展示最近上传文档、最近 AI 问答和知识分类统计
+  2. 展示最近上传文档、最近 AI 问答和文档类型分布
   3. 只展示后端工作台接口返回的真实业务数据
 -->
 <script setup lang="ts">
@@ -30,7 +30,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { ROUTE_PATHS } from '@/shared/constants/routes';
 import { useAuthStore } from '@/stores/auth';
-import type { DashboardAiQuestion, DashboardCategoryStat, DashboardDocumentSummary, DashboardStats } from '@/types/api';
+import type { DashboardAiQuestion, DashboardDocumentSummary, DashboardDocumentTypeStat, DashboardStats } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { formatDateTime } from '@/utils/format';
 
@@ -73,6 +73,7 @@ const DONUT_CENTER = 72;
 const DONUT_STROKE_WIDTH = 18;
 const DONUT_GAP_LENGTH = 7;
 const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
+const RECENT_ITEM_LIMIT = 6;
 
 const userDisplayName = computed(() => authStore.user?.real_name || authStore.user?.username || '未登录用户');
 
@@ -169,7 +170,7 @@ const recentDocuments = computed<DocumentDisplayItem[]>(() => {
   /**
    * 将后端最近文档转换为首页列表样式所需字段。
    */
-  return (stats.value?.recent_documents || []).slice(0, 4).map((document) => {
+  return (stats.value?.recent_documents || []).slice(0, RECENT_ITEM_LIMIT).map((document) => {
     const fileMeta = getFileVisualMeta(document);
     return {
       id: document.id,
@@ -185,7 +186,7 @@ const recentQuestions = computed<DashboardAiQuestion[]>(() => {
   /**
    * 最近问答完全来自后端接口，不做前端样例补齐。
    */
-  return (stats.value?.recent_ai_questions || []).slice(0, 4);
+  return (stats.value?.recent_ai_questions || []).slice(0, RECENT_ITEM_LIMIT);
 });
 const visibleRecentQuestions = computed(() =>
   recentQuestions.value.filter((question) =>
@@ -193,24 +194,29 @@ const visibleRecentQuestions = computed(() =>
   ),
 );
 
-const categoryStats = computed<DashboardCategoryStat[]>(() => {
+const documentTypeStats = computed<DashboardDocumentTypeStat[]>(() => {
   /**
-   * 分类统计完全来自后端接口，接口为空时页面展示空状态。
+   * 文档类型分布完全来自后端接口，接口为空时页面展示空状态。
    */
-  return stats.value?.knowledge_category_stats?.filter((item) => item.percent > 0) || [];
+  return stats.value?.document_type_distribution || [];
 });
+
+const hasDocumentTypeData = computed(() => documentTypeStats.value.some((item) => item.count > 0));
 
 const donutSegments = computed(() => {
   /**
-   * 将分类百分比换算为 SVG 圆环线段，使用固定缺口模拟原型分段效果。
+   * 将文件数量换算为 SVG 圆环线段，避免百分比四舍五入影响图形比例。
    */
-  const totalPercent = categoryStats.value.reduce((sum, item) => sum + item.percent, 0) || 100;
+  const totalCount = documentTypeStats.value.reduce((sum, item) => sum + item.count, 0) || 1;
   let offset = 0;
-  return categoryStats.value.map((item) => {
-    const percentRatio = item.percent / totalPercent;
+  return documentTypeStats.value.map((item) => {
+    const percentRatio = item.count / totalCount;
     const segmentLength = Math.max(percentRatio * DONUT_CIRCUMFERENCE - DONUT_GAP_LENGTH, 0);
     const segment = {
       key: item.name,
+      name: item.name,
+      count: item.count,
+      percentage: item.percentage,
       color: item.color,
       dasharray: `${segmentLength} ${DONUT_CIRCUMFERENCE}`,
       dashoffset: `${-offset}`,
@@ -430,13 +436,13 @@ onMounted(loadData);
           <div v-else class="empty-state">暂无 AI 问答记录</div>
         </section>
 
-        <section class="dashboard-panel category-panel">
+        <section class="dashboard-panel document-type-panel">
           <header class="panel-header">
-            <h2>知识分类统计</h2>
+            <h2>文档类型分布</h2>
             <t-button v-if="canViewKnowledge" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
           </header>
-          <div v-if="categoryStats.length" class="category-body">
-            <svg class="donut-chart" viewBox="0 0 144 144" role="img" aria-label="知识分类统计环图">
+          <div v-if="hasDocumentTypeData" class="document-type-body">
+            <svg class="donut-chart" viewBox="0 0 144 144" role="img" aria-label="文档类型分布环图">
               <circle
                 class="donut-track"
                 :cx="DONUT_CENTER"
@@ -455,19 +461,24 @@ onMounted(loadData);
                 :stroke-width="DONUT_STROKE_WIDTH"
                 :stroke-dasharray="segment.dasharray"
                 :stroke-dashoffset="segment.dashoffset"
-              />
+              >
+                <title>{{ segment.name }}&#10;{{ formatMetricValue(segment.count) }} 份&#10;{{ segment.percentage.toFixed(1) }}%</title>
+              </circle>
             </svg>
-            <div class="category-legend">
-              <div v-for="item in categoryStats" :key="item.name" class="legend-row">
+            <div class="document-type-legend">
+              <div v-for="item in documentTypeStats" :key="item.type" class="legend-row">
                 <span class="legend-name">
                   <i :style="{ backgroundColor: item.color }"></i>
                   {{ item.name }}
                 </span>
-                <strong>{{ item.percent }}%</strong>
+                <span class="legend-values">
+                  <strong>{{ formatMetricValue(item.count) }}</strong>
+                  <span>{{ item.percentage.toFixed(1) }}%</span>
+                </span>
               </div>
             </div>
           </div>
-          <div v-else class="empty-state category-empty">暂无知识分类数据</div>
+          <div v-else class="empty-state document-type-empty">暂无文档类型数据</div>
         </section>
       </div>
     </div>
@@ -739,7 +750,7 @@ onMounted(loadData);
   font-size: 14px;
 }
 
-.category-empty {
+.document-type-empty {
   min-height: 344px;
 }
 
@@ -847,7 +858,7 @@ onMounted(loadData);
   white-space: nowrap;
 }
 
-.category-body {
+.document-type-body {
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -874,7 +885,7 @@ onMounted(loadData);
   transform-origin: 72px 72px;
 }
 
-.category-legend {
+.document-type-legend {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -898,6 +909,15 @@ onMounted(loadData);
   width: 12px;
   height: 12px;
   border-radius: 999px;
+}
+
+.legend-values {
+  display: grid;
+  min-width: 116px;
+  grid-template-columns: minmax(52px, 1fr) 54px;
+  gap: 10px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .legend-row strong {
@@ -950,7 +970,7 @@ onMounted(loadData);
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  .category-panel {
+  .document-type-panel {
     grid-column: 1 / -1;
   }
 }

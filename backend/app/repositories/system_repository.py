@@ -9,12 +9,11 @@ System Repository
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.chat import ChatMessage, ChatSession
 from app.models.document import Document, DocumentChunk
-from app.models.knowledge_category import KnowledgeCategory
 from app.models.knowledge_base import KnowledgeBase
 from app.models.operation_log import OperationLog
 from app.models.project import Project
@@ -89,6 +88,42 @@ class SystemRepository:
             ),
         }
 
+    def list_document_type_distribution(
+        self,
+        *,
+        security_levels: list[str],
+        include_base_documents: bool,
+        include_project_documents: bool,
+        accessible_project_ids: list[int],
+    ) -> list[tuple[str, int]]:
+        """按首页可访问文档口径一次聚合文件类型分布。"""
+
+        normalized_type = func.lower(func.trim(func.replace(Document.file_type, ".", "")))
+        type_group = case(
+            (normalized_type == "pdf", "pdf"),
+            (normalized_type.in_(("doc", "docx")), "word"),
+            (normalized_type.in_(("xls", "xlsx", "xlsm", "csv")), "excel"),
+            (normalized_type.in_(("ppt", "pptx")), "powerpoint"),
+            (normalized_type.in_(("jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff")), "image"),
+            else_="other",
+        )
+        access_filters: list[object] = []
+        if include_base_documents:
+            access_filters.append(or_(Document.knowledge_type == "base", Document.project_id.is_(None)))
+        if include_project_documents and accessible_project_ids:
+            access_filters.append(Document.project_id.in_(accessible_project_ids))
+        stmt = (
+            select(type_group.label("type"), func.count(Document.id))
+            .where(
+                Document.is_deleted.is_(False),
+                Document.review_status == "approved",
+                Document.security_level.in_(security_levels),
+                or_(*access_filters) if access_filters else false(),
+            )
+            .group_by(type_group)
+        )
+        return [(str(type_name), int(count)) for type_name, count in self.db.execute(stmt).all()]
+
     def list_recent_user_questions(self, limit: int = 4) -> list[tuple[ChatMessage, ChatSession, User]]:
         """查询最近用户提问及其会话上下文。"""
 
@@ -112,20 +147,3 @@ class SystemRepository:
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())
-
-    def list_document_category_stats(self) -> list[tuple[str, int]]:
-        """按真实知识分类统计文档数量。"""
-
-        category_stmt = (
-            select(KnowledgeCategory.name, func.count(Document.id))
-            .join(Document, Document.category_id == KnowledgeCategory.id)
-            .group_by(KnowledgeCategory.id, KnowledgeCategory.name)
-            .order_by(func.count(Document.id).desc())
-        )
-        category_rows = [(str(name), int(count)) for name, count in self.db.execute(category_stmt).all()]
-        uncategorized_count = int(
-            self.db.scalar(select(func.count(Document.id)).where(Document.category_id.is_(None))) or 0
-        )
-        if uncategorized_count:
-            category_rows.append(("未分类", uncategorized_count))
-        return category_rows
