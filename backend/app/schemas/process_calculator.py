@@ -53,6 +53,14 @@ class ProcessCalculatorRequest(BaseModel):
     period_years: int = Field(default=10, ge=1, le=50)
     sort_criteria: CalculatorSortCriteria = "npv"
     advanced_params: CalculatorAdvancedParams = Field(default_factory=CalculatorAdvancedParams)
+    parameter_overrides: dict[str, Decimal] = Field(default_factory=dict, max_length=500)
+
+    @field_validator("parameter_overrides")
+    @classmethod
+    def validate_parameter_overrides(cls, value: dict[str, Decimal]) -> dict[str, Decimal]:
+        if any(not key.strip() or amount < 0 for key, amount in value.items()):
+            raise ValueError("测算参数键不能为空且参数值不能小于 0")
+        return value
 
     @model_validator(mode="after")
     def validate_unique_inputs(self) -> "ProcessCalculatorRequest":
@@ -153,6 +161,16 @@ class CalculatorMetrics(BaseModel):
     discounted_payback_period: Decimal | None
 
 
+class CalculatorParameter(BaseModel):
+    """推荐方案实际参与计算且允许本次测算覆盖的参数。"""
+
+    key: str
+    category: str
+    name: str
+    value: Decimal
+    unit: str
+
+
 class CalculatorSchemeSummary(BaseModel):
     scheme_code: str
     routes: list[CalculatorRouteRef]
@@ -179,4 +197,5 @@ class ProcessCalculatorResultOut(BaseModel):
     payback_period: Decimal | None
     material_balance: CalculatorMaterialBalance | None
     cash_flows: list[CalculatorCashFlow]
+    calculation_parameters: list[CalculatorParameter]
     warnings: list[str]

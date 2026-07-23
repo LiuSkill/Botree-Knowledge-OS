@@ -42,15 +42,19 @@ const materialColumns = [
 
 const consumableColumns = [
   { colKey: 'consumable', title: '消耗品', minWidth: 220 },
-  { colKey: 'amount_per_ton', title: '吨耗', width: 120 },
+  { colKey: 'amount_per_ton_bm', title: 'BM 吨耗系数', width: 140 },
   { colKey: 'unit', title: '单位', width: 100 },
+  { colKey: 'formula_type', title: '系数类型', width: 110 },
+  { colKey: 'expression', title: '来源表达式', minWidth: 160 },
   { colKey: 'remark', title: '备注', minWidth: 160 },
 ];
 
 const publicServiceColumns = [
   { colKey: 'public_service', title: '公共服务', minWidth: 220 },
-  { colKey: 'amount_per_ton', title: '吨耗', width: 120 },
+  { colKey: 'amount_per_ton_bm', title: 'BM 吨耗系数', width: 140 },
   { colKey: 'unit', title: '单位', width: 100 },
+  { colKey: 'formula_type', title: '系数类型', width: 110 },
+  { colKey: 'expression', title: '来源表达式', minWidth: 160 },
   { colKey: 'remark', title: '备注', minWidth: 160 },
 ];
 
@@ -66,7 +70,11 @@ const equipmentColumns = [
 const outputColumns = [
   { colKey: 'product', title: '产品', minWidth: 220 },
   { colKey: 'output_per_ton', title: '产出量', width: 120 },
+  { colKey: 'output_type', title: '产出类型', width: 110 },
   { colKey: 'unit', title: '单位', width: 100 },
+  { colKey: 'formula_type', title: '系数类型', width: 110 },
+  { colKey: 'expression', title: '来源表达式', minWidth: 160 },
+  { colKey: 'treatment_cost', title: '处理单价', width: 120 },
   { colKey: 'is_main_product', title: '主产品', width: 90, align: 'center' },
   { colKey: 'remark', title: '备注', minWidth: 160 },
 ];
@@ -146,6 +154,8 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
           <div class="node-detail-table">
             <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="consumableColumns" :data="node.consumables" empty="暂无消耗品">
               <template #consumable="{ row }">{{ optionLabel(consumableOptions, row.consumable_id) }}</template>
+              <template #formula_type="{ row }">{{ row.formula_type === 'expression' ? '导入表达式' : '固定系数' }}</template>
+              <template #expression="{ row }">{{ row.expression || '-' }}</template>
               <template #remark="{ row }">{{ row.remark || '-' }}</template>
             </t-table>
           </div>
@@ -164,6 +174,8 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
               empty="暂无公共服务"
             >
               <template #public_service="{ row }">{{ optionLabel(publicServiceOptions, row.public_service_id) }}</template>
+              <template #formula_type="{ row }">{{ row.formula_type === 'expression' ? '导入表达式' : '固定系数' }}</template>
+              <template #expression="{ row }">{{ row.expression || '-' }}</template>
               <template #remark="{ row }">{{ row.remark || '-' }}</template>
             </t-table>
           </div>
@@ -185,6 +197,8 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
           <div class="node-detail-table">
             <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="outputColumns" :data="node.outputs" empty="暂无输出产品">
               <template #product="{ row }">{{ optionLabel(productOptions, row.product_id) }}</template>
+              <template #formula_type="{ row }">{{ row.formula_type === 'expression' ? '导入表达式' : '固定系数' }}</template>
+              <template #expression="{ row }">{{ row.expression || '-' }}</template>
               <template #is_main_product="{ row }">
                 <t-tag v-if="row.is_main_product" size="small" theme="success" variant="light">主产品</t-tag>
                 <span v-else>-</span>

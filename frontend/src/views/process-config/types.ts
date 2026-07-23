@@ -81,6 +81,19 @@ export interface ProcessLibraryItem {
   updated_at: string;
 }
 
+export interface ProcessMaterialCompositionPayload {
+  element_code: string;
+  element_name: string;
+  content_ratio: string | number;
+  unit: string;
+  remark?: string | null;
+}
+
+export interface ProcessMaterialComposition extends ProcessMaterialCompositionPayload {
+  id: number;
+  material_id: number;
+}
+
 export interface ProcessLibraryPayload {
   code: string;
   name: string;

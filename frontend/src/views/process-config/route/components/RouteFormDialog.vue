@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 
 import type { ProcessLibraryOptionItem } from '@/views/process-config/node/types';
-import { createEmptyRoutePayload, PROCESS_ROUTE_STATUS_OPTIONS, type ProcessRouteDetail, type ProcessRoutePayload, type RouteEditableNode, type RouteNodeOption } from '@/views/process-config/route/types';
+import { createEmptyRoutePayload, PROCESS_ROUTE_STATUS_OPTIONS, type ProcessCalculationOutputPayload, type ProcessRouteDetail, type ProcessRoutePayload, type RouteEditableNode, type RouteNodeOption } from '@/views/process-config/route/types';
 import RouteNodeChainEditor from '@/views/process-config/route/components/RouteNodeChainEditor.vue';
 
 type FormMode = 'create' | 'edit';
@@ -18,20 +18,29 @@ const props = withDefaults(
     productOptions: ProcessLibraryOptionItem[];
     saving?: boolean;
     optionsLoading?: boolean;
+    calculationOutputs?: ProcessCalculationOutputPayload[];
   }>(),
   {
     route: null,
     saving: false,
     optionsLoading: false,
+    calculationOutputs: () => [],
   },
 );
 
 const emit = defineEmits<{
   'update:visible': [value: boolean];
-  submit: [payload: ProcessRoutePayload];
+  submit: [payload: ProcessRoutePayload, calculationOutputs: ProcessCalculationOutputPayload[]];
 }>();
 
 const form = reactive<ProcessRoutePayload>(createEmptyRoutePayload());
+const outputRows = ref<ProcessCalculationOutputPayload[]>([]);
+const outputColumns = [
+  { colKey: 'product_id', title: '产出物', minWidth: 180 }, { colKey: 'output_type', title: '类型', width: 110 },
+  { colKey: 'output_ratio', title: '最终产出系数', width: 150 }, { colKey: 'unit', title: '单位', width: 120 },
+  { colKey: 'recovery_rate', title: '收率（追溯）', width: 130 }, { colKey: 'formula_type', title: '系数类型', width: 110 },
+  { colKey: 'expression', title: '来源表达式', minWidth: 170 }, { colKey: 'operation', title: '操作', width: 70 },
+];
 
 const visibleProxy = computed({
   get: () => props.visible,
@@ -74,7 +83,14 @@ function resetForm(): void {
         remark: item.remark || '',
       })),
   });
+  outputRows.value = props.calculationOutputs.map((item) => ({ ...item }));
 }
+
+function addOutput(): void {
+  outputRows.value.push({ output_type: 'product', product_id: form.final_product_id, output_name: '', formula_type: 'fixed', recovery_rate: 1, balance_weight: 0, unit: 't/t-BM', output_ratio: 0, treatment_cost: 0, sort_order: outputRows.value.length + 1 });
+}
+
+function removeOutput(index: number): void { outputRows.value.splice(index, 1); }
 
 function closeDrawer(): void {
   if (props.saving) return;
@@ -137,7 +153,15 @@ function handleSubmit(): void {
     return;
   }
   if (!validateNodeRows(form.nodes as RouteEditableNode[])) return;
-  emit('submit', buildPayload());
+  const outputs = outputRows.value.map((row, index) => {
+    const product = props.productOptions.find((item) => item.id === row.product_id);
+    return { ...row, output_name: row.output_name.trim() || product?.name || '', sort_order: index + 1 };
+  });
+  if (outputs.some((row) => !row.product_id || !row.output_name || Number(row.output_ratio) < 0 || !row.unit.trim())) {
+    MessagePlugin.warning('请完整填写路线测算产出配置');
+    return;
+  }
+  emit('submit', buildPayload(), outputs);
 }
 </script>
 
@@ -204,6 +228,20 @@ function handleSubmit(): void {
         </section>
 
         <section class="route-form__section">
+          <div class="route-form__section-head"><div class="route-form__section-title">测算产出配置</div><t-button size="small" variant="outline" @click="addOutput">新增产出</t-button></div>
+          <div class="route-output-table"><t-table row-key="sort_order" bordered size="small" table-layout="fixed" :columns="outputColumns" :data="outputRows">
+            <template #product_id="{ row }"><t-select v-model="row.product_id" filterable><t-option v-for="item in productOptions" :key="item.id" :label="`${item.code} / ${item.name}`" :value="item.id" /></t-select></template>
+            <template #output_type="{ row }"><t-select v-model="row.output_type"><t-option label="产品" value="product" /><t-option label="副产品" value="byproduct" /></t-select></template>
+            <template #output_ratio="{ row }"><t-input-number v-model="row.output_ratio" :min="0" :decimal-places="6" theme="normal" /></template>
+            <template #unit="{ row }"><t-input v-model="row.unit" /></template>
+            <template #recovery_rate="{ row }"><t-input-number v-model="row.recovery_rate" :min="0" :decimal-places="6" theme="normal" /></template>
+            <template #formula_type="{ row }"><t-select v-model="row.formula_type"><t-option label="固定系数" value="fixed" /><t-option label="导入表达式" value="expression" /></t-select></template>
+            <template #expression="{ row }"><t-input v-model="row.expression" placeholder="可选" /></template>
+            <template #operation="{ rowIndex }"><t-button shape="square" theme="danger" variant="text" @click="removeOutput(rowIndex)">×</t-button></template>
+          </t-table></div>
+        </section>
+
+        <section class="route-form__section">
           <div class="route-form__section-title">节点链路配置</div>
           <RouteNodeChainEditor v-model="form.nodes as RouteEditableNode[]" :node-options="nodeOptions" :disabled="saving" />
         </section>
@@ -246,6 +284,9 @@ function handleSubmit(): void {
   font-weight: 800;
   line-height: 1.4;
 }
+.route-form__section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.route-output-table { overflow-x: auto; }
+.route-output-table :deep(.t-table) { min-width: 1120px; }
 
 .route-form__grid {
   display: grid;

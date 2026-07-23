@@ -28,6 +28,8 @@ function handleUpdate(value: Record<string, unknown>[]): void {
     add-label="新增产品"
     select-placeholder="请选择产品"
     show-main-product
+    show-output-fields
+    show-calculation-fields
     :disabled="disabled"
     @update:model-value="handleUpdate"
   />

@@ -26,10 +26,14 @@ const props = withDefaults(
     addLabel: string;
     selectPlaceholder: string;
     showMainProduct?: boolean;
+    showCalculationFields?: boolean;
+    showOutputFields?: boolean;
     disabled?: boolean;
   }>(),
   {
     showMainProduct: false,
+    showCalculationFields: false,
+    showOutputFields: false,
     disabled: false,
   },
 );
@@ -49,6 +53,14 @@ const columns = computed(() => {
   ];
   if (props.showMainProduct) {
     baseColumns.push({ colKey: 'is_main_product', title: '主产品', width: 96 });
+  }
+  if (props.showOutputFields) {
+    baseColumns.push({ colKey: 'output_type', title: '产出类型', width: 120 });
+    baseColumns.push({ colKey: 'treatment_cost', title: '处理单价', width: 130 });
+  }
+  if (props.showCalculationFields) {
+    baseColumns.push({ colKey: 'formula_type', title: '系数类型', width: 110 });
+    baseColumns.push({ colKey: 'expression', title: '来源表达式', minWidth: 180 });
   }
   baseColumns.push(
     { colKey: 'remark', title: '备注', minWidth: 160 },
@@ -72,6 +84,12 @@ function toEditableRows(value: Record<string, unknown>[] = []): EditableRelation
     sort_order: index + 1,
     remark: '',
     is_main_product: false,
+    formula_type: 'fixed',
+    expression: '',
+    treatment_cost: 0,
+    output_type: 'product',
+    balance_weight: 0,
+    amount_per_ton: 0,
     ...item,
   })) as EditableRelationRow[];
 }
@@ -185,6 +203,23 @@ function emitRows(): void {
             @update:model-value="(value) => updateField(row, 'is_main_product', value as RelationFieldValue)"
           />
         </template>
+        <template #output_type="{ row }">
+          <t-select :model-value="getField(row, 'output_type')" @update:model-value="(value) => updateField(row, 'output_type', value as RelationFieldValue)">
+            <t-option label="产品" value="product" /><t-option label="副产品" value="byproduct" />
+            <t-option label="固废" value="solid_waste" /><t-option label="废水" value="wastewater" />
+          </t-select>
+        </template>
+        <template #treatment_cost="{ row }">
+          <t-input-number :min="0" theme="normal" :model-value="getField(row, 'treatment_cost') as number | string" @update:model-value="(value) => updateField(row, 'treatment_cost', value as RelationFieldValue)" />
+        </template>
+        <template #formula_type="{ row }">
+          <t-select :model-value="getField(row, 'formula_type')" @update:model-value="(value) => updateField(row, 'formula_type', value as RelationFieldValue)">
+            <t-option label="固定系数" value="fixed" /><t-option label="导入表达式" value="expression" />
+          </t-select>
+        </template>
+        <template #expression="{ row }">
+          <t-input :model-value="String(row.expression || '')" placeholder="可选" @update:model-value="(value) => updateField(row, 'expression', value as RelationFieldValue)" />
+        </template>
         <template #remark="{ row }">
           <t-input
             clearable
@@ -222,6 +257,6 @@ function emitRows(): void {
 }
 
 .relation-editor-table :deep(.t-table) {
-  min-width: 760px;
+  min-width: 1120px;
 }
 </style>

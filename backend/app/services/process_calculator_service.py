@@ -21,6 +21,7 @@ from app.schemas.process_calculator import (
     CalculatorCashFlow,
     CalculatorMaterialBalance,
     CalculatorMetrics,
+    CalculatorParameter,
     CalculatorRouteNodeRef,
     CalculatorRouteRef,
     CalculatorSchemeSummary,
@@ -175,6 +176,7 @@ class ProcessCalculatorService:
             calculation_outputs[item.route_id].append(item)
         return {
             "payload": payload,
+            "parameter_overrides": payload.parameter_overrides,
             "material_amount_t": {
                 item.material_id: self._to_tons(item.amount, item.unit) for item in payload.materials
             },
@@ -210,6 +212,7 @@ class ProcessCalculatorService:
         public_service_cost = sum((item.cost for item in public_service_costs), ZERO)
         waste_treatment_cost = sum((item.cost for item in waste_outputs), ZERO)
         capex = self._calculate_capex(unique_node_ids, context, warnings)
+        calculation_parameters = self._build_calculation_parameters(routes, unique_node_ids, context)
         other_opex = context["payload"].advanced_params.other_opex
         opex = material_cost + consumable_cost + public_service_cost + waste_treatment_cost + other_opex
         ebitda = revenue - opex
@@ -251,6 +254,7 @@ class ProcessCalculatorService:
             "waste_outputs": waste_outputs,
             "material_balance": material_balance,
             "cash_flows": cash_flows,
+            "calculation_parameters": calculation_parameters,
         }
 
     def _collect_nodes(
@@ -289,7 +293,7 @@ class ProcessCalculatorService:
                 continue
             route_amount = context["material_amount_t"][route.input_material_id]
             for output in outputs:
-                ratio = output.output_ratio
+                ratio = self._parameter_value(context, f"product_output:{output.id}:ratio", output.output_ratio)
                 if ratio <= 0:
                     if output.formula_type == "expression":
                         warnings.append(f"{output.output_name} 使用表达式系数且没有可用的结构化数值")
@@ -298,10 +302,11 @@ class ProcessCalculatorService:
                     continue
                 if output.formula_type == "expression":
                     warnings.append(f"{output.output_name} 使用已导入的结构化系数，未执行原表达式")
-                recovery_rate = output.recovery_rate if output.recovery_rate > 0 else ONE
                 if output.recovery_rate <= 0:
                     warnings.append(f"{output.output_name} 未配置收率，当前仅按产出系数计算")
-                amount = route_amount * ratio * recovery_rate
+                # Excel 导入后的 output_ratio 已经折算为最终 t/t-BM 产出系数，
+                # 这里直接按系数计算，避免再次叠乘收率导致结果偏小。
+                amount = route_amount * ratio
                 amount_unit = self._coefficient_output_unit(output.unit)
                 library = context["products"].get(output.product_id) if output.product_id else None
                 unit_price, revenue = self._priced_amount(
@@ -352,7 +357,8 @@ class ProcessCalculatorService:
                 library_id = getattr(relation, id_field)
                 library = libraries.get(library_id)
                 name = library.name if library else str(library_id)
-                coefficient = relation.amount_per_ton_bm if relation.amount_per_ton_bm != 0 else relation.amount_per_ton
+                default_coefficient = relation.amount_per_ton_bm if relation.amount_per_ton_bm != 0 else relation.amount_per_ton
+                coefficient = self._parameter_value(context, f"{owner_type}:{relation.id}:coefficient", default_coefficient)
                 if coefficient <= 0:
                     if relation.formula_type == "expression":
                         warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}表达式没有可用的结构化数值")
@@ -395,7 +401,8 @@ class ProcessCalculatorService:
                     continue
                 library = context["products"].get(output.product_id)
                 name = library.name if library else f"节点产出物{output.product_id}"
-                if output.output_per_ton <= 0:
+                coefficient = self._parameter_value(context, f"waste_output:{output.id}:coefficient", output.output_per_ton)
+                if coefficient <= 0:
                     if output.formula_type == "expression":
                         warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}表达式没有可用的结构化数值")
                     else:
@@ -403,7 +410,7 @@ class ProcessCalculatorService:
                     continue
                 if output.formula_type == "expression":
                     warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}使用已导入的结构化系数")
-                amount = node_amounts[node_id] * output.output_per_ton
+                amount = node_amounts[node_id] * coefficient
                 amount_unit = self._coefficient_output_unit(output.unit)
                 treatment_cost, total_cost = self._waste_treatment_cost(
                     output,
@@ -454,7 +461,11 @@ class ProcessCalculatorService:
                 warnings,
                 name,
             )
-        treatment_cost = output.treatment_cost
+        treatment_cost = self._parameter_value(
+            context,
+            f"waste_output:{output.id}:treatment_price",
+            output.treatment_cost,
+        )
         if treatment_cost <= 0 and library is not None:
             treatment_cost = library.treatment_cost
         if treatment_cost <= 0:
@@ -491,7 +502,11 @@ class ProcessCalculatorService:
                         f"设备 {equipment.equipment_name} 币种为 {equipment.currency}，缺少到 {currency} 的汇率，未计入CAPEX"
                     )
                     continue
-                total += equipment.investment_amount
+                total += self._parameter_value(
+                    context,
+                    f"equipment:{equipment.id}:investment",
+                    equipment.investment_amount,
+                )
         params: CalculatorAdvancedParams = context["payload"].advanced_params
         if params.base_capacity is not None and params.scale_param_n is not None:
             actual_capacity = sum(context["material_amount_t"].values(), ZERO)
@@ -602,7 +617,72 @@ class ProcessCalculatorService:
         if priced_amount is None:
             warnings.append(f"{name} 数量单位 {amount_unit} 无法换算为计价单位 {price.unit}")
             return self._money(price.unit_price), ZERO
-        return self._money(price.unit_price), priced_amount * price.unit_price
+        unit_price = self._parameter_value(context, f"price:{owner_type}:{owner_id}", price.unit_price)
+        return self._money(unit_price), priced_amount * unit_price
+
+    @staticmethod
+    def _parameter_value(context: dict[str, Any], key: str, default: Decimal) -> Decimal:
+        return context["parameter_overrides"].get(key, default)
+
+    def _build_calculation_parameters(
+        self,
+        routes: tuple[ProcessRoute, ...],
+        node_ids: list[int],
+        context: dict[str, Any],
+    ) -> list[CalculatorParameter]:
+        """汇总推荐方案的计算输入，供页面解释和本次测算调参。"""
+
+        result: dict[str, CalculatorParameter] = {}
+
+        def add(key: str, category: str, name: str, value: Decimal, unit: str) -> None:
+            result[key] = CalculatorParameter(
+                key=key,
+                category=category,
+                name=name,
+                value=self._parameter_value(context, key, value),
+                unit=unit,
+            )
+
+        for route in routes:
+            material = context["materials"][route.input_material_id]
+            price = context["prices"].get(("material", route.input_material_id))
+            if price:
+                add(f"price:material:{material.id}", "区域单价", f"{material.name}原料单价", price.unit_price, f"{price.currency}/{price.unit}")
+            for output in context["calculation_outputs"].get(route.id, []):
+                if output.output_type not in ("product", "byproduct"):
+                    continue
+                add(f"product_output:{output.id}:ratio", "产出系数", output.output_name, output.output_ratio, output.unit)
+                price = context["prices"].get(("product", output.product_id))
+                if price:
+                    add(f"price:product:{output.product_id}", "区域单价", f"{output.output_name}单价", price.unit_price, f"{price.currency}/{price.unit}")
+        relation_specs = (
+            ("node_consumables", "consumable", "药剂吨耗", "consumable_id", context["consumables"]),
+            ("node_public_services", "public_service", "公辅吨耗", "public_service_id", context["public_services"]),
+        )
+        for node_id in node_ids:
+            for relation_key, owner_type, category, id_field, libraries in relation_specs:
+                for relation in context[relation_key].get(node_id, []):
+                    owner_id = getattr(relation, id_field)
+                    library = libraries.get(owner_id)
+                    coefficient = relation.amount_per_ton_bm or relation.amount_per_ton
+                    add(f"{owner_type}:{relation.id}:coefficient", category, library.name if library else str(owner_id), coefficient, relation.unit)
+                    price = context["prices"].get((owner_type, owner_id))
+                    if price:
+                        add(f"price:{owner_type}:{owner_id}", "区域单价", f"{library.name if library else owner_id}单价", price.unit_price, f"{price.currency}/{price.unit}")
+            for output in context["node_outputs"].get(node_id, []):
+                if output.output_type not in ("solid_waste", "wastewater"):
+                    continue
+                library = context["products"].get(output.product_id)
+                name = library.name if library else str(output.product_id)
+                add(f"waste_output:{output.id}:coefficient", "三废产出", name, output.output_per_ton, output.unit)
+                price = context["prices"].get(("product", output.product_id))
+                if price:
+                    add(f"price:product:{output.product_id}", "处理单价", f"{name}处理费", price.unit_price, f"{price.currency}/{price.unit}")
+                else:
+                    add(f"waste_output:{output.id}:treatment_price", "处理单价", f"{name}处理费", output.treatment_cost, context["payload"].currency)
+            for equipment in context["node_equipment"].get(node_id, []):
+                add(f"equipment:{equipment.id}:investment", "设备投资", equipment.equipment_name, equipment.investment_amount, equipment.currency)
+        return list(result.values())
 
     def _route_refs(self, routes: tuple[ProcessRoute, ...], context: dict[str, Any]) -> list[CalculatorRouteRef]:
         result: list[CalculatorRouteRef] = []
@@ -662,6 +742,7 @@ class ProcessCalculatorService:
                 payback_period=None,
                 material_balance=None,
                 cash_flows=[],
+                calculation_parameters=[],
                 warnings=[],
             )
         metrics = recommended["summary"].metrics
@@ -682,6 +763,7 @@ class ProcessCalculatorService:
             payback_period=metrics.payback_period,
             material_balance=recommended["material_balance"],
             cash_flows=recommended["cash_flows"],
+            calculation_parameters=recommended["calculation_parameters"],
             warnings=recommended["summary"].warnings,
         )
 
@@ -806,6 +888,7 @@ class _NodeOutputAdapter:
     """将节点产品产出转换为路线产出计算所需的只读字段。"""
 
     def __init__(self, output: ProcessNodeOutput, product_library: Any | None) -> None:
+        self.id = output.id
         self.product_id = output.product_id
         self.output_name = product_library.name if product_library else f"节点产出物{output.product_id}"
         self.output_type = output.output_type

@@ -22,6 +22,27 @@ export interface ProcessRoutePayload {
   nodes: ProcessRouteNodePayload[];
 }
 
+export interface ProcessCalculationOutputPayload {
+  output_type: 'product' | 'byproduct' | 'solid_waste' | 'wastewater';
+  product_id: number | null;
+  output_name: string;
+  spec?: string | null;
+  formula_type: 'fixed' | 'expression';
+  recovery_rate: string | number;
+  balance_weight: string | number;
+  unit: string;
+  output_ratio: string | number;
+  expression?: string | null;
+  treatment_cost: string | number;
+  sort_order: number;
+  remark?: string | null;
+}
+
+export interface ProcessCalculationOutput extends ProcessCalculationOutputPayload {
+  id: number;
+  route_id: number;
+}
+
 export interface ProcessRouteItem {
   id: number;
   code: string;

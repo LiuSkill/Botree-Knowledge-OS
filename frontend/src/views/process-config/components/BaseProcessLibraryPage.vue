@@ -21,6 +21,8 @@ import {
   listProcessLibrary,
   updateProcessLibrary,
   updateProcessLibraryStatus,
+  listProcessMaterialCompositions,
+  replaceProcessMaterialCompositions,
 } from '@/api/process-config';
 import TableActionButton from '@/components/TableActionButton.vue';
 import ProcessConfigImportDialog from '@/views/process-config/components/ProcessConfigImportDialog.vue';
@@ -32,6 +34,7 @@ import type {
   ProcessLibraryPayload,
   ProcessLibraryStatus,
   ProcessRegionPrice,
+  ProcessMaterialCompositionPayload,
 } from '@/views/process-config/types';
 import { normalizeRegionPrices, processLibraryTypeLabel } from '@/views/process-config/types';
 import { buildProcessConfigExportFileName, triggerBlobDownload } from '@/views/process-config/utils';
@@ -72,6 +75,7 @@ const importVisible = ref(false);
 const formMode = ref<FormMode>('create');
 const editingItem = ref<ProcessLibraryItem | null>(null);
 const selectedItem = ref<ProcessLibraryItem | null>(null);
+const materialCompositions = ref<ProcessMaterialCompositionPayload[]>([]);
 const records = reactive<PageResult<ProcessLibraryItem>>({
   items: [],
   total: 0,
@@ -159,12 +163,18 @@ function handlePaginationChange(pageInfo: PaginationInfo): void {
 function openCreateDialog(): void {
   formMode.value = 'create';
   editingItem.value = null;
+  materialCompositions.value = [];
   formVisible.value = true;
 }
 
-function openEditDialog(row: ProcessLibraryItem): void {
+async function openEditDialog(row: ProcessLibraryItem): Promise<void> {
   formMode.value = 'edit';
-  editingItem.value = row;
+  const [item, compositions] = await Promise.all([
+    getProcessLibrary(props.config.apiBasePath, row.id),
+    props.config.moduleKey === 'materials' ? listProcessMaterialCompositions(row.id) : Promise.resolve([]),
+  ]);
+  editingItem.value = item;
+  materialCompositions.value = compositions;
   formVisible.value = true;
 }
 
@@ -173,20 +183,27 @@ async function openDetailDialog(row: ProcessLibraryItem): Promise<void> {
   detailLoading.value = true;
   selectedItem.value = null;
   try {
-    selectedItem.value = await getProcessLibrary(props.config.apiBasePath, row.id);
+    const [item, compositions] = await Promise.all([
+      getProcessLibrary(props.config.apiBasePath, row.id),
+      props.config.moduleKey === 'materials' ? listProcessMaterialCompositions(row.id) : Promise.resolve([]),
+    ]);
+    selectedItem.value = item;
+    materialCompositions.value = compositions;
   } finally {
     detailLoading.value = false;
   }
 }
 
-async function handleSubmit(payload: ProcessLibraryPayload): Promise<void> {
+async function handleSubmit(payload: ProcessLibraryPayload, compositions: ProcessMaterialCompositionPayload[]): Promise<void> {
   submitting.value = true;
   try {
     if (formMode.value === 'create') {
-      await createProcessLibrary(props.config.apiBasePath, payload);
+      const created = await createProcessLibrary(props.config.apiBasePath, payload);
+      if (props.config.moduleKey === 'materials') await replaceProcessMaterialCompositions(created.id, compositions);
       MessagePlugin.success(`已新增${props.config.entityName}`);
     } else if (editingItem.value) {
       await updateProcessLibrary(props.config.apiBasePath, editingItem.value.id, payload);
+      if (props.config.moduleKey === 'materials') await replaceProcessMaterialCompositions(editingItem.value.id, compositions);
       MessagePlugin.success(`已更新${props.config.entityName}`);
     }
     formVisible.value = false;
@@ -401,6 +418,8 @@ function formatPrice(price: ProcessRegionPrice): string {
       :data="editingItem"
       :loading="submitting"
       :type-options="typeOptions"
+      :module-key="config.moduleKey"
+      :compositions="materialCompositions"
       @submit="handleSubmit"
     />
 
@@ -437,6 +456,16 @@ function formatPrice(price: ProcessRegionPrice): string {
               <t-tag size="small" variant="light" :theme="statusTheme(price.status)">{{ statusLabel(price.status) }}</t-tag>
             </div>
           </div>
+          <template v-if="config.moduleKey === 'materials'">
+            <div class="detail-section-title">原料组成</div>
+            <t-table row-key="element_code" bordered size="small" :data="materialCompositions" :columns="[
+              { colKey: 'element_code', title: '元素' },
+              { colKey: 'element_name', title: '名称' },
+              { colKey: 'content_ratio', title: '含量', align: 'right' },
+            ]">
+              <template #content_ratio="{ row }">{{ (Number(row.content_ratio) * 100).toFixed(2) }}%</template>
+            </t-table>
+          </template>
         </div>
       </t-loading>
     </t-dialog>

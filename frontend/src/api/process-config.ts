@@ -6,6 +6,8 @@ import type {
   ProcessLibraryListParams,
   ProcessLibraryPayload,
   ProcessLibraryStatus,
+  ProcessMaterialComposition,
+  ProcessMaterialCompositionPayload,
 } from '@/views/process-config/types';
 import type {
   ProcessLibraryOptionItem,
@@ -25,6 +27,8 @@ import type {
   ProcessRouteTreePreview,
   ProcessRouteVersion,
   ProcessRouteVersionCreatePayload,
+  ProcessCalculationOutput,
+  ProcessCalculationOutputPayload,
 } from '@/views/process-config/route/types';
 import type { PageResult } from '@/types/api';
 import type {
@@ -91,6 +95,17 @@ export function updateProcessLibraryStatus(
   status: Extract<ProcessLibraryStatus, 'enabled' | 'disabled'>,
 ): Promise<ProcessLibraryItem> {
   return request.patch(`${basePath}/${id}/status`, { status }) as Promise<ProcessLibraryItem>;
+}
+
+export function listProcessMaterialCompositions(materialId: number): Promise<ProcessMaterialComposition[]> {
+  return request.get(`/process-config/materials/${materialId}/compositions`) as Promise<ProcessMaterialComposition[]>;
+}
+
+export function replaceProcessMaterialCompositions(
+  materialId: number,
+  items: ProcessMaterialCompositionPayload[],
+): Promise<ProcessMaterialComposition[]> {
+  return request.put(`/process-config/materials/${materialId}/compositions`, { items }) as Promise<ProcessMaterialComposition[]>;
 }
 
 export function listProcessLibraryOptions(
@@ -166,4 +181,15 @@ export function listProcessRouteVersions(routeId: number): Promise<ProcessRouteV
 
 export function createProcessRouteVersion(routeId: number, payload: ProcessRouteVersionCreatePayload): Promise<ProcessRouteVersion> {
   return request.post(`/process-config/routes/${routeId}/versions`, payload) as Promise<ProcessRouteVersion>;
+}
+
+export function listProcessRouteCalculationOutputs(routeId: number): Promise<ProcessCalculationOutput[]> {
+  return request.get(`/process-config/routes/${routeId}/calculation-outputs`) as Promise<ProcessCalculationOutput[]>;
+}
+
+export function replaceProcessRouteCalculationOutputs(
+  routeId: number,
+  items: ProcessCalculationOutputPayload[],
+): Promise<ProcessCalculationOutput[]> {
+  return request.put(`/process-config/routes/${routeId}/calculation-outputs`, { items }) as Promise<ProcessCalculationOutput[]>;
 }

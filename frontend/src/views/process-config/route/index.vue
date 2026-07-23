@@ -13,6 +13,8 @@ import {
   listProcessLibraryOptions,
   listProcessNodes,
   listProcessRoutes,
+  listProcessRouteCalculationOutputs,
+  replaceProcessRouteCalculationOutputs,
   updateProcessRoute,
 } from '@/api/process-config';
 import TableActionButton from '@/components/TableActionButton.vue';
@@ -29,6 +31,7 @@ import type {
   ProcessRouteItem,
   ProcessRouteListParams,
   ProcessRoutePayload,
+  ProcessCalculationOutputPayload,
   RouteNodeOption,
 } from '@/views/process-config/route/types';
 import type { ProcessLibraryStatus } from '@/views/process-config/types';
@@ -82,6 +85,7 @@ const formVisible = ref(false);
 const importVisible = ref(false);
 const formMode = ref<FormMode>('create');
 const editingRoute = ref<ProcessRouteDetail | null>(null);
+const editingCalculationOutputs = ref<ProcessCalculationOutputPayload[]>([]);
 const optionsLoaded = ref(false);
 const versionDialogVisible = ref(false);
 const versionRoute = ref<ProcessRouteItem | null>(null);
@@ -272,6 +276,7 @@ async function openCreateDialog(): Promise<void> {
   await loadOptions();
   formMode.value = 'create';
   editingRoute.value = null;
+  editingCalculationOutputs.value = [];
   formVisible.value = true;
 }
 
@@ -279,7 +284,12 @@ async function openEditDialog(row: ProcessRouteItem): Promise<void> {
   editLoadingId.value = row.id;
   try {
     await loadOptions();
-    editingRoute.value = await getProcessRoute(row.id);
+    const [routeDetail, calculationOutputs] = await Promise.all([
+      getProcessRoute(row.id),
+      listProcessRouteCalculationOutputs(row.id),
+    ]);
+    editingRoute.value = routeDetail;
+    editingCalculationOutputs.value = calculationOutputs;
     formMode.value = 'edit';
     formVisible.value = true;
   } finally {
@@ -287,14 +297,16 @@ async function openEditDialog(row: ProcessRouteItem): Promise<void> {
   }
 }
 
-async function handleSubmit(payload: ProcessRoutePayload): Promise<void> {
+async function handleSubmit(payload: ProcessRoutePayload, calculationOutputs: ProcessCalculationOutputPayload[]): Promise<void> {
   submitting.value = true;
   try {
     if (formMode.value === 'create') {
-      await createProcessRoute(payload);
+      const created = await createProcessRoute(payload);
+      await replaceProcessRouteCalculationOutputs(created.route.id, calculationOutputs);
       MessagePlugin.success('工艺路线已创建');
     } else if (editingRoute.value) {
       await updateProcessRoute(editingRoute.value.route.id, payload);
+      await replaceProcessRouteCalculationOutputs(editingRoute.value.route.id, calculationOutputs);
       MessagePlugin.success('工艺路线已更新');
     }
     formVisible.value = false;
@@ -521,6 +533,7 @@ function formatAverage(value: number): string {
       :node-options="nodeOptions"
       :material-options="materialOptions"
       :product-options="productOptions"
+      :calculation-outputs="editingCalculationOutputs"
       :saving="submitting"
       :options-loading="optionsLoading"
       @submit="handleSubmit"

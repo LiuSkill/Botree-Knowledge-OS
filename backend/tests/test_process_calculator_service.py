@@ -104,6 +104,63 @@ def test_expression_record_uses_structured_coefficient_without_evaluating_expres
     engine.dispose()
 
 
+def test_route_output_ratio_does_not_apply_recovery_rate_again() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    session_factory = sessionmaker(bind=engine, future=True)
+    with session_factory() as db:
+        seeded = _seed_calculation_data(db)
+        output = db.scalar(
+            select(ProcessCalculationOutput).where(ProcessCalculationOutput.product_id == seeded["product_ids"][0])
+        )
+        assert output is not None
+        output.recovery_rate = Decimal("0.8")
+        output.output_ratio = Decimal("0.2")
+        db.commit()
+
+        result = ProcessCalculatorService(db).calculate(
+            ProcessCalculatorRequest(
+                materials=[{"material_id": seeded["material_id"], "amount": "10", "unit": "t"}],
+                target_products=[seeded["product_ids"][0]],
+                region_code="asia",
+                currency="CNY",
+                advanced_params={},
+            )
+        )
+
+        assert result["product_outputs"][0]["amount"] == "2.000000"
+    engine.dispose()
+
+
+def test_calculation_parameter_override_is_returned_and_applied() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    session_factory = sessionmaker(bind=engine, future=True)
+    with session_factory() as db:
+        seeded = _seed_calculation_data(db)
+        output = db.scalar(
+            select(ProcessCalculationOutput).where(ProcessCalculationOutput.product_id == seeded["product_ids"][0])
+        )
+        assert output is not None
+        override_key = f"product_output:{output.id}:ratio"
+
+        result = ProcessCalculatorService(db).calculate(
+            ProcessCalculatorRequest(
+                materials=[{"material_id": seeded["material_id"], "amount": "10", "unit": "t"}],
+                target_products=[seeded["product_ids"][0]],
+                region_code="asia",
+                currency="CNY",
+                parameter_overrides={override_key: "0.4"},
+            )
+        )
+
+        parameter = next(item for item in result["calculation_parameters"] if item["key"] == override_key)
+        assert parameter["value"] == "0.4"
+        assert result["product_outputs"][0]["amount"] == "4.000000"
+        assert result["revenue"] == "4000.00"
+    engine.dispose()
+
+
 def test_calculation_returns_only_top_three_ranked_schemes() -> None:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)

@@ -105,6 +105,10 @@ function resetForm(): void {
     consumables: (node?.consumables || []).map((item) => ({
       consumable_id: item.consumable_id,
       amount_per_ton: item.amount_per_ton,
+      amount_per_ton_bm: item.amount_per_ton_bm,
+      formula_type: item.formula_type,
+      expression: item.expression || '',
+      balance_weight: item.balance_weight,
       unit: item.unit,
       sort_order: item.sort_order,
       remark: item.remark || '',
@@ -112,6 +116,10 @@ function resetForm(): void {
     public_services: (node?.public_services || []).map((item) => ({
       public_service_id: item.public_service_id,
       amount_per_ton: item.amount_per_ton,
+      amount_per_ton_bm: item.amount_per_ton_bm,
+      formula_type: item.formula_type,
+      expression: item.expression || '',
+      balance_weight: item.balance_weight,
       unit: item.unit,
       sort_order: item.sort_order,
       remark: item.remark || '',
@@ -128,6 +136,11 @@ function resetForm(): void {
     outputs: (node?.outputs || []).map((item) => ({
       product_id: item.product_id,
       output_per_ton: item.output_per_ton,
+      output_type: item.output_type || 'product',
+      formula_type: item.formula_type,
+      expression: item.expression || '',
+      treatment_cost: item.treatment_cost,
+      balance_weight: item.balance_weight,
       unit: item.unit,
       is_main_product: item.is_main_product,
       sort_order: item.sort_order,
@@ -174,7 +187,7 @@ function validateMaterialInputs(rows: ProcessNodeMaterialInputPayload[]): boolea
   return rows.every((row, index) => {
     const label = `第 ${index + 1} 行输入原料`;
     if (!row.material_id) return warnInvalid(`${label}请选择原料`);
-    if (!validateDecimal(row.amount_per_ton, `${label}吨耗必须为非负数`)) return false;
+    if (!validateDecimal(row.amount_per_ton_bm, `${label}BM吨耗必须为非负数`)) return false;
     if (!row.unit.trim()) return warnInvalid(`${label}请输入单位`);
     return true;
   });
@@ -184,7 +197,7 @@ function validateConsumables(rows: ProcessNodeConsumablePayload[]): boolean {
   return rows.every((row, index) => {
     const label = `第 ${index + 1} 行消耗品`;
     if (!row.consumable_id) return warnInvalid(`${label}请选择消耗品`);
-    if (!validateDecimal(row.amount_per_ton, `${label}吨耗必须为非负数`)) return false;
+    if (!validateDecimal(row.amount_per_ton_bm, `${label}BM吨耗必须为非负数`)) return false;
     if (!row.unit.trim()) return warnInvalid(`${label}请输入单位`);
     return true;
   });
@@ -241,6 +254,10 @@ function buildPayload(): ProcessNodePayload {
     material_inputs: form.material_inputs.map((row, index) => ({
       material_id: Number(row.material_id),
       amount_per_ton: normalizeDecimal(row.amount_per_ton),
+      amount_per_ton_bm: normalizeDecimal(row.amount_per_ton_bm),
+      formula_type: row.formula_type,
+      expression: normalizeOptionalText(row.expression),
+      balance_weight: normalizeDecimal(row.balance_weight),
       unit: row.unit.trim(),
       sort_order: Number(row.sort_order ?? index + 1),
       remark: normalizeOptionalText(row.remark),
@@ -248,6 +265,10 @@ function buildPayload(): ProcessNodePayload {
     consumables: form.consumables.map((row, index) => ({
       consumable_id: Number(row.consumable_id),
       amount_per_ton: normalizeDecimal(row.amount_per_ton),
+      amount_per_ton_bm: normalizeDecimal(row.amount_per_ton_bm),
+      formula_type: row.formula_type,
+      expression: normalizeOptionalText(row.expression),
+      balance_weight: normalizeDecimal(row.balance_weight),
       unit: row.unit.trim(),
       sort_order: Number(row.sort_order ?? index + 1),
       remark: normalizeOptionalText(row.remark),
@@ -271,6 +292,11 @@ function buildPayload(): ProcessNodePayload {
     outputs: form.outputs.map((row, index) => ({
       product_id: Number(row.product_id),
       output_per_ton: normalizeDecimal(row.output_per_ton),
+      output_type: row.output_type,
+      formula_type: row.formula_type,
+      expression: normalizeOptionalText(row.expression),
+      treatment_cost: normalizeDecimal(row.treatment_cost),
+      balance_weight: normalizeDecimal(row.balance_weight),
       unit: row.unit.trim(),
       is_main_product: Boolean(row.is_main_product),
       sort_order: Number(row.sort_order ?? index + 1),

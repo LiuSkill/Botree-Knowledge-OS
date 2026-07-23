@@ -22,11 +22,12 @@ function handleUpdate(value: Record<string, unknown>[]): void {
     :model-value="modelValue as unknown as Record<string, unknown>[]"
     :options="options"
     id-key="public_service_id"
-    amount-key="amount_per_ton"
+    amount-key="amount_per_ton_bm"
     resource-label="公共服务"
-    amount-label="吨耗"
+    amount-label="BM 吨耗系数"
     add-label="新增公共服务"
     select-placeholder="请选择公共服务"
+    show-calculation-fields
     :disabled="disabled"
     @update:model-value="handleUpdate"
   />

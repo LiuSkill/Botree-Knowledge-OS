@@ -3,6 +3,7 @@ import type { ProcessLibraryStatus } from '@/views/process-config/types';
 export type ProcessNodeType = 'pretreatment' | 'hydrometallurgy' | 'pyrometallurgy' | 'post_treatment';
 
 export type NodeDecimalValue = string | number;
+export type ProcessFormulaType = 'fixed' | 'expression';
 
 export interface ProcessLibraryOptionItem {
   id: number;
@@ -25,6 +26,10 @@ export interface ProcessNodeMaterialInputPayload {
 export interface ProcessNodeConsumablePayload {
   consumable_id: number | null;
   amount_per_ton: NodeDecimalValue;
+  amount_per_ton_bm: NodeDecimalValue;
+  formula_type: ProcessFormulaType;
+  expression?: string | null;
+  balance_weight?: NodeDecimalValue;
   unit: string;
   sort_order: number;
   remark?: string | null;
@@ -33,6 +38,10 @@ export interface ProcessNodeConsumablePayload {
 export interface ProcessNodePublicServicePayload {
   public_service_id: number | null;
   amount_per_ton: NodeDecimalValue;
+  amount_per_ton_bm: NodeDecimalValue;
+  formula_type: ProcessFormulaType;
+  expression?: string | null;
+  balance_weight?: NodeDecimalValue;
   unit: string;
   sort_order: number;
   remark?: string | null;
@@ -51,6 +60,11 @@ export interface ProcessNodeEquipmentPayload {
 export interface ProcessNodeOutputPayload {
   product_id: number | null;
   output_per_ton: NodeDecimalValue;
+  output_type: 'product' | 'byproduct' | 'solid_waste' | 'wastewater';
+  formula_type: ProcessFormulaType;
+  expression?: string | null;
+  treatment_cost: NodeDecimalValue;
+  balance_weight?: NodeDecimalValue;
   unit: string;
   is_main_product: boolean;
   sort_order: number;
@@ -95,11 +109,19 @@ export interface ProcessNodeMaterialInput extends ProcessNodeChildBase {
 export interface ProcessNodeConsumable extends ProcessNodeChildBase {
   consumable_id: number;
   amount_per_ton: string;
+  amount_per_ton_bm: string;
+  formula_type: ProcessFormulaType;
+  expression?: string | null;
+  balance_weight: string;
 }
 
 export interface ProcessNodePublicService extends ProcessNodeChildBase {
   public_service_id: number;
   amount_per_ton: string;
+  amount_per_ton_bm: string;
+  formula_type: ProcessFormulaType;
+  expression?: string | null;
+  balance_weight: string;
 }
 
 export interface ProcessNodeEquipment extends ProcessNodeChildBase {
@@ -114,6 +136,10 @@ export interface ProcessNodeOutput extends ProcessNodeChildBase {
   product_id: number;
   output_type?: string | null;
   output_per_ton: string;
+  formula_type: ProcessFormulaType;
+  expression?: string | null;
+  treatment_cost: string;
+  balance_weight: string;
   is_main_product: boolean;
 }
 
