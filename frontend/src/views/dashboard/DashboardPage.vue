@@ -165,10 +165,9 @@ const quickActionDefinitions: QuickAction[] = [
 ];
 
 const visibleQuickActions = computed(() => quickActionDefinitions.filter((action) => authStore.hasActionPermission(action.permission)));
-const canViewKnowledge = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_VIEW));
-const canViewQaAudit = computed(
-  () => authStore.hasMenuPermission(PERMISSIONS.SYSTEM_QA_AUDIT) && authStore.hasActionPermission(PERMISSIONS.SYSTEM_QA_AUDIT_VIEW),
-);
+const canViewKnowledgeMenu = computed(() => authStore.hasMenuPermission(PERMISSIONS.KNOWLEDGE));
+const canViewProjectMenu = computed(() => authStore.hasMenuPermission(PERMISSIONS.PROJECT));
+const canViewQaAudit = computed(() => authStore.hasMenuPermission(PERMISSIONS.SYSTEM_QA_AUDIT));
 const canViewReviews = computed(
   () => authStore.hasMenuPermission(PERMISSIONS.REVIEW) && authStore.hasActionPermission(PERMISSIONS.REVIEW_VIEW),
 );
@@ -410,7 +409,7 @@ onMounted(loadData);
         <section class="dashboard-panel knowledge-assets-panel">
           <header class="panel-header">
             <h2>知识资产分布</h2>
-            <t-button v-if="canViewKnowledge" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看详情</t-button>
+            <t-button v-if="canViewProjectMenu" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.projects)">查看详情</t-button>
           </header>
           <div v-if="loading" class="empty-state knowledge-assets-state">知识资产分布加载中</div>
           <div v-else-if="loadFailed" class="empty-state knowledge-assets-state">知识资产分布加载失败</div>
@@ -519,7 +518,7 @@ onMounted(loadData);
         <section class="dashboard-panel document-type-panel">
           <header class="panel-header">
             <h2>文档类型分布</h2>
-            <t-button v-if="canViewKnowledge" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看全部</t-button>
+            <t-button v-if="canViewKnowledgeMenu" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看详情</t-button>
           </header>
           <div v-if="hasDocumentTypeData" class="document-type-body">
             <div ref="donutChartWrap" class="donut-chart-wrap" @mouseleave="hideDocumentTypeTooltip">
