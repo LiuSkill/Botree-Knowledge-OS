@@ -334,8 +334,6 @@ class ProcessConfigExcelService:
                         child["equipment_name"],
                         child.get("equipment_type") or "",
                         child["quantity"],
-                        child["investment_amount"],
-                        child["currency"],
                         child["sort_order"],
                         child.get("remark") or "",
                     ]
@@ -797,9 +795,8 @@ class ProcessConfigExcelService:
                 continue
             equipment_name = self._required_text(row, "设备名称", "节点设备投资", row_no, errors)
             quantity = self._parse_decimal(row.get("数量"), "节点设备投资", row_no, "数量", errors, default=Decimal("0"))
-            investment_amount = self._parse_decimal(row.get("投资金额"), "节点设备投资", row_no, "投资金额", errors, default=Decimal("0"))
             sort_order = self._parse_int(row.get("排序"), "节点设备投资", row_no, "排序", errors, default=0)
-            if not all(value is not None for value in (equipment_name, quantity, investment_amount, sort_order)):
+            if not all(value is not None for value in (equipment_name, quantity, sort_order)):
                 continue
             try:
                 parsed_nodes[node_code].equipment.append(
@@ -807,7 +804,6 @@ class ProcessConfigExcelService:
                         equipment_name=equipment_name,
                         equipment_type=self._optional_text(row.get("设备类型")),
                         quantity=quantity,
-                        investment_amount=investment_amount,
                         currency=self._required_or_default_text(row.get("币种"), "CNY"),
                         sort_order=sort_order,
                         remark=self._optional_text(row.get("备注")),
@@ -966,7 +962,9 @@ class ProcessConfigExcelService:
         repo = ProcessNodeRepository(self.db)
         self.process_service._validate_node_code_unique(repo, payload.code)
         self.process_service._validate_node_payload(payload.status, payload)
-        node_data = payload.model_dump(exclude={"material_inputs", "consumables", "public_services", "equipment", "outputs"})
+        node_data = payload.model_dump(
+            exclude={"material_inputs", "consumables", "public_services", "equipment", "labor", "outputs"}
+        )
         from app.models.process_config import ProcessNode  # local import to keep Excel service dependency narrow
 
         node = ProcessNode(**node_data, created_by=operator.id, updated_by=operator.id, is_deleted=False)

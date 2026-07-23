@@ -47,6 +47,9 @@ type MenuItem = {
 /** 暂不开放的功能入口对所有角色隐藏，但保留路由和权限数据以兼容历史配置。 */
 const HIDDEN_MENU_IDS = new Set(['authorization']);
 
+/** 首次渲染时保持折叠的一级菜单，避免子菜单较多时占用侧栏空间。 */
+const DEFAULT_COLLAPSED_MENU_IDS = new Set(['process_config']);
+
 const iconByMenuId: Record<string, Component> = {
   dashboard: HomeIcon,
   knowledge: BookOpenIcon,
@@ -160,7 +163,10 @@ function collectMenuIds(node: SystemMenuNode): string[] {
 }
 
 function collectExpandableMenuIds(items: MenuItem[]): string[] {
-  return items.flatMap((item) => (item.children.length ? [item.id, ...collectExpandableMenuIds(item.children)] : []));
+  return items.flatMap((item) => {
+    if (!item.children.length || DEFAULT_COLLAPSED_MENU_IDS.has(item.id)) return [];
+    return [item.id, ...collectExpandableMenuIds(item.children)];
+  });
 }
 
 function menuTreeSignature(items: MenuItem[]): string {

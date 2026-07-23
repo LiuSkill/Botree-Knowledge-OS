@@ -1,8 +1,8 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { AddIcon, DeleteIcon } from 'tdesign-icons-vue-next';
 import { ref, watch } from 'vue';
 
-import type { ProcessNodeEquipmentPayload } from '@/views/process-config/node/types';
+import type { ProcessLibraryOptionItem, ProcessNodeEquipmentPayload } from '@/views/process-config/node/types';
 
 type EditableEquipmentRow = ProcessNodeEquipmentPayload & {
   _rowKey: string;
@@ -11,9 +11,11 @@ type EditableEquipmentRow = ProcessNodeEquipmentPayload & {
 const props = withDefaults(
   defineProps<{
     modelValue: ProcessNodeEquipmentPayload[];
+    assetOptions?: ProcessLibraryOptionItem[];
     disabled?: boolean;
   }>(),
   {
+    assetOptions: () => [],
     disabled: false,
   },
 );
@@ -22,14 +24,10 @@ const emit = defineEmits<{
   'update:modelValue': [value: ProcessNodeEquipmentPayload[]];
 }>();
 
-const CURRENCY_OPTIONS = ['CNY', 'EUR', 'USD'];
-
 const columns = [
-  { colKey: 'equipment_name', title: '设备名称', minWidth: 180 },
-  { colKey: 'equipment_type', title: '设备类型', width: 140 },
+  { colKey: 'asset_id', title: '资产', minWidth: 180 },
   { colKey: 'quantity', title: '数量', width: 120 },
-  { colKey: 'investment_amount', title: '投资额', width: 140 },
-  { colKey: 'currency', title: '币种', width: 100 },
+  { colKey: 'installation_factor', title: '安装系数', width: 120 },
   { colKey: 'remark', title: '备注', minWidth: 160 },
   { colKey: 'operation', title: '操作', width: 72, align: 'center' },
 ];
@@ -42,11 +40,12 @@ watch(
   (value) => {
     rows.value = (value || []).map((item, index) => ({
       _rowKey: `equipment-${Date.now()}-${rowSeed++}`,
+      asset_id: item.asset_id || null,
+      asset_class: item.asset_class || 'equipment',
       equipment_name: item.equipment_name || '',
       equipment_type: item.equipment_type || '',
       quantity: item.quantity ?? 0,
-      investment_amount: item.investment_amount ?? 0,
-      currency: item.currency || 'CNY',
+      installation_factor: item.installation_factor ?? 1,
       sort_order: item.sort_order ?? index + 1,
       remark: item.remark || '',
     }));
@@ -59,11 +58,12 @@ function addRow(): void {
     ...rows.value,
     {
       _rowKey: `equipment-${Date.now()}-${rowSeed++}`,
+      asset_id: null,
+      asset_class: 'equipment',
       equipment_name: '',
       equipment_type: '',
       quantity: 1,
-      investment_amount: 0,
-      currency: 'CNY',
+      installation_factor: 1,
       sort_order: rows.value.length + 1,
       remark: '',
     },
@@ -82,6 +82,16 @@ function emitRows(): void {
     rows.value.map(({ _rowKey, ...row }) => ({ ...row })),
   );
 }
+
+function handleAssetChange(row: EditableEquipmentRow): void {
+  const asset = props.assetOptions.find((item) => item.id === row.asset_id);
+  if (asset) {
+    row.asset_class = asset.asset_class || 'equipment';
+    row.equipment_name = asset.name;
+    row.equipment_type = asset.type;
+  }
+  emitRows();
+}
 </script>
 
 <template>
@@ -95,22 +105,16 @@ function emitRows(): void {
 
     <div class="equipment-editor-table">
       <t-table row-key="_rowKey" bordered table-layout="fixed" size="small" :columns="columns" :data="rows" empty="暂无设备/投资配置">
-        <template #equipment_name="{ row }">
-          <t-input v-model="row.equipment_name" clearable :disabled="disabled" placeholder="设备名称" @update:model-value="emitRows" />
-        </template>
-        <template #equipment_type="{ row }">
-          <t-input v-model="row.equipment_type" clearable :disabled="disabled" placeholder="设备类型" @update:model-value="emitRows" />
+        <template #asset_id="{ row }">
+          <t-select v-model="row.asset_id" filterable clearable :disabled="disabled" placeholder="选择设备/设施" @change="() => handleAssetChange(row)">
+            <t-option v-for="asset in assetOptions" :key="asset.id" :label="`${asset.code} ${asset.name}`" :value="asset.id" />
+          </t-select>
         </template>
         <template #quantity="{ row }">
           <t-input-number v-model="row.quantity" :disabled="disabled" :min="0" :step="1" theme="normal" @update:model-value="emitRows" />
         </template>
-        <template #investment_amount="{ row }">
-          <t-input-number v-model="row.investment_amount" :disabled="disabled" :min="0" :step="1000" theme="normal" @update:model-value="emitRows" />
-        </template>
-        <template #currency="{ row }">
-          <t-select v-model="row.currency" :disabled="disabled" @change="emitRows">
-            <t-option v-for="currency in CURRENCY_OPTIONS" :key="currency" :label="currency" :value="currency" />
-          </t-select>
+        <template #installation_factor="{ row }">
+          <t-input-number v-model="row.installation_factor" :disabled="disabled" :min="0" :step="0.1" :decimal-places="4" theme="normal" @update:model-value="emitRows" />
         </template>
         <template #remark="{ row }">
           <t-input v-model="row.remark" clearable :disabled="disabled" placeholder="备注" @update:model-value="emitRows" />
@@ -143,6 +147,6 @@ function emitRows(): void {
 }
 
 .equipment-editor-table :deep(.t-table) {
-  min-width: 920px;
+  min-width: 720px;
 }
 </style>

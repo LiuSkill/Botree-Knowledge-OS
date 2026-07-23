@@ -13,7 +13,7 @@ import type {
   ProcessMaterialCompositionPayload,
   ProcessRegionPrice,
 } from '@/views/process-config/types';
-import { normalizeRegionPrices } from '@/views/process-config/types';
+import { normalizeRegionPrices, PROCESS_UNIT_OPTIONS } from '@/views/process-config/types';
 
 type DialogMode = 'create' | 'edit';
 
@@ -51,9 +51,14 @@ const form = reactive<ProcessLibraryPayload>({
   sort_order: 0,
   remark: '',
   region_prices: normalizeRegionPrices(),
+  salary_period: 'year',
+  welfare_factor: 1,
+  asset_class: 'equipment',
 });
 const compositionRows = ref<Array<ProcessMaterialCompositionPayload & { percentage: number }>>([]);
 const isMaterial = computed(() => props.moduleKey === 'materials');
+const isLaborCost = computed(() => props.moduleKey === 'labor-costs');
+const isAsset = computed(() => props.moduleKey === 'equipment-assets' || props.moduleKey === 'infrastructure-assets');
 const compositionColumns = [
   { colKey: 'element_code', title: '元素', width: 130 },
   { colKey: 'element_name', title: '名称', minWidth: 150 },
@@ -97,6 +102,9 @@ function resetForm(data?: ProcessLibraryItem | null): void {
     sort_order: data?.sort_order ?? 0,
     remark: data?.remark || '',
     region_prices: normalizeRegionPrices(data?.region_prices || [], data?.unit || ''),
+    salary_period: data?.salary_period || 'year',
+    welfare_factor: data?.welfare_factor ?? 1,
+    asset_class: data?.asset_class || (props.moduleKey === 'infrastructure-assets' ? 'infrastructure' : 'equipment'),
   });
   compositionRows.value = props.compositions.map((item) => ({
     ...item,
@@ -138,7 +146,7 @@ function validatePrices(regionPrices: ProcessRegionPrice[]): boolean {
 
 function buildPayload(): ProcessLibraryPayload {
   const unit = form.unit.trim();
-  return {
+  const payload: ProcessLibraryPayload = {
     code: form.code.trim(),
     name: form.name.trim(),
     type: form.type.trim(),
@@ -156,6 +164,14 @@ function buildPayload(): ProcessLibraryPayload {
       status: price.status,
     })),
   };
+  if (isLaborCost.value) {
+    payload.salary_period = form.salary_period || 'year';
+    payload.welfare_factor = String(form.welfare_factor ?? 1).trim() || '1';
+  }
+  if (isAsset.value) {
+    payload.asset_class = props.moduleKey === 'infrastructure-assets' ? 'infrastructure' : 'equipment';
+  }
+  return payload;
 }
 
 function handleConfirm(): void {
@@ -205,7 +221,9 @@ function handleConfirm(): void {
           <t-input v-else v-model="form.type" clearable maxlength="100" placeholder="请输入类型" />
         </t-form-item>
         <t-form-item label="单位" required-mark>
-          <t-input v-model="form.unit" clearable maxlength="50" placeholder="请输入主单位" />
+          <t-select v-model="form.unit" filterable creatable clearable placeholder="请选择或输入主单位">
+            <t-option v-for="option in PROCESS_UNIT_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+          </t-select>
         </t-form-item>
         <t-form-item label="状态" required-mark>
           <t-radio-group v-model="form.status">
@@ -223,7 +241,40 @@ function handleConfirm(): void {
         <t-textarea v-model="form.description" maxlength="1000" autosize placeholder="请输入描述" />
       </t-form-item>
 
-      <t-form-item label="区域单价">
+      <section v-if="isLaborCost" class="composition-section">
+        <div class="composition-header"><strong>人员成本参数</strong></div>
+        <div class="form-grid">
+          <t-form-item label="薪酬周期" required-mark>
+            <t-radio-group v-model="form.salary_period">
+              <t-radio-button value="year">年薪</t-radio-button>
+              <t-radio-button value="month">月薪</t-radio-button>
+            </t-radio-group>
+          </t-form-item>
+          <t-form-item label="福利系数" required-mark>
+            <t-input-number v-model="form.welfare_factor" :min="0" :step="0.1" :decimal-places="4" theme="normal" />
+          </t-form-item>
+        </div>
+        <t-form-item label="区域单人薪酬">
+          <RegionPriceEditor v-model="form.region_prices" :unit="form.unit" />
+        </t-form-item>
+      </section>
+
+      <section v-else-if="isAsset" class="composition-section">
+        <div class="composition-header"><strong>资产投资参数</strong></div>
+        <div class="form-grid">
+          <t-form-item label="资产类别" required-mark>
+            <t-radio-group v-model="form.asset_class" disabled>
+              <t-radio-button value="equipment">设备</t-radio-button>
+              <t-radio-button value="infrastructure">基础设施</t-radio-button>
+            </t-radio-group>
+          </t-form-item>
+        </div>
+        <t-form-item label="区域单台/单套投资">
+          <RegionPriceEditor v-model="form.region_prices" :unit="form.unit" />
+        </t-form-item>
+      </section>
+
+      <t-form-item v-else label="区域单价">
         <RegionPriceEditor v-model="form.region_prices" :unit="form.unit" />
       </t-form-item>
 

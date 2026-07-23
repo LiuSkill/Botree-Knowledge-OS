@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 
 import type { ProcessRegionPrice } from '@/views/process-config/types';
-import { normalizeRegionPrices } from '@/views/process-config/types';
+import { normalizeRegionPrices, PROCESS_UNIT_OPTIONS } from '@/views/process-config/types';
 
 const props = withDefaults(
   defineProps<{
@@ -66,7 +66,9 @@ function emitRows(): void {
         @change="emitRows"
         @blur="emitRows"
       />
-      <t-input v-model="row.unit" :disabled="disabled" clearable placeholder="计价单位" @change="emitRows" @blur="emitRows" />
+      <t-select v-model="row.unit" :disabled="disabled" filterable creatable clearable placeholder="计价单位" @change="emitRows">
+        <t-option v-for="option in PROCESS_UNIT_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+      </t-select>
       <t-select v-model="row.status" :disabled="disabled" @change="emitRows">
         <t-option label="启用" value="enabled" />
         <t-option label="草稿" value="draft" />

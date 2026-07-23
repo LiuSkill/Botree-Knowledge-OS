@@ -1,4 +1,4 @@
-"""
+﻿"""
 RBAC Permission Registry.
 
 职责：
@@ -57,6 +57,9 @@ MENU_TREE: tuple[MenuNode, ...] = (
             MenuNode("process_config:product", "产品库", "/process-config/products"),
             MenuNode("process_config:consumable", "消耗品库", "/process-config/consumables"),
             MenuNode("process_config:public_service", "公共服务库", "/process-config/public-services"),
+            MenuNode("process_config:labor", "人员成本库", "/process-config/labor-costs"),
+            MenuNode("process_config:asset_equipment", "设备资产库", "/process-config/equipment-assets"),
+            MenuNode("process_config:asset_infrastructure", "基础设施库", "/process-config/infrastructure-assets"),
             MenuNode("process_config:node", "工艺节点库", "/process-config/nodes"),
             MenuNode("process_config:route", "工艺路线库", "/process-config/routes"),
             MenuNode("process_config:calculator", "快速财务计算器", "/process-config/calculator"),
@@ -223,6 +226,8 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
             ActionPermission("export", "导出公共服务", "process_config:public_service:export"),
         ),
     ),
+    ActionGroup("process-config-labor", "人员成本库", ("process_config:labor",), (ActionPermission("view", "查看人员成本", "process_config:labor:view"), ActionPermission("create", "新增人员成本", "process_config:labor:create"), ActionPermission("update", "编辑人员成本", "process_config:labor:update"), ActionPermission("delete", "删除人员成本", "process_config:labor:delete"))),
+    ActionGroup("process-config-asset", "设备/基础设施资产库", ("process_config:asset_equipment",), (ActionPermission("view", "查看设备/基础设施资产", "process_config:asset:view"), ActionPermission("create", "新增设备/基础设施资产", "process_config:asset:create"), ActionPermission("update", "编辑设备/基础设施资产", "process_config:asset:update"), ActionPermission("delete", "删除设备/基础设施资产", "process_config:asset:delete"))),
     ActionGroup(
         "process-config-node",
         "工艺节点库",

@@ -166,7 +166,7 @@ class ProcessCalculatorService:
         for item in data["route_nodes"]:
             route_nodes[item.route_id].append(item)
         child_maps: dict[str, dict[int, list[Any]]] = {}
-        for key in ("node_consumables", "node_public_services", "node_equipment", "node_outputs"):
+        for key in ("node_consumables", "node_public_services", "node_equipment", "node_labor", "node_outputs"):
             grouped: dict[int, list[Any]] = defaultdict(list)
             for item in data[key]:
                 grouped[item.node_id].append(item)
@@ -185,6 +185,8 @@ class ProcessCalculatorService:
             "nodes": {item.id: item for item in data["nodes"]},
             "consumables": {item.id: item for item in data["consumables"]},
             "public_services": {item.id: item for item in data["public_services"]},
+            "labor_costs": {item.id: item for item in data["labor_costs"]},
+            "assets": {item.id: item for item in data["assets"]},
             "prices": {(item.owner_type, item.owner_id): item for item in data["prices"]},
             "route_nodes": route_nodes,
             "calculation_outputs": calculation_outputs,
@@ -205,16 +207,18 @@ class ProcessCalculatorService:
         public_service_costs = self._calculate_relation_costs(
             unique_node_ids, node_amounts, context, warnings, relation_key="node_public_services"
         )
+        labor_costs = self._calculate_labor_costs(unique_node_ids, context, warnings)
         waste_outputs = self._calculate_waste_outputs(unique_node_ids, node_amounts, context, warnings)
         material_cost = self._calculate_material_cost(routes, context, warnings)
         revenue = sum((item.cost for item in product_outputs), ZERO)
         consumable_cost = sum((item.cost for item in consumable_costs), ZERO)
         public_service_cost = sum((item.cost for item in public_service_costs), ZERO)
+        labor_cost = sum((item.cost for item in labor_costs), ZERO)
         waste_treatment_cost = sum((item.cost for item in waste_outputs), ZERO)
         capex = self._calculate_capex(unique_node_ids, context, warnings)
         calculation_parameters = self._build_calculation_parameters(routes, unique_node_ids, context)
         other_opex = context["payload"].advanced_params.other_opex
-        opex = material_cost + consumable_cost + public_service_cost + waste_treatment_cost + other_opex
+        opex = material_cost + consumable_cost + public_service_cost + labor_cost + waste_treatment_cost + other_opex
         ebitda = revenue - opex
         cash_flows, npv, irr, payback, discounted_payback = self._calculate_cash_flows(
             revenue, opex, capex, context["payload"]
@@ -227,6 +231,7 @@ class ProcessCalculatorService:
             material_cost=self._money(material_cost),
             consumable_cost=self._money(consumable_cost),
             public_service_cost=self._money(public_service_cost),
+            labor_cost=self._money(labor_cost),
             waste_treatment_cost=self._money(waste_treatment_cost),
             other_opex=self._money(other_opex),
             opex=self._money(opex),
@@ -251,6 +256,7 @@ class ProcessCalculatorService:
             "product_outputs": product_outputs,
             "consumable_costs": consumable_costs,
             "public_service_costs": public_service_costs,
+            "labor_costs": labor_costs,
             "waste_outputs": waste_outputs,
             "material_balance": material_balance,
             "cash_flows": cash_flows,
@@ -438,6 +444,51 @@ class ProcessCalculatorService:
                 )
         return result
 
+    def _calculate_labor_costs(
+        self,
+        node_ids: list[int],
+        context: dict[str, Any],
+        warnings: list[str],
+    ) -> list[CalculatorAmountItem]:
+        result: list[CalculatorAmountItem] = []
+        currency = context["payload"].currency
+        for node_id in node_ids:
+            for relation in context["node_labor"].get(node_id, []):
+                if not relation.include_in_opex:
+                    continue
+                labor = context["labor_costs"].get(relation.labor_cost_id)
+                name = labor.name if labor else str(relation.labor_cost_id)
+                if labor is None:
+                    warnings.append(f"节点 {context['nodes'][node_id].code} 的人员成本 {relation.labor_cost_id} 未找到或未启用")
+                    continue
+                regional_price = context["prices"].get(("labor", labor.id))
+                if regional_price is None or regional_price.unit_price <= 0:
+                    warnings.append(f"人员成本 {labor.name} 未配置 {context['payload'].region_code} 区域有效单人薪酬")
+                    continue
+                if regional_price.currency != currency:
+                    warnings.append(f"人员成本 {labor.name} 币种为 {regional_price.currency}，无法换算为 {currency}")
+                    continue
+                annual_salary = regional_price.unit_price * (Decimal("12") if labor.salary_period == "month" else ONE)
+                default_unit_cost = annual_salary * labor.welfare_factor
+                headcount = self._parameter_value(context, f"labor:{relation.id}:headcount", relation.headcount)
+                load_factor = self._parameter_value(context, f"labor:{relation.id}:load_factor", relation.load_factor)
+                unit_cost = self._parameter_value(context, f"labor:{relation.id}:unit_cost", default_unit_cost)
+                cost = headcount * load_factor * unit_cost
+                result.append(
+                    CalculatorAmountItem(
+                        id=relation.labor_cost_id,
+                        code=labor.code,
+                        name=name,
+                        output_type="labor",
+                        amount=self._amount(headcount * load_factor),
+                        unit="person-year",
+                        unit_price=self._money(unit_cost),
+                        cost=self._money(cost),
+                        node_id=node_id,
+                    )
+                )
+        return result
+
     def _waste_treatment_cost(
         self,
         output: ProcessNodeOutput,
@@ -497,16 +548,30 @@ class ProcessCalculatorService:
         total = ZERO
         for node_id in node_ids:
             for equipment in context["node_equipment"].get(node_id, []):
-                if equipment.currency != currency:
-                    warnings.append(
-                        f"设备 {equipment.equipment_name} 币种为 {equipment.currency}，缺少到 {currency} 的汇率，未计入CAPEX"
-                    )
+                asset = context["assets"].get(equipment.asset_id) if getattr(equipment, "asset_id", None) else None
+                equipment_name = asset.name if asset else equipment.equipment_name
+                if asset is None:
+                    warnings.append(f"设备/设施 {equipment_name} 未绑定资产库，未计入 CAPEX")
                     continue
-                total += self._parameter_value(
+                regional_price = context["prices"].get(("asset", asset.id))
+                if regional_price is None or regional_price.unit_price <= 0:
+                    warnings.append(f"设备/设施 {equipment_name} 未配置 {context['payload'].region_code} 区域有效投资额")
+                    continue
+                if regional_price.currency != currency:
+                    warnings.append(f"设备/设施 {equipment_name} 币种为 {regional_price.currency}，无法换算为 {currency}")
+                    continue
+                unit_investment = self._parameter_value(
                     context,
                     f"equipment:{equipment.id}:investment",
-                    equipment.investment_amount,
+                    regional_price.unit_price,
                 )
+                quantity = self._parameter_value(context, f"equipment:{equipment.id}:quantity", equipment.quantity)
+                installation_factor = self._parameter_value(
+                    context,
+                    f"equipment:{equipment.id}:installation_factor",
+                    equipment.installation_factor,
+                )
+                total += quantity * installation_factor * unit_investment
         params: CalculatorAdvancedParams = context["payload"].advanced_params
         if params.base_capacity is not None and params.scale_param_n is not None:
             actual_capacity = sum(context["material_amount_t"].values(), ZERO)
@@ -681,7 +746,31 @@ class ProcessCalculatorService:
                 else:
                     add(f"waste_output:{output.id}:treatment_price", "处理单价", f"{name}处理费", output.treatment_cost, context["payload"].currency)
             for equipment in context["node_equipment"].get(node_id, []):
-                add(f"equipment:{equipment.id}:investment", "设备投资", equipment.equipment_name, equipment.investment_amount, equipment.currency)
+                asset = context["assets"].get(equipment.asset_id) if getattr(equipment, "asset_id", None) else None
+                equipment_name = asset.name if asset else equipment.equipment_name
+                regional_price = context["prices"].get(("asset", asset.id)) if asset else None
+                if regional_price:
+                    add(
+                        f"equipment:{equipment.id}:investment",
+                        "设备/设施投资",
+                        equipment_name,
+                        regional_price.unit_price,
+                        regional_price.currency,
+                    )
+                add(f"equipment:{equipment.id}:quantity", "设备/设施数量", equipment_name, equipment.quantity, "set")
+                add(f"equipment:{equipment.id}:installation_factor", "安装/配套系数", equipment_name, equipment.installation_factor, "")
+            for labor in context["node_labor"].get(node_id, []):
+                labor_cost = context["labor_costs"].get(labor.labor_cost_id)
+                if not labor_cost:
+                    continue
+                regional_price = context["prices"].get(("labor", labor_cost.id))
+                if not regional_price:
+                    continue
+                annual_salary = regional_price.unit_price * Decimal("12") if labor_cost.salary_period == "month" else regional_price.unit_price
+                unit_labor_cost = annual_salary * labor_cost.welfare_factor
+                add(f"labor:{labor.id}:headcount", "人员数量", labor_cost.name, labor.headcount, "person")
+                add(f"labor:{labor.id}:load_factor", "人员负荷系数", labor_cost.name, labor.load_factor, "")
+                add(f"labor:{labor.id}:unit_cost", "年化单人成本", labor_cost.name, unit_labor_cost, regional_price.currency)
         return list(result.values())
 
     def _route_refs(self, routes: tuple[ProcessRoute, ...], context: dict[str, Any]) -> list[CalculatorRouteRef]:
@@ -732,6 +821,7 @@ class ProcessCalculatorService:
                 product_outputs=[],
                 consumable_costs=[],
                 public_service_costs=[],
+                labor_costs=[],
                 waste_outputs=[],
                 capex=ZERO,
                 opex=ZERO,
@@ -753,6 +843,7 @@ class ProcessCalculatorService:
             product_outputs=recommended["product_outputs"],
             consumable_costs=recommended["consumable_costs"],
             public_service_costs=recommended["public_service_costs"],
+            labor_costs=recommended["labor_costs"],
             waste_outputs=recommended["waste_outputs"],
             capex=metrics.capex,
             opex=metrics.opex,

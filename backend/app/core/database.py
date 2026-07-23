@@ -116,6 +116,7 @@ def init_database() -> None:
         seed_project_categories(db)
         seed_model_config(db)
         seed_process_config_defaults(db)
+        seed_process_support_library_defaults(db)
         seed_sensitive_content(db)
         from app.services.process_price_default_service import ProcessPriceDefaultService
 
@@ -288,6 +289,15 @@ def migrate_database() -> None:
             connection.execute(text("UPDATE users SET is_deleted = COALESCE(is_deleted, 0)"))
             _create_index_if_missing(connection, inspector, "users", "idx_users_department_id", "department_id")
             _create_index_if_missing(connection, inspector, "users", "idx_users_is_deleted", "is_deleted")
+
+        if "process_node_equipment" in table_names:
+            _add_process_node_equipment_asset_columns(connection, inspector)
+
+        if "process_assets" in table_names:
+            _make_process_asset_legacy_columns_insert_compatible(connection, inspector)
+
+        if "process_labor_costs" in table_names:
+            _make_process_labor_legacy_columns_insert_compatible(connection, inspector)
 
         if "chat_sessions" not in table_names:
             return
@@ -789,6 +799,79 @@ def _add_role_data_scope_column(connection, existing_columns: set[str]) -> None:
         "VARCHAR(30) NOT NULL DEFAULT 'own' COMMENT '角色项目数据范围: all/department/own/public_only'",
         "VARCHAR(30) NOT NULL DEFAULT 'own'",
     )
+
+
+def _add_process_node_equipment_asset_columns(connection, inspector) -> None:
+    """补齐节点设备配置的资产库绑定字段，兼容历史 MySQL 表结构。"""
+
+    equipment_columns = {column["name"] for column in inspector.get_columns("process_node_equipment")}
+    _add_column_if_missing(
+        connection,
+        equipment_columns,
+        "process_node_equipment",
+        "asset_id",
+        "INTEGER COMMENT '资产库ID，关联process_assets.id'",
+        "INTEGER",
+    )
+    _add_column_if_missing(
+        connection,
+        equipment_columns,
+        "process_node_equipment",
+        "asset_class",
+        "VARCHAR(30) NOT NULL DEFAULT 'equipment' COMMENT '资产类别：equipment/infrastructure'",
+        "VARCHAR(30) NOT NULL DEFAULT 'equipment'",
+    )
+    _add_column_if_missing(
+        connection,
+        equipment_columns,
+        "process_node_equipment",
+        "installation_factor",
+        "DECIMAL(18, 6) NOT NULL DEFAULT 1 COMMENT '安装/配套系数'",
+        "NUMERIC(18, 6) NOT NULL DEFAULT 1",
+    )
+    _create_index_if_missing(
+        connection,
+        inspector,
+        "process_node_equipment",
+        "idx_process_node_equipment_asset_id",
+        "asset_id",
+    )
+
+
+def _make_process_asset_legacy_columns_insert_compatible(connection, inspector) -> None:
+    """保留历史资产字段及数据，并为新模型不再写入的必填列补默认值。"""
+
+    if connection.dialect.name != "mysql":
+        return
+    asset_columns = {column["name"]: column for column in inspector.get_columns("process_assets")}
+    investment_column = asset_columns.get("investment_amount")
+    if investment_column and investment_column.get("default") is None:
+        connection.execute(
+            text("ALTER TABLE process_assets MODIFY COLUMN investment_amount DECIMAL(18, 2) NOT NULL DEFAULT 0")
+        )
+    currency_column = asset_columns.get("currency")
+    if currency_column and currency_column.get("default") is None:
+        connection.execute(
+            text("ALTER TABLE process_assets MODIFY COLUMN currency VARCHAR(10) NOT NULL DEFAULT 'EUR'")
+        )
+
+
+def _make_process_labor_legacy_columns_insert_compatible(connection, inspector) -> None:
+    """保留历史薪酬字段及数据，并为区域价格模型不再写入的必填列补默认值。"""
+
+    if connection.dialect.name != "mysql":
+        return
+    labor_columns = {column["name"]: column for column in inspector.get_columns("process_labor_costs")}
+    salary_column = labor_columns.get("salary_amount")
+    if salary_column and salary_column.get("default") is None:
+        connection.execute(
+            text("ALTER TABLE process_labor_costs MODIFY COLUMN salary_amount DECIMAL(18, 6) NOT NULL DEFAULT 0")
+        )
+    currency_column = labor_columns.get("currency")
+    if currency_column and currency_column.get("default") is None:
+        connection.execute(
+            text("ALTER TABLE process_labor_costs MODIFY COLUMN currency VARCHAR(10) NOT NULL DEFAULT 'EUR'")
+        )
 
 
 def _add_project_basic_columns(connection, existing_columns: set[str]) -> None:
@@ -1424,7 +1507,9 @@ def seed_process_config_defaults(db: Session) -> None:
 
     from app.models.process_config import (
         ProcessCalculationOutput,
+        ProcessAsset,
         ProcessConsumable,
+        ProcessLaborCost,
         ProcessMaterial,
         ProcessMaterialComposition,
         ProcessNode,
@@ -1435,7 +1520,7 @@ def seed_process_config_defaults(db: Session) -> None:
         ProcessRouteNode,
     )
 
-    seed_models = (ProcessMaterial, ProcessProduct, ProcessConsumable, ProcessPublicService, ProcessNode, ProcessRoute)
+    seed_models = (ProcessMaterial, ProcessProduct, ProcessConsumable, ProcessPublicService, ProcessLaborCost, ProcessAsset, ProcessNode, ProcessRoute)
     if any(db.scalar(select(model.id).where(model.is_deleted.is_(False)).limit(1)) for model in seed_models):
         logger.info("工艺配置默认数据已存在，跳过初始化")
         return
@@ -1618,6 +1703,47 @@ def seed_process_config_defaults(db: Session) -> None:
     )
 
 
+def seed_process_support_library_defaults(db: Session) -> None:
+    """增量补齐人员与资产基础库，只插入缺失编码，不修改既有业务数据。"""
+
+    from app.models.process_config import ProcessAsset, ProcessLaborCost
+
+    defaults_path = Path(__file__).with_name("process_config_defaults.json")
+    if not defaults_path.exists():
+        logger.warning("工艺配置默认数据文件不存在，跳过人员与资产基础库补齐: %s", defaults_path)
+        return
+    data = json.loads(defaults_path.read_text(encoding="utf-8"))
+    admin = db.scalar(select(User).where(User.username == settings.default_admin_username))
+    operator_id = admin.id if admin else None
+    model_configs = (
+        (ProcessLaborCost, "labor_costs", {"salary_period", "welfare_factor"}),
+        (ProcessAsset, "assets", {"asset_class"}),
+    )
+    inserted_counts: dict[str, int] = {}
+    for model, config_key, extra_fields in model_configs:
+        existing_codes = set(db.scalars(select(model.code).where(model.is_deleted.is_(False))).all())
+        inserted = 0
+        for row in data.get(config_key, []):
+            if row["code"] in existing_codes:
+                continue
+            item_data = _seed_library_fields(row)
+            item_data.update({field: row[field] for field in extra_fields if field in row})
+            db.add(
+                model(
+                    **item_data,
+                    created_by=operator_id,
+                    updated_by=operator_id,
+                    is_deleted=False,
+                )
+            )
+            existing_codes.add(row["code"])
+            inserted += 1
+        inserted_counts[config_key] = inserted
+    if any(inserted_counts.values()):
+        db.flush()
+        logger.info("工艺人员与资产基础库增量补齐完成: %s", inserted_counts)
+
+
 def _seed_decimal(value: Any, default: str = "0") -> Decimal:
     return Decimal(str(default if value is None or value == "" else value))
 
@@ -1720,8 +1846,6 @@ def _seed_process_node_children(
                 equipment_name=child["equipment_name"],
                 equipment_type=child.get("equipment_type"),
                 quantity=_seed_decimal(child.get("quantity")),
-                investment_amount=_seed_decimal(child.get("investment_amount")),
-                currency=child.get("currency") or "CNY",
                 sort_order=int(child.get("sort_order") or 0),
                 remark=child.get("remark"),
                 is_deleted=False,

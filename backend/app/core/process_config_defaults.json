@@ -2444,6 +2444,32 @@
       ]
     }
   ],
+  "labor_costs": [
+    {"code": "L01", "name": "生产操作工", "type": "production", "description": "湿法产线倒班操作岗位", "unit": "person-year", "salary_period": "year", "welfare_factor": "1.35", "status": "enabled", "sort_order": 10, "remark": "默认价格为欧洲地区年度基础薪酬，不含福利系数"},
+    {"code": "L02", "name": "班组长", "type": "production_management", "description": "生产班组现场管理岗位", "unit": "person-year", "salary_period": "year", "welfare_factor": "1.35", "status": "enabled", "sort_order": 20, "remark": "默认价格为欧洲地区年度基础薪酬，不含福利系数"},
+    {"code": "L03", "name": "工艺工程师", "type": "engineering", "description": "工艺运行、优化及异常分析岗位", "unit": "person-year", "salary_period": "year", "welfare_factor": "1.32", "status": "enabled", "sort_order": 30, "remark": "默认价格为欧洲地区年度基础薪酬，不含福利系数"},
+    {"code": "L04", "name": "设备维修工", "type": "maintenance", "description": "机械、电气与仪表维护岗位", "unit": "person-year", "salary_period": "year", "welfare_factor": "1.35", "status": "enabled", "sort_order": 40, "remark": "默认价格为欧洲地区年度基础薪酬，不含福利系数"},
+    {"code": "L05", "name": "化验员", "type": "laboratory", "description": "原料、中控及产品分析岗位", "unit": "person-year", "salary_period": "year", "welfare_factor": "1.32", "status": "enabled", "sort_order": 50, "remark": "默认价格为欧洲地区年度基础薪酬，不含福利系数"},
+    {"code": "L06", "name": "安全环保专员", "type": "hse", "description": "安全、职业健康与环保管理岗位", "unit": "person-year", "salary_period": "year", "welfare_factor": "1.32", "status": "enabled", "sort_order": 60, "remark": "默认价格为欧洲地区年度基础薪酬，不含福利系数"}
+  ],
+  "assets": [
+    {"code": "EQ001", "name": "酸浸反应釜", "type": "reactor", "asset_class": "equipment", "description": "耐腐蚀搅拌浸出反应设备，预算级单台价格", "unit": "set", "status": "enabled", "sort_order": 10, "remark": "MVP预算参考价，项目设计阶段需按容积及材质询价"},
+    {"code": "EQ002", "name": "压滤机", "type": "solid_liquid_separation", "asset_class": "equipment", "description": "浸出液及沉淀浆料固液分离设备", "unit": "set", "status": "enabled", "sort_order": 20, "remark": "MVP预算参考价，项目设计阶段需按过滤面积询价"},
+    {"code": "EQ003", "name": "萃取箱组", "type": "solvent_extraction", "asset_class": "equipment", "description": "混合澄清式萃取设备组", "unit": "set", "status": "enabled", "sort_order": 30, "remark": "按一套萃取段预算"},
+    {"code": "EQ004", "name": "蒸发结晶器", "type": "crystallizer", "asset_class": "equipment", "description": "产品溶液蒸发浓缩及结晶设备", "unit": "set", "status": "enabled", "sort_order": 40, "remark": "MVP预算参考价"},
+    {"code": "EQ005", "name": "回转窑", "type": "kiln", "asset_class": "equipment", "description": "焙烧及热处理设备", "unit": "set", "status": "enabled", "sort_order": 50, "remark": "MVP预算参考价"},
+    {"code": "EQ006", "name": "喷雾干燥机", "type": "dryer", "asset_class": "equipment", "description": "溶液或浆料喷雾干燥设备", "unit": "set", "status": "enabled", "sort_order": 60, "remark": "MVP预算参考价"},
+    {"code": "EQ007", "name": "MVR蒸发器", "type": "evaporator", "asset_class": "equipment", "description": "废水浓缩与盐回收设备", "unit": "set", "status": "enabled", "sort_order": 70, "remark": "MVP预算参考价"},
+    {"code": "EQ008", "name": "废气洗涤塔", "type": "off_gas_treatment", "asset_class": "equipment", "description": "酸雾及工艺废气吸收处理设备", "unit": "set", "status": "enabled", "sort_order": 80, "remark": "MVP预算参考价"},
+    {"code": "IF001", "name": "生产厂房", "type": "building", "asset_class": "infrastructure", "description": "工艺生产区域建筑工程单位面积造价", "unit": "m2", "status": "enabled", "sort_order": 110, "remark": "不含工艺设备，按建筑面积计价"},
+    {"code": "IF002", "name": "原料及成品仓库", "type": "warehouse", "asset_class": "infrastructure", "description": "仓储建筑单位面积造价", "unit": "m2", "status": "enabled", "sort_order": 120, "remark": "按建筑面积计价"},
+    {"code": "IF003", "name": "化验及办公楼", "type": "office_laboratory", "asset_class": "infrastructure", "description": "化验室和办公建筑单位面积造价", "unit": "m2", "status": "enabled", "sort_order": 130, "remark": "不含专用分析仪器"},
+    {"code": "IF004", "name": "罐区及围堰", "type": "tank_farm", "asset_class": "infrastructure", "description": "酸碱及工艺溶液罐区土建配套", "unit": "set", "status": "enabled", "sort_order": 140, "remark": "MVP预算参考价"},
+    {"code": "IF005", "name": "循环冷却水系统", "type": "cooling_water", "asset_class": "infrastructure", "description": "冷却塔、水池、泵组及管网", "unit": "set", "status": "enabled", "sort_order": 150, "remark": "MVP预算参考价"},
+    {"code": "IF006", "name": "空压及制氮系统", "type": "compressed_air_nitrogen", "asset_class": "infrastructure", "description": "压缩空气与氮气站系统", "unit": "set", "status": "enabled", "sort_order": 160, "remark": "MVP预算参考价"},
+    {"code": "IF007", "name": "变配电系统", "type": "power_distribution", "asset_class": "infrastructure", "description": "变压器、高低压柜及厂区配电", "unit": "set", "status": "enabled", "sort_order": 170, "remark": "MVP预算参考价"},
+    {"code": "IF008", "name": "污水处理站", "type": "wastewater_treatment", "asset_class": "infrastructure", "description": "综合废水预处理及达标排放系统", "unit": "set", "status": "enabled", "sort_order": 180, "remark": "MVP预算参考价"}
+  ],
   "nodes": [
     {
       "code": "A1",

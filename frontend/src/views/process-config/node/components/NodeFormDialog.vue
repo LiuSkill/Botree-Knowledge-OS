@@ -4,6 +4,7 @@ import { computed, reactive, watch } from 'vue';
 
 import NodeConsumableEditor from '@/views/process-config/node/components/NodeConsumableEditor.vue';
 import NodeEquipmentEditor from '@/views/process-config/node/components/NodeEquipmentEditor.vue';
+import NodeLaborEditor from '@/views/process-config/node/components/NodeLaborEditor.vue';
 import NodeMaterialInputEditor from '@/views/process-config/node/components/NodeMaterialInputEditor.vue';
 import NodeOutputEditor from '@/views/process-config/node/components/NodeOutputEditor.vue';
 import NodePublicServiceEditor from '@/views/process-config/node/components/NodePublicServiceEditor.vue';
@@ -13,6 +14,7 @@ import type {
   ProcessNodeConsumablePayload,
   ProcessNodeDetail,
   ProcessNodeEquipmentPayload,
+  ProcessNodeLaborPayload,
   ProcessNodeMaterialInputPayload,
   ProcessNodeOutputPayload,
   ProcessNodePayload,
@@ -34,6 +36,8 @@ const props = withDefaults(
     productOptions: ProcessLibraryOptionItem[];
     consumableOptions: ProcessLibraryOptionItem[];
     publicServiceOptions: ProcessLibraryOptionItem[];
+    laborCostOptions: ProcessLibraryOptionItem[];
+    assetOptions: ProcessLibraryOptionItem[];
   }>(),
   {
     node: null,
@@ -62,6 +66,7 @@ const form = reactive<ProcessNodePayload>({
   consumables: [],
   public_services: [],
   equipment: [],
+  labor: [],
   outputs: [],
 });
 
@@ -125,11 +130,20 @@ function resetForm(): void {
       remark: item.remark || '',
     })),
     equipment: (node?.equipment || []).map((item) => ({
+      asset_id: item.asset_id || null,
+      asset_class: item.asset_class || 'equipment',
       equipment_name: item.equipment_name,
       equipment_type: item.equipment_type || '',
       quantity: item.quantity,
-      investment_amount: item.investment_amount,
-      currency: item.currency,
+      installation_factor: item.installation_factor ?? 1,
+      sort_order: item.sort_order,
+      remark: item.remark || '',
+    })),
+    labor: (node?.labor || []).map((item) => ({
+      labor_cost_id: item.labor_cost_id,
+      headcount: item.headcount,
+      load_factor: item.load_factor,
+      include_in_opex: item.include_in_opex,
       sort_order: item.sort_order,
       remark: item.remark || '',
     })),
@@ -169,6 +183,10 @@ function isNonNegativeDecimal(value: string | number | null | undefined): boolea
   if (!rawValue) return false;
   const numberValue = Number(rawValue);
   return Number.isFinite(numberValue) && numberValue >= 0;
+}
+
+function findAssetOption(assetId?: number | null): ProcessLibraryOptionItem | undefined {
+  return props.assetOptions.find((item) => item.id === assetId);
 }
 
 function validateRequired(value: string | undefined | null, message: string): boolean {
@@ -216,10 +234,18 @@ function validatePublicServices(rows: ProcessNodePublicServicePayload[]): boolea
 function validateEquipment(rows: ProcessNodeEquipmentPayload[]): boolean {
   return rows.every((row, index) => {
     const label = `第 ${index + 1} 行设备`;
-    if (!row.equipment_name.trim()) return warnInvalid(`${label}请输入设备名称`);
+    if (!row.asset_id) return warnInvalid(`${label}请选择资产`);
     if (!validateDecimal(row.quantity, `${label}数量必须为非负数`)) return false;
-    if (!validateDecimal(row.investment_amount, `${label}投资额必须为非负数`)) return false;
-    if (!row.currency.trim()) return warnInvalid(`${label}请选择币种`);
+    if (!validateDecimal(row.installation_factor ?? 1, `${label}安装系数必须为非负数`)) return false;
+    return true;
+  });
+}
+function validateLabor(rows: ProcessNodeLaborPayload[]): boolean {
+  return rows.every((row, index) => {
+    const label = `第 ${index + 1} 行人员`;
+    if (!row.labor_cost_id) return warnInvalid(`${label}请选择人员成本`);
+    if (!validateDecimal(row.headcount, `${label}人数必须为非负数`)) return false;
+    if (!validateDecimal(row.load_factor, `${label}负荷系数必须为非负数`)) return false;
     return true;
   });
 }
@@ -280,12 +306,24 @@ function buildPayload(): ProcessNodePayload {
       sort_order: Number(row.sort_order ?? index + 1),
       remark: normalizeOptionalText(row.remark),
     })),
-    equipment: form.equipment.map((row, index) => ({
-      equipment_name: row.equipment_name.trim(),
-      equipment_type: normalizeOptionalText(row.equipment_type),
-      quantity: normalizeDecimal(row.quantity),
-      investment_amount: normalizeDecimal(row.investment_amount),
-      currency: row.currency.trim(),
+    equipment: form.equipment.map((row, index) => {
+      const asset = findAssetOption(row.asset_id);
+      return {
+        asset_id: row.asset_id || null,
+        asset_class: asset?.asset_class || row.asset_class || 'equipment',
+        equipment_name: asset?.name || row.equipment_name.trim(),
+        equipment_type: normalizeOptionalText(asset?.type || row.equipment_type),
+        quantity: normalizeDecimal(row.quantity),
+        installation_factor: normalizeDecimal(row.installation_factor ?? 1),
+        sort_order: Number(row.sort_order ?? index + 1),
+        remark: normalizeOptionalText(row.remark),
+      };
+    }),
+    labor: form.labor.map((row, index) => ({
+      labor_cost_id: Number(row.labor_cost_id),
+      headcount: normalizeDecimal(row.headcount),
+      load_factor: normalizeDecimal(row.load_factor),
+      include_in_opex: Boolean(row.include_in_opex),
       sort_order: Number(row.sort_order ?? index + 1),
       remark: normalizeOptionalText(row.remark),
     })),
@@ -309,8 +347,6 @@ function handleSubmit(): void {
   if (!validateRequired(form.code, '请输入节点编码')) return;
   if (!validateRequired(form.name, '请输入节点名称')) return;
   if (!validateRequired(form.version, '请输入版本号')) return;
-  if (!validateDecimal(form.staff, '人员数量必须为非负数')) return;
-  if (!validateDecimal(form.area, '占地面积必须为非负数')) return;
   if (form.status === 'enabled' && form.outputs.length === 0) {
     MessagePlugin.warning('启用节点至少需要配置一个输出产品');
     return;
@@ -319,6 +355,7 @@ function handleSubmit(): void {
   if (!validateConsumables(form.consumables)) return;
   if (!validatePublicServices(form.public_services)) return;
   if (!validateEquipment(form.equipment)) return;
+  if (!validateLabor(form.labor)) return;
   if (!validateOutputs(form.outputs)) return;
 
   emit('submit', buildPayload());
@@ -354,12 +391,6 @@ function handleSubmit(): void {
             </t-form-item>
             <t-form-item label="版本号" required-mark>
               <t-input v-model="form.version" clearable maxlength="50" placeholder="例如 V1" />
-            </t-form-item>
-            <t-form-item label="人员" required-mark>
-              <t-input-number v-model="form.staff" :min="0" :step="1" theme="normal" />
-            </t-form-item>
-            <t-form-item label="占地面积" required-mark>
-              <t-input-number v-model="form.area" :min="0" :step="1" theme="normal" />
             </t-form-item>
             <t-form-item label="状态" required-mark>
               <t-radio-group v-model="form.status">
@@ -397,7 +428,12 @@ function handleSubmit(): void {
 
         <section class="node-form-section">
           <div class="node-form-section-title">设备/投资</div>
-          <NodeEquipmentEditor v-model="form.equipment" :disabled="saving" />
+          <NodeEquipmentEditor v-model="form.equipment" :asset-options="assetOptions" :disabled="saving" />
+        </section>
+
+        <section class="node-form-section">
+          <div class="node-form-section-title">人员成本</div>
+          <NodeLaborEditor v-model="form.labor" :options="laborCostOptions" :disabled="saving" />
         </section>
 
         <section class="node-form-section">

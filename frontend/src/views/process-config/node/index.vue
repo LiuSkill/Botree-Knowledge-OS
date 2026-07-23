@@ -93,13 +93,13 @@ const materialOptions = ref<ProcessLibraryOptionItem[]>([]);
 const productOptions = ref<ProcessLibraryOptionItem[]>([]);
 const consumableOptions = ref<ProcessLibraryOptionItem[]>([]);
 const publicServiceOptions = ref<ProcessLibraryOptionItem[]>([]);
+const laborCostOptions = ref<ProcessLibraryOptionItem[]>([]);
+const assetOptions = ref<ProcessLibraryOptionItem[]>([]);
 
 const columns = [
   { colKey: 'code', title: '节点编码', width: 150, ellipsis: true },
   { colKey: 'name', title: '节点名称', minWidth: 170, ellipsis: true },
   { colKey: 'node_type', title: '节点类型', width: 150, ellipsis: true },
-  { colKey: 'staff', title: '人员', width: 100, align: 'right' as const },
-  { colKey: 'area', title: '占地面积', width: 120, align: 'right' as const },
   { colKey: 'status', title: '状态', width: 100, align: 'center' as const },
   { colKey: 'updated_at', title: '更新时间', width: 170 },
   { colKey: 'operation', title: '操作', width: 160, fixed: 'right' as const },
@@ -175,16 +175,20 @@ async function loadOptions(force = false): Promise<void> {
   if (optionsLoaded.value && !force) return;
   optionsLoading.value = true;
   try {
-    const [materials, products, consumables, publicServices] = await Promise.all([
+    const [materials, products, consumables, publicServices, laborCosts, assets] = await Promise.all([
       listProcessLibraryOptions('materials'),
       listProcessLibraryOptions('products'),
       listProcessLibraryOptions('consumables'),
       listProcessLibraryOptions('public-services'),
+      listProcessLibraryOptions('labor-costs'),
+      listProcessLibraryOptions('assets'),
     ]);
     materialOptions.value = materials;
     productOptions.value = products;
     consumableOptions.value = consumables;
     publicServiceOptions.value = publicServices;
+    laborCostOptions.value = laborCosts;
+    assetOptions.value = assets;
     optionsLoaded.value = true;
   } finally {
     optionsLoading.value = false;
@@ -389,12 +393,6 @@ function nodeTypeLabel(value: ProcessNodeType): string {
         <template #node_type="{ row }">
           {{ nodeTypeLabel(row.node_type) }}
         </template>
-        <template #staff="{ row }">
-          {{ row.staff || '-' }}
-        </template>
-        <template #area="{ row }">
-          {{ row.area || '-' }}
-        </template>
         <template #status="{ row }">
           <t-tag size="small" variant="light" :theme="statusTheme(row.status)">{{ statusLabel(row.status) }}</t-tag>
         </template>
@@ -440,6 +438,8 @@ function nodeTypeLabel(value: ProcessNodeType): string {
       :product-options="productOptions"
       :consumable-options="consumableOptions"
       :public-service-options="publicServiceOptions"
+      :labor-cost-options="laborCostOptions"
+      :asset-options="assetOptions"
       @submit="handleSubmit"
     />
 
@@ -451,6 +451,7 @@ function nodeTypeLabel(value: ProcessNodeType): string {
       :product-options="productOptions"
       :consumable-options="consumableOptions"
       :public-service-options="publicServiceOptions"
+      :asset-options="assetOptions"
     />
 
     <ProcessConfigImportDialog v-model:visible="importVisible" module-key="nodes" module-label="工艺节点" @success="handleImportSuccess" />

@@ -13,6 +13,7 @@ export interface ProcessLibraryOptionItem {
   unit: string;
   status: ProcessLibraryStatus;
   output_type?: string | null;
+  asset_class?: 'equipment' | 'infrastructure';
 }
 
 export interface ProcessNodeMaterialInputPayload {
@@ -48,11 +49,21 @@ export interface ProcessNodePublicServicePayload {
 }
 
 export interface ProcessNodeEquipmentPayload {
+  asset_id?: number | null;
+  asset_class?: 'equipment' | 'infrastructure';
   equipment_name: string;
   equipment_type?: string | null;
   quantity: NodeDecimalValue;
-  investment_amount: NodeDecimalValue;
-  currency: string;
+  installation_factor?: NodeDecimalValue;
+  sort_order: number;
+  remark?: string | null;
+}
+
+export interface ProcessNodeLaborPayload {
+  labor_cost_id: number | null;
+  headcount: NodeDecimalValue;
+  load_factor: NodeDecimalValue;
+  include_in_opex: boolean;
   sort_order: number;
   remark?: string | null;
 }
@@ -86,6 +97,7 @@ export interface ProcessNodePayload {
   consumables: ProcessNodeConsumablePayload[];
   public_services: ProcessNodePublicServicePayload[];
   equipment: ProcessNodeEquipmentPayload[];
+  labor: ProcessNodeLaborPayload[];
   outputs: ProcessNodeOutputPayload[];
 }
 
@@ -125,11 +137,19 @@ export interface ProcessNodePublicService extends ProcessNodeChildBase {
 }
 
 export interface ProcessNodeEquipment extends ProcessNodeChildBase {
+  asset_id?: number | null;
+  asset_class?: 'equipment' | 'infrastructure';
   equipment_name: string;
   equipment_type?: string | null;
   quantity: string;
-  investment_amount: string;
-  currency: string;
+  installation_factor?: string;
+}
+
+export interface ProcessNodeLabor extends Omit<ProcessNodeChildBase, 'unit'> {
+  labor_cost_id: number;
+  headcount: string;
+  load_factor: string;
+  include_in_opex: boolean;
 }
 
 export interface ProcessNodeOutput extends ProcessNodeChildBase {
@@ -168,6 +188,7 @@ export interface ProcessNodeDetail extends ProcessNodeItem {
   consumables: ProcessNodeConsumable[];
   public_services: ProcessNodePublicService[];
   equipment: ProcessNodeEquipment[];
+  labor: ProcessNodeLabor[];
   outputs: ProcessNodeOutput[];
 }
 

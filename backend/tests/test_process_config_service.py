@@ -190,8 +190,6 @@ def node_payload(
                 "equipment_name": "Reactor",
                 "equipment_type": "tank",
                 "quantity": Decimal("2"),
-                "investment_amount": Decimal("100000"),
-                "currency": "CNY",
                 "sort_order": 1,
                 "remark": "main equipment",
             },

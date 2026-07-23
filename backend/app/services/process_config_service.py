@@ -14,12 +14,15 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import AppException
 from app.models.process_config import (
     ProcessCalculationOutput,
+    ProcessAsset,
     ProcessConsumable,
+    ProcessLaborCost,
     ProcessMaterial,
     ProcessMaterialComposition,
     ProcessNode,
     ProcessNodeConsumable,
     ProcessNodeEquipment,
+    ProcessNodeLabor,
     ProcessNodeMaterialInput,
     ProcessNodeOutput,
     ProcessNodePublicService,
@@ -45,11 +48,13 @@ from app.schemas.process_config import (
     ProcessCalculationImportBatchOut,
     ProcessCalculationOutputOut,
     ProcessCalculationOutputReplacePayload,
+    ProcessAssetOutWithPrices,
     ProcessLibraryCreateWithPrices,
     ProcessLibraryOutWithPrices,
     ProcessLibraryRegionPricePayload,
     ProcessLibraryStatusUpdate,
     ProcessLibraryUpdateWithPrices,
+    ProcessLaborCostOutWithPrices,
     ProcessMaterialOutWithPrices,
     ProcessMaterialCompositionOut,
     ProcessMaterialCompositionReplacePayload,
@@ -58,6 +63,8 @@ from app.schemas.process_config import (
     ProcessNodeCreateWithChildren,
     ProcessNodeEquipmentOut,
     ProcessNodeEquipmentPayload,
+    ProcessNodeLaborOut,
+    ProcessNodeLaborPayload,
     ProcessNodeMaterialInputOut,
     ProcessNodeMaterialInputPayload,
     ProcessNodeOut,
@@ -88,7 +95,7 @@ from app.utils.pagination import paginate
 
 logger = logging.getLogger(__name__)
 
-ProcessLibraryKind = Literal["material", "product", "consumable", "public_service"]
+ProcessLibraryKind = Literal["material", "product", "consumable", "public_service", "labor", "asset"]
 
 VALID_PROCESS_STATUSES = {"enabled", "draft", "disabled"}
 VALID_PROCESS_NODE_TYPES = {"pretreatment", "hydrometallurgy", "pyrometallurgy", "post_treatment"}
@@ -122,6 +129,8 @@ LIBRARY_CONFIGS: dict[ProcessLibraryKind, ProcessLibraryConfig] = {
     "product": ProcessLibraryConfig("product", "product", "产品", ProcessProduct),
     "consumable": ProcessLibraryConfig("consumable", "consumable", "消耗品", ProcessConsumable),
     "public_service": ProcessLibraryConfig("public_service", "public_service", "公共服务", ProcessPublicService),
+    "labor": ProcessLibraryConfig("labor", "labor", "人员成本", ProcessLaborCost),
+    "asset": ProcessLibraryConfig("asset", "asset", "设备/基础设施资产", ProcessAsset),
 }
 
 
@@ -254,6 +263,7 @@ class ProcessConfigService:
                 "unit": item.unit,
                 "status": item.status,
                 "output_type": getattr(item, "output_type", None),
+                "asset_class": getattr(item, "asset_class", None),
             }
             for item in repo.list_options(type_code=type_code, output_type=output_type)
         ]
@@ -362,7 +372,7 @@ class ProcessConfigService:
         self._validate_node_payload(payload.status, payload)
 
         node_data = payload.model_dump(
-            exclude={"material_inputs", "consumables", "public_services", "equipment", "outputs"},
+            exclude={"material_inputs", "consumables", "public_services", "equipment", "labor", "outputs"},
         )
         node = ProcessNode(**node_data, created_by=operator.id, updated_by=operator.id, is_deleted=False)
         repo.add(node)
@@ -388,7 +398,7 @@ class ProcessConfigService:
 
         node_data = payload.model_dump(
             exclude_unset=True,
-            exclude={"material_inputs", "consumables", "public_services", "equipment", "outputs"},
+            exclude={"material_inputs", "consumables", "public_services", "equipment", "labor", "outputs"},
         )
         for field, value in node_data.items():
             setattr(node, field, value)
@@ -990,6 +1000,7 @@ class ProcessConfigService:
         repo.replace_children(ProcessNodeConsumable, node_id, [self._payload_dump(row) for row in payload.consumables])
         repo.replace_children(ProcessNodePublicService, node_id, [self._payload_dump(row) for row in payload.public_services])
         repo.replace_children(ProcessNodeEquipment, node_id, [self._payload_dump(row) for row in payload.equipment])
+        repo.replace_children(ProcessNodeLabor, node_id, [self._payload_dump(row) for row in payload.labor])
         repo.replace_children(ProcessNodeOutput, node_id, [self._payload_dump(row) for row in payload.outputs])
 
     def _route_nodes_to_payloads(self, route_nodes: list[ProcessRouteNode]) -> list[ProcessRouteNodePayload]:
@@ -1030,6 +1041,7 @@ class ProcessConfigService:
             | ProcessNodeConsumablePayload
             | ProcessNodePublicServicePayload
             | ProcessNodeEquipmentPayload
+            | ProcessNodeLaborPayload
             | ProcessNodeOutputPayload
         ),
     ) -> dict[str, Any]:
@@ -1162,6 +1174,7 @@ class ProcessConfigService:
             "consumables": self._serialize_child_list(repo, ProcessNodeConsumable, ProcessNodeConsumableOut, node.id),
             "public_services": self._serialize_child_list(repo, ProcessNodePublicService, ProcessNodePublicServiceOut, node.id),
             "equipment": self._serialize_child_list(repo, ProcessNodeEquipment, ProcessNodeEquipmentOut, node.id),
+            "labor": self._serialize_child_list(repo, ProcessNodeLabor, ProcessNodeLaborOut, node.id),
             "outputs": self._serialize_child_list(repo, ProcessNodeOutput, ProcessNodeOutputOut, node.id),
         }
         return ProcessNodeOutWithChildren.model_validate(data).model_dump(mode="json")
@@ -1211,4 +1224,19 @@ class ProcessConfigService:
                 }
             )
             return ProcessProductOutWithPrices.model_validate(data).model_dump(mode="json")
+        if repo.owner_type == "labor":
+            data.update(
+                {
+                    "salary_period": getattr(item, "salary_period", "year"),
+                    "welfare_factor": getattr(item, "welfare_factor", Decimal("1")),
+                }
+            )
+            return ProcessLaborCostOutWithPrices.model_validate(data).model_dump(mode="json")
+        if repo.owner_type == "asset":
+            data.update(
+                {
+                    "asset_class": getattr(item, "asset_class", "equipment"),
+                }
+            )
+            return ProcessAssetOutWithPrices.model_validate(data).model_dump(mode="json")
         return ProcessLibraryOutWithPrices.model_validate(data).model_dump(mode="json")

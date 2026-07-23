@@ -96,6 +96,8 @@ def test_process_config_menu_and_action_catalog_use_registered_permissions(db_se
     menus = SystemService(db_session).list_menus()
     actions = SystemService(db_session).list_action_permissions()
     process_menu = next(menu for menu in menus if menu["id"] == "process_config")
+    labor_group = next(group for group in actions if group["module"] == "process-config-labor")
+    asset_group = next(group for group in actions if group["module"] == "process-config-asset")
     route_group = next(group for group in actions if group["module"] == "process-config-route")
     calculator_group = next(group for group in actions if group["module"] == "process-config-calculator")
 
@@ -104,11 +106,30 @@ def test_process_config_menu_and_action_catalog_use_registered_permissions(db_se
         ("process_config:product", "/process-config/products"),
         ("process_config:consumable", "/process-config/consumables"),
         ("process_config:public_service", "/process-config/public-services"),
+        ("process_config:labor", "/process-config/labor-costs"),
+        ("process_config:asset_equipment", "/process-config/equipment-assets"),
+        ("process_config:asset_infrastructure", "/process-config/infrastructure-assets"),
         ("process_config:node", "/process-config/nodes"),
         ("process_config:route", "/process-config/routes"),
         ("process_config:calculator", "/process-config/calculator"),
     ]
     assert all(isinstance(child["permission_id"], int) for child in process_menu["children"])
+    assert labor_group["menu_ids"] == ["process_config:labor"]
+    assert {action["code"] for action in labor_group["actions"]} == {
+        "process_config:labor:view",
+        "process_config:labor:create",
+        "process_config:labor:update",
+        "process_config:labor:delete",
+    }
+    assert all(isinstance(action["permission_id"], int) for action in labor_group["actions"])
+    assert asset_group["menu_ids"] == ["process_config:asset_equipment"]
+    assert {action["code"] for action in asset_group["actions"]} == {
+        "process_config:asset:view",
+        "process_config:asset:create",
+        "process_config:asset:update",
+        "process_config:asset:delete",
+    }
+    assert all(isinstance(action["permission_id"], int) for action in asset_group["actions"])
     assert route_group["menu_ids"] == ["process_config:route"]
     assert {action["code"] for action in route_group["actions"]} == {
         "process_config:route:view",

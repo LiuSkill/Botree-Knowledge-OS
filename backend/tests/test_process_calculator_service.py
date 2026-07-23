@@ -15,11 +15,14 @@ sys.path.insert(0, str(BASE_DIR))
 from app.models import Base  # noqa: E402
 from app.models.process_config import (  # noqa: E402
     ProcessCalculationOutput,
+    ProcessAsset,
     ProcessConsumable,
+    ProcessLaborCost,
     ProcessMaterial,
     ProcessNode,
     ProcessNodeConsumable,
     ProcessNodeEquipment,
+    ProcessNodeLabor,
     ProcessNodeOutput,
     ProcessNodePublicService,
     ProcessProduct,
@@ -59,7 +62,7 @@ def test_multi_product_calculation_deduplicates_shared_nodes() -> None:
         )
         event.remove(engine, "before_cursor_execute", count_query)
 
-        assert query_count <= 16
+        assert query_count <= 17
         assert len(result["matched_routes"]) == 1
         assert len(result["recommended_route"]["routes"]) == 2
         assert result["recommended_route"]["node_codes"] == ["A1"]
@@ -161,6 +164,131 @@ def test_calculation_parameter_override_is_returned_and_applied() -> None:
     engine.dispose()
 
 
+def test_labor_cost_binding_is_counted_once_in_opex() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    session_factory = sessionmaker(bind=engine, future=True)
+    with session_factory() as db:
+        seeded = _seed_calculation_data(db)
+        node = db.scalar(select(ProcessNode).where(ProcessNode.code == "A1"))
+        assert node is not None
+        labor_cost = ProcessLaborCost(
+            code="L1",
+            name="生产操作工",
+            type="production",
+            unit="person-year",
+            salary_period="year",
+            welfare_factor=Decimal("1.2"),
+            status="enabled",
+        )
+        db.add(labor_cost)
+        db.flush()
+        db.add(
+            ProcessNodeLabor(
+                node_id=node.id,
+                labor_cost_id=labor_cost.id,
+                headcount=Decimal("2"),
+                load_factor=Decimal("1"),
+                include_in_opex=True,
+            )
+        )
+        db.add(
+            ProcessRegionPrice(
+                owner_type="labor",
+                owner_id=labor_cost.id,
+                region_code="asia",
+                region_name="亚洲",
+                currency="CNY",
+                unit_price=Decimal("100000"),
+                unit="person-year",
+                status="enabled",
+            )
+        )
+        db.commit()
+
+        result = ProcessCalculatorService(db).calculate(
+            ProcessCalculatorRequest(
+                materials=[{"material_id": seeded["material_id"], "amount": "10", "unit": "t"}],
+                target_products=[seeded["product_ids"][0]],
+                region_code="asia",
+                currency="CNY",
+                advanced_params={},
+            )
+        )
+
+        assert result["labor_costs"][0]["amount"] == "2.000000"
+        assert result["labor_costs"][0]["unit_price"] == "120000.00"
+        assert result["labor_costs"][0]["cost"] == "240000.00"
+        assert result["recommended_route"]["metrics"]["labor_cost"] == "240000.00"
+        assert result["opex"] == "241380.00"
+    engine.dispose()
+
+
+def test_asset_and_labor_parameter_overrides_are_applied() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    session_factory = sessionmaker(bind=engine, future=True)
+    with session_factory() as db:
+        seeded = _seed_calculation_data(db)
+        equipment = db.scalar(select(ProcessNodeEquipment))
+        node = db.scalar(select(ProcessNode).where(ProcessNode.code == "A1"))
+        assert equipment is not None and node is not None
+        labor_cost = ProcessLaborCost(
+            code="L-OVERRIDE",
+            name="操作工",
+            type="production",
+            unit="person-year",
+            salary_period="year",
+            welfare_factor=Decimal("1"),
+            status="enabled",
+        )
+        db.add(labor_cost)
+        db.flush()
+        relation = ProcessNodeLabor(
+            node_id=node.id,
+            labor_cost_id=labor_cost.id,
+            headcount=Decimal("1"),
+            load_factor=Decimal("1"),
+            include_in_opex=True,
+        )
+        db.add(relation)
+        db.add(
+            ProcessRegionPrice(
+                owner_type="labor",
+                owner_id=labor_cost.id,
+                region_code="asia",
+                region_name="亚洲",
+                currency="CNY",
+                unit_price=Decimal("100"),
+                unit="person-year",
+                status="enabled",
+            )
+        )
+        db.commit()
+
+        result = ProcessCalculatorService(db).calculate(
+            ProcessCalculatorRequest(
+                materials=[{"material_id": seeded["material_id"], "amount": "10", "unit": "t"}],
+                target_products=[seeded["product_ids"][0]],
+                region_code="asia",
+                currency="CNY",
+                parameter_overrides={
+                    f"equipment:{equipment.id}:quantity": "2",
+                    f"equipment:{equipment.id}:installation_factor": "1.5",
+                    f"labor:{relation.id}:headcount": "3",
+                    f"labor:{relation.id}:load_factor": "0.5",
+                    f"labor:{relation.id}:unit_cost": "200",
+                },
+            )
+        )
+
+        assert result["capex"] == "300.00"
+        assert result["labor_costs"][0]["amount"] == "1.500000"
+        assert result["labor_costs"][0]["cost"] == "300.00"
+        assert result["opex"] == "1680.00"
+    engine.dispose()
+
+
 def test_calculation_returns_only_top_three_ranked_schemes() -> None:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
@@ -239,6 +367,16 @@ def _seed_calculation_data(db: Session, product_formula_type: str = "fixed") -> 
     node = ProcessNode(code="A1", name="浸出", node_type="hydrometallurgy", status="enabled", version="V1")
     db.add(node)
     db.flush()
+    asset = ProcessAsset(
+        code="EQ001",
+        name="浸出槽",
+        type="reactor_tank",
+        asset_class="equipment",
+        unit="set",
+        status="enabled",
+    )
+    db.add(asset)
+    db.flush()
     db.add_all(
         [
             ProcessNodeConsumable(
@@ -259,10 +397,9 @@ def _seed_calculation_data(db: Session, product_formula_type: str = "fixed") -> 
             ),
             ProcessNodeEquipment(
                 node_id=node.id,
+                asset_id=asset.id,
                 equipment_name="浸出槽",
                 quantity=Decimal("1"),
-                investment_amount=Decimal("100"),
-                currency="CNY",
             ),
             ProcessNodeOutput(
                 node_id=node.id,
@@ -315,6 +452,7 @@ def _seed_calculation_data(db: Session, product_formula_type: str = "fixed") -> 
         ("product", waste.id, Decimal("80"), "t"),
         ("consumable", reagent.id, Decimal("10"), "kg"),
         ("public_service", electricity.id, Decimal("2"), "kWh"),
+        ("asset", asset.id, Decimal("100"), "set"),
     ]
     db.add_all(
         [

@@ -90,6 +90,7 @@ export interface CalculatorMetrics {
   material_cost: DecimalValue;
   consumable_cost: DecimalValue;
   public_service_cost: DecimalValue;
+  labor_cost: DecimalValue;
   waste_treatment_cost: DecimalValue;
   other_opex: DecimalValue;
   opex: DecimalValue;
@@ -132,6 +133,14 @@ export interface CalculatorCashFlow {
   discounted_cash_flow: DecimalValue;
 }
 
+export interface CalculatorParameter {
+  key: string;
+  category: string;
+  name: string;
+  value: DecimalValue;
+  unit: string;
+}
+
 export interface CalculatorMaterialBalance {
   input_mass_t: DecimalValue;
   accounted_output_mass_t: DecimalValue;
@@ -147,6 +156,7 @@ export interface ProcessCalculatorResult {
   product_outputs: CalculatorAmountItem[];
   consumable_costs: CalculatorAmountItem[];
   public_service_costs: CalculatorAmountItem[];
+  labor_costs: CalculatorAmountItem[];
   waste_outputs: CalculatorAmountItem[];
   capex: DecimalValue;
   opex: DecimalValue;
@@ -157,5 +167,6 @@ export interface ProcessCalculatorResult {
   payback_period?: DecimalValue | null;
   material_balance?: CalculatorMaterialBalance | null;
   cash_flows: CalculatorCashFlow[];
+  calculation_parameters: CalculatorParameter[];
   warnings: string[];
 }

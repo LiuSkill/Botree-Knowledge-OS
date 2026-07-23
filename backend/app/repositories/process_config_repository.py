@@ -11,12 +11,15 @@ from sqlalchemy.orm import Session
 from app.models.process_config import (
     ProcessCalculationImportBatch,
     ProcessCalculationOutput,
+    ProcessAsset,
     ProcessConsumable,
+    ProcessLaborCost,
     ProcessMaterial,
     ProcessMaterialComposition,
     ProcessNode,
     ProcessNodeConsumable,
     ProcessNodeEquipment,
+    ProcessNodeLabor,
     ProcessNodeMaterialInput,
     ProcessNodeOutput,
     ProcessNodePublicService,
@@ -28,12 +31,20 @@ from app.models.process_config import (
     ProcessRouteVersion,
 )
 
-ProcessLibraryModel: TypeAlias = type[ProcessMaterial] | type[ProcessProduct] | type[ProcessConsumable] | type[ProcessPublicService]
+ProcessLibraryModel: TypeAlias = (
+    type[ProcessMaterial]
+    | type[ProcessProduct]
+    | type[ProcessConsumable]
+    | type[ProcessPublicService]
+    | type[ProcessLaborCost]
+    | type[ProcessAsset]
+)
 ProcessNodeChildModel: TypeAlias = (
     type[ProcessNodeMaterialInput]
     | type[ProcessNodeConsumable]
     | type[ProcessNodePublicService]
     | type[ProcessNodeEquipment]
+    | type[ProcessNodeLabor]
     | type[ProcessNodeOutput]
 )
 
@@ -168,6 +179,10 @@ class ProcessLibraryRepository:
             return self._count_active(ProcessNodeConsumable, "consumable_id", item_id)
         if self.owner_type == "public_service":
             return self._count_active(ProcessNodePublicService, "public_service_id", item_id)
+        if self.owner_type == "labor":
+            return self._count_active(ProcessNodeLabor, "labor_cost_id", item_id)
+        if self.owner_type == "asset":
+            return self._count_active(ProcessNodeEquipment, "asset_id", item_id)
         return 0
 
     def _count_active(self, model: type[Any], column_name: str, item_id: int) -> int:
@@ -495,6 +510,7 @@ class ProcessNodeRepository:
         ProcessNodeConsumable,
         ProcessNodePublicService,
         ProcessNodeEquipment,
+        ProcessNodeLabor,
         ProcessNodeOutput,
     )
 

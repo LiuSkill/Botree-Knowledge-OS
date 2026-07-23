@@ -15,8 +15,12 @@ from app.core.response import success
 from app.models.user import User
 from app.schemas.process_config import (
     ProcessCalculationOutputReplacePayload,
+    ProcessAssetCreateWithPrices,
+    ProcessAssetUpdateWithPrices,
     ProcessConsumableCreateWithPrices,
     ProcessConsumableUpdateWithPrices,
+    ProcessLaborCostCreateWithPrices,
+    ProcessLaborCostUpdateWithPrices,
     ProcessLibraryStatusUpdate,
     ProcessMaterialCreateWithPrices,
     ProcessMaterialCompositionReplacePayload,
@@ -484,6 +488,133 @@ def delete_public_service(
     return success({"deleted": True})
 
 
+@router.get("/labor-costs", summary="人员成本库列表")
+def list_labor_costs(
+    keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_permission("process_config:labor:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).list_library("labor", keyword=keyword, type_code=type_code, status=status, page=page, page_size=page_size))
+
+
+@router.post("/labor-costs", summary="新增人员成本")
+def create_labor_cost(
+    payload: ProcessLaborCostCreateWithPrices,
+    current_user: User = Depends(require_permission("process_config:labor:create")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).create_library("labor", payload, current_user))
+
+
+@router.get("/labor-costs/{labor_cost_id}", summary="人员成本详情")
+def get_labor_cost(
+    labor_cost_id: int,
+    _: User = Depends(require_permission("process_config:labor:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).get_library("labor", labor_cost_id))
+
+
+@router.put("/labor-costs/{labor_cost_id}", summary="编辑人员成本")
+def update_labor_cost(
+    labor_cost_id: int,
+    payload: ProcessLaborCostUpdateWithPrices,
+    current_user: User = Depends(require_permission("process_config:labor:update")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).update_library("labor", labor_cost_id, payload, current_user))
+
+
+@router.patch("/labor-costs/{labor_cost_id}/status", summary="启用或停用人员成本")
+def update_labor_cost_status(
+    labor_cost_id: int,
+    payload: ProcessLibraryStatusUpdate,
+    current_user: User = Depends(require_permission("process_config:labor:update")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).update_status("labor", labor_cost_id, payload, current_user))
+
+
+@router.delete("/labor-costs/{labor_cost_id}", summary="删除人员成本")
+def delete_labor_cost(
+    labor_cost_id: int,
+    current_user: User = Depends(require_permission("process_config:labor:delete")),
+    db: Session = Depends(get_db),
+) -> dict:
+    ProcessConfigService(db).delete_library("labor", labor_cost_id, current_user)
+    return success({"deleted": True})
+
+
+@router.get("/assets", summary="设备/基础设施资产库列表")
+def list_assets(
+    keyword: str | None = None,
+    type_code: str | None = Query(default=None, alias="type"),
+    asset_class: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: User = Depends(require_permission("process_config:asset:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    result = ProcessConfigService(db).list_library("asset", keyword=keyword, type_code=type_code, status=status, page=page, page_size=page_size)
+    if asset_class:
+        filtered = [item for item in result["items"] if item.get("asset_class") == asset_class]
+        result = {**result, "items": filtered, "total": len(filtered)}
+    return success(result)
+
+
+@router.post("/assets", summary="新增设备/基础设施资产")
+def create_asset(
+    payload: ProcessAssetCreateWithPrices,
+    current_user: User = Depends(require_permission("process_config:asset:create")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).create_library("asset", payload, current_user))
+
+
+@router.get("/assets/{asset_id}", summary="设备/基础设施资产详情")
+def get_asset(
+    asset_id: int,
+    _: User = Depends(require_permission("process_config:asset:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).get_library("asset", asset_id))
+
+
+@router.put("/assets/{asset_id}", summary="编辑设备/基础设施资产")
+def update_asset(
+    asset_id: int,
+    payload: ProcessAssetUpdateWithPrices,
+    current_user: User = Depends(require_permission("process_config:asset:update")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).update_library("asset", asset_id, payload, current_user))
+
+
+@router.patch("/assets/{asset_id}/status", summary="启用或停用设备/基础设施资产")
+def update_asset_status(
+    asset_id: int,
+    payload: ProcessLibraryStatusUpdate,
+    current_user: User = Depends(require_permission("process_config:asset:update")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).update_status("asset", asset_id, payload, current_user))
+
+
+@router.delete("/assets/{asset_id}", summary="删除设备/基础设施资产")
+def delete_asset(
+    asset_id: int,
+    current_user: User = Depends(require_permission("process_config:asset:delete")),
+    db: Session = Depends(get_db),
+) -> dict:
+    ProcessConfigService(db).delete_library("asset", asset_id, current_user)
+    return success({"deleted": True})
+
+
 @router.get("/nodes", summary="工艺节点库列表")
 def list_nodes(
     keyword: str | None = None,
@@ -798,3 +929,21 @@ def public_service_options(
     db: Session = Depends(get_db),
 ) -> dict:
     return success(ProcessConfigService(db).list_options("public_service", type_code=type_code))
+
+
+@router.get("/options/labor-costs", summary="人员成本下拉选项")
+def labor_cost_options(
+    type_code: str | None = Query(default=None, alias="type"),
+    _: User = Depends(require_permission("process_config:labor:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).list_options("labor", type_code=type_code))
+
+
+@router.get("/options/assets", summary="设备/基础设施资产下拉选项")
+def asset_options(
+    type_code: str | None = Query(default=None, alias="type"),
+    _: User = Depends(require_permission("process_config:asset:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    return success(ProcessConfigService(db).list_options("asset", type_code=type_code))

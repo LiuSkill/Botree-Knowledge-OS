@@ -10,6 +10,9 @@ export const MENU_PERMISSIONS = {
   PROCESS_CONFIG_PRODUCT: 'process_config:product',
   PROCESS_CONFIG_CONSUMABLE: 'process_config:consumable',
   PROCESS_CONFIG_PUBLIC_SERVICE: 'process_config:public_service',
+  PROCESS_CONFIG_LABOR: 'process_config:labor',
+  PROCESS_CONFIG_ASSET_EQUIPMENT: 'process_config:asset_equipment',
+  PROCESS_CONFIG_ASSET_INFRASTRUCTURE: 'process_config:asset_infrastructure',
   PROCESS_CONFIG_NODE: 'process_config:node',
   PROCESS_CONFIG_ROUTE: 'process_config:route',
   PROCESS_CONFIG_CALCULATOR: 'process_config:calculator',
@@ -90,6 +93,16 @@ export const ACTION_PERMISSIONS = {
   PROCESS_CONFIG_PUBLIC_SERVICE_DELETE: 'process_config:public_service:delete',
   PROCESS_CONFIG_PUBLIC_SERVICE_IMPORT: 'process_config:public_service:import',
   PROCESS_CONFIG_PUBLIC_SERVICE_EXPORT: 'process_config:public_service:export',
+
+  PROCESS_CONFIG_LABOR_VIEW: 'process_config:labor:view',
+  PROCESS_CONFIG_LABOR_CREATE: 'process_config:labor:create',
+  PROCESS_CONFIG_LABOR_UPDATE: 'process_config:labor:update',
+  PROCESS_CONFIG_LABOR_DELETE: 'process_config:labor:delete',
+
+  PROCESS_CONFIG_ASSET_VIEW: 'process_config:asset:view',
+  PROCESS_CONFIG_ASSET_CREATE: 'process_config:asset:create',
+  PROCESS_CONFIG_ASSET_UPDATE: 'process_config:asset:update',
+  PROCESS_CONFIG_ASSET_DELETE: 'process_config:asset:delete',
 
   PROCESS_CONFIG_NODE_VIEW: 'process_config:node:view',
   PROCESS_CONFIG_NODE_CREATE: 'process_config:node:create',

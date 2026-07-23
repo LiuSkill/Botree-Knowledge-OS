@@ -160,6 +160,60 @@ class ProcessPublicService(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
 
 
+class ProcessLaborCost(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
+    """人员成本库主表，维护岗位薪酬标准，节点只引用并填写用工数量。"""
+
+    __tablename__ = "process_labor_costs"
+    __table_args__ = (
+        UniqueConstraint("code", name="uk_process_labor_costs_code"),
+        Index("idx_process_labor_costs_type", "type"),
+        Index("idx_process_labor_costs_status", "status"),
+        Index("idx_process_labor_costs_sort_order", "sort_order"),
+        Index("idx_process_labor_costs_is_deleted", "is_deleted"),
+        Index("idx_process_labor_costs_deleted_at", "deleted_at"),
+        {"comment": "工艺配置人员成本库"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    code: Mapped[str] = mapped_column(String(100), nullable=False, comment="岗位编码")
+    name: Mapped[str] = mapped_column(String(150), nullable=False, comment="岗位名称")
+    type: Mapped[str] = mapped_column(String(100), nullable=False, comment="岗位类型")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="描述信息")
+    unit: Mapped[str] = mapped_column(String(50), default="person", nullable=False, comment="单位")
+    salary_period: Mapped[str] = mapped_column(String(20), default="year", nullable=False, comment="薪酬周期：month/year")
+    welfare_factor: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=1, nullable=False, comment="福利社保系数")
+    status: Mapped[str] = mapped_column(String(30), default="enabled", nullable=False, comment="状态：enabled/draft/disabled")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class ProcessAsset(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
+    """设备/基础设施资产库，节点只引用资产并维护数量，投资标准统一在资产库配置。"""
+
+    __tablename__ = "process_assets"
+    __table_args__ = (
+        UniqueConstraint("code", name="uk_process_assets_code"),
+        Index("idx_process_assets_asset_class", "asset_class"),
+        Index("idx_process_assets_type", "type"),
+        Index("idx_process_assets_status", "status"),
+        Index("idx_process_assets_sort_order", "sort_order"),
+        Index("idx_process_assets_is_deleted", "is_deleted"),
+        Index("idx_process_assets_deleted_at", "deleted_at"),
+        {"comment": "工艺配置设备/基础设施资产库"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    code: Mapped[str] = mapped_column(String(100), nullable=False, comment="资产编码")
+    name: Mapped[str] = mapped_column(String(150), nullable=False, comment="资产名称")
+    type: Mapped[str] = mapped_column(String(100), nullable=False, comment="资产类型")
+    asset_class: Mapped[str] = mapped_column(String(30), default="equipment", nullable=False, comment="资产类别：equipment/infrastructure")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="描述信息")
+    unit: Mapped[str] = mapped_column(String(50), default="set", nullable=False, comment="单位")
+    status: Mapped[str] = mapped_column(String(30), default="enabled", nullable=False, comment="状态：enabled/draft/disabled")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
 class ProcessRegionPrice(TimestampMixin, OperatorMixin, SoftDeleteMixin, Base):
     """区域单价表，按 owner_type + owner_id 关联四类基础库。"""
 
@@ -293,17 +347,40 @@ class ProcessNodeEquipment(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "process_node_equipment"
     __table_args__ = (
         Index("idx_process_node_equipment_node_id", "node_id"),
+        Index("idx_process_node_equipment_asset_id", "asset_id"),
         Index("idx_process_node_equipment_is_deleted", "is_deleted"),
         {"comment": "工艺节点设备投资"},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
     node_id: Mapped[int] = mapped_column(ForeignKey("process_nodes.id"), nullable=False, comment="工艺节点ID")
+    asset_id: Mapped[int | None] = mapped_column(ForeignKey("process_assets.id"), nullable=True, comment="资产库ID，兼容历史手填设备时为空")
+    asset_class: Mapped[str] = mapped_column(String(30), default="equipment", nullable=False, comment="资产类别：equipment/infrastructure")
     equipment_name: Mapped[str] = mapped_column(String(150), nullable=False, comment="设备名称")
     equipment_type: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="设备类型")
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=0, nullable=False, comment="设备数量")
-    investment_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0, nullable=False, comment="投资金额")
-    currency: Mapped[str] = mapped_column(String(10), default="CNY", nullable=False, comment="币种")
+    installation_factor: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=1, nullable=False, comment="安装/配套系数")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
+
+
+class ProcessNodeLabor(TimestampMixin, SoftDeleteMixin, Base):
+    """工艺节点人员配置，引用人员成本库并维护该节点用工数量。"""
+
+    __tablename__ = "process_node_labor"
+    __table_args__ = (
+        Index("idx_process_node_labor_node_id", "node_id"),
+        Index("idx_process_node_labor_labor_cost_id", "labor_cost_id"),
+        Index("idx_process_node_labor_is_deleted", "is_deleted"),
+        {"comment": "工艺节点人员成本配置"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    node_id: Mapped[int] = mapped_column(ForeignKey("process_nodes.id"), nullable=False, comment="工艺节点ID")
+    labor_cost_id: Mapped[int] = mapped_column(ForeignKey("process_labor_costs.id"), nullable=False, comment="人员成本库ID")
+    headcount: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=0, nullable=False, comment="人数")
+    load_factor: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=1, nullable=False, comment="负荷系数")
+    include_in_opex: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="是否计入OPEX")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值")
     remark: Mapped[str | None] = mapped_column(Text, nullable=True, comment="备注")
 

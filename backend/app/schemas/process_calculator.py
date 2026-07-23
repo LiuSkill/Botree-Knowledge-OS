@@ -150,6 +150,7 @@ class CalculatorMetrics(BaseModel):
     material_cost: Decimal
     consumable_cost: Decimal
     public_service_cost: Decimal
+    labor_cost: Decimal = Decimal("0")
     waste_treatment_cost: Decimal
     other_opex: Decimal
     opex: Decimal
@@ -187,6 +188,7 @@ class ProcessCalculatorResultOut(BaseModel):
     product_outputs: list[CalculatorAmountItem]
     consumable_costs: list[CalculatorAmountItem]
     public_service_costs: list[CalculatorAmountItem]
+    labor_costs: list[CalculatorAmountItem] = Field(default_factory=list)
     waste_outputs: list[CalculatorAmountItem]
     capex: Decimal
     opex: Decimal

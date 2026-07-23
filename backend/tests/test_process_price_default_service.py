@@ -13,7 +13,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
 from app.models import Base  # noqa: E402
-from app.models.process_config import ProcessConsumable, ProcessRegionPrice  # noqa: E402
+from app.models.process_config import ProcessAsset, ProcessConsumable, ProcessLaborCost, ProcessRegionPrice  # noqa: E402
 from app.services.process_price_default_service import ProcessPriceDefaultService  # noqa: E402
 
 
@@ -52,11 +52,59 @@ def test_sync_zero_prices_fills_presets_without_overwriting_manual_price() -> No
 
         assert updated_count >= 1
         assert second_sync_count == 0
-        # 两次批量同步各 5 次读取，首次同步另有 1 次批量更新写入。
-        assert query_count <= 11
+        # 两次同步分别批量读取 6 类基础库和价格表，首次同步另写入两个缺失区域并更新欧洲价格。
+        assert query_count <= 19
         assert prices[sulfuric_acid.id].unit_price == Decimal("165")
         assert prices[sulfuric_acid.id].unit == "t"
         assert prices[sodium_hydroxide.id].unit_price == Decimal("999")
+    engine.dispose()
+
+
+def test_sync_zero_prices_supports_labor_and_asset_defaults() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    session_factory = sessionmaker(bind=engine, future=True)
+    with session_factory() as db:
+        labor = ProcessLaborCost(code="L01", name="生产操作工", type="production", unit="person-year", status="enabled")
+        asset = ProcessAsset(
+            code="EQ001",
+            name="酸浸反应釜",
+            type="reactor",
+            asset_class="equipment",
+            unit="set",
+            status="enabled",
+        )
+        db.add_all([labor, asset])
+        db.flush()
+
+        ProcessPriceDefaultService(db).sync_zero_prices()
+        prices = {
+            item.owner_type: item
+            for item in db.scalars(select(ProcessRegionPrice).where(ProcessRegionPrice.region_code == "europe")).all()
+        }
+
+        assert prices["labor"].unit_price == Decimal("38000")
+        assert prices["labor"].unit == "person-year"
+        assert prices["asset"].unit_price == Decimal("280000")
+        assert prices["asset"].unit == "set"
+        asia_labor = db.scalar(
+            select(ProcessRegionPrice).where(
+                ProcessRegionPrice.owner_type == "labor",
+                ProcessRegionPrice.owner_id == labor.id,
+                ProcessRegionPrice.region_code == "asia",
+            )
+        )
+        americas_asset = db.scalar(
+            select(ProcessRegionPrice).where(
+                ProcessRegionPrice.owner_type == "asset",
+                ProcessRegionPrice.owner_id == asset.id,
+                ProcessRegionPrice.region_code == "americas",
+            )
+        )
+        assert asia_labor is not None and asia_labor.currency == "CNY"
+        assert asia_labor.unit_price == Decimal("315400")
+        assert americas_asset is not None and americas_asset.currency == "USD"
+        assert americas_asset.unit_price == Decimal("324800")
     engine.dispose()
 
 

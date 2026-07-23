@@ -3,7 +3,7 @@ import { computed } from 'vue';
 
 import { formatDateTime } from '@/utils/format';
 import { PROCESS_NODE_TYPE_OPTIONS, type ProcessLibraryOptionItem, type ProcessNodeDetail, type ProcessNodeType } from '@/views/process-config/node/types';
-import type { ProcessLibraryStatus } from '@/views/process-config/types';
+import { processUnitLabel, type ProcessLibraryStatus } from '@/views/process-config/types';
 
 type TagTheme = 'default' | 'success' | 'warning';
 
@@ -42,10 +42,6 @@ const publicServiceColumns = [
 
 const equipmentColumns = [
   { colKey: 'equipment_name', title: '设备名称', minWidth: 160 },
-  { colKey: 'equipment_type', title: '设备类型', width: 120 },
-  { colKey: 'quantity', title: '数量', width: 90 },
-  { colKey: 'investment_amount', title: '投资额', width: 120 },
-  { colKey: 'currency', title: '币种', width: 80 },
 ];
 
 const outputColumns = [
@@ -117,6 +113,7 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
           <div class="route-node-detail-panel__table">
             <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="materialColumns" :data="node.material_inputs" empty="暂无输入原料">
               <template #material="{ row }">{{ optionLabel(materialOptions, row.material_id) }}</template>
+              <template #unit="{ row }">{{ processUnitLabel(row.unit) }}</template>
             </t-table>
           </div>
         </section>
@@ -126,6 +123,7 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
           <div class="route-node-detail-panel__table">
             <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="consumableColumns" :data="node.consumables" empty="暂无消耗品">
               <template #consumable="{ row }">{{ optionLabel(consumableOptions, row.consumable_id) }}</template>
+              <template #unit="{ row }">{{ processUnitLabel(row.unit) }}</template>
             </t-table>
           </div>
         </section>
@@ -143,6 +141,7 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
               empty="暂无公共服务"
             >
               <template #public_service="{ row }">{{ optionLabel(publicServiceOptions, row.public_service_id) }}</template>
+              <template #unit="{ row }">{{ processUnitLabel(row.unit) }}</template>
             </t-table>
           </div>
         </section>
@@ -152,20 +151,6 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
           <div class="route-node-detail-panel__table">
             <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="equipmentColumns" :data="node.equipment" empty="暂无设备/投资">
               <template #equipment_type="{ row }">{{ row.equipment_type || '-' }}</template>
-              <template #investment_amount="{ row }">{{ row.currency }} {{ row.investment_amount }}</template>
-            </t-table>
-          </div>
-        </section>
-
-        <section class="route-node-detail-panel__section">
-          <div class="route-node-detail-panel__section-title">输出产品</div>
-          <div class="route-node-detail-panel__table">
-            <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="outputColumns" :data="node.outputs" empty="暂无输出产品">
-              <template #product="{ row }">{{ optionLabel(productOptions, row.product_id) }}</template>
-              <template #is_main_product="{ row }">
-                <t-tag v-if="row.is_main_product" size="small" theme="success" variant="light">主产品</t-tag>
-                <span v-else>-</span>
-              </template>
             </t-table>
           </div>
         </section>

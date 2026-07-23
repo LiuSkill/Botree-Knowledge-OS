@@ -9,12 +9,15 @@ from sqlalchemy.orm import Session
 
 from app.models.process_config import (
     ProcessCalculationOutput,
+    ProcessAsset,
     ProcessConsumable,
+    ProcessLaborCost,
     ProcessMaterial,
     ProcessMaterialComposition,
     ProcessNode,
     ProcessNodeConsumable,
     ProcessNodeEquipment,
+    ProcessNodeLabor,
     ProcessNodeOutput,
     ProcessNodePublicService,
     ProcessProduct,
@@ -93,11 +96,14 @@ class ProcessCalculatorRepository:
         consumptions = self._list_node_children(ProcessNodeConsumable, node_ids)
         public_services = self._list_node_children(ProcessNodePublicService, node_ids)
         equipment = self._list_node_children(ProcessNodeEquipment, node_ids)
+        labor_relations = self._list_node_children(ProcessNodeLabor, node_ids)
         node_outputs = self._list_node_children(ProcessNodeOutput, node_ids)
         calculation_outputs = self._list_route_outputs(route_ids)
 
         consumable_ids = sorted({item.consumable_id for item in consumptions})
         public_service_ids = sorted({item.public_service_id for item in public_services})
+        labor_cost_ids = sorted({item.labor_cost_id for item in labor_relations})
+        asset_ids = sorted({item.asset_id for item in equipment if item.asset_id is not None})
         output_product_ids = {
             item.product_id for item in node_outputs if item.product_id is not None
         } | {item.product_id for item in calculation_outputs if item.product_id is not None}
@@ -105,6 +111,8 @@ class ProcessCalculatorRepository:
         products = self._list_active(ProcessProduct, all_product_ids)
         consumables = self._list_active(ProcessConsumable, consumable_ids)
         service_libraries = self._list_active(ProcessPublicService, public_service_ids)
+        labor_costs = self._list_active(ProcessLaborCost, labor_cost_ids)
+        assets = self._list_active(ProcessAsset, asset_ids)
         compositions = list(
             self.db.scalars(
                 select(ProcessMaterialComposition).where(
@@ -119,6 +127,8 @@ class ProcessCalculatorRepository:
             set(all_product_ids),
             set(consumable_ids),
             set(public_service_ids),
+            set(labor_cost_ids),
+            set(asset_ids),
         )
         return {
             "materials": materials,
@@ -129,11 +139,14 @@ class ProcessCalculatorRepository:
             "node_consumables": consumptions,
             "node_public_services": public_services,
             "node_equipment": equipment,
+            "node_labor": labor_relations,
             "node_outputs": node_outputs,
             "calculation_outputs": calculation_outputs,
             "products": products,
             "consumables": consumables,
             "public_services": service_libraries,
+            "labor_costs": labor_costs,
+            "assets": assets,
             "compositions": compositions,
             "prices": prices,
         }
@@ -186,6 +199,8 @@ class ProcessCalculatorRepository:
         product_ids: set[int],
         consumable_ids: set[int],
         public_service_ids: set[int],
+        labor_cost_ids: set[int],
+        asset_ids: set[int],
     ) -> list[ProcessRegionPrice]:
         owner_filters = []
         for owner_type, owner_ids in (
@@ -193,6 +208,8 @@ class ProcessCalculatorRepository:
             ("product", product_ids),
             ("consumable", consumable_ids),
             ("public_service", public_service_ids),
+            ("labor", labor_cost_ids),
+            ("asset", asset_ids),
         ):
             if owner_ids:
                 owner_filters.append(

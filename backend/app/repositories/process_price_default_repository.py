@@ -8,7 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.process_config import (
+    ProcessAsset,
     ProcessConsumable,
+    ProcessLaborCost,
     ProcessMaterial,
     ProcessProduct,
     ProcessPublicService,
@@ -24,6 +26,8 @@ class ProcessPriceDefaultRepository:
         "product": ProcessProduct,
         "consumable": ProcessConsumable,
         "public_service": ProcessPublicService,
+        "labor": ProcessLaborCost,
+        "asset": ProcessAsset,
     }
 
     def __init__(self, db: Session) -> None:
@@ -44,4 +48,3 @@ class ProcessPriceDefaultRepository:
 
     def add_price(self, price: ProcessRegionPrice) -> None:
         self.db.add(price)
-

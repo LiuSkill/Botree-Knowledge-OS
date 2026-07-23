@@ -27,7 +27,7 @@ import type {
   ProcessCalculatorRequest,
   ProcessCalculatorResult,
 } from '@/views/process-config/calculator/types';
-import type { ProcessRegionCode, ProcessRegionCurrency } from '@/views/process-config/types';
+import { processUnitLabel, type ProcessRegionCode, type ProcessRegionCurrency } from '@/views/process-config/types';
 
 interface MaterialFormRow {
   material_id?: number;
@@ -117,6 +117,7 @@ const opexBreakdown = computed(() => {
     { label: '原料成本', value: metrics.material_cost },
     { label: '药剂成本', value: metrics.consumable_cost },
     { label: '公辅成本', value: metrics.public_service_cost },
+    { label: '人员费用', value: metrics.labor_cost },
     { label: '三废处理', value: metrics.waste_treatment_cost },
     { label: '其他 OPEX', value: metrics.other_opex },
   ];
@@ -146,7 +147,6 @@ const cashFlowColumns = [
   { colKey: 'net_cash_flow', title: '净现金流', width: 170, align: 'right' as const },
   { colKey: 'discounted_cash_flow', title: '折现现金流', width: 180, align: 'right' as const },
 ];
-
 onMounted(loadOptions);
 
 async function loadOptions(): Promise<void> {
@@ -325,7 +325,7 @@ function formatMoney(value?: DecimalValue | null): string {
 }
 
 function formatAmount(value?: DecimalValue | null, unit = ''): string {
-  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 6 }).format(numberValue(value))}${unit ? ` ${unit}` : ''}`;
+  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 6 }).format(numberValue(value))}${unit ? ` ${processUnitLabel(unit)}` : ''}`;
 }
 
 function formatPercent(value?: DecimalValue | null): string {
@@ -608,6 +608,15 @@ function formatYears(value?: DecimalValue | null): string {
                           <div>
                             <h3>公共服务</h3>
                             <t-table row-key="name" :data="result.public_service_costs" :columns="amountColumns" size="small" stripe>
+                              <template #output_type>-</template>
+                              <template #amount="{ row }">{{ formatAmount(row.amount, row.unit) }}</template>
+                              <template #unit_price="{ row }">{{ row.unit_price == null ? '-' : formatMoney(row.unit_price) }}</template>
+                              <template #cost="{ row }">{{ formatMoney(row.cost) }}</template>
+                            </t-table>
+                          </div>
+                          <div>
+                            <h3>人员费用</h3>
+                            <t-table row-key="name" :data="result.labor_costs" :columns="amountColumns" size="small" stripe>
                               <template #output_type>-</template>
                               <template #amount="{ row }">{{ formatAmount(row.amount, row.unit) }}</template>
                               <template #unit_price="{ row }">{{ row.unit_price == null ? '-' : formatMoney(row.unit_price) }}</template>

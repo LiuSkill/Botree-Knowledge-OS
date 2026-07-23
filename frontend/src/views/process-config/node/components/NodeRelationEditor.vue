@@ -3,6 +3,7 @@ import { AddIcon, DeleteIcon } from 'tdesign-icons-vue-next';
 import { computed, ref, watch } from 'vue';
 
 import type { ProcessLibraryOptionItem } from '@/views/process-config/node/types';
+import { PROCESS_UNIT_OPTIONS } from '@/views/process-config/types';
 
 type RelationFieldValue = string | number | boolean | null | undefined;
 
@@ -188,13 +189,17 @@ function emitRows(): void {
           />
         </template>
         <template #unit="{ row }">
-          <t-input
+          <t-select
+            filterable
+            creatable
             clearable
             :disabled="disabled"
             :model-value="String(row.unit || '')"
             placeholder="单位"
             @update:model-value="(value) => updateField(row, 'unit', value as RelationFieldValue)"
-          />
+          >
+            <t-option v-for="option in PROCESS_UNIT_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+          </t-select>
         </template>
         <template #is_main_product="{ row }">
           <t-switch

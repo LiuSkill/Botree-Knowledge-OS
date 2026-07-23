@@ -36,7 +36,7 @@ import type {
   ProcessRegionPrice,
   ProcessMaterialCompositionPayload,
 } from '@/views/process-config/types';
-import { normalizeRegionPrices, processLibraryTypeLabel } from '@/views/process-config/types';
+import { normalizeRegionPrices, processLibraryTypeLabel, processUnitLabel } from '@/views/process-config/types';
 import { buildProcessConfigExportFileName, triggerBlobDownload } from '@/views/process-config/utils';
 import { formatDateTime } from '@/utils/format';
 import type { PageResult } from '@/types/api';
@@ -111,6 +111,7 @@ watch(
 
 function buildQueryParams(): ProcessLibraryListParams {
   const params: ProcessLibraryListParams = {
+    ...props.config.fixedListParams,
     page: page.value,
     page_size: pageSize.value,
   };
@@ -120,8 +121,8 @@ function buildQueryParams(): ProcessLibraryListParams {
   return params;
 }
 
-function buildExportParams(): { keyword?: string; type?: string; status?: ProcessLibraryStatus } {
-  const params: { keyword?: string; type?: string; status?: ProcessLibraryStatus } = {};
+function buildExportParams(): ProcessLibraryListParams {
+  const params: ProcessLibraryListParams = { ...props.config.fixedListParams };
   if (filters.keyword.trim()) params.keyword = filters.keyword.trim();
   if (filters.type) params.type = filters.type;
   if (filters.status) params.status = filters.status;
@@ -197,12 +198,13 @@ async function openDetailDialog(row: ProcessLibraryItem): Promise<void> {
 async function handleSubmit(payload: ProcessLibraryPayload, compositions: ProcessMaterialCompositionPayload[]): Promise<void> {
   submitting.value = true;
   try {
+    const finalPayload = { ...payload, ...props.config.fixedPayload };
     if (formMode.value === 'create') {
-      const created = await createProcessLibrary(props.config.apiBasePath, payload);
+      const created = await createProcessLibrary(props.config.apiBasePath, finalPayload);
       if (props.config.moduleKey === 'materials') await replaceProcessMaterialCompositions(created.id, compositions);
       MessagePlugin.success(`已新增${props.config.entityName}`);
     } else if (editingItem.value) {
-      await updateProcessLibrary(props.config.apiBasePath, editingItem.value.id, payload);
+      await updateProcessLibrary(props.config.apiBasePath, editingItem.value.id, finalPayload);
       if (props.config.moduleKey === 'materials') await replaceProcessMaterialCompositions(editingItem.value.id, compositions);
       MessagePlugin.success(`已更新${props.config.entityName}`);
     }
@@ -289,12 +291,16 @@ function typeLabel(type: string): string {
   return processLibraryTypeLabel(props.config.moduleKey, type);
 }
 
+function unitLabel(unit?: string | null): string {
+  return processUnitLabel(unit);
+}
+
 function displayRegionPrices(row: ProcessLibraryItem): ProcessRegionPrice[] {
   return normalizeRegionPrices(row.region_prices, row.unit);
 }
 
 function formatPrice(price: ProcessRegionPrice): string {
-  return `${price.currency} ${price.unit_price}/${price.unit || '-'}`;
+  return `${price.currency} ${price.unit_price}/${unitLabel(price.unit)}`;
 }
 </script>
 
@@ -334,11 +340,11 @@ function formatPrice(price: ProcessRegionPrice): string {
           <template #icon><RefreshIcon /></template>
           刷新
         </t-button>
-        <t-button v-permission="config.permissions.import" theme="default" variant="outline" @click="handleImport">
+        <t-button v-if="config.enableImportExport !== false" v-permission="config.permissions.import" theme="default" variant="outline" @click="handleImport">
           <template #icon><UploadIcon /></template>
           导入
         </t-button>
-        <t-button v-permission="config.permissions.export" theme="default" variant="outline" :loading="exporting" @click="handleExport">
+        <t-button v-if="config.enableImportExport !== false" v-permission="config.permissions.export" theme="default" variant="outline" :loading="exporting" @click="handleExport">
           <template #icon><DownloadIcon /></template>
           导出
         </t-button>
@@ -370,6 +376,7 @@ function formatPrice(price: ProcessRegionPrice): string {
         <template #type="{ row }">
           {{ typeLabel(row.type) }}
         </template>
+        <template #unit="{ row }">{{ unitLabel(row.unit) }}</template>
         <template #status="{ row }">
           <t-tag size="small" variant="light" :theme="statusTheme(row.status)">{{ statusLabel(row.status) }}</t-tag>
         </template>
@@ -437,7 +444,7 @@ function formatPrice(price: ProcessRegionPrice): string {
             <t-descriptions-item label="编码">{{ selectedItem.code }}</t-descriptions-item>
             <t-descriptions-item label="名称">{{ selectedItem.name }}</t-descriptions-item>
             <t-descriptions-item label="类型">{{ typeLabel(selectedItem.type) }}</t-descriptions-item>
-            <t-descriptions-item label="单位">{{ selectedItem.unit }}</t-descriptions-item>
+            <t-descriptions-item label="单位">{{ unitLabel(selectedItem.unit) }}</t-descriptions-item>
             <t-descriptions-item label="状态">
               <t-tag size="small" variant="light" :theme="statusTheme(selectedItem.status)">{{ statusLabel(selectedItem.status) }}</t-tag>
             </t-descriptions-item>

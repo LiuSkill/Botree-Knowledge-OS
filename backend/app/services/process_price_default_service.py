@@ -28,7 +28,7 @@ class ProcessPriceDefaultService:
     def sync_zero_prices(self) -> int:
         config = self._load_config()
         source = config["source"]
-        region_code = str(source["region_code"])
+        regions = source.get("regions") or [source]
         libraries = self.repository.list_libraries()
         libraries_by_id = {(owner_type, library.id): library for (owner_type, _), library in libraries.items()}
         prices = self.repository.list_active_prices()
@@ -51,43 +51,40 @@ class ProcessPriceDefaultService:
             owner_code = str(preset["owner_code"])
             library = libraries.get((owner_type, owner_code))
             if library is None:
-                logger.warning(
-                    "默认价格未匹配基础库 owner_type=%s owner_code=%s region_code=%s",
-                    owner_type,
-                    owner_code,
-                    region_code,
-                )
+                logger.warning("默认价格未匹配基础库 owner_type=%s owner_code=%s", owner_type, owner_code)
                 continue
-            key = (owner_type, library.id, region_code)
-            price = prices.get(key)
-            if price is not None and price.unit_price != 0:
-                continue
-            if price is None:
-                price = ProcessRegionPrice(
-                    owner_type=owner_type,
-                    owner_id=library.id,
-                    region_code=region_code,
-                    region_name=str(source["region_name"]),
-                    currency=str(source["currency"]),
-                    unit_price=Decimal("0"),
-                    unit=str(preset["unit"]),
-                    status="enabled",
-                    is_deleted=False,
-                )
-                self.repository.add_price(price)
-                prices[key] = price
-            price.region_name = str(source["region_name"])
-            price.currency = str(source["currency"])
-            price.unit_price = Decimal(str(preset["unit_price"]))
-            price.unit = str(preset["unit"])
-            price.status = "enabled"
-            updated_count += 1
+            for region in regions:
+                region_code = str(region["region_code"])
+                key = (owner_type, library.id, region_code)
+                price = prices.get(key)
+                if price is not None and price.unit_price != 0:
+                    continue
+                if price is None:
+                    price = ProcessRegionPrice(
+                        owner_type=owner_type,
+                        owner_id=library.id,
+                        region_code=region_code,
+                        region_name=str(region["region_name"]),
+                        currency=str(region["currency"]),
+                        unit_price=Decimal("0"),
+                        unit=str(preset["unit"]),
+                        status="enabled",
+                        is_deleted=False,
+                    )
+                    self.repository.add_price(price)
+                    prices[key] = price
+                price.region_name = str(region["region_name"])
+                price.currency = str(region["currency"])
+                price.unit_price = Decimal(str(preset["unit_price"])) * Decimal(str(region.get("multiplier") or "1"))
+                price.unit = str(preset["unit"])
+                price.status = "enabled"
+                updated_count += 1
 
         if updated_count:
             self.db.flush()
             logger.info(
                 "工艺配置默认价格补齐完成 region_code=%s currency=%s updated_count=%s source=%s",
-                region_code,
+                ",".join(str(region["region_code"]) for region in regions),
                 source["currency"],
                 updated_count,
                 source["name"],

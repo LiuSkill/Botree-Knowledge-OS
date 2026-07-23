@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-import type { ProcessLibraryStatus } from '@/views/process-config/types';
+import { processUnitLabel, type ProcessLibraryStatus } from '@/views/process-config/types';
 import type { ProcessLibraryOptionItem, ProcessNodeDetail, ProcessNodeType } from '@/views/process-config/node/types';
 import { PROCESS_NODE_TYPE_OPTIONS } from '@/views/process-config/node/types';
 import { formatDateTime } from '@/utils/format';
@@ -17,6 +17,7 @@ const props = withDefaults(
     productOptions: ProcessLibraryOptionItem[];
     consumableOptions: ProcessLibraryOptionItem[];
     publicServiceOptions: ProcessLibraryOptionItem[];
+    assetOptions: ProcessLibraryOptionItem[];
   }>(),
   {
     node: null,
@@ -59,11 +60,9 @@ const publicServiceColumns = [
 ];
 
 const equipmentColumns = [
-  { colKey: 'equipment_name', title: '设备名称', minWidth: 180 },
-  { colKey: 'equipment_type', title: '设备类型', width: 140 },
-  { colKey: 'quantity', title: '数量', width: 110 },
-  { colKey: 'investment_amount', title: '投资额', width: 130 },
-  { colKey: 'currency', title: '币种', width: 90 },
+  { colKey: 'asset', title: '设备/设施', minWidth: 220 },
+  { colKey: 'quantity', title: '数量', width: 120 },
+  { colKey: 'installation_factor', title: '安装/配套系数', width: 120 },
   { colKey: 'remark', title: '备注', minWidth: 160 },
 ];
 
@@ -126,8 +125,6 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
             <t-descriptions-item label="节点名称">{{ node.name }}</t-descriptions-item>
             <t-descriptions-item label="节点类型">{{ nodeTypeLabel(node.node_type) }}</t-descriptions-item>
             <t-descriptions-item label="版本号">{{ node.version }}</t-descriptions-item>
-            <t-descriptions-item label="人员">{{ node.staff }}</t-descriptions-item>
-            <t-descriptions-item label="占地面积">{{ node.area }}</t-descriptions-item>
             <t-descriptions-item label="状态">
               <t-tag size="small" variant="light" :theme="statusTheme(node.status)">{{ statusLabel(node.status) }}</t-tag>
             </t-descriptions-item>
@@ -144,6 +141,7 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
           <div class="node-detail-table">
             <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="materialColumns" :data="node.material_inputs" empty="暂无输入原料">
               <template #material="{ row }">{{ optionLabel(materialOptions, row.material_id) }}</template>
+              <template #unit="{ row }">{{ processUnitLabel(row.unit) }}</template>
               <template #remark="{ row }">{{ row.remark || '-' }}</template>
             </t-table>
           </div>
@@ -154,6 +152,7 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
           <div class="node-detail-table">
             <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="consumableColumns" :data="node.consumables" empty="暂无消耗品">
               <template #consumable="{ row }">{{ optionLabel(consumableOptions, row.consumable_id) }}</template>
+              <template #unit="{ row }">{{ processUnitLabel(row.unit) }}</template>
               <template #formula_type="{ row }">{{ row.formula_type === 'expression' ? '导入表达式' : '固定系数' }}</template>
               <template #expression="{ row }">{{ row.expression || '-' }}</template>
               <template #remark="{ row }">{{ row.remark || '-' }}</template>
@@ -174,6 +173,7 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
               empty="暂无公共服务"
             >
               <template #public_service="{ row }">{{ optionLabel(publicServiceOptions, row.public_service_id) }}</template>
+              <template #unit="{ row }">{{ processUnitLabel(row.unit) }}</template>
               <template #formula_type="{ row }">{{ row.formula_type === 'expression' ? '导入表达式' : '固定系数' }}</template>
               <template #expression="{ row }">{{ row.expression || '-' }}</template>
               <template #remark="{ row }">{{ row.remark || '-' }}</template>
@@ -185,24 +185,7 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
           <div class="node-detail-section-title">设备/投资</div>
           <div class="node-detail-table">
             <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="equipmentColumns" :data="node.equipment" empty="暂无设备/投资">
-              <template #equipment_type="{ row }">{{ row.equipment_type || '-' }}</template>
-              <template #investment_amount="{ row }">{{ row.currency }} {{ row.investment_amount }}</template>
-              <template #remark="{ row }">{{ row.remark || '-' }}</template>
-            </t-table>
-          </div>
-        </section>
-
-        <section class="node-detail-section">
-          <div class="node-detail-section-title">输出产品</div>
-          <div class="node-detail-table">
-            <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="outputColumns" :data="node.outputs" empty="暂无输出产品">
-              <template #product="{ row }">{{ optionLabel(productOptions, row.product_id) }}</template>
-              <template #formula_type="{ row }">{{ row.formula_type === 'expression' ? '导入表达式' : '固定系数' }}</template>
-              <template #expression="{ row }">{{ row.expression || '-' }}</template>
-              <template #is_main_product="{ row }">
-                <t-tag v-if="row.is_main_product" size="small" theme="success" variant="light">主产品</t-tag>
-                <span v-else>-</span>
-              </template>
+              <template #asset="{ row }">{{ row.asset_id ? optionLabel(assetOptions, row.asset_id) : '-' }}</template>
               <template #remark="{ row }">{{ row.remark || '-' }}</template>
             </t-table>
           </div>

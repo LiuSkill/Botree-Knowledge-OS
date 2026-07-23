@@ -4,7 +4,12 @@
     "region_code": "europe",
     "region_name": "欧洲",
     "currency": "EUR",
-    "basis": "用户经济分析表、公开市场参考价与ECB 2026-07-15汇率折算的MVP默认价格"
+    "basis": "用户经济分析表、公开市场参考价与预算汇率折算的MVP默认价格",
+    "regions": [
+      {"region_code": "europe", "region_name": "欧洲", "currency": "EUR", "multiplier": "1"},
+      {"region_code": "asia", "region_name": "亚洲", "currency": "CNY", "multiplier": "8.3"},
+      {"region_code": "americas", "region_name": "美洲", "currency": "USD", "multiplier": "1.16"}
+    ]
   },
   "prices": [
     {
@@ -384,6 +389,28 @@
       "owner_code": "P37",
       "unit_price": "5",
       "unit": "t"
-    }
+    },
+    {"owner_type": "labor", "owner_code": "L01", "unit_price": "38000", "unit": "person-year"},
+    {"owner_type": "labor", "owner_code": "L02", "unit_price": "52000", "unit": "person-year"},
+    {"owner_type": "labor", "owner_code": "L03", "unit_price": "65000", "unit": "person-year"},
+    {"owner_type": "labor", "owner_code": "L04", "unit_price": "45000", "unit": "person-year"},
+    {"owner_type": "labor", "owner_code": "L05", "unit_price": "43000", "unit": "person-year"},
+    {"owner_type": "labor", "owner_code": "L06", "unit_price": "58000", "unit": "person-year"},
+    {"owner_type": "asset", "owner_code": "EQ001", "unit_price": "280000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "EQ002", "unit_price": "190000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "EQ003", "unit_price": "850000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "EQ004", "unit_price": "720000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "EQ005", "unit_price": "1250000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "EQ006", "unit_price": "480000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "EQ007", "unit_price": "1100000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "EQ008", "unit_price": "160000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "IF001", "unit_price": "1100", "unit": "m2"},
+    {"owner_type": "asset", "owner_code": "IF002", "unit_price": "750", "unit": "m2"},
+    {"owner_type": "asset", "owner_code": "IF003", "unit_price": "1650", "unit": "m2"},
+    {"owner_type": "asset", "owner_code": "IF004", "unit_price": "650000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "IF005", "unit_price": "420000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "IF006", "unit_price": "360000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "IF007", "unit_price": "950000", "unit": "set"},
+    {"owner_type": "asset", "owner_code": "IF008", "unit_price": "1350000", "unit": "set"}
   ]
 }

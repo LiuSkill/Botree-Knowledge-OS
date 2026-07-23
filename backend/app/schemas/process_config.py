@@ -14,7 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ProcessStatus = Literal["enabled", "draft", "disabled"]
-ProcessOwnerType = Literal["material", "product", "consumable", "public_service"]
+ProcessOwnerType = Literal["material", "product", "consumable", "public_service", "labor", "asset"]
 ProcessRegionCode = Literal["asia", "europe", "americas"]
 ProcessCurrency = Literal["CNY", "EUR", "USD"]
 ProcessNodeType = Literal["pretreatment", "hydrometallurgy", "pyrometallurgy", "post_treatment"]
@@ -45,6 +45,8 @@ class _TrimTextMixin(BaseModel):
         "error_message",
         "equipment_name",
         "equipment_type",
+        "asset_class",
+        "salary_period",
         "version",
         "description",
         "remark",
@@ -424,11 +426,12 @@ class ProcessNodeEquipmentCreate(_TrimTextMixin):
     """创建节点设备投资。"""
 
     node_id: int = Field(..., gt=0, description="节点ID")
+    asset_id: int | None = Field(default=None, gt=0, description="资产库ID")
+    asset_class: str = Field(default="equipment", max_length=30, description="资产类别：equipment/infrastructure")
     equipment_name: str = Field(..., min_length=1, max_length=150, description="设备名称")
     equipment_type: str | None = Field(default=None, max_length=100, description="设备类型")
     quantity: Decimal = Field(default=Decimal("0"), ge=0, description="设备数量")
-    investment_amount: Decimal = Field(default=Decimal("0"), ge=0, description="投资金额")
-    currency: str = Field(default="CNY", min_length=1, max_length=10, description="币种")
+    installation_factor: Decimal = Field(default=Decimal("1"), ge=0, description="安装/配套系数")
     sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
     remark: str | None = Field(default=None, description="备注")
 
@@ -437,16 +440,52 @@ class ProcessNodeEquipmentUpdate(_TrimTextMixin):
     """更新节点设备投资。"""
 
     equipment_name: str | None = Field(default=None, min_length=1, max_length=150, description="设备名称")
+    asset_id: int | None = Field(default=None, gt=0, description="资产库ID")
+    asset_class: str | None = Field(default=None, max_length=30, description="资产类别：equipment/infrastructure")
     equipment_type: str | None = Field(default=None, max_length=100, description="设备类型")
     quantity: Decimal | None = Field(default=None, ge=0, description="设备数量")
-    investment_amount: Decimal | None = Field(default=None, ge=0, description="投资金额")
-    currency: str | None = Field(default=None, min_length=1, max_length=10, description="币种")
+    installation_factor: Decimal | None = Field(default=None, ge=0, description="安装/配套系数")
     sort_order: int | None = Field(default=None, ge=0, le=999999, description="排序值")
     remark: str | None = Field(default=None, description="备注")
 
 
 class ProcessNodeEquipmentOut(ProcessNodeEquipmentCreate):
     """节点设备投资响应。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProcessNodeLaborCreate(_TrimTextMixin):
+    """创建节点人员成本配置。"""
+
+    node_id: int = Field(..., gt=0, description="节点ID")
+    labor_cost_id: int = Field(..., gt=0, description="人员成本库ID")
+    headcount: Decimal = Field(default=Decimal("0"), ge=0, description="人数")
+    load_factor: Decimal = Field(default=Decimal("1"), ge=0, description="负荷系数")
+    include_in_opex: bool = Field(default=True, description="是否计入OPEX")
+    sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
+    remark: str | None = Field(default=None, description="备注")
+
+
+class ProcessNodeLaborUpdate(_TrimTextMixin):
+    """更新节点人员成本配置。"""
+
+    labor_cost_id: int | None = Field(default=None, gt=0, description="人员成本库ID")
+    headcount: Decimal | None = Field(default=None, ge=0, description="人数")
+    load_factor: Decimal | None = Field(default=None, ge=0, description="负荷系数")
+    include_in_opex: bool | None = Field(default=None, description="是否计入OPEX")
+    sort_order: int | None = Field(default=None, ge=0, le=999999, description="排序值")
+    remark: str | None = Field(default=None, description="备注")
+
+
+class ProcessNodeLaborOut(ProcessNodeLaborCreate):
+    """节点人员成本配置响应。"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -555,11 +594,23 @@ class ProcessNodePublicServicePayload(_TrimTextMixin):
 class ProcessNodeEquipmentPayload(_TrimTextMixin):
     """节点维护时提交的设备/投资。"""
 
+    asset_id: int | None = Field(default=None, gt=0, description="资产库ID")
+    asset_class: str = Field(default="equipment", max_length=30, description="资产类别：equipment/infrastructure")
     equipment_name: str = Field(..., min_length=1, max_length=150, description="设备名称")
     equipment_type: str | None = Field(default=None, max_length=100, description="设备类型")
     quantity: Decimal = Field(default=Decimal("0"), ge=0, description="设备数量")
-    investment_amount: Decimal = Field(default=Decimal("0"), ge=0, description="投资金额")
-    currency: str = Field(default="CNY", min_length=1, max_length=10, description="币种")
+    installation_factor: Decimal = Field(default=Decimal("1"), ge=0, description="安装/配套系数")
+    sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
+    remark: str | None = Field(default=None, description="备注")
+
+
+class ProcessNodeLaborPayload(_TrimTextMixin):
+    """节点维护时提交的人员成本配置。"""
+
+    labor_cost_id: int = Field(..., gt=0, description="人员成本库ID")
+    headcount: Decimal = Field(default=Decimal("0"), ge=0, description="人数")
+    load_factor: Decimal = Field(default=Decimal("1"), ge=0, description="负荷系数")
+    include_in_opex: bool = Field(default=True, description="是否计入OPEX")
     sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
     remark: str | None = Field(default=None, description="备注")
 
@@ -589,6 +640,7 @@ class ProcessNodeCreateWithChildren(ProcessNodeCreate):
     consumables: list[ProcessNodeConsumablePayload] = Field(default_factory=list, description="消耗品")
     public_services: list[ProcessNodePublicServicePayload] = Field(default_factory=list, description="公共服务")
     equipment: list[ProcessNodeEquipmentPayload] = Field(default_factory=list, description="设备/投资")
+    labor: list[ProcessNodeLaborPayload] = Field(default_factory=list, description="人员成本")
     outputs: list[ProcessNodeOutputPayload] = Field(default_factory=list, description="输出物")
 
 
@@ -599,6 +651,7 @@ class ProcessNodeUpdateWithChildren(ProcessNodeUpdate):
     consumables: list[ProcessNodeConsumablePayload] = Field(default_factory=list, description="消耗品")
     public_services: list[ProcessNodePublicServicePayload] = Field(default_factory=list, description="公共服务")
     equipment: list[ProcessNodeEquipmentPayload] = Field(default_factory=list, description="设备/投资")
+    labor: list[ProcessNodeLaborPayload] = Field(default_factory=list, description="人员成本")
     outputs: list[ProcessNodeOutputPayload] = Field(default_factory=list, description="输出物")
 
 
@@ -609,6 +662,7 @@ class ProcessNodeOutWithChildren(ProcessNodeOut):
     consumables: list[ProcessNodeConsumableOut] = Field(default_factory=list, description="消耗品")
     public_services: list[ProcessNodePublicServiceOut] = Field(default_factory=list, description="公共服务")
     equipment: list[ProcessNodeEquipmentOut] = Field(default_factory=list, description="设备/投资")
+    labor: list[ProcessNodeLaborOut] = Field(default_factory=list, description="人员成本")
     outputs: list[ProcessNodeOutputOut] = Field(default_factory=list, description="输出物")
 
 
@@ -721,13 +775,13 @@ class ProcessLibraryRegionPricePayload(_TrimTextMixin):
 class ProcessLibraryCreateWithPrices(ProcessLibraryBase):
     """基础库创建请求，区域单价缺省时由后端补齐三大区域。"""
 
-    region_prices: list[ProcessLibraryRegionPricePayload] = Field(default_factory=list, max_length=3, description="区域单价")
+    region_prices: list[ProcessLibraryRegionPricePayload] = Field(default_factory=list, max_length=9, description="区域币种单价")
 
 
 class ProcessLibraryUpdateWithPrices(ProcessLibraryUpdate):
     """基础库编辑请求，传入 region_prices 时整体同步三大区域价格。"""
 
-    region_prices: list[ProcessLibraryRegionPricePayload] | None = Field(default=None, max_length=3, description="区域单价")
+    region_prices: list[ProcessLibraryRegionPricePayload] | None = Field(default=None, max_length=9, description="区域币种单价")
 
 
 class ProcessLibraryStatusUpdate(BaseModel):
@@ -745,6 +799,7 @@ class ProcessLibraryOptionOut(BaseModel):
     type: str
     unit: str
     status: ProcessStatus
+    asset_class: Literal["equipment", "infrastructure"] | None = None
 
 
 class ProcessLibraryOutWithPrices(ProcessLibraryOut):
@@ -814,6 +869,45 @@ class ProcessPublicServiceUpdateWithPrices(ProcessLibraryUpdateWithPrices):
 
 class ProcessPublicServiceOutWithPrices(ProcessLibraryOutWithPrices):
     """公共服务详情。"""
+
+class ProcessLaborCostCreateWithPrices(ProcessLibraryCreateWithPrices):
+    """创建人员成本。"""
+
+    salary_period: Literal["month", "year"] = Field(default="year", description="薪酬周期")
+    welfare_factor: Decimal = Field(default=Decimal("1"), ge=0, description="福利社保系数")
+
+
+class ProcessLaborCostUpdateWithPrices(ProcessLibraryUpdateWithPrices):
+    """编辑人员成本。"""
+
+    salary_period: Literal["month", "year"] | None = Field(default=None, description="薪酬周期")
+    welfare_factor: Decimal | None = Field(default=None, ge=0, description="福利社保系数")
+
+
+class ProcessLaborCostOutWithPrices(ProcessLibraryOutWithPrices):
+    """人员成本详情。"""
+
+    salary_period: Literal["month", "year"] = Field(default="year", description="薪酬周期")
+    welfare_factor: Decimal = Field(default=Decimal("1"), description="福利社保系数")
+
+
+class ProcessAssetCreateWithPrices(ProcessLibraryCreateWithPrices):
+    """创建设备/基础设施资产。"""
+
+    asset_class: Literal["equipment", "infrastructure"] = Field(default="equipment", description="资产类别")
+
+
+class ProcessAssetUpdateWithPrices(ProcessLibraryUpdateWithPrices):
+    """编辑设备/基础设施资产。"""
+
+    asset_class: Literal["equipment", "infrastructure"] | None = Field(default=None, description="资产类别")
+
+
+class ProcessAssetOutWithPrices(ProcessLibraryOutWithPrices):
+    """设备/基础设施资产详情。"""
+
+    asset_class: Literal["equipment", "infrastructure"] = Field(default="equipment", description="资产类别")
+
 
 class ProcessCalculationOutputPayload(_TrimTextMixin):
     """路线维度的测算产出系数配置。"""
