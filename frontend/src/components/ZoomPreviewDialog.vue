@@ -154,6 +154,13 @@ watch(visible, (isVisible) => {
   transform-origin: left top;
 }
 
+/* 放大预览应使用弹窗的全部可用宽度，避免页面预览的宽度上限截断宽表格。 */
+.zoom-dialog-content :deep(.markdown-preview),
+.zoom-dialog-content :deep(.review-rich-content),
+.zoom-dialog-content :deep(.structured-preview) {
+  max-width: none;
+}
+
 @media (max-width: 720px) {
   .zoom-dialog-header,
   .zoom-dialog-title {

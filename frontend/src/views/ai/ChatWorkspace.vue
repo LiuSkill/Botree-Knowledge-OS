@@ -10,6 +10,8 @@
 import { ChatContent as TChatContent, ChatMessage as TChatMessage, ChatSender as TChatSender } from '@tdesign-vue-next/chat';
 import {
   AddIcon,
+  ChevronDownSIcon,
+  ChevronRightSIcon,
   CloseIcon,
   DeleteIcon,
   EditIcon,
@@ -77,6 +79,7 @@ interface UiChatMessage extends Omit<ChatMessage, 'id' | 'citations'> {
 }
 
 type DetailMode = 'citations' | 'trace';
+type SessionGroupKey = 'pinned' | 'recent' | 'favorite';
 
 const props = defineProps<{
   chatType: 'project_chat' | 'base_chat';
@@ -110,6 +113,11 @@ const renamingSession = ref<ChatSession | null>(null);
 const renameTitle = ref('');
 const renameDialogVisible = ref(false);
 const renameSubmitting = ref(false);
+const collapsedSessionGroups = ref<Record<SessionGroupKey, boolean>>({
+  pinned: false,
+  recent: false,
+  favorite: false,
+});
 const traceDetailCache = ref<Record<number, AgentTraceStep[] | null>>({});
 const traceDetailLoadingMap = ref<Record<number, boolean>>({});
 const traceDetailErrorMap = ref<Record<number, string>>({});
@@ -202,12 +210,20 @@ const sessionGroups = computed(() => {
   const pinnedSessions = sessions.value.filter((session) => session.is_pinned);
   const recentSessions = sessions.value.filter((session) => !session.is_pinned && !session.is_favorite);
   const favoriteSessions = sessions.value.filter((session) => session.is_favorite);
-  return [
+  const groups: Array<{ key: SessionGroupKey; title: string; items: ChatSession[] }> = [
     { key: 'pinned', title: '置顶', items: pinnedSessions },
     { key: 'recent', title: '最近', items: recentSessions },
     { key: 'favorite', title: '收藏', items: favoriteSessions },
-  ].filter((group) => group.items.length > 0);
+  ];
+  return groups.filter((group) => group.items.length > 0);
 });
+
+function toggleSessionGroup(groupKey: SessionGroupKey): void {
+  collapsedSessionGroups.value = {
+    ...collapsedSessionGroups.value,
+    [groupKey]: !collapsedSessionGroups.value[groupKey],
+  };
+}
 
 provide('role', computed(() => 'assistant'));
 
@@ -1102,10 +1118,20 @@ onBeforeUnmount(() => {
           </t-button>
         </div>
         <div class="session-list">
-          <template v-for="group in sessionGroups" :key="group.key">
-            <div class="session-group-title">{{ group.title }}</div>
+          <section v-for="group in sessionGroups" :key="group.key" class="session-group">
+            <button
+              type="button"
+              class="session-group-title"
+              :aria-expanded="!collapsedSessionGroups[group.key]"
+              @click="toggleSessionGroup(group.key)"
+            >
+              <ChevronRightSIcon v-if="collapsedSessionGroups[group.key]" />
+              <ChevronDownSIcon v-else />
+              <span>{{ group.title }}</span>
+            </button>
             <div
               v-for="session in group.items"
+              v-show="!collapsedSessionGroups[group.key]"
               :key="`${group.key}-${session.id}`"
               class="session-item"
               :class="{ active: session.id === activeSessionId, 'menu-open': openSessionMenuId === session.id }"
@@ -1119,7 +1145,7 @@ onBeforeUnmount(() => {
                 <span class="session-processing-spinner" aria-hidden="true" />
                 <span>正在处理</span>
               </span>
-              <span v-else class="session-title-text">{{ session.title }}</span>
+              <span v-else class="session-title-text" :title="session.title">{{ session.title }}</span>
               <div v-if="processingSessionId !== session.id && (canManageSession || canDeleteSession)" class="session-actions" @click.stop>
                 <t-tooltip v-if="canManageSession" :content="session.is_pinned ? '取消置顶' : '置顶'">
                   <button type="button" class="session-icon-button" @click.stop="togglePinnedSession(session)">
@@ -1148,7 +1174,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </div>
-          </template>
+          </section>
           <t-empty v-if="!sessions.length" size="small" :description="sessionEmptyDescription" />
         </div>
       </aside>
@@ -1397,11 +1423,36 @@ onBeforeUnmount(() => {
 }
 
 .session-group-title {
+  display: flex;
+  width: calc(100% - 8px);
+  align-items: center;
+  border: 0;
+  background: transparent;
   margin: 8px 4px 4px;
   color: #64748b;
+  cursor: pointer;
   font-size: 12px;
   font-weight: 600;
+  gap: 4px;
   line-height: 20px;
+  padding: 0;
+  text-align: left;
+}
+
+.session-group-title:hover {
+  color: #334155;
+}
+
+.session-group-title:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.session-group-title svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
 }
 
 .session-item {

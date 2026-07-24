@@ -837,18 +837,32 @@ onBeforeUnmount(() => {
 
 .review-rich-content {
   width: 100%;
-  max-width: 1040px;
+  max-width: none;
   padding: 24px 28px;
   border: 0;
   border-radius: 0;
   background: #fff;
 }
 
+/* 审核页空间充足时完整铺开表格，单元格换行以避免内容被横向截断。 */
+.review-rich-content :deep(table) {
+  display: table;
+  width: 100%;
+  max-width: none;
+  table-layout: auto;
+  white-space: normal;
+}
+
+.review-rich-content :deep(th),
+.review-rich-content :deep(td) {
+  overflow-wrap: anywhere;
+}
+
 .structured-preview {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1040px;
+  max-width: none;
   margin-top: 16px;
 }
 
