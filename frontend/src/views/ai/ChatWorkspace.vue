@@ -47,6 +47,7 @@ import { showConfirmDialog } from '@/utils/confirmDialog';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
+import { useChatRunStore, type ChatRunState } from '@/stores/chatRun';
 import type {
   AgentTraceStep,
   ChatMessage,
@@ -84,6 +85,7 @@ const props = defineProps<{
 }>();
 
 const authStore = useAuthStore();
+const chatRunStore = useChatRunStore();
 const route = useRoute();
 const router = useRouter();
 const sessions = ref<ChatSession[]>([]);
@@ -100,7 +102,6 @@ const trace = ref<ChatProgressEvent[]>([]);
 const queryScope = ref('');
 const chatHistoryRef = ref<HTMLElement | null>(null);
 const senderShellRef = ref<HTMLElement | null>(null);
-const streamAbortController = ref<AbortController | null>(null);
 const activeDetailMode = ref<DetailMode | null>(null);
 const activeDetailMessageId = ref<number | string | null>(null);
 const feedbackUpdatingMap = ref<Record<number, boolean>>({});
@@ -145,9 +146,11 @@ const canSendMessage = computed(() => authStore.hasActionPermission(chatPermissi
 const canManageSession = computed(() => authStore.hasActionPermission(chatPermissionSet.value.manageSession));
 const canDeleteSession = computed(() => authStore.hasActionPermission(chatPermissionSet.value.deleteSession));
 const canFeedbackMessage = computed(() => authStore.hasActionPermission(chatPermissionSet.value.feedback));
+const hasRunningChat = computed(() => chatRunStore.runs[props.chatType]?.status === 'running');
 const senderDisabled = computed(
   () =>
     streaming.value ||
+    hasRunningChat.value ||
     !canSendMessage.value ||
     (props.requireProject && !projectId.value) ||
     (props.chatType === 'base_chat' && isExternalUser.value),
@@ -155,6 +158,7 @@ const senderDisabled = computed(
 const newSessionDisabled = computed(
   () =>
     streaming.value ||
+    hasRunningChat.value ||
     !canCreateSession.value ||
     (props.requireProject && !projectId.value),
 );
@@ -306,6 +310,55 @@ function chatContentStatus(message: UiChatMessage): '' | 'error' {
 
 function shouldShowProgress(message: UiChatMessage): boolean {
   return message.role === 'assistant' && (message.streaming || message.progressEvents.length > 0);
+}
+
+function streamingAssistantFromRun(run: ChatRunState): UiChatMessage {
+  return {
+    id: run.assistantMessageId,
+    session_id: run.sessionId || 0,
+    role: 'assistant',
+    content: run.answer,
+    query_scope: run.queryScope,
+    agent_trace_json: null,
+    progress_json: null,
+    feedback_status: null,
+    citations: run.citations,
+    progressEvents: run.progressEvents,
+    created_at: run.startedAt,
+    status: 'streaming',
+    streaming: true,
+    securityNotice: run.securityNotice,
+  };
+}
+
+function syncRunningSnapshot(run: ChatRunState): void {
+  if (run.status !== 'running') return;
+  streaming.value = true;
+  processingSessionId.value = run.sessionId;
+  if (run.sessionId) {
+    activeSessionId.value = run.sessionId;
+    showStreamingSession(run.sessionId, run.question, run.projectId);
+  }
+  if (props.chatType === 'project_chat') {
+    projectId.value = run.projectId;
+  }
+  citations.value = run.citations;
+  trace.value = run.progressEvents;
+  queryScope.value = run.queryScope;
+
+  let currentAssistant = messages.value.find((item) => item.id === run.assistantMessageId);
+  if (!currentAssistant) {
+    currentAssistant = streamingAssistantFromRun(run);
+    messages.value = [...messages.value, currentAssistant];
+  }
+  currentAssistant.session_id = run.sessionId || 0;
+  currentAssistant.content = run.answer;
+  currentAssistant.query_scope = run.queryScope;
+  currentAssistant.citations = run.citations;
+  currentAssistant.progressEvents = run.progressEvents;
+  currentAssistant.securityNotice = run.securityNotice;
+  currentAssistant.status = 'streaming';
+  currentAssistant.streaming = true;
 }
 
 function shouldShowAssistantActions(message: UiChatMessage): boolean {
@@ -567,7 +620,7 @@ async function selectSession(session: ChatSession): Promise<void> {
 }
 
 function startNewSession(): void {
-  if (streaming.value) return;
+  if (streaming.value || hasRunningChat.value) return;
   if (!canCreateSession.value) {
     MessagePlugin.warning('无权限新建会话');
     return;
@@ -752,7 +805,41 @@ function stopStreaming(): void {
       currentAssistant.content = '已停止生成';
     }
   }
-  streamAbortController.value?.abort();
+  chatRunStore.stopRun(props.chatType);
+}
+
+async function restoreChatRun(): Promise<void> {
+  const run = chatRunStore.runs[props.chatType];
+  if (!run) return;
+  if (run.status !== 'running') {
+    if (run.sessionId) await refreshSessionState(run.sessionId);
+    chatRunStore.clearRun(props.chatType);
+    return;
+  }
+
+  if (run.sessionId) {
+    if (props.chatType === 'project_chat') projectId.value = run.projectId;
+    await refreshSessionState(run.sessionId);
+  } else if (!messages.value.some((item) => item.id === run.userMessageId)) {
+    messages.value = [
+      ...messages.value,
+      {
+        id: run.userMessageId,
+        session_id: 0,
+        role: 'user',
+        content: run.question,
+        query_scope: null,
+        agent_trace_json: null,
+        citations: [],
+        progressEvents: [],
+        created_at: run.startedAt,
+        status: '',
+        streaming: false,
+      },
+    ];
+  }
+  syncRunningSnapshot(run);
+  await scrollToBottom();
 }
 
 async function refreshSessionState(sessionId: number): Promise<void> {
@@ -784,7 +871,7 @@ async function submitQuestion(): Promise<void> {
     MessagePlugin.warning('请输入问题');
     return;
   }
-  if (streaming.value) return;
+  if (streaming.value || hasRunningChat.value) return;
 
   const userMessage: UiChatMessage = {
     id: `stream-user-${Date.now()}`,
@@ -810,7 +897,16 @@ async function submitQuestion(): Promise<void> {
   queryScope.value = '';
   question.value = '';
   streaming.value = true;
-  streamAbortController.value = new AbortController();
+  const streamController = new AbortController();
+  chatRunStore.startRun({
+    chatType: props.chatType,
+    projectId: currentProjectId,
+    sessionId: activeSessionId.value,
+    userMessageId: String(userMessage.id),
+    assistantMessageId: String(assistantId),
+    question: originalQuestion,
+    controller: streamController,
+  });
   await scrollToBottom();
 
   try {
@@ -824,8 +920,15 @@ async function submitQuestion(): Promise<void> {
         agent_enabled: true,
       },
       {
-        signal: streamAbortController.value.signal,
+        signal: streamController.signal,
         onMeta: (payload) => {
+          chatRunStore.bindSession(
+            props.chatType,
+            payload.session_id,
+            payload.query_scope,
+            payload.citations,
+            payload.progress_events || [],
+          );
           activeSessionId.value = payload.session_id;
           processingSessionId.value = payload.session_id;
           showStreamingSession(payload.session_id, originalQuestion, currentProjectId);
@@ -842,15 +945,19 @@ async function submitQuestion(): Promise<void> {
           currentAssistant.progressEvents = trace.value;
         },
         onProgress: (payload) => {
+          chatRunStore.mergeProgress(props.chatType, payload);
           applyProgressEvent(assistantId, payload);
           void scrollToBottom();
         },
         onTraceDelta: (payload) => {
-          applyProgressEvent(assistantId, progressEventFromTrace(payload));
+          const progress = progressEventFromTrace(payload);
+          chatRunStore.mergeProgress(props.chatType, progress);
+          applyProgressEvent(assistantId, progress);
           void scrollToBottom();
         },
         onDelta: (delta) => {
           if (!delta) return;
+          chatRunStore.appendAnswer(props.chatType, delta);
           const currentAssistant = messages.value.find((item) => item.id === assistantId);
           if (!currentAssistant) return;
           currentAssistant.content += delta;
@@ -870,6 +977,15 @@ async function submitQuestion(): Promise<void> {
     );
 
     if (finalResult) {
+      chatRunStore.completeRun(props.chatType, {
+        sessionId: finalResult.session_id,
+        queryScope: finalResult.query_scope,
+        citations: finalResult.citations,
+        progressEvents: finalResult.progress_events?.length
+          ? markProgressComplete(finalResult.progress_events)
+          : progressEventsFromTrace(finalResult.agent_trace || [], true),
+        securityNotice: finalResult.security_notice,
+      });
       await refreshSessionState(finalResult.session_id);
       const latestAssistant = [...messages.value].reverse().find((item) => item.role === 'assistant');
       if (latestAssistant) latestAssistant.securityNotice = finalResult.security_notice;
@@ -877,6 +993,7 @@ async function submitQuestion(): Promise<void> {
   } catch (error) {
     const currentAssistant = messages.value.find((item) => item.id === assistantId);
     if (error instanceof DOMException && error.name === 'AbortError') {
+      chatRunStore.stopRun(props.chatType);
       if (currentAssistant && !currentAssistant.content.trim()) {
         currentAssistant.content = '已停止生成';
       }
@@ -888,6 +1005,7 @@ async function submitQuestion(): Promise<void> {
       MessagePlugin.info('已停止本次回答生成');
       return;
     }
+    chatRunStore.failRun(props.chatType);
     if (currentAssistant) {
       currentAssistant.status = 'error';
       if (!currentAssistant.content.trim()) {
@@ -905,16 +1023,36 @@ async function submitQuestion(): Promise<void> {
         currentAssistant.status = currentAssistant.content.trim() ? 'complete' : '';
       }
     }
-    streamAbortController.value = null;
     await scrollToBottom();
     await focusQuestionInput();
   }
 }
 
 onMounted(() => {
-  void loadBaseData();
+  void (async () => {
+    await loadBaseData();
+    await restoreChatRun();
+  })();
   document.addEventListener('click', closeSessionMenu);
 });
+
+watch(
+  () => chatRunStore.runs[props.chatType],
+  (run) => {
+    if (!run) return;
+    if (run.status === 'running') {
+      syncRunningSnapshot(run);
+      void scrollToBottom();
+      return;
+    }
+    streaming.value = false;
+    processingSessionId.value = null;
+    if (run.status === 'completed' && run.sessionId) {
+      void refreshSessionState(run.sessionId).then(() => chatRunStore.clearRun(props.chatType));
+    }
+  },
+  { deep: true },
+);
 
 watch(
   () => [route.query.projectId, route.query.project_id],

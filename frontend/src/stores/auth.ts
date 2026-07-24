@@ -11,6 +11,7 @@ import { defineStore } from 'pinia';
 
 import { changeMyPassword, currentPermissionsApi, deleteMyAvatar, loginApi, logoutApi, meApi, uploadMyAvatar } from '@/api/auth';
 import { getSystemMenus } from '@/api/system';
+import { useChatRunStore } from '@/stores/chatRun';
 import type { CurrentPermissions, SystemMenuNode, UserInfo } from '@/types/api';
 import { clearToken, getToken, setToken } from '@/utils/auth';
 import { filterAuthorizedMenuTree, normalizeAuthorizedMenuTree, preferredFirstMenuPath } from '@/utils/rbacMenus';
@@ -142,6 +143,7 @@ export const useAuthStore = defineStore('auth', {
       if (this.token) {
         await logoutApi().catch(() => undefined);
       }
+      useChatRunStore().clearAllRuns();
       this.token = null;
       this.user = null;
       this.permissions = { ...EMPTY_PERMISSIONS };
