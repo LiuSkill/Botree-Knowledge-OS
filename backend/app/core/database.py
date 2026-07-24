@@ -313,6 +313,38 @@ def migrate_database() -> None:
             connection.execute(text(alter_sql))
             connection.execute(text("UPDATE chat_sessions SET chat_type = 'project_chat' WHERE project_id IS NOT NULL"))
             logger.info("数据库迁移完成: chat_sessions.chat_type")
+        _add_column_if_missing(
+            connection,
+            chat_columns,
+            "chat_sessions",
+            "memory_state_json",
+            "LONGTEXT COMMENT '会话级短期记忆快照JSON'",
+            "TEXT",
+        )
+        _add_column_if_missing(
+            connection,
+            chat_columns,
+            "chat_sessions",
+            "memory_state_version",
+            "INTEGER NOT NULL DEFAULT 1 COMMENT '短期记忆结构版本'",
+            "INTEGER NOT NULL DEFAULT 1",
+        )
+        _add_column_if_missing(
+            connection,
+            chat_columns,
+            "chat_sessions",
+            "memory_updated_at",
+            "DATETIME COMMENT '短期记忆最近更新时间'",
+            "DATETIME",
+        )
+        _add_column_if_missing(
+            connection,
+            chat_columns,
+            "chat_sessions",
+            "memory_rebuild_needed",
+            "BOOLEAN NOT NULL DEFAULT FALSE COMMENT '短期记忆是否需要重建'",
+            "BOOLEAN NOT NULL DEFAULT 0",
+        )
 
         if "documents" in table_names:
             document_columns = {column["name"] for column in inspector.get_columns("documents")}

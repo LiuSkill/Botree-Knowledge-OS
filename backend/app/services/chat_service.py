@@ -37,6 +37,7 @@ from app.models.user import User
 from app.models.sensitive_content import SensitiveRedactionAudit
 from app.repositories.chat_repository import ChatRepository
 from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate, ChatSessionUpdate
+from app.services.chat_memory_service import ChatMemoryService, MemoryCitationAnchor, TurnContext, TurnOutcome
 from app.services.qwen_orchestration_service import QwenOrchestrationService
 from app.services.retrieval_trace_service import RetrievalTraceService
 from app.services.system_service import SystemService
@@ -105,6 +106,8 @@ VISIBLE_PROGRESS_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "pre_intent_gate",
             "intent",
             "answer_policy_router",
+            "session_memory",
+            "会话短期记忆上下文化",
         ),
     ),
     (
@@ -325,14 +328,22 @@ class ChatService:
         self._ensure_chat_action_permission(user, payload.chat_type, "send-message")
         self._validate_chat_request(payload.chat_type, payload.project_id, user)
         session = self._get_or_create_session(payload, user)
-        self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
+        user_message = self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
 
         pending_result = self._try_handle_general_confirmation(payload, user, session)
         if pending_result is not None:
             return pending_result
 
-        agent_result = AgentExecutor(self.db).run(payload.message, payload.chat_type, payload.mode, payload.project_id, user)
-        return self._persist_agent_result(payload, user, session, agent_result)
+        turn_context = ChatMemoryService(self.db).prepare_turn_context(session, user_message, payload.message)
+        agent_result = AgentExecutor(self.db).run(
+            payload.message,
+            payload.chat_type,
+            payload.mode,
+            payload.project_id,
+            user,
+            turn_context=turn_context,
+        )
+        return self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
 
     def complete_stream(self, payload: ChatCompletionRequest, user: User) -> Iterator[str]:
         """执行流式知识问答。"""
@@ -340,11 +351,12 @@ class ChatService:
         self._ensure_chat_action_permission(user, payload.chat_type, "send-message")
         self._validate_chat_request(payload.chat_type, payload.project_id, user)
         session = self._get_or_create_session(payload, user)
-        self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
+        user_message = self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
         # 流式连接可能被用户主动断开；先提交会话和问题，避免断开时回滚出前端已展示的会话 ID。
         self.db.commit()
 
         confirmation_decision = self._resolve_general_confirmation_decision(payload, session)
+        turn_context = None if confirmation_decision is not None else ChatMemoryService(self.db).prepare_turn_context(session, user_message, payload.message)
         initial_meta_payload = {
             "session_id": session.id,
             "chat_type": payload.chat_type,
@@ -375,6 +387,7 @@ class ChatService:
                     payload.mode,
                     payload.project_id,
                     user,
+                    turn_context=turn_context,
                 ):
                     if event_name == "trace_delta":
                         progress_event = self._progress_event_from_trace(event_payload)
@@ -415,7 +428,7 @@ class ChatService:
                             yield self._encode_sse("progress", answer_progress)
                     agent_result = retrieval_graph.to_agent_result(prepared_state)
                     yield self._encode_sse("delta", {"content": agent_result["answer"]})
-                    result = self._persist_agent_result(payload, user, session, agent_result)
+                    result = self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
                     yield self._encode_sse("done", self._sanitize_stream_result(result))
                     return
 
@@ -459,7 +472,7 @@ class ChatService:
                     )
                     if final_progress is not None and self._should_emit_progress(final_progress, emitted_progress):
                         yield self._encode_sse("progress", final_progress)
-                result = self._persist_agent_result(payload, user, session, agent_result)
+                result = self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
                 yield self._encode_sse("done", self._sanitize_stream_result(result))
             except AppException as exc:
                 self.db.rollback()
@@ -850,6 +863,8 @@ class ChatService:
         user: User,
         session: ChatSession,
         agent_result: dict[str, Any],
+        *,
+        turn_context: TurnContext | None = None,
     ) -> dict[str, Any]:
         """持久化回答、引用与检索轨迹，并返回统一响应。"""
 
@@ -944,6 +959,14 @@ class ChatService:
             f"类型={agent_result['chat_type']}，模式={agent_result['mode']}，引用={len(citations)}",
         )
         self.db.commit()
+        memory_writeback_meta = self._finalize_turn_memory_best_effort(
+            payload=payload,
+            session=session,
+            agent_result=agent_result,
+            citations=citations,
+            assistant_message=assistant_message,
+            turn_context=turn_context,
+        )
         logger.info("知识问答完成: session_id=%s citations=%s", session.id, len(citations))
 
         citation_dicts = [self._citation_to_dict(item) for item in citations]
@@ -971,8 +994,93 @@ class ChatService:
             "need_user_confirm": bool(agent_result.get("need_user_confirm")),
             "pending_action": agent_result.get("pending_action"),
             "feedback_status": assistant_message.feedback_status,
-            "raw": {"message_id": assistant_message.id, **agent_result.get("raw", {})},
+            "raw": {"message_id": assistant_message.id, **agent_result.get("raw", {}), **memory_writeback_meta},
         }
+
+    def _finalize_turn_memory_best_effort(
+        self,
+        *,
+        payload: ChatCompletionRequest,
+        session: ChatSession,
+        agent_result: dict[str, Any],
+        citations: list[ChatCitation],
+        assistant_message: ChatMessage,
+        turn_context: TurnContext | None,
+    ) -> dict[str, Any]:
+        """最佳努力写回会话级短期记忆，失败不能阻断主回答。"""
+
+        if turn_context is None:
+            return {
+                "memory_writeback_status": "skipped",
+                "memory_writeback_ms": 0,
+            }
+
+        started_at = time.perf_counter()
+        try:
+            outcome = TurnOutcome(
+                session_id=session.id,
+                user_message_id=self._resolve_user_message_id(session.id, assistant_message.id),
+                assistant_message_id=assistant_message.id,
+                user_message=payload.message,
+                answer=agent_result["answer"],
+                answer_type=str(agent_result.get("answer_type") or ""),
+                evidence_status=str(agent_result.get("evidence_status") or ""),
+                chat_type=str(agent_result.get("chat_type") or payload.chat_type),
+                project_id=payload.project_id,
+                citations=[
+                    MemoryCitationAnchor(
+                        citation_id=citation.id,
+                        source_type=citation.source_type,
+                        knowledge_base_id=citation.knowledge_base_id,
+                        project_id=citation.project_id,
+                        document_id=citation.document_id,
+                        chunk_id=citation.chunk_id,
+                        file_name=citation.file_name,
+                        page_number=citation.page_number,
+                    )
+                    for citation in citations
+                ],
+                evidences=list(agent_result.get("evidences", [])),
+                trace_steps=list(agent_result.get("trace_steps", agent_result.get("agent_trace", []))),
+                raw=dict(agent_result.get("raw", {})),
+                turn_context=turn_context,
+            )
+            ChatMemoryService(self.db).finalize_turn_memory(session, outcome)
+            self.db.commit()
+            return {
+                "memory_writeback_status": "success",
+                "memory_writeback_ms": int((time.perf_counter() - started_at) * 1000),
+            }
+        except Exception:  # noqa: BLE001
+            logger.exception("会话短期记忆写回失败: session_id=%s", session.id)
+            self.db.rollback()
+            rebuild_marked = False
+            try:
+                managed_session = self.repository.get_session(session.id)
+                if managed_session is not None:
+                    managed_session.memory_rebuild_needed = True
+                    self.repository.update_session(managed_session)
+                    self.db.commit()
+                    rebuild_marked = True
+            except Exception:  # noqa: BLE001
+                self.db.rollback()
+                logger.exception("会话短期记忆重建标记写入失败: session_id=%s", session.id)
+            return {
+                "memory_writeback_status": "failed",
+                "memory_writeback_ms": int((time.perf_counter() - started_at) * 1000),
+                "memory_rebuild_needed": rebuild_marked,
+            }
+
+    def _resolve_user_message_id(self, session_id: int, before_message_id: int) -> int:
+        """查询当前助手回答之前最近的一条用户消息 ID。"""
+
+        messages = self.repository.list_messages(session_id)
+        for message in reversed(messages):
+            if message.id >= before_message_id:
+                continue
+            if message.role == "user":
+                return message.id
+        raise AppException("未找到对应的用户问题", status_code=500, code=500)
 
     def _message_to_dict(self, message: ChatMessage, citations: list[ChatCitation]) -> dict[str, Any]:
         """序列化会话消息。"""

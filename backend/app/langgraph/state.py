@@ -23,10 +23,18 @@ class RetrievalGraphState(TypedDict, total=False):
     """
 
     question: str
+    original_question: str
+    effective_question: str
     chat_type: str
     mode: str
     project_id: int | None
     user: Any
+    turn_context: Any
+    session_memory: dict[str, Any]
+    answer_memory_context: dict[str, Any]
+    memory_trigger_mode: str
+    memory_trace: dict[str, Any]
+    memory_referenced_context_ids: list[str]
     chat_policy: dict[str, Any]
     intent_type: str
     intent: str

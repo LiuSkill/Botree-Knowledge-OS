@@ -139,6 +139,22 @@ class ChatRepository:
             self.db.scalars(select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.id)).all()
         )
 
+    def list_recent_round_messages(self, session_id: int, round_limit: int) -> list[ChatMessage]:
+        """按最近轮次读取会话消息，供短期记忆回看窗口使用。"""
+
+        safe_round_limit = max(int(round_limit or 1), 1)
+        message_limit = safe_round_limit * 2 + 2
+        recent_messages = list(
+            self.db.scalars(
+                select(ChatMessage)
+                .where(ChatMessage.session_id == session_id)
+                .order_by(ChatMessage.id.desc())
+                .limit(message_limit)
+            ).all()
+        )
+        recent_messages.reverse()
+        return recent_messages
+
     def add_citations(self, citations: list[ChatCitation]) -> list[ChatCitation]:
         """批量新增引用来源。"""
 

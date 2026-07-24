@@ -50,6 +50,7 @@ TRACE_NODE_STEPS = {
     "pre_intent_gate": "快速意图门控",
     "intent": "意图识别",
     "answer_policy_router": "答案策略",
+    "session_memory": "会话短期记忆上下文化",
     "query_decompose": "查询拆解",
     "query_profile": "查询画像",
     "question_understanding": "问题理解",
@@ -176,6 +177,7 @@ class RetrievalGraph:
         project_id: int | None,
         user: User,
         *,
+        turn_context: Any | None = None,
         eval_mode: bool = False,
         return_evidence: bool = False,
         retrieval_limit: int | None = None,
@@ -199,6 +201,7 @@ class RetrievalGraph:
             project_id,
             user,
             backend="sequential_prepare",
+            turn_context=turn_context,
             eval_mode=eval_mode,
             return_evidence=return_evidence,
             retrieval_limit=retrieval_limit,
@@ -237,6 +240,7 @@ class RetrievalGraph:
         project_id: int | None,
         user: User,
         *,
+        turn_context: Any | None = None,
         eval_mode: bool = False,
         return_evidence: bool = False,
         retrieval_limit: int | None = None,
@@ -260,6 +264,7 @@ class RetrievalGraph:
             project_id,
             user,
             backend="sequential_prepare_stream",
+            turn_context=turn_context,
             eval_mode=eval_mode,
             return_evidence=return_evidence,
             retrieval_limit=retrieval_limit,
@@ -373,6 +378,7 @@ class RetrievalGraph:
         project_id: int | None,
         user: User,
         *,
+        turn_context: Any | None = None,
         eval_mode: bool = False,
         return_evidence: bool = False,
         retrieval_limit: int | None = None,
@@ -406,6 +412,7 @@ class RetrievalGraph:
             project_id,
             user,
             backend="langgraph" if self._compiled_graph is not None else "sequential",
+            turn_context=turn_context,
             eval_mode=eval_mode,
             return_evidence=return_evidence,
             retrieval_limit=retrieval_limit,
@@ -450,6 +457,7 @@ class RetrievalGraph:
         project_id: int | None,
         user: User,
         backend: str,
+        turn_context: Any | None = None,
         eval_mode: bool = False,
         return_evidence: bool = False,
         retrieval_limit: int | None = None,
@@ -464,12 +472,28 @@ class RetrievalGraph:
     ) -> RetrievalGraphState:
         """构建问答图初始状态。"""
 
+        original_question = str(getattr(turn_context, "original_question", question) or question)
+        effective_question = str(getattr(turn_context, "effective_question", original_question) or original_question)
+        session_memory = getattr(turn_context, "session_memory", None)
+        if hasattr(session_memory, "model_dump"):
+            session_memory = session_memory.model_dump(mode="json")
+        memory_trace = dict(getattr(turn_context, "memory_trace", {}) or {})
+        memory_trigger_mode = str(getattr(turn_context, "memory_trigger_mode", "skip") or "skip")
+        memory_referenced_context_ids = list(getattr(turn_context, "memory_referenced_context_ids", []) or [])
         return {
-            "question": question,
+            "question": original_question,
+            "original_question": original_question,
+            "effective_question": effective_question,
             "chat_type": chat_type,
             "mode": mode,
             "project_id": project_id,
             "user": user,
+            "turn_context": turn_context,
+            "session_memory": session_memory or {},
+            "answer_memory_context": dict(getattr(turn_context, "answer_memory_context", {}) or {}),
+            "memory_trigger_mode": memory_trigger_mode,
+            "memory_trace": memory_trace,
+            "memory_referenced_context_ids": memory_referenced_context_ids,
             "trace": [],
             "model_routes": {},
             "evidence_evaluation": {},
@@ -478,6 +502,13 @@ class RetrievalGraph:
             "raw": {
                 "langgraph_backend": backend,
                 "run_id": uuid.uuid4().hex,
+                "memory_original_question": original_question,
+                "memory_effective_question": effective_question,
+                "memory_prepare_ms": int(memory_trace.get("prepare_ms") or 0),
+                "memory_trigger_mode": memory_trigger_mode,
+                "memory_decision_reason": memory_trace.get("decision_reason"),
+                "memory_topic_shift": memory_trace.get("topic_shift", {}),
+                "memory_referenced_context_ids": memory_referenced_context_ids,
                 "eval_mode": bool(eval_mode),
                 "return_evidence": bool(return_evidence),
                 "retrieval_limit": int(retrieval_limit) if retrieval_limit is not None else None,
@@ -514,6 +545,7 @@ class RetrievalGraph:
             ("pre_intent_gate", self._pre_intent_gate_node),
             ("intent", self._intent_node),
             ("answer_policy_router", self._answer_policy_router_node),
+            ("session_memory", self._session_memory_node),
             ("query_decompose", self._query_decompose_node),
             ("query_profile", self._query_profile_node),
             ("question_understanding", self._question_understanding_node),
@@ -637,6 +669,7 @@ class RetrievalGraph:
             graph.add_node("pre_intent_gate", self._pre_intent_gate_node)
             graph.add_node("intent", self._intent_node)
             graph.add_node("answer_policy_router", self._answer_policy_router_node)
+            graph.add_node("session_memory", self._session_memory_node)
             graph.add_node("query_decompose", self._query_decompose_node)
             graph.add_node("query_profile", self._query_profile_node)
             graph.add_node("question_understanding", self._question_understanding_node)
@@ -673,9 +706,10 @@ class RetrievalGraph:
                 self._route_after_answer_policy_router,
                 {
                     "direct_answer": "direct_answer",
-                    "query_decompose": "query_decompose",
+                    "session_memory": "session_memory",
                 },
             )
+            graph.add_edge("session_memory", "query_decompose")
             graph.add_edge("query_decompose", "query_profile")
             graph.add_edge("query_profile", "question_understanding")
             graph.add_edge("question_understanding", "policy_resolution")
@@ -993,7 +1027,7 @@ class RetrievalGraph:
         return "direct_answer" if self._should_direct_answer(state) else "query_decompose"
 
     def _route_after_answer_policy_router(self, state: RetrievalGraphState) -> str:
-        return "direct_answer" if self._should_direct_answer(state) else "query_decompose"
+        return "direct_answer" if self._should_direct_answer(state) else "session_memory"
 
     def _route_after_answer_policy_gate(self, state: RetrievalGraphState) -> str:
         return "end" if self._is_terminal_without_answer_generation(state) else "answer"
@@ -1191,6 +1225,50 @@ class RetrievalGraph:
             return state
 
         return self._with_trace(state, "答案策略路由", "rules", run)
+
+    def _session_memory_node(self, state: RetrievalGraphState) -> RetrievalGraphState:
+        """消费会话级短期记忆上下文，决定本轮检索使用的 effective question。"""
+
+        def run() -> RetrievalGraphState:
+            raw = state.setdefault("raw", {})
+            turn_context = state.get("turn_context")
+            if turn_context is None:
+                raw["memory_original_question"] = state.get("original_question") or state.get("question")
+                raw["memory_effective_question"] = state.get("question")
+                raw["memory_trigger_mode"] = "skip"
+                raw["memory_decision_reason"] = "no_turn_context"
+                raw["memory_topic_shift"] = {}
+                raw["memory_referenced_context_ids"] = []
+                state["effective_question"] = str(state.get("question") or "")
+                state["memory_trigger_mode"] = "skip"
+                state["memory_trace"] = {
+                    "decision_reason": "no_turn_context",
+                    "original_question": state.get("question"),
+                    "effective_question": state.get("question"),
+                }
+                state["memory_referenced_context_ids"] = []
+                state["answer_memory_context"] = {}
+                return state
+
+            original_question = str(state.get("original_question") or state.get("question") or "")
+            effective_question = str(state.get("effective_question") or original_question)
+            state["memory_trigger_mode"] = str(state.get("memory_trigger_mode") or "skip")
+            if state.get("memory_trigger_mode") == "rewrite_single":
+                state["question"] = effective_question
+            else:
+                state["question"] = original_question
+                effective_question = original_question
+                state["effective_question"] = original_question
+
+            raw["memory_original_question"] = original_question
+            raw["memory_effective_question"] = effective_question
+            raw["memory_trigger_mode"] = state.get("memory_trigger_mode")
+            raw["memory_decision_reason"] = state.get("memory_trace", {}).get("decision_reason")
+            raw["memory_topic_shift"] = state.get("memory_trace", {}).get("topic_shift", {})
+            raw["memory_referenced_context_ids"] = state.get("memory_referenced_context_ids", [])
+            return state
+
+        return self._with_trace(state, "会话短期记忆上下文化", "chat_memory", run)
 
     def _retrieval_limit(self, state: RetrievalGraphState) -> int:
         raw_limit = state.get("raw", {}).get("retrieval_limit")
@@ -3631,6 +3709,12 @@ class RetrievalGraph:
             "resolved_answer_shape": state.get("resolved_answer_shape"),
             "resolved_answer_policy": state.get("resolved_answer_policy"),
             "resolved_knowledge_scope": state.get("resolved_knowledge_scope"),
+            "memory_trigger_mode": state.get("memory_trigger_mode"),
+            "memory_original_question": state.get("original_question"),
+            "memory_effective_question": state.get("effective_question"),
+            "memory_decision_reason": state.get("memory_trace", {}).get("decision_reason"),
+            "memory_topic_shift": state.get("memory_trace", {}).get("topic_shift", {}),
+            "memory_referenced_context_ids": state.get("memory_referenced_context_ids", []),
             "query_features": state.get("query_features", {}),
             "retrieval_plan": state.get("retrieval_plan", {}),
             "planned_retrievers": state.get("planned_retrievers", []),
@@ -3912,6 +3996,8 @@ class RetrievalGraph:
             return "question_understanding"
         if implementation == "policy_resolution":
             return "policy_resolution"
+        if implementation == "chat_memory":
+            return "session_memory"
         if implementation == "planner":
             return "planner"
         if implementation == "direct_answer":
@@ -3935,6 +4021,8 @@ class RetrievalGraph:
             return "正在识别问题类型..."
         if trace_key == "query_decompose":
             return "正在拆解查询..."
+        if trace_key == "session_memory":
+            return "正在结合会话短期记忆补全问题..."
         if trace_key == "query_profile":
             return "正在生成查询画像..."
         if trace_key == "question_understanding":
@@ -3974,6 +4062,16 @@ class RetrievalGraph:
             sub_queries = state.get("sub_queries", []) or [state.get("question", "")]
             query_text = "；".join(self._clip(item, 120) for item in sub_queries)
             return f"生成 {len(sub_queries)} 个检索问题：{query_text}"
+        if trace_key == "session_memory":
+            trigger_mode = str(state.get("memory_trigger_mode") or "skip")
+            if trigger_mode == "rewrite_single":
+                return (
+                    "已完成会话上下文化："
+                    f"{self._clip(str(state.get('original_question') or ''), 80)} → "
+                    f"{self._clip(str(state.get('effective_question') or ''), 80)}"
+                )
+            reason = str(state.get("memory_trace", {}).get("decision_reason") or "skip")
+            return f"未改写检索问题：{reason}"
         if trace_key == "query_profile":
             profile = state.get("query_profile", {}) or {}
             query_type = str(profile.get("query_type") or "unknown")
@@ -4035,6 +4133,7 @@ class RetrievalGraph:
         stage_label = {
             "intent": "理解问题",
             "query_decompose": "拆解查询",
+            "session_memory": "会话上下文化",
             "planner": "规划检索方式",
             "question_understanding": "生成问题理解",
             "policy_resolution": "解析问答策略",
@@ -4268,6 +4367,13 @@ class RetrievalGraph:
                 "resolved_answer_shape": state.get("resolved_answer_shape"),
                 "resolved_answer_policy": state.get("resolved_answer_policy"),
                 "resolved_knowledge_scope": state.get("resolved_knowledge_scope"),
+                "memory_prepare_ms": state.get("raw", {}).get("memory_prepare_ms", 0),
+                "memory_trigger_mode": state.get("memory_trigger_mode"),
+                "memory_decision_reason": state.get("memory_trace", {}).get("decision_reason"),
+                "memory_original_question": state.get("original_question"),
+                "memory_effective_question": state.get("effective_question"),
+                "memory_topic_shift": state.get("memory_trace", {}).get("topic_shift", {}),
+                "memory_referenced_context_ids": state.get("memory_referenced_context_ids", []),
                 "query_features": state.get("query_features", {}),
                 "retrieval_plan": state.get("retrieval_plan", {}),
                 "planned_retrievers": state.get("planned_retrievers", []),

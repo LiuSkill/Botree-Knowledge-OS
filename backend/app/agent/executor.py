@@ -7,6 +7,8 @@ Agent Executor
 3. 返回答案、引用来源和检索器信息
 """
 
+from typing import Any
+
 from sqlalchemy.orm import Session
 
 from app.langgraph import RetrievalGraph
@@ -27,7 +29,16 @@ class AgentExecutor:
         self.db = db
         self.retrieval_graph = RetrievalGraph(db)
 
-    def run(self, question: str, chat_type: str, mode: str, project_id: int | None, user: User) -> dict:
+    def run(
+        self,
+        question: str,
+        chat_type: str,
+        mode: str,
+        project_id: int | None,
+        user: User,
+        *,
+        turn_context: Any | None = None,
+    ) -> dict:
         """
         执行知识问答
 
@@ -42,4 +53,4 @@ class AgentExecutor:
             Agent 执行结果。
         """
 
-        return self.retrieval_graph.run(question, chat_type, mode, project_id, user)
+        return self.retrieval_graph.run(question, chat_type, mode, project_id, user, turn_context=turn_context)

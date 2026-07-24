@@ -42,6 +42,14 @@ class ChatSession(TimestampMixin, Base):
     pending_answer_policy: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="等待确认的问题答案策略")
     pending_evidence_status: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="等待确认的问题证据状态")
     pending_created_at: Mapped[Any | None] = mapped_column(DateTime, nullable=True, comment="等待确认状态创建时间")
+    memory_state_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(LONGTEXT(), "mysql"),
+        nullable=True,
+        comment="会话级短期记忆快照JSON",
+    )
+    memory_state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False, comment="短期记忆结构版本")
+    memory_updated_at: Mapped[Any | None] = mapped_column(DateTime, nullable=True, comment="短期记忆最近更新时间")
+    memory_rebuild_needed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="短期记忆是否需要重建")
 
 
 class ChatMessage(TimestampMixin, Base):
