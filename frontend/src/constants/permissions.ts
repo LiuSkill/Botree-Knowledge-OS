@@ -117,7 +117,6 @@ export const ACTION_PERMISSIONS = {
   PROCESS_CONFIG_ROUTE_DELETE: 'process_config:route:delete',
   PROCESS_CONFIG_ROUTE_IMPORT: 'process_config:route:import',
   PROCESS_CONFIG_ROUTE_EXPORT: 'process_config:route:export',
-  PROCESS_CONFIG_ROUTE_COPY: 'process_config:route:copy',
   PROCESS_CONFIG_ROUTE_VERSION: 'process_config:route:version',
   PROCESS_CONFIG_ROUTE_PREVIEW: 'process_config:route:preview',
 
@@ -400,7 +399,6 @@ export const ACTION_PERMISSION_GROUPS: ActionGroupDefinition[] = [
       { action: 'delete', name: '删除工艺路线', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_DELETE },
       { action: 'import', name: '导入工艺路线', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_IMPORT },
       { action: 'export', name: '导出工艺路线', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_EXPORT },
-      { action: 'copy', name: '复制工艺路线', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_COPY },
       { action: 'version', name: '管理工艺路线版本', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_VERSION },
       { action: 'preview', name: '线路预览', code: ACTION_PERMISSIONS.PROCESS_CONFIG_ROUTE_PREVIEW },
     ],

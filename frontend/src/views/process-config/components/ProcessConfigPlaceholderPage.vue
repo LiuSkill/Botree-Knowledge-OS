@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AddIcon, CopyIcon, DownloadIcon, HistoryIcon, RefreshIcon, UploadIcon } from 'tdesign-icons-vue-next';
+import { AddIcon, DownloadIcon, HistoryIcon, RefreshIcon, UploadIcon } from 'tdesign-icons-vue-next';
 import { reactive, ref } from 'vue';
 
 import type { PermissionCode } from '@/constants/permissions';
@@ -16,7 +16,6 @@ interface ProcessConfigPagePermissions {
   delete: PermissionCode;
   import: PermissionCode;
   export: PermissionCode;
-  copy?: PermissionCode;
   version?: PermissionCode;
 }
 
@@ -101,10 +100,6 @@ function handlePaginationChange(pageInfo: PaginationInfo): void {
         <t-button v-permission="props.permissions.export" theme="default" variant="outline" disabled>
           <template #icon><DownloadIcon /></template>
           导出
-        </t-button>
-        <t-button v-if="props.permissions.copy" v-permission="props.permissions.copy" theme="default" variant="outline" disabled>
-          <template #icon><CopyIcon /></template>
-          复制
         </t-button>
         <t-button v-if="props.permissions.version" v-permission="props.permissions.version" theme="default" variant="outline" disabled>
           <template #icon><HistoryIcon /></template>

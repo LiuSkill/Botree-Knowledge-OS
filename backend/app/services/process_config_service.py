@@ -662,34 +662,6 @@ class ProcessConfigService:
         self.db.commit()
         logger.info("工艺路线节点删除完成: route_id=%s route_node_id=%s operator_id=%s", route.id, route_node.id, operator.id)
 
-    def copy_route(self, route_id: int, operator: User) -> dict:
-        """复制工艺路线主信息与节点链路，新路线默认启用。"""
-
-        repo = ProcessRouteRepository(self.db)
-        route = self._get_existing_route(repo, route_id)
-        route_nodes = repo.list_nodes(route.id)
-        copied_route = ProcessRoute(
-            code=self._generate_route_copy_code(repo, route.code),
-            name=route.name,
-            input_material_id=route.input_material_id,
-            final_product_id=route.final_product_id,
-            version=route.version,
-            description=route.description,
-            status="enabled",
-            sort_order=route.sort_order,
-            remark=route.remark,
-            created_by=operator.id,
-            updated_by=operator.id,
-            is_deleted=False,
-        )
-        repo.add(copied_route)
-        repo.replace_nodes(copied_route.id, [self._route_node_model_dump(row) for row in route_nodes])
-
-        self.system_service.record_operation(operator, "复制工艺路线", "process_route", copied_route.id, f"复制工艺路线 {route.name}")
-        self.db.commit()
-        self.db.refresh(copied_route)
-        logger.info("工艺路线复制完成: source_route_id=%s new_route_id=%s operator_id=%s", route.id, copied_route.id, operator.id)
-        return self._serialize_route_detail(repo, copied_route)
 
     def list_route_versions(self, route_id: int) -> list[dict]:
         """查询路线版本快照列表。"""
@@ -1025,14 +997,6 @@ class ProcessConfigService:
             "remark": route_node.remark,
         }
 
-    def _generate_route_copy_code(self, repo: ProcessRouteRepository, source_code: str) -> str:
-        base_code = f"{source_code}_COPY"
-        candidate = base_code
-        index = 2
-        while repo.get_by_code(candidate):
-            candidate = f"{base_code}_{index}"
-            index += 1
-        return candidate
 
     def _payload_dump(
         self,

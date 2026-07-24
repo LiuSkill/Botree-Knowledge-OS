@@ -134,7 +134,6 @@ export interface ProcessRoutePermissions {
   delete: PermissionCode;
   import: PermissionCode;
   export: PermissionCode;
-  copy: PermissionCode;
   version: PermissionCode;
 }
 

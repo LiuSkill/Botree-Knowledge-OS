@@ -171,10 +171,6 @@ export function deleteProcessRouteNode(routeId: number, routeNodeId: number): Pr
   return request.delete(`/process-config/routes/${routeId}/nodes/${routeNodeId}`) as Promise<{ deleted: boolean }>;
 }
 
-export function copyProcessRoute(id: number): Promise<ProcessRouteDetail> {
-  return request.post(`/process-config/routes/${id}/copy`) as Promise<ProcessRouteDetail>;
-}
-
 export function listProcessRouteVersions(routeId: number): Promise<ProcessRouteVersion[]> {
   return request.get(`/process-config/routes/${routeId}/versions`) as Promise<ProcessRouteVersion[]>;
 }

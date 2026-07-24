@@ -866,13 +866,6 @@ def delete_route_node(
     return success({"deleted": True})
 
 
-@router.post("/routes/{route_id}/copy", summary="复制工艺路线")
-def copy_route(
-    route_id: int,
-    current_user: User = Depends(require_permission("process_config:route:copy")),
-    db: Session = Depends(get_db),
-) -> dict:
-    return success(ProcessConfigService(db).copy_route(route_id, current_user))
 
 
 @router.get("/routes/{route_id}/versions", summary="路线版本列表")

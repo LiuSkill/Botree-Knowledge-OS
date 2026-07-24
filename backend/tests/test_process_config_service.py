@@ -272,7 +272,6 @@ def test_process_config_api_routes_are_registered_and_protected(api_db_session: 
     assert "/api/process-config/routes/export" in paths
     assert "/api/process-config/routes/import" in paths
     assert "/api/process-config/routes/{route_id}/tree-preview" in paths
-    assert "/api/process-config/routes/{route_id}/copy" in paths
     assert "/api/process-config/routes/{route_id}/versions" in paths
     assert "/api/process-config/options/materials" in paths
 
@@ -446,7 +445,7 @@ def test_node_api_crud_roundtrip(api_db_session: Session) -> None:
 
 
 def test_route_api_crud_roundtrip(api_db_session: Session) -> None:
-    """Admin can use the route CRUD, copy, and version APIs end-to-end."""
+    """Admin can use the route CRUD and version APIs end-to-end."""
 
     operator = seed_operator(api_db_session)
     admin_role = Role(name="Admin", code="admin", enabled=True)
@@ -543,13 +542,6 @@ def test_route_api_crud_roundtrip(api_db_session: Session) -> None:
     versions_response = client.get(f"/api/process-config/routes/{created['route']['id']}/versions")
     assert versions_response.status_code == 200
     assert versions_response.json()["data"][0]["version_no"] == 1
-
-    copy_response = client.post(f"/api/process-config/routes/{created['route']['id']}/copy")
-    assert copy_response.status_code == 200
-    copied = copy_response.json()["data"]
-    assert copied["route"]["status"] == "enabled"
-    assert copied["route"]["code"].startswith("R-API_COPY")
-    assert len(copied["nodes"]) == 2
 
     delete_route_node_response = client.delete(f"/api/process-config/routes/{created['route']['id']}/nodes/{updated['nodes'][1]['id']}")
     assert delete_route_node_response.status_code == 200
@@ -717,7 +709,7 @@ def test_node_delete_blocks_route_references(db_session: Session) -> None:
 
 
 def test_route_crud_snapshot_copy_and_delete(db_session: Session) -> None:
-    """Routes persist node chains, snapshots, copies, and soft deletes correctly."""
+    """Routes persist node chains, snapshots, and soft deletes correctly."""
 
     operator = seed_operator(db_session)
     service = ProcessConfigService(db_session)
@@ -781,11 +773,6 @@ def test_route_crud_snapshot_copy_and_delete(db_session: Session) -> None:
 
     versions = service.list_route_versions(created["route"]["id"])
     assert versions[0]["version_no"] == 1
-
-    copied = service.copy_route(created["route"]["id"], operator)
-    assert copied["route"]["status"] == "enabled"
-    assert copied["route"]["code"].startswith("R001_COPY")
-    assert len(copied["nodes"]) == 2
 
     service.delete_route_node(created["route"]["id"], updated["nodes"][1]["id"], operator)
     remaining = service.get_route(created["route"]["id"])

@@ -138,7 +138,6 @@ def test_process_config_menu_and_action_catalog_use_registered_permissions(db_se
         "process_config:route:delete",
         "process_config:route:import",
         "process_config:route:export",
-        "process_config:route:copy",
         "process_config:route:version",
         "process_config:route:preview",
     }

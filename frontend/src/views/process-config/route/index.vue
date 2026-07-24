@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { AddIcon, BrowseIcon, CopyIcon, DeleteIcon, DownloadIcon, EditIcon, FileSearchIcon, RefreshIcon, TimeIcon, UploadIcon } from 'tdesign-icons-vue-next';
+import { AddIcon, BrowseIcon, DeleteIcon, DownloadIcon, EditIcon, FileSearchIcon, RefreshIcon, TimeIcon, UploadIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import {
-  copyProcessRoute,
   createProcessRoute,
   deleteProcessRoute,
   exportProcessConfigData,
@@ -56,7 +55,6 @@ const permissions = {
   delete: PERMISSIONS.PROCESS_CONFIG_ROUTE_DELETE,
   import: PERMISSIONS.PROCESS_CONFIG_ROUTE_IMPORT,
   export: PERMISSIONS.PROCESS_CONFIG_ROUTE_EXPORT,
-  copy: PERMISSIONS.PROCESS_CONFIG_ROUTE_COPY,
   version: PERMISSIONS.PROCESS_CONFIG_ROUTE_VERSION,
   preview: PERMISSIONS.PROCESS_CONFIG_ROUTE_PREVIEW,
 } as const;
@@ -79,7 +77,6 @@ const optionsLoading = ref(false);
 const submitting = ref(false);
 const editLoadingId = ref<number | null>(null);
 const deletingId = ref<number | null>(null);
-const copyingId = ref<number | null>(null);
 const exporting = ref(false);
 const formVisible = ref(false);
 const importVisible = ref(false);
@@ -330,17 +327,6 @@ async function handleDelete(row: ProcessRouteItem): Promise<void> {
   }
 }
 
-async function handleCopy(row: ProcessRouteItem): Promise<void> {
-  copyingId.value = row.id;
-  try {
-    await copyProcessRoute(row.id);
-    MessagePlugin.success('已复制为草稿路线');
-    await refreshAll();
-  } finally {
-    copyingId.value = null;
-  }
-}
-
 function openVersionDialog(row: ProcessRouteItem): void {
   versionRoute.value = row;
   versionDialogVisible.value = true;
@@ -498,9 +484,6 @@ function formatAverage(value: number): string {
             </TableActionButton>
             <TableActionButton label="编辑" :permission="permissions.update" :loading="editLoadingId === row.id" @click="openEditDialog(row)">
               <EditIcon />
-            </TableActionButton>
-            <TableActionButton label="复制为草稿" :permission="permissions.copy" :loading="copyingId === row.id" @click="handleCopy(row)">
-              <CopyIcon />
             </TableActionButton>
             <TableActionButton label="版本管理" :permission="permissions.version" @click="openVersionDialog(row)">
               <TimeIcon />
