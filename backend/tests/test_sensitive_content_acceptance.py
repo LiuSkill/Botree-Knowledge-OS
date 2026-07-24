@@ -148,7 +148,7 @@ def test_stream_buffers_raw_tokens_until_final_filter(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr("app.services.chat_service.RetrievalGraph", FakeGraph)
     service = object.__new__(ChatService)
-    service.db = SimpleNamespace(rollback=lambda: None)
+    service.db = SimpleNamespace(commit=lambda: None, rollback=lambda: None)
     service.repository = SimpleNamespace(add_message=lambda _message: None)
     service._ensure_chat_action_permission = lambda *_args: None
     service._validate_chat_request = lambda *_args: None

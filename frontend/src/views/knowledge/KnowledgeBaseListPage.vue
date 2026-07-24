@@ -622,17 +622,17 @@ onMounted(loadEnterpriseKnowledge);
         <t-form-item label="首次版本">
           <div class="version-rule">新资料首次上传为 v1；同一资料的新版本请在文档详情中上传，系统自动递增。</div>
         </t-form-item>
-        <t-form-item label="知识分类">
+        <t-form-item label="知识分类" required-mark>
           <t-select v-model="uploadForm.category_id" placeholder="请选择知识分类">
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
           </t-select>
         </t-form-item>
-        <t-form-item label="文档密级">
+        <t-form-item label="文档密级" required-mark>
           <t-select v-model="uploadForm.security_level">
             <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
         </t-form-item>
-        <t-form-item label="文档文件">
+        <t-form-item label="文档文件" required-mark>
           <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
           <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
         </t-form-item>
@@ -651,7 +651,7 @@ onMounted(loadEnterpriseKnowledge);
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.value === editingCategoryId" />
           </t-select>
         </t-form-item>
-        <t-form-item label="分类名称"><t-input v-model="categoryForm.name" /></t-form-item>
+        <t-form-item label="分类名称" required-mark><t-input v-model="categoryForm.name" /></t-form-item>
         <t-form-item label="分类编码"><t-input v-model="categoryForm.code" placeholder="为空时自动生成" /></t-form-item>
         <t-form-item label="排序"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
         <t-form-item label="说明"><t-textarea v-model="categoryForm.description" /></t-form-item>

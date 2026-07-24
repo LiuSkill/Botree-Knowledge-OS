@@ -596,8 +596,8 @@ onMounted(loadMatrix);
 
     <t-dialog v-model:visible="roleDialogVisible" :header="roleDialogTitle" width="520px" @confirm="submitRole">
       <t-form :data="roleForm" label-align="top">
-        <t-form-item label="角色名称"><t-input v-model="roleForm.name" /></t-form-item>
-        <t-form-item label="角色编码"><t-input v-model="roleForm.code" :disabled="roleDialogMode === 'edit'" /></t-form-item>
+        <t-form-item label="角色名称" required-mark><t-input v-model="roleForm.name" /></t-form-item>
+        <t-form-item label="角色编码" required-mark><t-input v-model="roleForm.code" :disabled="roleDialogMode === 'edit'" /></t-form-item>
         <t-form-item label="角色说明"><t-textarea v-model="roleForm.description" /></t-form-item>
         <t-form-item label="最高密级">
           <t-select v-model="roleForm.security_level">

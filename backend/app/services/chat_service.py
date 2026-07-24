@@ -341,6 +341,8 @@ class ChatService:
         self._validate_chat_request(payload.chat_type, payload.project_id, user)
         session = self._get_or_create_session(payload, user)
         self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
+        # 流式连接可能被用户主动断开；先提交会话和问题，避免断开时回滚出前端已展示的会话 ID。
+        self.db.commit()
 
         confirmation_decision = self._resolve_general_confirmation_decision(payload, session)
         initial_meta_payload = {

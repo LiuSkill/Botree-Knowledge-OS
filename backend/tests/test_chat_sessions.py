@@ -21,7 +21,7 @@ from app.models import Base, ChatCitation, ChatMessage, ChatSession, RetrievalTr
 from app.models.user import Role, User  # noqa: E402
 from app.repositories.chat_repository import ChatRepository  # noqa: E402
 from app.retrieval.schemas import Evidence  # noqa: E402
-from app.schemas.chat import ChatSessionUpdate  # noqa: E402
+from app.schemas.chat import ChatCompletionRequest, ChatSessionUpdate  # noqa: E402
 from app.services.chat_service import ChatService  # noqa: E402
 
 
@@ -135,6 +135,36 @@ def test_chat_service_lists_only_selected_project_sessions() -> None:
         sessions = ChatService(db).list_sessions(make_admin_user(), chat_type="project_chat", project_id=20)
 
         assert [session.title for session in sessions] == ["项目20会话"]
+    finally:
+        db.close()
+
+
+def test_interrupted_new_stream_session_can_continue() -> None:
+    """新会话在流式输出被主动中断后仍应存在，并允许继续提问。"""
+
+    db = make_session()
+    try:
+        user = make_admin_user()
+        service = ChatService(db)
+        first_stream = service.complete_stream(ChatCompletionRequest(message="第一次问题"), user)
+
+        first_event = next(first_stream)
+        first_stream.close()
+        session = db.scalar(select(ChatSession))
+
+        assert "event: meta" in first_event
+        assert session is not None
+        assert db.scalar(select(func.count()).select_from(ChatMessage)) == 1
+
+        second_stream = service.complete_stream(
+            ChatCompletionRequest(session_id=session.id, message="中断后继续提问"),
+            user,
+        )
+        second_event = next(second_stream)
+        second_stream.close()
+
+        assert f'"session_id": {session.id}' in second_event
+        assert db.scalar(select(func.count()).select_from(ChatMessage)) == 2
     finally:
         db.close()
 

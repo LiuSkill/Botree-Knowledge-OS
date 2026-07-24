@@ -203,9 +203,9 @@ function submitForm(): void {
       <section class="project-form-section">
         <div class="project-form-section-title">基础信息</div>
         <div class="project-form-grid">
-          <t-form-item label="项目名称"><t-input v-model="form.project_name" /></t-form-item>
-          <t-form-item label="项目编号"><t-input v-model="form.project_code" /></t-form-item>
-          <t-form-item label="项目简称"><t-input v-model="form.project_short_name" /></t-form-item>
+          <t-form-item label="项目名称" required-mark><t-input v-model="form.project_name" /></t-form-item>
+          <t-form-item label="项目编号" required-mark><t-input v-model="form.project_code" /></t-form-item>
+          <t-form-item label="项目简称" required-mark><t-input v-model="form.project_short_name" /></t-form-item>
           <t-form-item label="英文名称"><t-input v-model="form.project_english_name" /></t-form-item>
         </div>
       </section>
@@ -213,14 +213,14 @@ function submitForm(): void {
       <section class="project-form-section">
         <div class="project-form-section-title">客户与状态</div>
         <div class="project-form-grid">
-          <t-form-item label="客户名称"><t-input v-model="form.customer_name" /></t-form-item>
-          <t-form-item label="项目负责人"><t-input v-model="form.owner_name" /></t-form-item>
-          <t-form-item label="项目状态">
+          <t-form-item label="客户名称" required-mark><t-input v-model="form.customer_name" /></t-form-item>
+          <t-form-item label="项目负责人" required-mark><t-input v-model="form.owner_name" /></t-form-item>
+          <t-form-item label="项目状态" required-mark>
             <t-select v-model="form.project_status">
               <t-option v-for="item in PROJECT_STATUS_OPTIONS" :key="item" :value="item" :label="item" />
             </t-select>
           </t-form-item>
-          <t-form-item label="项目密级">
+          <t-form-item label="项目密级" required-mark>
             <t-select v-model="form.security_level">
               <t-option
                 v-for="item in securityLevelOptions(authStore.maxSecurityLevel, form.security_level)"
@@ -249,7 +249,7 @@ function submitForm(): void {
 
       <section class="project-form-section">
         <div class="project-form-section-title">工艺与交付</div>
-        <t-form-item label="项目简介"><t-textarea v-model="form.description" :autosize="{ minRows: 3, maxRows: 5 }" /></t-form-item>
+        <t-form-item label="项目简介" required-mark><t-textarea v-model="form.description" :autosize="{ minRows: 3, maxRows: 5 }" /></t-form-item>
         <t-form-item label="工艺路线"><t-textarea v-model="form.process_route" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
         <t-form-item label="主要产品"><t-textarea v-model="form.main_products" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
         <t-form-item label="项目范围"><t-textarea v-model="form.scope_description" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>

@@ -926,32 +926,34 @@ onMounted(async () => {
     >
       <div class="upload-dialog-body">
         <div class="upload-form-grid">
-          <t-form-item label="所属目录">
+          <t-form-item label="所属目录" required-mark>
             <t-select v-model="uploadForm.directory_id" placeholder="请选择目录">
               <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
             </t-select>
           </t-form-item>
-          <t-form-item label="资料密级">
+          <t-form-item label="资料密级" required-mark>
             <t-select v-model="uploadForm.security_level">
               <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
         </div>
 
-        <input ref="uploadInputRef" class="hidden-file-input" type="file" multiple @change="handleFileChange" />
-        <button type="button" class="upload-dropzone" @click="browseUploadFiles">
-          <CloudUploadIcon />
-          <strong>点击选择文件</strong>
-          <span>支持批量上传，文件将进入待审核流程</span>
-        </button>
+        <t-form-item label="资料文件" required-mark>
+          <input ref="uploadInputRef" class="hidden-file-input" type="file" multiple @change="handleFileChange" />
+          <button type="button" class="upload-dropzone" @click="browseUploadFiles">
+            <CloudUploadIcon />
+            <strong>点击选择文件</strong>
+            <span>支持批量上传，文件将进入待审核流程</span>
+          </button>
 
-        <div v-if="selectedUploadFiles.length" class="upload-file-list">
-          <div v-for="(file, index) in selectedUploadFiles" :key="`${file.name}-${file.size}-${index}`">
-            <span>{{ file.name }}</span>
-            <small>{{ formatFileSize(file.size) }}</small>
-            <t-button size="small" variant="text" theme="danger" @click="removeUploadFile(index)">移除</t-button>
+          <div v-if="selectedUploadFiles.length" class="upload-file-list">
+            <div v-for="(file, index) in selectedUploadFiles" :key="`${file.name}-${file.size}-${index}`">
+              <span>{{ file.name }}</span>
+              <small>{{ formatFileSize(file.size) }}</small>
+              <t-button size="small" variant="text" theme="danger" @click="removeUploadFile(index)">移除</t-button>
+            </div>
           </div>
-        </div>
+        </t-form-item>
       </div>
     </t-dialog>
 
@@ -967,7 +969,7 @@ onMounted(async () => {
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.value === editingCategoryId" />
           </t-select>
         </t-form-item>
-        <t-form-item label="目录名称"><t-input v-model="categoryForm.name" /></t-form-item>
+        <t-form-item label="目录名称" required-mark><t-input v-model="categoryForm.name" /></t-form-item>
         <t-form-item label="目录编码"><t-input v-model="categoryForm.code" placeholder="为空时自动生成" /></t-form-item>
         <div class="upload-form-grid">
           <t-form-item label="排序"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>

@@ -109,7 +109,6 @@ const canMaintainAvatar = computed(() =>
 
 const columns = [
   { colKey: 'avatar', title: '头像', width: 88, align: 'center' },
-  { colKey: 'username', title: '用户名', width: 150 },
   { colKey: 'real_name', title: '姓名', width: 150 },
   { colKey: 'department', title: '所属部门', width: 160 },
   { colKey: 'email', title: '邮箱', minWidth: 180 },
@@ -616,7 +615,7 @@ onBeforeUnmount(() => {
 
     <t-dialog v-model:visible="dialogVisible" :header="dialogTitle" width="560px" :confirm-loading="submitting" @confirm="handleSubmit">
       <t-form :data="form" label-align="top">
-        <t-form-item label="用户名"><t-input v-model="form.username" :disabled="dialogMode === 'edit'" /></t-form-item>
+        <t-form-item label="用户名" required-mark><t-input v-model="form.username" :disabled="dialogMode === 'edit'" /></t-form-item>
         <t-form-item label="头像">
           <div class="avatar-maintenance">
             <t-avatar
@@ -664,8 +663,8 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </t-form-item>
-        <t-form-item v-if="dialogMode === 'create'" label="初始密码"><t-input v-model="form.password" type="password" /></t-form-item>
-        <t-form-item label="姓名"><t-input v-model="form.real_name" /></t-form-item>
+        <t-form-item v-if="dialogMode === 'create'" label="初始密码" required-mark><t-input v-model="form.password" type="password" /></t-form-item>
+        <t-form-item label="姓名" required-mark><t-input v-model="form.real_name" /></t-form-item>
         <t-form-item label="邮箱"><t-input v-model="form.email" /></t-form-item>
         <t-form-item label="电话"><t-input v-model="form.phone" /></t-form-item>
         <t-form-item label="所属部门">

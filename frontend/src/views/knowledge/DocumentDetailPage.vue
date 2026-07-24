@@ -1738,7 +1738,7 @@ onBeforeUnmount(() => {
         @close="closeVersionDialog"
       >
         <t-form label-align="top">
-          <t-form-item label="新版本文件">
+          <t-form-item label="新版本文件" required-mark>
             <div class="file-picker-row">
               <input
                 :id="VERSION_UPLOAD_INPUT_ID"

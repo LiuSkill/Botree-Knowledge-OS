@@ -1846,34 +1846,36 @@ onMounted(loadData);
         <div class="version-rule">
           新资料首次上传为 v1；同一资料的新版本请在文件详情中上传，系统自动递增。
         </div>
-        <div class="upload-dropzone" @click="browseUploadFiles" @dragover.prevent @drop.prevent="handleUploadDrop">
-          <input
-            ref="uploadInputRef"
-            class="hidden-file-input"
-            type="file"
-            multiple
-            accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf,.zip,.rar"
-            @change="handleFileChange"
-          />
-          <div class="upload-cloud">↑</div>
-          <strong>点击或将文件拖拽到此区域上传</strong>
-          <span>支持单个或批量上传，格式：PDF、DOC、DOCX、PPT、XLS、TXT、ZIP、RAR</span>
-        </div>
-        <div v-if="selectedUploadFiles.length" class="upload-file-list">
-          <div v-for="(file, index) in selectedUploadFiles" :key="`${file.name}-${file.size}-${index}`" class="upload-file-item">
-            <span>{{ file.name }}</span>
-            <strong>{{ formatFileSize(file.size) }}</strong>
-            <t-button size="small" variant="text" theme="danger" @click.stop="removeUploadFile(index)">移除</t-button>
+        <t-form-item label="资料文件" required-mark>
+          <div class="upload-dropzone" @click="browseUploadFiles" @dragover.prevent @drop.prevent="handleUploadDrop">
+            <input
+              ref="uploadInputRef"
+              class="hidden-file-input"
+              type="file"
+              multiple
+              accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf,.zip,.rar"
+              @change="handleFileChange"
+            />
+            <div class="upload-cloud">↑</div>
+            <strong>点击或将文件拖拽到此区域上传</strong>
+            <span>支持单个或批量上传，格式：PDF、DOC、DOCX、PPT、XLS、TXT、ZIP、RAR</span>
           </div>
-        </div>
+          <div v-if="selectedUploadFiles.length" class="upload-file-list">
+            <div v-for="(file, index) in selectedUploadFiles" :key="`${file.name}-${file.size}-${index}`" class="upload-file-item">
+              <span>{{ file.name }}</span>
+              <strong>{{ formatFileSize(file.size) }}</strong>
+              <t-button size="small" variant="text" theme="danger" @click.stop="removeUploadFile(index)">移除</t-button>
+            </div>
+          </div>
+        </t-form-item>
         <t-form label-align="top">
           <div class="upload-form-grid">
-            <t-form-item label="项目资料目录">
+            <t-form-item label="项目资料目录" required-mark>
               <t-select v-model="uploadForm.category_id" placeholder="请选择项目资料目录">
                 <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
               </t-select>
             </t-form-item>
-            <t-form-item label="文档密级">
+            <t-form-item label="文档密级" required-mark>
               <t-select v-model="uploadForm.security_level">
                 <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
               </t-select>
@@ -1906,7 +1908,7 @@ onMounted(loadData);
         <t-form-item label="版本备注">
           <t-textarea v-model="versionForm.version_note" :autosize="{ minRows: 2, maxRows: 4 }" />
         </t-form-item>
-        <t-form-item label="新版本文件">
+        <t-form-item label="新版本文件" required-mark>
           <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleVersionFileChange" />
           <div v-if="selectedVersionFile" class="selected-file">{{ selectedVersionFile.name }}</div>
         </t-form-item>
@@ -1961,7 +1963,7 @@ onMounted(loadData);
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.value === editingCategoryId" />
           </t-select>
         </t-form-item>
-        <t-form-item label="目录名称"><t-input v-model="categoryForm.name" /></t-form-item>
+        <t-form-item label="目录名称" required-mark><t-input v-model="categoryForm.name" /></t-form-item>
         <t-form-item label="目录编码"><t-input v-model="categoryForm.code" placeholder="为空时自动生成" /></t-form-item>
         <t-form-item label="排序"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
         <t-form-item label="默认密级">

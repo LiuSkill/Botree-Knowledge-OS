@@ -343,9 +343,9 @@ onMounted(loadConfigs);
 
     <t-dialog v-model:visible="dialogVisible" :header="dialogTitle" width="620px" @confirm="handleSubmit">
       <t-form :data="form" label-align="top">
-        <t-form-item label="供应商"><t-input v-model="form.provider" /></t-form-item>
-        <t-form-item label="模型名称"><t-input v-model="form.model_name" /></t-form-item>
-        <t-form-item label="模型类型">
+        <t-form-item label="供应商" required-mark><t-input v-model="form.provider" /></t-form-item>
+        <t-form-item label="模型名称" required-mark><t-input v-model="form.model_name" /></t-form-item>
+        <t-form-item label="模型类型" required-mark>
           <t-select v-model="form.model_type">
             <t-option v-for="option in modelTypeOptions" :key="option.value" :value="option.value" :label="option.label" />
           </t-select>

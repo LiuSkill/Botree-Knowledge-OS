@@ -76,7 +76,7 @@ const visibleTypes = computed(() => filteredTypes.value.slice((typePage.value - 
 const visibleRules = computed(() => filteredRules.value.slice((rulePage.value - 1) * rulePageSize.value, rulePage.value * rulePageSize.value));
 
 const typeColumns = [
-  { colKey: 'name', title: '类型名称', width: 160 }, { colKey: 'code', title: '编码', width: 170 },
+  { colKey: 'name', title: '类型名称', width: 160 },
   { colKey: 'default_mask_text', title: '默认脱敏文案', minWidth: 240, ellipsis: true },
   { colKey: 'enabled', title: '状态', width: 90 }, { colKey: 'updated_at', title: '更新时间', width: 170 },
   { colKey: 'operation', title: '操作', width: 110, fixed: 'right' },

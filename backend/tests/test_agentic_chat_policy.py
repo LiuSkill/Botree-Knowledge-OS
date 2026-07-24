@@ -223,7 +223,7 @@ def test_industry_question_is_not_obvious_common_knowledge(monkeypatch):
 
 def test_base_chat_pending_confirm_and_reject(monkeypatch):
     service = ChatService.__new__(ChatService)
-    service.db = None
+    service.db = SimpleNamespace(commit=lambda: None)
     service.repository = SimpleNamespace(update_session=lambda session: None)
     service._persist_agent_result = lambda payload, user, session, agent_result: agent_result
     monkeypatch.setattr("app.services.chat_service.QwenOrchestrationService", lambda db: SimpleNamespace(answer_general_question=lambda question: "通用答案"))
@@ -252,7 +252,7 @@ def test_base_chat_pending_confirm_and_reject(monkeypatch):
 
 def test_stream_base_chat_confirm_only_emits_compact_answering_progress(monkeypatch):
     service = ChatService.__new__(ChatService)
-    service.db = None
+    service.db = SimpleNamespace(commit=lambda: None)
     service.repository = SimpleNamespace(add_message=lambda message: message, update_session=lambda session: None)
     service._validate_chat_request = lambda *args, **kwargs: None
 

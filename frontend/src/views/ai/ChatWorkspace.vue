@@ -94,6 +94,7 @@ const activeSessionId = ref<number | null>(null);
 const projectId = ref<number | null>(null);
 const question = ref('');
 const streaming = ref(false);
+const processingSessionId = ref<number | null>(null);
 const citations = ref<Citation[]>([]);
 const trace = ref<ChatProgressEvent[]>([]);
 const queryScope = ref('');
@@ -595,6 +596,23 @@ function replaceSession(updatedSession: ChatSession): void {
   sessions.value = sortSessions(nextSessions);
 }
 
+function showStreamingSession(sessionId: number, title: string, currentProjectId: number | null): void {
+  if (sessions.value.some((session) => session.id === sessionId)) return;
+  const createdAt = new Date().toISOString();
+  replaceSession({
+    id: sessionId,
+    user_id: authStore.user?.id || 0,
+    title: title.slice(0, 30) || '新的知识问答',
+    chat_type: props.chatType,
+    mode: 'auto',
+    project_id: currentProjectId,
+    is_pinned: false,
+    is_favorite: false,
+    created_at: createdAt,
+    updated_at: createdAt,
+  });
+}
+
 function closeSessionMenu(): void {
   openSessionMenuId.value = null;
 }
@@ -720,6 +738,20 @@ async function onProjectChange(value: number | string | Array<number | string> |
 }
 
 function stopStreaming(): void {
+  streaming.value = false;
+  processingSessionId.value = null;
+  trace.value = [];
+  const currentAssistant = [...messages.value].reverse().find(
+    (item) => item.role === 'assistant' && item.streaming,
+  );
+  if (currentAssistant) {
+    currentAssistant.streaming = false;
+    currentAssistant.status = 'stop';
+    currentAssistant.progressEvents = [];
+    if (!currentAssistant.content.trim()) {
+      currentAssistant.content = '已停止生成';
+    }
+  }
   streamAbortController.value?.abort();
 }
 
@@ -795,9 +827,13 @@ async function submitQuestion(): Promise<void> {
         signal: streamAbortController.value.signal,
         onMeta: (payload) => {
           activeSessionId.value = payload.session_id;
+          processingSessionId.value = payload.session_id;
+          showStreamingSession(payload.session_id, originalQuestion, currentProjectId);
           citations.value = payload.citations;
           trace.value = normalizeProgressEvents(payload.progress_events || []);
           queryScope.value = payload.query_scope;
+          const currentUser = messages.value.find((item) => item.id === userMessage.id);
+          if (currentUser) currentUser.session_id = payload.session_id;
           const currentAssistant = messages.value.find((item) => item.id === assistantId);
           if (!currentAssistant) return;
           currentAssistant.session_id = payload.session_id;
@@ -844,7 +880,11 @@ async function submitQuestion(): Promise<void> {
       if (currentAssistant && !currentAssistant.content.trim()) {
         currentAssistant.content = '已停止生成';
       }
-      if (currentAssistant) currentAssistant.status = 'stop';
+      if (currentAssistant) {
+        currentAssistant.status = 'stop';
+        currentAssistant.streaming = false;
+        currentAssistant.progressEvents = [];
+      }
       MessagePlugin.info('已停止本次回答生成');
       return;
     }
@@ -857,6 +897,7 @@ async function submitQuestion(): Promise<void> {
     MessagePlugin.error(error instanceof Error ? error.message : '问答失败');
   } finally {
     streaming.value = false;
+    processingSessionId.value = null;
     const currentAssistant = messages.value.find((item) => item.id === assistantId);
     if (currentAssistant) {
       currentAssistant.streaming = false;
@@ -936,8 +977,12 @@ onBeforeUnmount(() => {
               @keydown.enter.prevent="selectSession(session)"
               @keydown.space.prevent="selectSession(session)"
             >
-              <span class="session-title-text">{{ session.title }}</span>
-              <div v-if="canManageSession || canDeleteSession" class="session-actions" @click.stop>
+              <span v-if="processingSessionId === session.id" class="session-processing" role="status" aria-live="polite">
+                <span class="session-processing-spinner" aria-hidden="true" />
+                <span>正在处理</span>
+              </span>
+              <span v-else class="session-title-text">{{ session.title }}</span>
+              <div v-if="processingSessionId !== session.id && (canManageSession || canDeleteSession)" class="session-actions" @click.stop>
                 <t-tooltip v-if="canManageSession" :content="session.is_pinned ? '取消置顶' : '置顶'">
                   <button type="button" class="session-icon-button" @click.stop="togglePinnedSession(session)">
                     <PinFilledIcon v-if="session.is_pinned" />
@@ -1252,6 +1297,39 @@ onBeforeUnmount(() => {
   line-height: 38px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-processing {
+  display: inline-flex;
+  min-width: 0;
+  height: 38px;
+  flex: 1;
+  align-items: center;
+  color: #2563eb;
+  font-size: 14px;
+  gap: 8px;
+}
+
+.session-processing-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid #bfdbfe;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: session-processing-spin 0.8s linear infinite;
+}
+
+@keyframes session-processing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-processing-spinner {
+    animation-duration: 1.8s;
+  }
 }
 
 .session-item.active {

@@ -197,17 +197,17 @@ onMounted(loadData);
             <t-form-item label="首次版本">
               <div class="version-rule">新资料首次上传为 v1；同一资料的新版本请在文档详情中上传，系统自动递增。</div>
             </t-form-item>
-            <t-form-item label="企业知识分类">
+            <t-form-item label="企业知识分类" required-mark>
               <t-select v-model="uploadForm.category_id" placeholder="请选择分类">
                 <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
               </t-select>
             </t-form-item>
-            <t-form-item label="文档密级">
+            <t-form-item label="文档密级" required-mark>
               <t-select v-model="uploadForm.security_level">
                 <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
               </t-select>
             </t-form-item>
-            <t-form-item label="资料文件">
+            <t-form-item label="资料文件" required-mark>
               <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
               <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
             </t-form-item>
