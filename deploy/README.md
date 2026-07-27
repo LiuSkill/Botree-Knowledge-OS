@@ -108,6 +108,7 @@ cp deploy/env/backend.env.example deploy/env/backend.env
 
 ```text
 /data/botree/models/Qwen/Qwen3-Embedding-0.6B
+/data/botree/models/Qwen/Qwen3-VL-Embedding-2B
 /data/botree/models/bge-reranker-v2-m3
 /data/botree/models/mineru_cache
 ```
@@ -122,6 +123,8 @@ cp deploy/env/backend.env.example deploy/env/backend.env
 - `RERANKER_MODEL` 指向 `/app/models/...`
 - `MODEL_SERVICE_EMBEDDING_MODEL` 指向 `/app/models/...`
 - `MODEL_SERVICE_RERANKER_MODEL` 指向 `/app/models/...`
+- `VISUAL_EMBEDDING_MODEL` 指向 `/app/models/Qwen/Qwen3-VL-Embedding-2B`
+- `VISUAL_EMBEDDING_DIM=1024`，API、Worker、模型服务和后续新建的 Milvus 视觉集合必须保持一致
 
 脚本会在启动模型服务、API、Worker 前校验这些模型目录是否存在。
 
@@ -325,6 +328,25 @@ sudo nginx -t
 sudo systemctl reload nginx
 bash deploy/scripts/07_health_check.sh
 ```
+
+## 15.1 已部署 1.0 环境升级到多模态索引流程
+
+该流程适用于保留现有 MySQL、上传文件和 1.0 Milvus 索引的服务器。先准备新镜像与视觉模型，再执行：
+
+```bash
+bash deploy/scripts/02_build_backend.sh
+bash deploy/scripts/10_upgrade_v1_multimodal.sh
+```
+
+升级脚本会依次：
+
+1. 备份 MySQL 与持久化文件；
+2. 停止 API 和 Worker，保持 MySQL、上传文件与 Milvus 数据不变；
+3. 协调 1.0 运行时建表与 Alembic 历史并升级到当前 head；
+4. 启动模型服务并实际调用 `/visual-embeddings`，校验返回 1024 维向量；
+5. 启动新版 API 和 Worker。
+
+该脚本不会删除 Milvus 集合，也不会自动开始全量索引重建。确认新版服务健康后，再单独执行索引切换流程。
 
 ## 16. 已处理的重点风险
 

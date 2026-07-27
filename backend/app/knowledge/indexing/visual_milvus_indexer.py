@@ -55,7 +55,8 @@ class VisualMilvusIndexer:
         return hits
 
     def delete_document(self, document_id: int) -> dict[str, Any]:
-        collection = self._collection(load_for_search=False)
+        # Milvus 对 delete 与 search 一样要求 collection 已加载；新建空集合后重建也必须满足该契约。
+        collection = self._collection(load_for_search=True)
         result = collection.delete(f"document_id == {int(document_id)}")
         collection.flush()
         return {"status": "deleted", "delete_count": int(getattr(result, "delete_count", 0) or 0)}

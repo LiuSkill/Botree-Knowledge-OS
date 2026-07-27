@@ -38,4 +38,5 @@ docker run -d \
     sh -lc 'set -eu; cd /app; mkdir -p /app/logs; uvicorn app.model_service.main:app --host 0.0.0.0 --port 8890 2>&1 | tee -a /app/logs/model-service.log' >/dev/null
 
 wait_for_http "http://127.0.0.1:${MODEL_SERVICE_PORT}/health" "Model Service" 180
+validate_visual_embedding_contract || die "视觉 Embedding 接口契约校验失败"
 log "模型服务启动完成"

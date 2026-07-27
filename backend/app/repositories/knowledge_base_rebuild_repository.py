@@ -22,6 +22,7 @@ class KnowledgeBaseRebuildRepository:
                     Document.knowledge_base_id == knowledge_base_id,
                     Document.is_deleted.is_(False),
                     Document.is_current_version.is_(True),
+                    Document.parse_status == "success",
                 )
                 .order_by(Document.id)
             ).all()
@@ -37,7 +38,6 @@ class KnowledgeBaseRebuildRepository:
                 "storage_path": item.storage_path,
                 "review_status": item.review_status,
                 "security_level": item.security_level,
-                "index_status": item.index_status,
                 "is_current_version": item.is_current_version,
                 "pages": [
                     {
@@ -46,7 +46,6 @@ class KnowledgeBaseRebuildRepository:
                         "correction_status": page.correction_status,
                         "corrected_text": page.corrected_text,
                         "clean_content": page.clean_content,
-                        "admission": page.index_admission_status,
                     }
                     for page in pages
                 ],

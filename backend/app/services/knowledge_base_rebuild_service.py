@@ -12,8 +12,11 @@ from app.knowledge.chunking.chunk_builder import ChunkBuilder
 from app.knowledge.indexing.index_service import IndexService
 from app.models.document import Document, DocumentChunk
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.document_asset_repository import DocumentAssetRepository
 from app.repositories.index_publication_repository import IndexPublicationRepository
 from app.repositories.knowledge_base_rebuild_repository import KnowledgeBaseRebuildRepository
+from app.repositories.graph_repository import GraphRepository
+from app.repositories.page_index_repository import PageIndexRepository
 from app.services.index_pipeline_service import IndexPipelineService
 from app.knowledge.indexing.visual_milvus_indexer import VisualMilvusIndexer
 
@@ -37,13 +40,17 @@ class KnowledgeBaseRebuildService:
 
     def rebuild(self, knowledge_base_id: int) -> dict[str, object]:
         documents = self.repository.list_source_documents(knowledge_base_id)
-        before = self._snapshot(documents)
-        results: list[dict[str, object]] = []
-        manifests = []
+        # 迁移前的页面没有准入结论；回填属于重建准备动作，必须在源快照之前完成，
+        # 否则重建自身写入的准入状态会被误判为上传源发生变化。
         for document in documents:
             pages = self.repository.list_pages(document)
             if not pages:
                 raise AppException(f"文档 {document.id} 缺少可复用解析页，无法原地重建")
+            self._backfill_admission(document, pages)
+        before = self._snapshot(documents)
+        results: list[dict[str, object]] = []
+        for document in documents:
+            pages = self.repository.list_pages(document)
             payloads = [
                 {
                     "page_number": page.page_no,
@@ -59,19 +66,27 @@ class KnowledgeBaseRebuildService:
             IndexService(self.db).delete_document_index(document.id, vector_ids)
             if get_settings().visual_index_enabled:
                 VisualMilvusIndexer().delete_document(document.id)
-            self.document_repository.clear_chunks(document.id)
+            # Graph 实体通过外键引用旧 Chunk，必须先清理图谱再替换 Chunk。
+            GraphRepository(self.db).clear_all_document_graph(document.id)
+            # 复用解析页，但旧 PageIndex 仍通过外键引用旧 Chunk，需要先单独清理。
+            PageIndexRepository(self.db).clear_document_indexes(document.id, document.version_no)
             self.document_repository.replace_chunks(document.id, chunks, version_no=document.version_no)
             result = IndexPipelineService(self.db).build_all(document, publish=False)
             results.append(result)
             manifest = self.publication_repository.get_by_token(str(result["publication_token"]))
             if manifest is None:
                 raise AppException(f"document {document.id} is missing its staging publication manifest")
-            manifests.append((document, manifest))
-        self.db.flush()
-        self.ensure_unchanged(before, self._snapshot(self.repository.list_source_documents(knowledge_base_id)))
-        for document, manifest in manifests:
             IndexPipelineService(self.db).publish_all(document, manifest=manifest)
-        self.db.commit()
+            self.db.flush()
+            self.ensure_unchanged(before, self._snapshot(self.repository.list_source_documents(knowledge_base_id)))
+            # 大知识库可能包含数千文档；逐文档原子提交可限制事务规模，
+            # 并保证中途故障时已发布文档无需随未完成文档一起回滚。
+            self.db.commit()
+            logger.info(
+                "知识库文档重建并发布完成: knowledge_base_id=%s document_id=%s",
+                knowledge_base_id,
+                document.id,
+            )
         logger.info("知识库原地重建完成: knowledge_base_id=%s document_count=%s", knowledge_base_id, len(documents))
         return {"knowledge_base_id": knowledge_base_id, "document_count": len(documents), "results": results}
 
@@ -102,3 +117,35 @@ class KnowledgeBaseRebuildService:
             )
             for item in ChunkBuilder(rule_version="structure-v1", index_generation=settings.visual_index_generation).build(pages)
         ]
+
+    def _backfill_admission(self, document: Document, pages: list[object]) -> None:
+        """为迁移前已解析页面恢复准入状态，避免默认值导致文本索引被整体跳过。"""
+
+        text_page_numbers = {
+            chunk.page_number
+            for chunk in self.document_repository.list_chunks(document.id, version_no=document.version_no)
+            if chunk.page_number is not None
+        }
+        visual_page_ids = {
+            asset.page_id
+            for asset in DocumentAssetRepository(self.db).list_by_document_version(
+                document.id,
+                document.version_no,
+                status="ready",
+            )
+            if asset.page_id is not None and asset.asset_type in {"page_preview", "block_image"}
+        }
+        for page in pages:
+            if page.index_admission_status != "waiting_correction":
+                continue
+            if page.page_no in text_page_numbers:
+                page.index_admission_status = "text_indexed"
+                page.index_admission_reason_json = '["legacy_active_chunk"]'
+                page.text_quality_score = 100
+            elif page.id in visual_page_ids:
+                page.index_admission_status = "visual_indexed"
+                page.index_admission_reason_json = '["legacy_ready_visual_asset"]'
+            else:
+                page.index_admission_status = "metadata_only"
+                page.index_admission_reason_json = '["legacy_no_indexable_content"]'
+        self.db.flush()

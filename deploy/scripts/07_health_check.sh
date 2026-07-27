@@ -42,6 +42,11 @@ if model_service_enabled; then
     else
         check_fail "容器未运行: ${MODEL_SERVICE_CONTAINER_NAME}" || failures=$((failures + 1))
     fi
+    if validate_visual_embedding_contract; then
+        check_pass "视觉 Embedding 维度与接口契约"
+    else
+        check_fail "视觉 Embedding 维度或接口契约不一致" || failures=$((failures + 1))
+    fi
 fi
 
 if docker exec "${MYSQL_CONTAINER_NAME}" mysqladmin ping -h 127.0.0.1 -uroot "-p${MYSQL_ROOT_PASSWORD}" --silent >/dev/null 2>&1; then

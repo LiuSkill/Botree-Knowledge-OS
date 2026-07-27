@@ -242,6 +242,7 @@ validate_trial_env() {
     ensure_linux_path "${RERANKER_MODEL:-}" "RERANKER_MODEL"
     ensure_linux_path "${MODEL_SERVICE_EMBEDDING_MODEL:-}" "MODEL_SERVICE_EMBEDDING_MODEL"
     ensure_linux_path "${MODEL_SERVICE_RERANKER_MODEL:-}" "MODEL_SERVICE_RERANKER_MODEL"
+    ensure_linux_path "${VISUAL_EMBEDDING_MODEL:-}" "VISUAL_EMBEDDING_MODEL"
 
     [[ "${UPLOAD_DIR}" == "/app/storage/uploads" ]] || die "UPLOAD_DIR 必须为 /app/storage/uploads"
     [[ "${PAGE_INDEX_DIR}" == "/app/storage/page_index" ]] || die "PAGE_INDEX_DIR 必须为 /app/storage/page_index"
@@ -270,6 +271,7 @@ validate_local_model_mounts() {
     local model_path
     local embedding_model_path
     local reranker_model_path
+    local visual_model_path
 
     embedding_provider_lower="$(to_lower "${EMBEDDING_PROVIDER:-}")"
     reranker_provider_lower="$(to_lower "${RERANKER_PROVIDER:-}")"
@@ -285,6 +287,13 @@ validate_local_model_mounts() {
         model_path="$(resolve_host_model_path "${EMBEDDING_MODEL}")"
         [[ -n "${model_path}" ]] || die "EMBEDDING_MODEL 建议使用 /app/models/* 形式，当前值: ${EMBEDDING_MODEL}"
         [[ -e "${model_path}" ]] || die "未找到 Embedding 模型目录: ${model_path}"
+    fi
+
+    if [[ -n "${VISUAL_EMBEDDING_MODEL:-}" ]]; then
+        [[ "${VISUAL_EMBEDDING_DIM:-}" =~ ^[1-9][0-9]*$ ]] || die "VISUAL_EMBEDDING_DIM 必须是正整数"
+        visual_model_path="$(resolve_host_model_path "${VISUAL_EMBEDDING_MODEL}")"
+        [[ -n "${visual_model_path}" ]] || die "VISUAL_EMBEDDING_MODEL 必须使用 /app/models/* 形式，当前值: ${VISUAL_EMBEDDING_MODEL}"
+        [[ -e "${visual_model_path}" ]] || die "未找到视觉 Embedding 模型目录: ${visual_model_path}"
     fi
 
     if model_service_enabled || [[ "${reranker_provider_lower}" == "model_service" ]]; then
@@ -307,4 +316,32 @@ validate_local_model_mounts() {
             die "缺少 RERANKER_PROVIDER，无法自动初始化默认 reranker 配置"
             ;;
     esac
+}
+
+validate_visual_embedding_contract() {
+    [[ -n "${VISUAL_EMBEDDING_MODEL:-}" ]] || return 0
+    require_container_running "${MODEL_SERVICE_CONTAINER_NAME}"
+    docker exec "${MODEL_SERVICE_CONTAINER_NAME}" python -c '
+import json
+import os
+import urllib.request
+
+dimension = int(os.environ["VISUAL_EMBEDDING_DIM"])
+payload = json.dumps({
+    "model": os.environ["VISUAL_EMBEDDING_MODEL"],
+    "dimensions": dimension,
+    "input": [{"text": "deployment contract check"}],
+}).encode("utf-8")
+headers = {"Content-Type": "application/json"}
+api_key = os.environ.get("VISUAL_EMBEDDING_API_KEY") or os.environ.get("MODEL_SERVICE_API_KEY")
+if api_key:
+    headers["Authorization"] = f"Bearer {api_key}"
+request = urllib.request.Request("http://127.0.0.1:8890/visual-embeddings", data=payload, headers=headers, method="POST")
+with urllib.request.urlopen(request, timeout=600) as response:
+    result = json.load(response)
+assert result["dimension"] == dimension, result
+assert len(result["data"][0]["embedding"]) == dimension, result
+assert result["distance_metric"] == os.environ.get("VISUAL_EMBEDDING_DISTANCE_METRIC", "COSINE"), result
+' || return 1
+    log "视觉 Embedding 接口契约校验通过: dimension=${VISUAL_EMBEDDING_DIM}"
 }
