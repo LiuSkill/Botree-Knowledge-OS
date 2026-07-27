@@ -828,6 +828,46 @@ def test_router_passes_retrieval_scope_to_compatible_retriever() -> None:
     }
 
 
+def test_router_verified_empty_scope_fails_closed() -> None:
+    page_index = ScopedFakeRetriever("page_index", [make_evidence("page_index")])
+    router = build_router(page_index)
+
+    result = router.execute_planned(
+        query="restricted document",
+        mode="base_chat",
+        project_id=None,
+        user=None,
+        retriever_names=["page_index"],
+        fallback_ladder=[["page_index"]],
+        retrieval_scope={"verified": True, "document_ids": []},
+    )
+
+    assert result["evidences"] == []
+    assert page_index.calls == 0
+
+
+def test_router_reports_primary_route_failure_without_discarding_other_evidence() -> None:
+    milvus = FakeRetriever("milvus", [], delay_seconds=0.2)
+    keyword = FakeRetriever("keyword", [make_evidence("keyword", score=0.95)])
+    router = build_router(milvus, keyword)
+    router.settings.retrieval_retriever_timeout_ms = 20
+    router.settings.retrieval_milvus_timeout_ms = 20
+
+    result = router.execute_planned(
+        query="process parameters",
+        mode="base_chat",
+        project_id=None,
+        user=None,
+        retriever_names=["milvus", "keyword"],
+        fallback_ladder=[["milvus", "keyword"]],
+    )
+
+    assert result["retrieval_incomplete"] is True
+    assert result["primary_retriever"] == "milvus"
+    assert result["primary_route_failed"] is True
+    assert result["retriever_hits"]["keyword"] == 1
+
+
 def test_router_does_not_override_planner_selected_retrievers() -> None:
     """Router 只执行 Planner 已选检索器，不再运行时二次跳过。"""
 

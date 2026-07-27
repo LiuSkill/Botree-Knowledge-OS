@@ -225,6 +225,11 @@ class RetrievalPlan:
             可直接写入 trace/raw 的字典结构。
         """
 
+        visual_primary = bool(
+            self.query_features.get("visual_evidence") or self.query_features.get("need_visual_asset")
+        )
+        ordered_retrievers = self.priority or self.selected_retrievers
+        primary_retriever = "visual" if visual_primary else (ordered_retrievers[0] if ordered_retrievers else None)
         return {
             "selected_retrievers": self.selected_retrievers,
             "fallback_retrievers": self.fallback_retrievers,
@@ -236,6 +241,7 @@ class RetrievalPlan:
             "confidence": self.confidence,
             "retriever_reasons": self.retriever_reasons,
             "priority": self.priority or self.selected_retrievers,
+            "primary_retriever": primary_retriever,
             "query_rewrite": self.query_rewrite,
             "query_rewrites": self.query_rewrite,
             "query_profile": self.query_profile,

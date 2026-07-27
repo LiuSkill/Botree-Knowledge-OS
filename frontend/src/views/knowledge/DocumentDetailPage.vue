@@ -1354,6 +1354,13 @@ watch(activeTab, () => {
   void refreshActiveTab();
 });
 
+const admissionLabel = (status: string) => ({
+  text_indexed: '文本+视觉可检索',
+  visual_indexed: '仅视觉可检索',
+  metadata_only: '仅元数据可发现',
+  waiting_correction: '等待人工修正',
+}[status] || status);
+
 watch(pdfPreviewVisible, (visible) => {
   if (!visible) {
     pdfPreviewError.value = '';
@@ -1576,6 +1583,11 @@ onBeforeUnmount(() => {
                 <div class="cleaning-page-header">
                   <span>Page {{ page.page_no }}</span>
                   <span v-if="page.page_title" class="muted-text">{{ page.page_title }}</span>
+                  <t-tag size="small" variant="light">{{ admissionLabel(page.index_admission_status) }}</t-tag>
+                  <span class="muted-text">文本质量 {{ page.text_quality_score }}%</span>
+                </div>
+                <div v-if="page.index_admission_reason_json" class="muted-text">
+                  准入说明：{{ page.index_admission_reason_json }}
                 </div>
                 <div class="cleaning-columns">
                   <section class="cleaning-column">

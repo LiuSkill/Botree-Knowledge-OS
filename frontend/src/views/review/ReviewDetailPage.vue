@@ -87,6 +87,13 @@ const structuredPreviewPages = computed(() => {
   if (!pages.length || collectMarkdownImageSources(markdownContent.value).length > 0) return [];
   return pages.filter((page) => page.page_preview_asset || page.blocks.some((block) => block.image_asset));
 });
+
+const admissionLabel = (status: string) => ({
+  text_indexed: '文本+视觉可检索',
+  visual_indexed: '仅视觉可检索',
+  metadata_only: '仅元数据可发现',
+  waiting_correction: '等待人工修正',
+}[status] || status);
 const documentFileName = computed(() => reviewedVersion.value?.file_name || task.value?.document_file_name || documentInfo.value?.file_name || `文档 #${task.value?.document_id || '-'}`);
 const documentProjectName = computed(() => documentInfo.value?.project_name || (documentInfo.value?.project_id ? `项目 #${documentInfo.value.project_id}` : '企业知识'));
 const viewedFileSize = computed(() => reviewedVersion.value?.file_size ?? documentInfo.value?.file_size ?? 0);
@@ -552,7 +559,10 @@ onBeforeUnmount(() => {
                 <ChatRichContent class="review-rich-content" :content="markdownContent" :image-source-resolver="resolvePreviewImageSource" />
                 <div v-if="structuredPreviewPages.length" class="structured-preview">
                   <article v-for="page in structuredPreviewPages" :key="page.id" class="page-preview-card">
-                    <div class="page-preview-title">Page {{ page.page_no }}</div>
+                    <div class="page-preview-title">
+                      Page {{ page.page_no }}
+                      <t-tag size="small" variant="light">{{ admissionLabel(page.index_admission_status) }}</t-tag>
+                    </div>
                     <img
                       v-if="page.page_preview_asset?.status === 'ready'"
                       class="page-preview-image"

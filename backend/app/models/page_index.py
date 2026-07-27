@@ -2,7 +2,8 @@
 Page index models.
 """
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from datetime import datetime
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,6 +13,10 @@ from app.models.base import Base, TimestampMixin
 
 class DocumentPage(TimestampMixin, Base):
     """Parsed page record."""
+
+    index_admission_status: Mapped[str] = mapped_column(String(30), default="waiting_correction", nullable=False)
+    index_admission_reason_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    text_quality_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     __tablename__ = "document_pages"
     __table_args__ = (
@@ -55,6 +60,10 @@ class DocumentPage(TimestampMixin, Base):
 
 class DocumentPageBlock(TimestampMixin, Base):
     """Parsed page block record."""
+
+    index_admission_status: Mapped[str] = mapped_column(String(30), default="waiting_correction", nullable=False)
+    index_admission_reason_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    text_quality_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     __tablename__ = "document_page_blocks"
     __table_args__ = (
@@ -112,3 +121,28 @@ class PageIndex(TimestampMixin, Base):
         nullable=False,
         comment="PageIndex密级：public/internal/confidential",
     )
+
+
+class IndexPublicationManifest(TimestampMixin, Base):
+    """文档版本跨通道原子发布清单。"""
+
+    __tablename__ = "index_publication_manifests"
+    __table_args__ = (
+        Index("idx_index_manifest_document_version", "document_id", "version_no"),
+        Index("idx_index_manifest_generation_status", "index_generation", "status"),
+        {"comment": "索引发布清单"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    knowledge_base_id: Mapped[int] = mapped_column(ForeignKey("knowledge_bases.id"), nullable=False)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), nullable=False)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    index_generation: Mapped[str] = mapped_column(String(120), nullable=False)
+    publication_token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="staging")
+    coverage: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    partial_coverage: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    required_json: Mapped[str] = mapped_column(Text, nullable=False)
+    completed_json: Mapped[str] = mapped_column(Text, nullable=False)
+    missing_json: Mapped[str] = mapped_column(Text, nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

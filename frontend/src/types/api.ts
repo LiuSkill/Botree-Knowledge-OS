@@ -353,6 +353,9 @@ export interface DocumentPreviewBlock {
   filter_reason?: string | null;
   bbox_json?: string | null;
   metadata_json?: string | null;
+  index_admission_status: 'text_indexed' | 'visual_indexed' | 'metadata_only' | 'waiting_correction';
+  index_admission_reason_json?: string | null;
+  text_quality_score: number;
   image_asset?: DocumentAssetInfo | null;
 }
 
@@ -367,6 +370,9 @@ export interface DocumentPreviewPage {
   cleaning_metadata_json?: string | null;
   corrected_text?: string | null;
   correction_status: string;
+  index_admission_status: 'text_indexed' | 'visual_indexed' | 'metadata_only' | 'waiting_correction';
+  index_admission_reason_json?: string | null;
+  text_quality_score: number;
   security_level: SecurityLevel;
   page_summary?: string | null;
   page_preview_asset?: DocumentAssetInfo | null;
@@ -527,6 +533,7 @@ export interface Citation {
   page_number?: number | null;
   content: string;
   assets?: CitationAsset[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface AgentTraceStep {

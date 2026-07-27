@@ -71,6 +71,8 @@ class RetrievalService:
                 project_id=project_id,
                 available_retrievers=router.available_retrievers(),
             )
+            plan_payload = plan.to_dict()
+            verified_scope = router.create_verified_scope(effective_mode, project_id, user)
             retrieval = router.execute_planned(
                 query=query,
                 mode=effective_mode,
@@ -84,12 +86,14 @@ class RetrievalService:
                 query_features=plan.query_features,
                 skip_reasons=plan.skip_reasons,
                 intent=intent,
+                retrieval_scope=verified_scope,
+                primary_retriever=plan_payload.get("primary_retriever"),
             )
             result = {
                 **retrieval,
                 "intent": intent,
                 "sub_queries": sub_queries,
-                "retrieval_plan": plan.to_dict(),
+                "retrieval_plan": plan_payload,
                 **router.finalize_retrieval(
                     query=query,
                     evidences=retrieval.pop("evidences"),
@@ -100,7 +104,12 @@ class RetrievalService:
                     user=user,
                 ),
             }
-        result["citations"] = [self.evidence_to_citation(evidence) for evidence in result.pop("evidences")]
+        result["citations"] = [
+            self.evidence_to_citation(evidence)
+            for evidence in result.pop("evidences")
+            if not evidence.metadata.get("metadata_only")
+            and evidence.metadata.get("index_admission_status") != "metadata_only"
+        ]
         return result
 
     def evidence_to_citation(self, evidence: Evidence) -> dict:

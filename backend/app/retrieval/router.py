@@ -42,12 +42,17 @@ from app.retrieval.retrievers.milvus_retriever import MilvusHybridRetriever
 from app.retrieval.retrievers.page_index_retriever import PageIndexRetriever
 from app.retrieval.retrievers.project_metadata_retriever import ProjectMetadataRetriever
 from app.retrieval.retrievers.ripgrep_retriever import RipgrepRetriever
+from app.retrieval.retrievers.visual_retriever import VisualRetriever
 from app.retrieval.schemas import Evidence
 from app.retrieval.scope import normalize_retrieval_scope
 from app.services.project_access_service import ProjectAccessService
 from app.services.project_service import ProjectService
 from app.services.evidence_access_guard_service import EvidenceAccessGuardService
 from app.services.reranker_service import RerankerService
+from app.services.retrieval_finalizer_service import RetrievalFinalizerService
+from app.services.visual_embedding_service import VisualEmbeddingService
+from app.services.verified_retrieval_scope_service import VerifiedRetrievalScopeService
+from app.knowledge.indexing.visual_milvus_indexer import VisualMilvusIndexer
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +80,7 @@ class RetrievalRouter:
         self.merger = EvidenceMerger()
         self.reranker = RerankerService(db)
         self.evidence_access_guard = EvidenceAccessGuardService(db)
+        self.verified_scope_service = VerifiedRetrievalScopeService(db)
         self._retriever_executor_max_workers = 6
 
     def search(
@@ -133,6 +139,7 @@ class RetrievalRouter:
         """
 
         effective_mode = self._prepare_scope(mode, project_id, chat_type, user)
+        verified_scope = self.verified_scope_service.create(effective_mode, project_id, user)
         retriever_names = self.available_retrievers()
         (
             groups,
@@ -154,6 +161,7 @@ class RetrievalRouter:
             fallback_stage=0,
             fallback_trigger_reason="execution_mode=all",
             query_features=None,
+            retrieval_scope=verified_scope,
         )
         finalized = self.finalize_retrieval(
             query=query,
@@ -211,25 +219,28 @@ class RetrievalRouter:
         为 `/retrieval/*` 链路统一做合并去重、权限过滤和真实 reranker 重排。
         """
 
-        merge_limit = FUSED_EVIDENCE_TOP_K
-        merged_evidences = self._top_scored_evidences(self.merger.merge([evidences], merge_limit), merge_limit)
-        rerank_candidates = self._top_scored_evidences(merged_evidences, FUSED_EVIDENCE_TOP_K)
-        rerank_candidates, guard_details = self._guard_before_rerank(
-            rerank_candidates,
-            chat_type=chat_type,
-            effective_mode=effective_mode,
+        groups_by_retriever: dict[str, list[Evidence]] = {}
+        for evidence in evidences:
+            groups_by_retriever.setdefault(evidence.retriever, []).append(evidence)
+        finalization = RetrievalFinalizerService(
+            evidence_access_guard=self.evidence_access_guard,
+            reranker=self.reranker,
+            merger=self.merger,
+        ).finalize(
+            query=query,
+            evidence_groups=list(groups_by_retriever.values()),
+            merge_limit=FUSED_EVIDENCE_TOP_K,
+            rerank_candidate_limit=FUSED_EVIDENCE_TOP_K,
+            result_limit=min(limit, RERANKED_EVIDENCE_TOP_K),
+            chat_type=self._guard_chat_type(chat_type, effective_mode),
             project_id=project_id,
             user=user,
-        )
-        rerank_candidates = self._top_scored_evidences(rerank_candidates, FUSED_EVIDENCE_TOP_K)
-        reranked = self._top_scored_evidences(
-            self.reranker.rerank(query, rerank_candidates, min(limit, RERANKED_EVIDENCE_TOP_K)),
-            RERANKED_EVIDENCE_TOP_K,
+            rerank=lambda candidates, result_limit: self.reranker.rerank(query, candidates, result_limit),
         )
         return {
-            "evidences": reranked,
-            "rerank_details": self.reranker.last_details,
-            "pre_rerank_guard": guard_details,
+            "evidences": finalization.evidences,
+            "rerank_details": finalization.rerank_details,
+            "pre_rerank_guard": finalization.pre_rerank_guard,
         }
 
     def execute_planned(
@@ -253,6 +264,7 @@ class RetrievalRouter:
         remaining_budget_ms: int | None = None,
         min_stage_budget_ms: int | None = None,
         retrieval_scope: dict[str, Any] | None = None,
+        primary_retriever: str | None = None,
     ) -> dict[str, Any]:
         """
         按 Planner 结果分阶段执行检索。
@@ -280,10 +292,29 @@ class RetrievalRouter:
 
         effective_mode = self._prepare_scope(mode, project_id, chat_type, user, knowledge_scope=knowledge_scope)
         planned_retrievers = self._filter_retriever_names(retriever_names)
+        # 视觉候选召回默认参与首阶段，不依赖问题中是否出现图片关键词。
+        if "visual" in self.retriever_map and "visual" not in planned_retrievers:
+            planned_retrievers.append("visual")
         fallback_names = self._filter_retriever_names(fallback_retrievers or [])
         normalized_ladder = self._normalize_execution_ladder(planned_retrievers, fallback_names, fallback_ladder)
         runtime_skip_reasons = dict(skip_reasons or {})
         normalized_retrieval_scope = normalize_retrieval_scope(retrieval_scope)
+        scope_is_verified = bool(
+            normalized_retrieval_scope.get("verified")
+            and normalized_retrieval_scope.get("snapshot_id")
+        )
+        if hasattr(self, "verified_scope_service") and not scope_is_verified:
+            verified_scope = self.verified_scope_service.create(effective_mode, project_id, user)
+            verified_ids = set(verified_scope.get("document_ids", []))
+            requested_ids = set(normalized_retrieval_scope.get("document_ids", []))
+            normalized_retrieval_scope["document_ids"] = sorted(verified_ids & requested_ids) if requested_ids else sorted(verified_ids)
+            normalized_retrieval_scope.update(
+                {
+                    key: verified_scope[key]
+                    for key in ("snapshot_id", "verified", "verified_at", "expires_at")
+                    if key in verified_scope
+                }
+            )
 
         groups: list[list[Evidence]] = []
         retriever_hits: dict[str, int] = {}
@@ -424,6 +455,12 @@ class RetrievalRouter:
 
         evidences = [item for group in groups for item in group]
         execution_elapsed_ms = int((time.perf_counter() - execution_started_at) * 1000)
+        failed_routes = sorted(
+            set(retriever_errors) | {name for name, timed_out in retriever_timeouts.items() if timed_out}
+        )
+        if primary_retriever not in planned_retrievers:
+            primary_retriever = planned_retrievers[0] if planned_retrievers else None
+        primary_route_failed = bool(primary_retriever and primary_retriever in failed_routes)
         return {
             "mode": effective_mode,
             "query_scope": self._scope_text(effective_mode),
@@ -442,6 +479,10 @@ class RetrievalRouter:
             "retriever_errors": retriever_errors,
             "retriever_timeouts": retriever_timeouts,
             "execution_elapsed_ms": execution_elapsed_ms,
+            "retrieval_incomplete": bool(failed_routes),
+            "failed_routes": failed_routes,
+            "primary_retriever": primary_retriever,
+            "primary_route_failed": primary_route_failed,
             "retrieval_scope": self._compact_retrieval_scope(normalized_retrieval_scope),
         }
 
@@ -467,6 +508,16 @@ class RetrievalRouter:
 
         return self._prepare_scope(mode, project_id, chat_type, user, knowledge_scope=knowledge_scope)
 
+    def create_verified_scope(
+        self,
+        mode: str,
+        project_id: int | None,
+        user: User,
+    ) -> dict[str, Any]:
+        """为一次用户请求创建可供所有子查询复用的已验证范围快照。"""
+
+        return self.verified_scope_service.create(mode, project_id, user)
+
     def _evidence_score(self, evidence: Evidence) -> float:
         try:
             return float(evidence.score)
@@ -477,34 +528,6 @@ class RetrievalRouter:
         if limit <= 0:
             return []
         return sorted(evidences, key=self._evidence_score, reverse=True)[:limit]
-
-    def _guard_before_rerank(
-        self,
-        evidences: list[Evidence],
-        *,
-        chat_type: str | None,
-        effective_mode: str,
-        project_id: int | None,
-        user: User,
-    ) -> tuple[list[Evidence], dict[str, Any]]:
-        guard_chat_type = self._guard_chat_type(chat_type, effective_mode)
-        result = self.evidence_access_guard.filter_evidences(
-            evidences=evidences,
-            chat_type=guard_chat_type,
-            project_id=project_id,
-            user=user,
-        )
-        if result.rejected:
-            logger.info(
-                "pre_rerank_evidence_guard: accepted=%s rejected=%s primary_reason=%s chat_type=%s mode=%s project_id=%s",
-                len(result.evidences),
-                len(result.rejected),
-                result.primary_reason,
-                guard_chat_type,
-                effective_mode,
-                project_id,
-            )
-        return result.evidences, result.to_dict()
 
     def _guard_chat_type(self, chat_type: str | None, effective_mode: str) -> str:
         normalized = (chat_type or effective_mode or "").strip()
@@ -853,6 +876,9 @@ class RetrievalRouter:
         limit: int,
         retrieval_scope: dict[str, Any] | None,
     ) -> list[Evidence]:
+        # 已验证快照为空表示当前用户无可检索文档，必须 fail-closed，不能退化成无过滤查询。
+        if retrieval_scope and retrieval_scope.get("verified") and not retrieval_scope.get("document_ids"):
+            return []
         if retrieval_scope and self._retriever_accepts_scope(retriever):
             return retriever.search(
                 query,
@@ -883,6 +909,7 @@ class RetrievalRouter:
                 RipgrepRetriever,
                 GraphRAGRetriever,
                 KeywordRetriever,
+                VisualRetriever,
             ),
         )
 
@@ -899,6 +926,8 @@ class RetrievalRouter:
             return GraphRAGRetriever(db)
         if name == "keyword":
             return KeywordRetriever(db)
+        if name == "visual":
+            return self._build_visual_retriever(db)
         raise ValueError(f"unknown retriever: {name}")
 
     def _snapshot_user(self, user: User) -> User:
@@ -938,6 +967,9 @@ class RetrievalRouter:
         if name == "milvus":
             milvus_timeout_ms = int(getattr(settings, "retrieval_milvus_timeout_ms", 15000) or 15000)
             return max(base_timeout_ms, milvus_timeout_ms)
+        if name == "visual":
+            visual_timeout_ms = int(getattr(settings, "retrieval_visual_timeout_ms", 15000) or 15000)
+            return max(base_timeout_ms, visual_timeout_ms)
         if name == "ripgrep":
             # ripgrep 内部 subprocess 已使用 RIPGREP_TIMEOUT_MS，Router 外层需要额外留出权限过滤和结果映射时间，
             # 否则会出现 rg 本体未超时、但整个 retriever 被外层 wait_for 提前判超时的误报。
@@ -1371,7 +1403,26 @@ class RetrievalRouter:
             retrievers.append(MilvusHybridRetriever(db))
         else:
             logger.info("未配置Milvus，检索链路将跳过 milvus retriever")
+        if self.settings.visual_index_enabled:
+            retrievers.append(self._build_visual_retriever(db))
         retrievers.append(RipgrepRetriever(db))
         retrievers.append(GraphRAGRetriever(db))
         retrievers.append(KeywordRetriever(db))
         return retrievers
+
+    def _build_visual_retriever(self, db: Session) -> VisualRetriever:
+        """按环境配置创建独立视觉召回通道。"""
+
+        return VisualRetriever(
+            db,
+            VisualEmbeddingService(
+                api_base=self.settings.visual_embedding_api_base or self.settings.model_service_api_base,
+                api_key=self.settings.visual_embedding_api_key or self.settings.model_service_api_key,
+                model_name=self.settings.visual_embedding_model,
+                dimension=self.settings.visual_embedding_dim,
+                timeout_seconds=self.settings.visual_embedding_timeout_seconds,
+                index_generation=self.settings.visual_index_generation,
+                distance_metric=self.settings.visual_embedding_distance_metric,
+            ),
+            VisualMilvusIndexer(),
+        )

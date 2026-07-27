@@ -65,6 +65,12 @@ def _graph(monkeypatch, evidences=None, enough=True):
     graph = RetrievalGraph(None)
     graph._compiled_graph = None
     graph.retrieval_router = SimpleNamespace(
+        create_verified_scope=lambda mode, project_id, user: {
+            "snapshot_id": "agentic-test-snapshot",
+            "verified": True,
+            "document_ids": [1],
+            "publication_tokens": ["agentic-test-token"],
+        },
         available_retrievers=lambda: ["milvus", "keyword", "page_index"],
         execute_planned=lambda **kwargs: {
             "evidences": list(evidences or []),

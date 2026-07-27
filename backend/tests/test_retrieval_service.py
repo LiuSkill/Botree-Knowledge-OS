@@ -26,6 +26,24 @@ def _evidence(retriever: str = "page_index") -> Evidence:
     )
 
 
+def test_search_excludes_metadata_only_evidence_from_citations(monkeypatch) -> None:
+    metadata = _evidence("keyword")
+    metadata.metadata["metadata_only"] = True
+
+    class FakeRouter:
+        def __init__(self, db) -> None:
+            pass
+
+        def search_all(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return {"evidences": [metadata]}
+
+    monkeypatch.setattr("app.services.retrieval_service.RetrievalRouter", FakeRouter)
+
+    result = RetrievalService(None).search("drawing", "base_chat", None, SimpleNamespace(id=1), execution_mode="all")
+
+    assert result["citations"] == []
+
+
 class _FakePlan:
     selected_retrievers = ["page_index"]
     fallback_retrievers = ["keyword"]
@@ -65,6 +83,15 @@ def test_retrieval_service_planner_mode_uses_single_planner_authority(monkeypatc
         def available_retrievers(self) -> list[str]:
             calls["available_retrievers"] = True
             return ["page_index", "keyword"]
+
+        def create_verified_scope(self, mode, project_id, user):  # noqa: ANN001
+            calls["create_verified_scope"] = (mode, project_id, getattr(user, "id", None))
+            return {
+                "snapshot_id": "service-test-snapshot",
+                "verified": True,
+                "document_ids": [1],
+                "publication_tokens": ["service-test-token"],
+            }
 
         def execute_planned(self, **kwargs):
             calls["execute_planned"] = kwargs
@@ -135,6 +162,8 @@ def test_retrieval_service_planner_mode_uses_single_planner_authority(monkeypatc
     assert calls["detect_intent"] == ("项目资料里的参数是多少", "project_chat", "project_chat")
     assert calls["decompose_query"] == ("项目资料里的参数是多少", "project_qa")
     assert calls["execute_planned"]["retriever_names"] == ["page_index"]
+    assert calls["create_verified_scope"] == ("project_chat", 1, 7)
+    assert calls["execute_planned"]["retrieval_scope"]["snapshot_id"] == "service-test-snapshot"
     assert calls["plan_kwargs"]["available_retrievers"] == ["page_index", "keyword"]
     assert calls["finalize_retrieval"]["evidences"][0].retriever == "page_index"
     assert result["retrieval_plan"]["selected_retrievers"] == ["page_index"]

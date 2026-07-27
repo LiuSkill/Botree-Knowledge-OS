@@ -114,6 +114,9 @@ class DocumentPageOut(BaseModel):
     page_image_object_key: str | None = None
     source_hash: str | None = None
     correction_status: str
+    index_admission_status: str = "waiting_correction"
+    index_admission_reason_json: str | None = None
+    text_quality_score: int = 0
     corrected_text: str | None = None
     corrected_by: int | None = None
     security_level: str = DEFAULT_SECURITY_LEVEL
@@ -161,6 +164,9 @@ class DocumentPreviewBlockOut(BaseModel):
     filter_reason: str | None = None
     bbox_json: str | None = None
     metadata_json: str | None = None
+    index_admission_status: str = "waiting_correction"
+    index_admission_reason_json: str | None = None
+    text_quality_score: int = 0
     image_asset: DocumentAssetOut | None = None
 
 
@@ -177,6 +183,9 @@ class DocumentPreviewPageOut(BaseModel):
     cleaning_metadata_json: str | None = None
     corrected_text: str | None = None
     correction_status: str
+    index_admission_status: str = "waiting_correction"
+    index_admission_reason_json: str | None = None
+    text_quality_score: int = 0
     security_level: str = DEFAULT_SECURITY_LEVEL
     page_summary: str | None = None
     page_preview_asset: DocumentAssetOut | None = None

@@ -10,6 +10,8 @@ Independent Embedding/Reranker Model Service
 from __future__ import annotations
 
 import logging
+import base64
+import io
 import sys
 import time
 from contextlib import contextmanager
@@ -69,6 +71,28 @@ class EmbeddingResponse(BaseModel):
     data: list[EmbeddingResponseItem]
 
 
+class VisualEmbeddingResponse(EmbeddingResponse):
+    """携带视觉索引兼容性约束的 Embedding 响应。"""
+
+    index_generation: str
+    dimension: int
+    distance_metric: str
+
+
+class VisualEmbeddingInput(BaseModel):
+    """视觉 Embedding 的文本或图片输入，二者必须且只能提供一种。"""
+
+    text: str | None = None
+    image_base64: str | None = None
+    mime_type: str | None = None
+
+
+class VisualEmbeddingRequest(BaseModel):
+    model: str | None = None
+    input: list[VisualEmbeddingInput]
+    dimensions: int | None = None
+
+
 class RerankRequest(BaseModel):
     """Reranker 请求。"""
 
@@ -110,6 +134,13 @@ def _configured_reranker_model() -> str:
 
 def _configured_embedding_dimension() -> int:
     return int(settings.model_service_embedding_dimension or settings.embedding_dim)
+
+
+def _configured_visual_embedding_model() -> str:
+    model_name = str(settings.visual_embedding_model or "").strip()
+    if not model_name:
+        raise HTTPException(status_code=500, detail="VISUAL_EMBEDDING_MODEL 未配置")
+    return model_name
 
 
 def _authorize(request: Request) -> None:
@@ -274,6 +305,50 @@ def rerank(request: Request, payload: RerankRequest) -> RerankResponse:
         backend="model_service",
         device=getattr(model, "device", settings.model_service_reranker_device),
         results=results,
+    )
+
+
+@app.post("/visual-embeddings", response_model=VisualEmbeddingResponse)
+def create_visual_embeddings(request: Request, payload: VisualEmbeddingRequest) -> VisualEmbeddingResponse:
+    """使用 Qwen3-VL-Embedding 生成图文对齐向量。"""
+
+    from PIL import Image
+    from app.services.visual_embedding_local import get_local_visual_embedding
+
+    _authorize(request)
+    configured_model = _configured_visual_embedding_model()
+    _validate_model_name(payload.model, configured_model)
+    dimension = int(payload.dimensions or settings.visual_embedding_dim)
+    if dimension != settings.visual_embedding_dim:
+        raise HTTPException(status_code=400, detail="视觉 Embedding 维度与服务配置不一致")
+    inputs: list[Any] = []
+    for item in payload.input:
+        if bool(item.text) == bool(item.image_base64):
+            raise HTTPException(status_code=400, detail="视觉 Embedding 输入必须且只能包含 text 或 image_base64")
+        if item.text is not None:
+            inputs.append(item.text)
+            continue
+        try:
+            raw = base64.b64decode(item.image_base64 or "", validate=True)
+            image = Image.open(io.BytesIO(raw))
+            image.load()
+            inputs.append(image.convert("RGB"))
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="视觉 Embedding 图片数据无效") from exc
+    with _inference_slot():
+        model = get_local_visual_embedding(
+            configured_model,
+            settings.model_service_embedding_device,
+            settings.model_service_embedding_batch_size,
+            dimension,
+        )
+        vectors = model.encode(inputs)
+    return VisualEmbeddingResponse(
+        model=configured_model,
+        index_generation=settings.visual_index_generation,
+        dimension=dimension,
+        distance_metric=settings.visual_embedding_distance_metric,
+        data=[EmbeddingResponseItem(index=index, embedding=vector) for index, vector in enumerate(vectors)],
     )
 
 

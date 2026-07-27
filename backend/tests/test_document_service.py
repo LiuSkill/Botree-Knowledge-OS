@@ -1444,6 +1444,101 @@ def test_build_new_version_success_switches_current_version_and_invalidates_old_
         db.close()
 
 
+def test_build_visual_only_version_without_chunks_enters_index_pipeline() -> None:
+    """纯视觉版本不应被文本 Chunk 门禁拦截。"""
+
+    db = make_session()
+    try:
+        operator = make_operator()
+        document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="drawing-v1.pdf",
+            file_type="pdf",
+            file_size=10,
+            storage_path="storage/uploads/drawing-v1.pdf",
+            document_status="active",
+            parse_status="success",
+            review_status="approved",
+            index_status="indexed",
+            version_no=1,
+            current_version=True,
+        )
+        db.add(document)
+        db.flush()
+        current_version = DocumentVersion(
+            document_id=document.id,
+            version_no=1,
+            file_name="drawing-v1.pdf",
+            file_type="pdf",
+            file_size=10,
+            storage_path="storage/uploads/drawing-v1.pdf",
+            version_status="current",
+            parse_status="success",
+            review_status="approved",
+            index_status="indexed",
+            is_current=True,
+        )
+        visual_version = DocumentVersion(
+            document_id=document.id,
+            version_no=2,
+            file_name="drawing-v2.pdf",
+            file_type="pdf",
+            file_size=20,
+            storage_path="storage/uploads/drawing-v2.pdf",
+            version_status="approved",
+            parse_status="success",
+            review_status="approved",
+            index_status="not_indexed",
+            is_current=False,
+        )
+        db.add_all([current_version, visual_version])
+        db.flush()
+        page = DocumentPage(
+            knowledge_base_id=1,
+            document_id=document.id,
+            version_no=2,
+            page_no=1,
+            page_text="",
+            index_admission_status="visual_indexed",
+        )
+        db.add(page)
+        db.flush()
+        db.add(
+            DocumentAsset(
+                document_id=document.id,
+                version_no=2,
+                page_id=page.id,
+                asset_type="page_preview",
+                file_name="drawing-v2-page-1.png",
+                mime_type="image/png",
+                storage_path="storage/derived/drawing-v2-page-1.png",
+                file_size=100,
+                status="ready",
+            )
+        )
+        db.commit()
+
+        with (
+            patch(
+                "app.services.document_service.IndexPipelineService.build_all",
+                return_value={"visual": {"status": "indexed", "vector_count": 1}, "publish": {}},
+            ) as build_all,
+            patch.object(DocumentService, "_delete_obsolete_vectors_best_effort"),
+        ):
+            result = DocumentService(db).build_document_index(document.id, operator, version_no=2)
+
+        db.refresh(document)
+        db.refresh(visual_version)
+        assert result["chunk_count"] == 0
+        assert result["visual"] == {"status": "indexed", "vector_count": 1}
+        assert document.version_no == 2
+        assert visual_version.index_status == "indexed"
+        build_all.assert_called_once()
+    finally:
+        db.close()
+
+
 def test_build_new_version_failure_keeps_old_version_effective() -> None:
     """新版本索引失败时，旧版本继续保持当前生效和可检索。"""
 

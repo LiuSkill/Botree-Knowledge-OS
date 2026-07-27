@@ -85,6 +85,12 @@ function openAssetPreview(asset: CitationAsset): void {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+function assetBbox(asset: CitationAsset): Record<string, number> | null {
+  const value = asset.metadata?.bbox;
+  if (!value || Array.isArray(value) || typeof value !== 'object') return null;
+  return value as Record<string, number>;
+}
+
 function normalizeAssetKey(value: string): string {
   return value
     .trim()
@@ -184,6 +190,7 @@ onBeforeUnmount(resetAssetUrls);
             loading="lazy"
             decoding="async"
           />
+          <span v-if="assetBbox(asset)" class="region-badge">局部区域</span>
           <span v-else class="asset-loading">加载中</span>
         </t-button>
       </div>
@@ -247,6 +254,7 @@ onBeforeUnmount(resetAssetUrls);
 }
 
 .citation-asset {
+  position: relative;
   display: block;
   width: 100%;
   height: auto;
@@ -255,6 +263,17 @@ onBeforeUnmount(resetAssetUrls);
   overflow: hidden;
   border-radius: 6px;
   padding: 0;
+}
+
+.region-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 65%);
+  color: #fff;
+  font-size: 11px;
 }
 
 .citation-asset :deep(.t-button__text) {

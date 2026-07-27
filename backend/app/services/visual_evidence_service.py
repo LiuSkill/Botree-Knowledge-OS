@@ -84,8 +84,9 @@ class VisualEvidenceService:
         if max_images <= 0:
             return evidences
 
-        selected_count = 0
-        seen_asset_ids: set[int] = set()
+        # 补充检索会再次经过统一收尾流程；先计入已有资产，保证增强操作幂等且不突破图片上限。
+        seen_asset_ids = {asset.asset_id for evidence in evidences for asset in evidence.assets}
+        selected_count = len(seen_asset_ids)
         for evidence in evidences:
             if selected_count >= max_images:
                 break

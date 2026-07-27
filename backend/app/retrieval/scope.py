@@ -46,7 +46,7 @@ def normalize_retrieval_scope(scope: dict[str, Any] | None) -> dict[str, Any]:
 
     if not scope:
         return {}
-    document_ids = positive_int_values(scope.get("document_ids"), limit=10)
+    document_ids = positive_int_values(scope.get("document_ids"), limit=5000)
     chunk_ids = positive_int_values(scope.get("chunk_ids"), limit=80)
     page_numbers_by_document = normalize_page_numbers_by_document(scope.get("page_numbers_by_document"))
     for document_id in page_numbers_by_document:
@@ -63,6 +63,14 @@ def normalize_retrieval_scope(scope: dict[str, Any] | None) -> dict[str, Any]:
     file_names = [str(item).strip() for item in _iter_values(scope.get("file_names")) if str(item).strip()]
     if file_names:
         normalized["file_names"] = list(dict.fromkeys(file_names))[:10]
+    for key in ("snapshot_id", "verified", "verified_at", "expires_at"):
+        if key in scope:
+            normalized[key] = scope[key]
+    publication_tokens = [
+        str(item).strip() for item in _iter_values(scope.get("publication_tokens")) if str(item).strip()
+    ]
+    if publication_tokens:
+        normalized["publication_tokens"] = list(dict.fromkeys(publication_tokens))[:5000]
     return normalized
 
 
@@ -75,6 +83,27 @@ def retrieval_scope_has_filters(scope: dict[str, Any] | None) -> bool:
         or normalized.get("chunk_ids")
         or normalized.get("page_numbers_by_document")
     )
+
+
+def constrain_verified_scope(
+    verified_scope: dict[str, Any],
+    requested_scope: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """在不更换请求级安全快照的前提下进一步收窄检索范围。"""
+
+    verified = normalize_retrieval_scope(verified_scope)
+    requested = normalize_retrieval_scope(requested_scope)
+    verified_ids = set(verified.get("document_ids", []))
+    requested_ids = set(requested.get("document_ids", []))
+    result = {**verified, **requested}
+    result["document_ids"] = sorted(verified_ids & requested_ids) if requested_ids else sorted(verified_ids)
+    verified_tokens = set(verified.get("publication_tokens", []))
+    requested_tokens = set(requested.get("publication_tokens", []))
+    if verified_tokens:
+        result["publication_tokens"] = sorted(
+            verified_tokens & requested_tokens if requested_tokens else verified_tokens
+        )
+    return normalize_retrieval_scope(result)
 
 
 def _iter_values(values: object) -> Iterable[object]:

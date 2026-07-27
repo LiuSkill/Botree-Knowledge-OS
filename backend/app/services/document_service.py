@@ -61,6 +61,9 @@ from app.repositories.review_repository import ReviewRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.document import DocumentMetadataUpdate
 from app.services.index_pipeline_service import IndexPipelineService
+from app.services.index_admission_service import IndexAdmissionService
+from app.services.runtime_recall_gate_service import RuntimeRecallGateService
+from app.services.verified_retrieval_scope_service import VerifiedRetrievalScopeService
 from app.services.index_task_service import IndexTaskService
 from app.services.knowledge_category_service import KnowledgeCategoryService
 from app.services.page_index_service import PageIndexService
@@ -815,6 +818,8 @@ class DocumentService:
         self._ensure_project_document_access(document, operator, "project:document:edit")
         fields_set = payload.model_fields_set
         changed_fields: list[str] = []
+        if payload.model_fields_set.intersection({"security_level", "status"}):
+            RuntimeRecallGateService().ensure_passed("问答元信息")
 
         if "directory_id" in fields_set:
             if payload.directory_id is None:
@@ -859,6 +864,8 @@ class DocumentService:
                 project_id=document.project_id,
             )
             self.db.commit()
+            if {"security_level", "status"}.intersection(changed_fields):
+                VerifiedRetrievalScopeService(self.db).invalidate()
         self._enrich_category_fields(document)
         return document
 
@@ -872,6 +879,7 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
+        RuntimeRecallGateService().ensure_passed("状态")
         self._ensure_project_document_access(document, operator, "project:document:delete")
         if document.project_id is None:
             return self._delete_base_document(document, operator)
@@ -909,6 +917,7 @@ class DocumentService:
             ),
         )
         self.db.commit()
+        VerifiedRetrievalScopeService(self.db).invalidate()
         logger.info(
             "文档软删除完成: document_id=%s vector_count=%s invalidated_chunks=%s obsolete_page_indexes=%s",
             document_id,
@@ -993,12 +1002,14 @@ class DocumentService:
         """物理删除文档及其全部数据库关联和外部存储资源。"""
 
         document = self.get_document(document_id, operator)
+        RuntimeRecallGateService().ensure_passed("权限")
         self._ensure_project_document_access(document, operator, "project:document:delete")
         return self._delete_base_document(document, operator)
 
     def publish_document(self, document_id: int, operator: User) -> Document:
         """发布项目资料，同时写入旧审核字段以兼容现有解析和索引链路。"""
 
+        RuntimeRecallGateService().ensure_passed("状态")
         document = self.get_document(document_id, operator)
         self._ensure_project_document_access(document, operator, "project:submit-review")
         current_version = self.repository.get_current_version(document.id) or self.repository.get_version(document.id, document.version_no)
@@ -1026,6 +1037,7 @@ class DocumentService:
             json.dumps({"status": document.status, "version_no": document.version_no}, ensure_ascii=False),
         )
         self.db.commit()
+        VerifiedRetrievalScopeService(self.db).invalidate()
         self._enrich_category_fields(document)
         logger.info("文档发布完成: document_id=%s project_id=%s operator_id=%s", document.id, document.project_id, operator.id)
         return document
@@ -1358,8 +1370,6 @@ class DocumentService:
             self._ensure_version_can_build_index(version)
             context = self._build_version_context(document, version, operator.id)
             chunks = self.repository.list_chunks(document.id, version_no=version.version_no)
-            if not chunks:
-                raise AppException("目标版本尚未生成 Chunk，无法构建索引")
 
             started_at = now_utc()
             version.index_status = INDEX_STATUS_INDEXING
@@ -2152,6 +2162,15 @@ class DocumentService:
             mineru_result_asset=mineru_result_asset,
             created_by=document.built_by or document.created_by,
         )
+        version_assets = asset_service.list_version_assets(document.id, document.version_no)
+        text_page_numbers = IndexAdmissionService().apply_records(
+            page_replace_result.pages,
+            page_replace_result.blocks,
+            version_assets,
+            parsed_pages=parsed_result.pages,
+            parser_name=parsed_result.parser_name,
+        )
+        self.db.flush()
         logger.info(
             "文档解析结果已落库: document_id=%s parser=%s pages=%s page_blocks=%s image_ready=%s image_failed=%s copied_artifact_count=%s image_resolution_failures=%s",
             document.id,
@@ -2163,7 +2182,15 @@ class DocumentService:
             mineru_artifact_summary["copied_artifact_count"],
             mineru_artifact_summary["image_resolution_failures"],
         )
-        chunk_payloads = ChunkBuilder().build(parsed_result.pages)
+        admitted_pages = [
+            page
+            for page in parsed_result.pages
+            if int(page.get("page_number") or page.get("page_no") or 0) in text_page_numbers
+        ]
+        chunk_payloads = ChunkBuilder(
+            rule_version="structure-v1",
+            index_generation=get_settings().visual_index_generation,
+        ).build(admitted_pages)
 
         return [
             DocumentChunk(
@@ -2186,6 +2213,7 @@ class DocumentService:
                         "knowledge_base_id": document.knowledge_base_id,
                         "category_id": document.category_id,
                         "security_level": document.security_level,
+                        **item.get("metadata", {}),
                     },
                     ensure_ascii=False,
                 ),
@@ -2485,6 +2513,9 @@ class DocumentService:
                     "cleaning_metadata_json": page.cleaning_metadata_json,
                     "corrected_text": page.corrected_text,
                     "correction_status": page.correction_status,
+                    "index_admission_status": page.index_admission_status,
+                    "index_admission_reason_json": page.index_admission_reason_json,
+                    "text_quality_score": page.text_quality_score,
                     "security_level": page.security_level,
                     "page_summary": page.page_summary,
                     "page_preview_asset": self._serialize_asset(page_preview_by_page_id.get(page.id)),
@@ -2499,6 +2530,9 @@ class DocumentService:
                             "filter_reason": block.filter_reason,
                             "bbox_json": block.bbox_json,
                             "metadata_json": block.metadata_json,
+                            "index_admission_status": block.index_admission_status,
+                            "index_admission_reason_json": block.index_admission_reason_json,
+                            "text_quality_score": block.text_quality_score,
                             "image_asset": self._serialize_asset(block_image_by_block_id.get(block.id)),
                         }
                         for block in page_blocks
@@ -2722,6 +2756,7 @@ class DocumentService:
             更新后的文档对象
         """
 
+        RuntimeRecallGateService().ensure_passed("状态")
         document = self.get_document(document_id, operator)
         document.review_status = REVIEW_STATUS_ARCHIVED
         document.review_comment = comment
@@ -2733,6 +2768,7 @@ class DocumentService:
             comment or "归档文档",
         )
         self.db.commit()
+        VerifiedRetrievalScopeService(self.db).invalidate()
         self._enrich_category_fields(document)
         logger.info("文档归档完成: document_id=%s", document.id)
         return document
@@ -2740,6 +2776,7 @@ class DocumentService:
     def update_document_security_level(self, document_id: int, security_level: str, operator: User) -> Document:
         """修改文档密级，并让依赖旧向量 metadata 的索引失效后重建。"""
 
+        RuntimeRecallGateService().ensure_passed("权限")
         document = self.get_document(document_id, operator)
         self._ensure_project_document_access(document, operator, "project:document:security-update")
         target_level = normalize_security_level(security_level, default=document.security_level)
@@ -2774,6 +2811,7 @@ class DocumentService:
             f"{old_level}->{target_level}",
         )
         self.db.commit()
+        VerifiedRetrievalScopeService(self.db).invalidate()
         self._enrich_category_fields(document)
         logger.info(
             "文档密级已更新并标记索引失效: document_id=%s old_level=%s new_level=%s pages=%s page_indexes=%s",

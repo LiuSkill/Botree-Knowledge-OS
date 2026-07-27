@@ -28,7 +28,7 @@ from app.models.user import User
 from app.retrieval.merger import EvidenceMerger
 from app.retrieval.router import RetrievalRouter
 from app.retrieval.schemas import Evidence
-from app.retrieval.scope import normalize_retrieval_scope, retrieval_scope_has_filters
+from app.retrieval.scope import constrain_verified_scope, normalize_retrieval_scope, retrieval_scope_has_filters
 from app.services.answer_policy_gate_service import AnswerAction, AnswerPolicyGateService
 from app.services.evidence_access_guard_service import EvidenceAccessGuardService
 from app.services.evidence_evaluator_service import EvidenceEvaluatorService, EvidenceStatus
@@ -40,6 +40,7 @@ from app.services.policy_resolver_service import PolicyResolver
 from app.services.rag_prompt_templates import KNOWN_RETRIEVERS
 from app.services.reranker_service import RerankerService
 from app.services.retrieval_planner_service import RetrievalPlannerService
+from app.services.retrieval_finalizer_service import RetrievalFinalizerService
 from app.services.visual_evidence_service import VisualEvidenceService
 from app.services.sensitive_content_service import SECURITY_NOTICE, SensitiveContentService
 
@@ -2385,6 +2386,12 @@ class RetrievalGraph:
             eval_top_k = self._eval_top_k(state)
             merge_limit = FUSED_EVIDENCE_TOP_K
             retriever_timeouts: dict[str, bool] = {}
+            retrieval_incomplete = False
+            primary_route_failed = False
+            failed_routes: set[str] = set()
+            verified_scope = self.retrieval_router.create_verified_scope(effective_mode, state["project_id"], state["user"])
+            state.setdefault("raw", {})["verified_retrieval_scope"] = verified_scope
+            primary_retriever = plan.get("primary_retriever")
 
             for sub_query_index, sub_query in enumerate(sub_queries, start=1):
                 remaining_budget_ms = self._remaining_retrieval_budget_ms(state)
@@ -2420,7 +2427,12 @@ class RetrievalGraph:
                     knowledge_scope=knowledge_scope,
                     remaining_budget_ms=remaining_budget_ms,
                     min_stage_budget_ms=self._min_stage_budget_ms(state),
+                    retrieval_scope=verified_scope,
+                    primary_retriever=primary_retriever,
                 )
+                retrieval_incomplete = retrieval_incomplete or bool(retrieval.get("retrieval_incomplete"))
+                primary_route_failed = primary_route_failed or bool(retrieval.get("primary_route_failed"))
+                failed_routes.update(str(name) for name in retrieval.get("failed_routes", []))
                 evidence_groups.append(retrieval["evidences"])
                 used_retrievers.extend(retrieval["used_retrievers"])
                 skipped_retrievers.extend(retrieval.get("skipped_retrievers", []))
@@ -2470,37 +2482,35 @@ class RetrievalGraph:
                     retrieval.get("retriever_elapsed_ms", {}),
                 )
 
-            merged = self._top_scored_evidences(self.merger.merge(evidence_groups, merge_limit), merge_limit)
-            rerank_candidates = self._top_scored_evidences(merged, rerank_top_k)
-            pre_rerank_guard = self.evidence_access_guard.filter_evidences(
-                evidences=rerank_candidates,
+            finalization = RetrievalFinalizerService(
+                evidence_access_guard=self.evidence_access_guard,
+                reranker=self.reranker,
+                visual_evidence_service=self.visual_evidence_service,
+                merger=self.merger,
+            ).finalize(
+                query=state["question"],
+                evidence_groups=evidence_groups,
+                merge_limit=merge_limit,
+                rerank_candidate_limit=rerank_top_k,
+                result_limit=eval_top_k,
                 chat_type=str(state.get("chat_type") or ""),
                 project_id=state.get("project_id"),
                 user=state.get("user"),
-                audit_action="RAG证据权限过滤",
+                rerank=lambda candidates, result_limit: self._rerank_evidences(state, candidates, result_limit),
+                visual_context=self._visual_query_context(state),
+                visual_limit=VISUAL_EVIDENCE_TOP_K,
             )
-            rerank_candidates = self._top_scored_evidences(pre_rerank_guard.evidences, rerank_top_k)
-            raw_before_doc_ids = [self._evidence_debug_id(evidence) for evidence in rerank_candidates]
-            raw_before_scores = [float(evidence.score) for evidence in rerank_candidates]
-            rerank_started_at = time.perf_counter()
-            evidences = self._rerank_evidences(state, rerank_candidates, eval_top_k)
-            rerank_elapsed_ms = int((time.perf_counter() - rerank_started_at) * 1000)
-            evidences = self._top_scored_evidences(evidences, eval_top_k)
-            metadata_evidence_count = sum(1 for evidence in evidences if evidence.metadata.get("metadata_only"))
-            if metadata_evidence_count:
-                evidences = [evidence for evidence in evidences if not evidence.metadata.get("metadata_only")]
-                evidences = self._top_scored_evidences(evidences, eval_top_k)
-            evidences = self.visual_evidence_service.enrich(
-                state["question"],
-                evidences,
-                self._visual_query_context(state),
-            )
-            evidences = self._top_scored_evidences(evidences, VISUAL_EVIDENCE_TOP_K)
-            visual_asset_count = sum(len(evidence.assets) for evidence in evidences)
+            evidences = finalization.evidences
+            pre_rerank_guard = finalization.pre_rerank_guard
+            raw_before_doc_ids = finalization.before_rerank_ids
+            raw_before_scores = finalization.before_rerank_scores
+            rerank_elapsed_ms = finalization.rerank_elapsed_ms
+            metadata_evidence_count = finalization.metadata_filtered_count
+            visual_asset_count = finalization.visual_asset_count
             logger.info(
                 "LangGraph检索重排完成: run_id=%s merged_count=%s final_count=%s rerank=%s final_evidence=%s",
                 state.get("raw", {}).get("run_id"),
-                len(merged),
+                finalization.merged_count,
                 len(evidences),
                 self._clip(str(self.reranker.last_details), 1200),
                 self._evidence_log_summary(evidences),
@@ -2541,6 +2551,9 @@ class RetrievalGraph:
             state["raw"]["retriever_elapsed_ms"] = retriever_elapsed
             state["raw"]["retriever_top_scores"] = retriever_top_scores
             state["raw"]["retriever_timeouts"] = retriever_timeouts
+            state["raw"]["retrieval_incomplete"] = retrieval_incomplete
+            state["raw"]["primary_route_failed"] = primary_route_failed
+            state["raw"]["failed_routes"] = sorted(failed_routes)
             state["raw"]["retrieval_sub_queries"] = retrieval_sub_queries
             state["raw"]["retrieval_limit"] = candidate_k
             state["raw"]["candidate_k"] = candidate_k
@@ -2550,7 +2563,7 @@ class RetrievalGraph:
             state["raw"]["visual_evidence_top_k"] = VISUAL_EVIDENCE_TOP_K
             state["raw"]["retrieval_before_rerank_doc_ids"] = raw_before_doc_ids
             state["raw"]["retrieval_before_rerank_scores"] = raw_before_scores
-            state["raw"]["pre_rerank_evidence_guard"] = pre_rerank_guard.to_dict()
+            state["raw"]["pre_rerank_evidence_guard"] = pre_rerank_guard
             state["raw"]["rerank_after_doc_ids"] = [self._evidence_debug_id(evidence) for evidence in evidences]
             state["raw"]["rerank_after_scores"] = [float(evidence.score) for evidence in evidences]
             state["raw"]["reranker_runtime"] = getattr(self.reranker, "last_runtime", {})
@@ -2737,6 +2750,10 @@ class RetrievalGraph:
                 return state
 
             retry_scope = self._retry_scope_from_evidences(state)
+            verified_retry_scope = constrain_verified_scope(
+                raw.get("verified_retrieval_scope", {}),
+                retry_scope,
+            )
             raw["retry_scope"] = retry_scope
             raw["retry_scope_document_ids"] = retry_scope.get("document_ids", [])
             raw["retry_scope_page_numbers_by_document"] = retry_scope.get("page_numbers_by_document", {})
@@ -2840,7 +2857,8 @@ class RetrievalGraph:
                     knowledge_scope=str((state.get("query_profile") or {}).get("knowledge_scope") or ""),
                     remaining_budget_ms=remaining_retry_budget_ms,
                     min_stage_budget_ms=self._min_stage_budget_ms(state),
-                    retrieval_scope=retry_scope,
+                    retrieval_scope=verified_retry_scope,
+                    primary_retriever=(state.get("retrieval_plan") or {}).get("primary_retriever"),
                 )
                 retry_groups.append(retrieval.get("evidences", []))
                 retry_executed.extend(retrieval.get("executed_retrievers", []))
@@ -2886,25 +2904,28 @@ class RetrievalGraph:
                 )
 
             retry_new_evidence_count = self._retry_added_value_count(list(state.get("evidences", [])), retry_groups)
-            merged = self._top_scored_evidences(
-                self._merge_evidences_by_source([state.get("evidences", []), *retry_groups], merge_limit),
-                merge_limit,
+            finalization = RetrievalFinalizerService(
+                evidence_access_guard=self.evidence_access_guard,
+                reranker=self.reranker,
+                visual_evidence_service=self.visual_evidence_service,
+                merger=self.merger,
+            ).finalize(
+                query=state["question"],
+                evidence_groups=[list(state.get("evidences", [])), *retry_groups],
+                merge_limit=merge_limit,
+                rerank_candidate_limit=retry_rerank_top_k,
+                result_limit=self._eval_top_k(state),
+                chat_type=str(state.get("chat_type") or ""),
+                project_id=state.get("project_id"),
+                user=state.get("user"),
+                rerank=lambda candidates, result_limit: self._rerank_evidences(state, candidates, result_limit),
+                visual_context=self._visual_query_context(state),
+                visual_limit=VISUAL_EVIDENCE_TOP_K,
+                audit_action="RAG补充检索证据权限过滤",
             )
-            rerank_started_at = time.perf_counter()
-            evidences = self._rerank_evidences(
-                state,
-                self._top_scored_evidences(merged, retry_rerank_top_k),
-                self._eval_top_k(state),
-            )
-            retry_rerank_elapsed_ms = int((time.perf_counter() - rerank_started_at) * 1000)
-            evidences = self._top_scored_evidences(evidences, self._eval_top_k(state))
-            evidences = self.visual_evidence_service.enrich(
-                state["question"],
-                evidences,
-                self._visual_query_context(state),
-            )
-            evidences = self._top_scored_evidences(evidences, VISUAL_EVIDENCE_TOP_K)
-            visual_asset_count = sum(len(evidence.assets) for evidence in evidences)
+            evidences = finalization.evidences
+            retry_rerank_elapsed_ms = finalization.rerank_elapsed_ms
+            visual_asset_count = finalization.visual_asset_count
 
             state["mode"] = effective_mode
             state["query_scope"] = query_scope
@@ -3170,6 +3191,22 @@ class RetrievalGraph:
                     state["evidence_status"] = EVIDENCE_INVALID_QUERY
                     raw["evidence_status"] = EVIDENCE_INVALID_QUERY
                 state["evidences"] = []
+                raw["terminal_without_answer_generation"] = True
+                return state
+
+            # 主召回通道失败时不能用次要证据生成看似完整的答案；该内部状态不暴露给前端。
+            if bool(raw.get("primary_route_failed")):
+                state["answer"] = self.answer_generator.generate_by_action(
+                    state["question"],
+                    [],
+                    action=AnswerAction.REFUSAL.value,
+                    query_profile=state.get("query_profile", {}),
+                    evidence_evaluation=state.get("evidence_evaluation", {}),
+                )
+                state["answer_type"] = AnswerAction.REFUSAL.value
+                state["evidences"] = []
+                raw["answer_type"] = AnswerAction.REFUSAL.value
+                raw["refused"] = True
                 raw["terminal_without_answer_generation"] = True
                 return state
 

@@ -51,7 +51,8 @@
 
 - Extend the knowledge indexing pipeline with page/image-block admission states and a publication manifest that records required indexes per content unit.
 - Add a visual indexing adapter that produces whole-page and local-region records with parent-page, neighboring-region, source-version, security and index-generation metadata.
-- Use a graph-aligned multimodal Embedding model for visual candidate vectors. Use the existing independent model-service boundary for visual understanding; do not load vision models in API request workers.
+- Use `Qwen3-VL-Embedding-2B` for graph-aligned visual candidate vectors and text query vectors. Resolve its path from environment-backed configuration: the verified development location is `E:\workspace\botree-agent\backend\workspace\Qwen\Qwen3-VL-Embedding-2B`, and the server model root is `/data/botree/models` with the corresponding model directory beneath it. Do not hardcode either path in business code.
+- Run visual Embedding through an isolated model-service process rather than loading it in API request workers. Use the existing independent model-service boundary for visual understanding as well.
 - Add `visual` to the retrieval router and planner. It runs in parallel with existing retrievers when the scope can contain visual content; query features may tune weights but cannot disable the route solely because image keywords are absent.
 - Preserve the existing visual evidence enrichment service as post-retrieval asset attachment, not as the visual retriever.
 - Fuse cross-modal candidates by normalized score or rank fusion, then deduplicate exact content while retaining all provenance and diversify near-duplicates by document/page/region.
@@ -69,7 +70,7 @@
 - Add indexing tests for text-only, visual-only, mixed pages, OCR rejection, critical-structure veto, partial coverage, exact duplicates, near-duplicates, source-snapshot drift and incompatible index generations.
 - Add visual retriever tests for whole-page and local-region recall, parent-page context, access filtering, version filtering, score fusion, route timeout and primary-route failure behavior.
 - Add retrieval graph tests for parallel route execution, conditional visual understanding, non-security partial degradation, security fail-closed behavior and metadata-only exclusion from citations.
-- Add model-service contract tests for visual query/document Embedding compatibility, dimension/metric validation, batching, timeout and model-generation metadata.
+- Add model-service contract tests for `Qwen3-VL-Embedding-2B` query/image compatibility, configured-path validation, dimension/metric validation, batching, timeout and model-generation metadata.
 - Reuse existing retrieval planner, scope policy, Milvus retriever, page-index retriever, visual evidence, graph trace and document index service test patterns.
 - Add evaluation fixtures segmented by text, visual, mixed-modality, OCR rejection, table/formula, local-region, duplicate, version and timeout scenarios. Report per-bucket Recall@K and key-page/region miss rates; do not rely on aggregate metrics.
 

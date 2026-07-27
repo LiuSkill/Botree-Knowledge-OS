@@ -39,6 +39,14 @@ def _evidence(content: str, retriever: str, chunk_id: int = 1) -> Evidence:
 
 
 class FakeRouter:
+    def create_verified_scope(self, mode: str, project_id: int | None, user: Any) -> dict[str, Any]:  # noqa: ARG002
+        return {
+            "snapshot_id": "policy-test-snapshot",
+            "verified": True,
+            "document_ids": [10],
+            "publication_tokens": ["policy-test-token"],
+        }
+
     def available_retrievers(self) -> list[str]:
         return list(ALL_RETRIEVERS)
 

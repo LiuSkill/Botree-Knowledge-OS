@@ -10,7 +10,9 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
 from app.langgraph.retrieval_graph import RetrievalGraph  # noqa: E402
+from app.retrieval.merger import EvidenceMerger  # noqa: E402
 from app.retrieval.schemas import Evidence, EvidenceAsset  # noqa: E402
+from app.services.evidence_access_guard_service import EvidenceAccessGuardService  # noqa: E402
 from app.services.evidence_evaluator_service import EvidenceEvaluatorService  # noqa: E402
 
 
@@ -34,6 +36,16 @@ def make_evidence(chunk_id: int, retriever: str = "page_index") -> Evidence:
 class FakeRouter:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.scope_calls = 0
+
+    def create_verified_scope(self, mode: str, project_id: int | None, user: Any) -> dict[str, Any]:  # noqa: ARG002
+        self.scope_calls += 1
+        return {
+            "snapshot_id": "retry-test-snapshot",
+            "verified": True,
+            "document_ids": [11],
+            "publication_tokens": ["retry-test-token"],
+        }
 
     def available_retrievers(self) -> list[str]:
         return ["page_index", "ripgrep", "milvus"]
@@ -103,6 +115,8 @@ class FakeQwen:
 def build_graph() -> RetrievalGraph:
     graph = object.__new__(RetrievalGraph)
     graph.evidence_evaluator = EvidenceEvaluatorService()
+    graph.evidence_access_guard = EvidenceAccessGuardService(None)
+    graph.merger = EvidenceMerger()
     graph.retrieval_router = FakeRouter()
     graph.reranker = FakeReranker()
     graph.visual_evidence_service = FakeVisualEvidenceService()

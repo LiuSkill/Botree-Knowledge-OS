@@ -18,7 +18,7 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_category import KnowledgeCategory
 from app.models.model_config import ModelConfig
 from app.models.operation_log import OperationLog
-from app.models.page_index import DocumentPage, DocumentPageBlock, PageIndex
+from app.models.page_index import DocumentPage, DocumentPageBlock, IndexPublicationManifest, PageIndex
 from app.models.process_config import (
     ProcessCalculationImportBatch,
     ProcessCalculationOutput,
@@ -68,6 +68,7 @@ __all__ = [
     "DocumentPage",
     "DocumentPageBlock",
     "PageIndex",
+    "IndexPublicationManifest",
     "ProcessConsumable",
     "ProcessLaborCost",
     "ProcessCalculationImportBatch",

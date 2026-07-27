@@ -62,6 +62,20 @@ class Settings(BaseSettings):
     milvus_port: int = Field(default=19530, alias="MILVUS_PORT")
     milvus_collection: str = Field(default="botree_collection", alias="MILVUS_COLLECTION")
     embedding_dim: int = Field(default=1024, alias="EMBEDDING_DIM")
+    visual_milvus_collection: str = Field(default="botree_visual_collection", alias="VISUAL_MILVUS_COLLECTION")
+    visual_embedding_model: str | None = Field(default=None, alias="VISUAL_EMBEDDING_MODEL")
+    visual_embedding_api_base: str | None = Field(default=None, alias="VISUAL_EMBEDDING_API_BASE")
+    visual_embedding_api_key: str | None = Field(default=None, alias="VISUAL_EMBEDDING_API_KEY")
+    visual_embedding_dim: int = Field(default=2048, alias="VISUAL_EMBEDDING_DIM")
+    visual_embedding_timeout_seconds: float = Field(default=60, alias="VISUAL_EMBEDDING_TIMEOUT_SECONDS")
+    visual_index_generation: str = Field(default="qwen3-vl-embedding-2b-v1", alias="VISUAL_INDEX_GENERATION")
+    visual_embedding_distance_metric: str = Field(default="COSINE", alias="VISUAL_EMBEDDING_DISTANCE_METRIC")
+    runtime_recall_gate_enabled: bool = Field(default=False, alias="RUNTIME_RECALL_GATE_ENABLED")
+    runtime_recall_gate_report_path: str = Field(
+        default="storage/evaluation/runtime-recall-gate.json",
+        alias="RUNTIME_RECALL_GATE_REPORT_PATH",
+    )
+    retrieval_visual_timeout_ms: int = Field(default=15000, alias="RETRIEVAL_VISUAL_TIMEOUT_MS")
 
     mineru_base_url: str | None = Field(default=None, alias="MINERU_BASE_URL")
     mineru_parse_path: str = Field(default="/file_parse", alias="MINERU_PARSE_PATH")
@@ -421,6 +435,16 @@ class Settings(BaseSettings):
         """
 
         return bool(self.milvus_host)
+
+    @property
+    def visual_index_enabled(self) -> bool:
+        """视觉索引必须同时具备向量库和独立模型服务配置。"""
+
+        return bool(
+            self.milvus_enabled
+            and self.visual_embedding_model
+            and (self.visual_embedding_api_base or self.model_service_api_base)
+        )
 
     @property
     def upload_path(self) -> Path:

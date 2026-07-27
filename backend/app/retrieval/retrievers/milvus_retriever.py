@@ -8,6 +8,7 @@ Milvus Retriever
 """
 
 import logging
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -50,6 +51,7 @@ class MilvusHybridRetriever(BaseRetriever):
         project_id: int | None,
         user: User,
         limit: int = DEFAULT_RETRIEVER_TOP_K,
+        retrieval_scope: dict[str, Any] | None = None,
     ) -> list[Evidence]:
         """
         执行真实向量检索。
@@ -66,7 +68,9 @@ class MilvusHybridRetriever(BaseRetriever):
         """
 
         query_vector = self.embedding_service.embed_texts([query])[0]
-        milvus_expr, access_debug = self._build_milvus_expr(mode, project_id, user)
+        if retrieval_scope and retrieval_scope.get("verified") and not retrieval_scope.get("document_ids"):
+            return []
+        milvus_expr, access_debug = self._build_milvus_expr(mode, project_id, user, retrieval_scope)
         hits = self.milvus_indexer.search(query_vector, limit * 3, expr=milvus_expr)
         evidences: list[Evidence] = []
         project_document_policy = ProjectDocumentPolicyService(self.db)
@@ -158,7 +162,13 @@ class MilvusHybridRetriever(BaseRetriever):
             logger.warning("Milvus向量召回为空: limit=%s query_preview=%s", limit * 3, query[:120])
         return evidences
 
-    def _build_milvus_expr(self, mode: str, project_id: int | None, user: User) -> tuple[str | None, dict[str, object]]:
+    def _build_milvus_expr(
+        self,
+        mode: str,
+        project_id: int | None,
+        user: User,
+        retrieval_scope: dict[str, Any] | None = None,
+    ) -> tuple[str | None, dict[str, object]]:
         """Build a Milvus metadata pre-filter from the existing scope policy."""
 
         effective_mode = "hybrid" if mode == "auto" and project_id is not None else ("base_only" if mode == "auto" else mode)
@@ -196,6 +206,9 @@ class MilvusHybridRetriever(BaseRetriever):
         scope_expr = " or ".join(f"({clause})" for clause in clauses if clause)
         security_expr = f"security_level in {self._milvus_str_list(allowed_levels)}"
         expr = f"({scope_expr}) and {security_expr}" if scope_expr else security_expr
+        document_ids = [int(value) for value in (retrieval_scope or {}).get("document_ids", []) if int(value) > 0]
+        if document_ids:
+            expr = f"({expr}) and document_id in {self._milvus_int_list(document_ids)}"
         return (
             expr or None,
             {
