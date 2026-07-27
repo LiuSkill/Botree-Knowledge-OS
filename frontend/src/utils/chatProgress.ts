@@ -308,16 +308,29 @@ export function mergeProgressEvent(items: ChatProgressEvent[], nextEvent: ChatPr
 }
 
 export function normalizeProgressEvents(events: ChatProgressEvent[]): ChatProgressEvent[] {
-  const byStage = new Map<ChatProgressStage, ChatProgressEvent>();
+  const byStage = new Map<string, ChatProgressEvent>();
   for (const event of events) {
     if (!isProgressStage(event.stage)) continue;
-    byStage.set(event.stage, sanitizeProgressEvent(event));
+    const key = event.intent_id ? `${event.stage}:${event.intent_id}` : event.stage;
+    byStage.set(key, sanitizeProgressEvent(event));
+  }
+  const normalized = Array.from(byStage.values());
+  if (normalized.some((event) => event.intent_id)) {
+    return normalized.sort((left, right) => (left.intent_order ?? 0) - (right.intent_order ?? 0));
   }
   return CHAT_PROGRESS_STAGES.map((item) => byStage.get(item.stage)).filter(Boolean) as ChatProgressEvent[];
 }
 
 export function buildProgressRows(events: ChatProgressEvent[], streaming = false): ChatProgressRow[] {
   const normalized = normalizeProgressEvents(events);
+  if (normalized.some((event) => event.intent_id)) {
+    return normalized.map((event) => ({
+      stage: event.stage,
+      title: event.intent_name || event.title,
+      status: streaming && event.status === 'pending' ? 'running' : toVisibleStatus(event.status),
+      detail: event.detail || `正在处理 ${event.intent_order ?? 1}/${event.intent_total ?? normalized.length}`,
+    }));
+  }
   const eventByStage = new Map(normalized.map((item) => [item.stage, item]));
   if (normalized.some((event) => event.compact)) {
     return normalized.map((event) => ({
@@ -372,7 +385,14 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
 }
 
 export function markProgressComplete(events: ChatProgressEvent[]): ChatProgressEvent[] {
-  const byStage = new Map(normalizeProgressEvents(events).map((item) => [item.stage, item]));
+  const normalized = normalizeProgressEvents(events);
+  if (normalized.some((event) => event.intent_id)) {
+    return normalized.map((event) => ({
+      ...event,
+      status: event.status === 'failed' ? 'failed' : 'success',
+    }));
+  }
+  const byStage = new Map(normalized.map((item) => [item.stage, item]));
   const latestIndex = Math.max(...Array.from(byStage.keys()).map((stage) => STAGE_INDEX[stage]), -1);
   if (latestIndex < 0) return [];
   return CHAT_PROGRESS_STAGES.slice(0, latestIndex + 1).map((item) => ({
@@ -401,6 +421,10 @@ function sanitizeProgressEvent(event: ChatProgressEvent): ChatProgressEvent {
     detail: safeDetail(event.stage, status, event.title, event.detail),
     sequence: event.sequence ?? null,
     compact: event.compact === true,
+    intent_id: event.intent_id ?? null,
+    intent_name: event.intent_name ?? null,
+    intent_order: event.intent_order ?? null,
+    intent_total: event.intent_total ?? null,
   };
 }
 

@@ -556,6 +556,20 @@ export interface ChatProgressEvent {
   detail?: string | null;
   sequence?: number | null;
   compact?: boolean;
+  intent_id?: string | null;
+  intent_name?: string | null;
+  intent_order?: number | null;
+  intent_total?: number | null;
+}
+
+export interface IntentResult {
+  id: string;
+  name: string;
+  order: number;
+  status: 'success' | 'failed';
+  elapsed_ms: number;
+  sub_questions: string[];
+  citation_ids: string[];
 }
 
 export interface ChatCompletionResult {
@@ -571,6 +585,7 @@ export interface ChatCompletionResult {
   agent_trace: AgentTraceStep[];
   trace_steps?: AgentTraceStep[];
   progress_events?: ChatProgressEvent[];
+  intent_results?: IntentResult[];
   citations: Citation[];
   feedback_status?: 'like' | 'dislike' | null;
   raw?: Record<string, unknown>;

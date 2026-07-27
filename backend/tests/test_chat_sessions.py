@@ -21,7 +21,7 @@ from app.models import Base, ChatCitation, ChatMessage, ChatSession, RetrievalTr
 from app.models.user import Role, User  # noqa: E402
 from app.repositories.chat_repository import ChatRepository  # noqa: E402
 from app.retrieval.schemas import Evidence  # noqa: E402
-from app.schemas.chat import ChatCompletionRequest, ChatSessionUpdate  # noqa: E402
+from app.schemas.chat import ChatCompletionRequest, ChatCompletionResponse, ChatSessionUpdate  # noqa: E402
 from app.services.chat_service import ChatService  # noqa: E402
 
 
@@ -95,6 +95,33 @@ def test_build_chat_citations_skips_project_metadata_placeholder_ids() -> None:
     assert citations[0].knowledge_base_id == 1
     assert citations[0].document_id == 3
     assert citations[0].chunk_id == 4
+
+
+def test_chat_completion_response_exposes_optional_intent_results() -> None:
+    response = ChatCompletionResponse.model_validate(
+        {
+            "answer": "分别回答后的综合结论",
+            "session_id": 1,
+            "chat_type": "project_chat",
+            "mode": "auto",
+            "query_scope": "项目知识库",
+            "used_retrievers": ["milvus"],
+            "agent_trace": [],
+            "citations": [],
+            "intent_results": [
+                {
+                    "id": "intent-1",
+                    "name": "查询关键设备",
+                    "order": 1,
+                    "status": "success",
+                    "sub_questions": ["项目包含哪些关键设备？"],
+                    "citation_ids": ["project:1:3:4:1"],
+                }
+            ],
+        }
+    )
+
+    assert response.intent_results[0].name == "查询关键设备"
 
 
 def test_chat_repository_filters_project_sessions_by_project_id() -> None:

@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from app.langgraph.retrieval_graph import (
 )
 from app.retrieval.schemas import Evidence
 from app.services.chat_service import AWAITING_GENERAL_CONFIRM, ChatService
+from app.services.qwen_orchestration_service import QwenOrchestrationService
 
 
 class _Plan:
@@ -88,10 +90,54 @@ def _graph(monkeypatch, evidences=None, enough=True):
     graph.visual_evidence_service = SimpleNamespace(enrich=lambda question, items, features: items)
     graph.qwen.judge_evidence = lambda *args, **kwargs: {"enough": enough, "reason": "ok" if enough else "not enough"}
     graph.answer_generator.generate = lambda question, items, query_profile=None: "基于知识库回答"
+    graph.answer_generator.synthesize_multi_intent = lambda *_args, **_kwargs: "以上各项已分别回答。"
     graph.answer_generator._partial_answer_with_llm = lambda *args, **kwargs: "受限部分回答"  # noqa: SLF001
     graph.answer_generator._general_answer = lambda *args, **kwargs: "通用回答"  # noqa: SLF001
     graph.answer_generator.last_model_route = {"source": "test"}
     return graph
+
+
+def test_intent_planner_keeps_simple_question_on_single_intent_fast_path(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.qwen_orchestration_service.LLMService",
+        lambda db: (_ for _ in ()).throw(AssertionError("单意图快路不应调用模型")),
+    )
+
+    plan = QwenOrchestrationService(None).plan_question_intents("项目有哪些关键设备？", "project_chat", "auto")
+
+    assert plan.intents[0].id == "intent-1"
+    assert plan.intents[0].name == "回答问题"
+    assert plan.intents[0].question == "项目有哪些关键设备？"
+    assert [item.question for item in plan.intents[0].sub_questions] == ["项目有哪些关键设备？"]
+
+
+def test_intent_planner_merges_related_overflow_before_applying_budget(monkeypatch):
+    model_payload = {
+        "intents": [
+            {
+                "id": f"intent-{index}",
+                "name": f"任务{index}",
+                "question": f"问题{index}",
+                "sub_questions": [f"子问题{index}-1", f"子问题{index}-2"],
+            }
+            for index in range(1, 5)
+        ]
+    }
+    monkeypatch.setattr(
+        "app.services.qwen_orchestration_service.LLMService",
+        lambda db: SimpleNamespace(chat=lambda *args, **kwargs: json.dumps(model_payload, ensure_ascii=False)),
+    )
+
+    plan = QwenOrchestrationService(None).plan_question_intents("分别回答四个问题，然后汇总", "project_chat", "auto")
+
+    assert [item.id for item in plan.intents] == ["intent-1", "intent-2", "intent-3"]
+    assert [item.question for item in plan.intents[0].sub_questions] == [
+        "子问题1-1",
+        "子问题1-2",
+        "子问题4-1",
+        "子问题4-2",
+    ]
+    assert plan.omitted_targets == []
 
 
 def test_project_chat_greeting_uses_preset(monkeypatch):
@@ -126,6 +172,184 @@ def test_project_chat_kb_answer_requires_sources(monkeypatch):
     assert "milvus" in set(result["used_retrievers"])
     assert result["raw"]["answer_top_k"] == 10
     assert result["raw"]["reranker_used"] is True
+
+
+def test_project_chat_answers_multiple_intents_in_original_order(monkeypatch):
+    graph = _graph(monkeypatch, [_evidence()], enough=True)
+    graph.qwen.plan_question_intents = lambda *_args, **_kwargs: [
+        {
+            "id": "intent-1",
+            "name": "查询关键设备",
+            "question": "项目包含哪些关键设备？",
+            "sub_questions": ["项目包含哪些关键设备？"],
+        },
+        {
+            "id": "intent-2",
+            "name": "查询工艺流程",
+            "question": "项目采用什么工艺流程？",
+            "sub_questions": ["项目采用什么工艺流程？"],
+        },
+    ]
+    graph.answer_generator.generate = (
+        lambda question, items, query_profile=None: f"回答：{question}"  # noqa: ARG005
+    )
+    graph.answer_generator.synthesize_multi_intent = (
+        lambda question, intent_answers: "关键设备共同支撑所述工艺流程。"  # noqa: ARG005
+    )
+
+    result = graph.run(
+        "项目包含哪些关键设备，同时采用什么工艺流程？",
+        "project_chat",
+        "auto",
+        1,
+        SimpleNamespace(id=1),
+    )
+
+    assert result["answer"].index("## 查询关键设备") < result["answer"].index("## 查询工艺流程")
+    assert "### 项目包含哪些关键设备？\n回答：项目包含哪些关键设备？" in result["answer"]
+    assert "### 项目采用什么工艺流程？\n回答：项目采用什么工艺流程？" in result["answer"]
+    assert "小结：已完成 1/1 个子问题。" in result["answer"]
+    assert result["answer"].endswith("## 综合结论\n关键设备共同支撑所述工艺流程。")
+    assert [item["name"] for item in result["intent_results"]] == ["查询关键设备", "查询工艺流程"]
+    assert all(item["status"] == "success" for item in result["intent_results"])
+    assert len(result["evidences"]) == 1
+    audit_step = result["agent_trace"][-1]
+    assert audit_step["implementation"] == "multi_intent_orchestration"
+    assert [item["id"] for item in audit_step["details"]["intent_results"]] == ["intent-1", "intent-2"]
+    assert all(item["elapsed_ms"] >= 0 for item in audit_step["details"]["intent_results"])
+
+
+def test_project_chat_preserves_dependent_sub_question_order(monkeypatch):
+    graph = _graph(monkeypatch, [_evidence()], enough=True)
+    graph.qwen.plan_question_intents = lambda *_args, **_kwargs: [
+        {
+            "id": "intent-1",
+            "name": "分析设备配置",
+            "question": "先列出关键设备，再说明它们的上下游关系。",
+            "sub_questions": ["列出关键设备", "说明设备的上下游关系"],
+        }
+    ]
+    graph.answer_generator.generate = (
+        lambda question, items, query_profile=None: f"回答：{question}"  # noqa: ARG005
+    )
+
+    result = graph.run(
+        "先列出关键设备，再说明它们的上下游关系。",
+        "project_chat",
+        "auto",
+        1,
+        SimpleNamespace(id=1),
+    )
+
+    assert result["answer"].index("### 列出关键设备") < result["answer"].index("### 说明设备的上下游关系")
+    assert "回答：列出关键设备" in result["answer"]
+    assert "回答：说明设备的上下游关系" in result["answer"]
+    assert result["intent_results"][0]["sub_questions"] == ["列出关键设备", "说明设备的上下游关系"]
+
+
+def test_project_chat_reports_partial_multi_intent_information_once(monkeypatch):
+    graph = _graph(monkeypatch, [_evidence()], enough=True)
+    graph.qwen.plan_question_intents = lambda *_args, **_kwargs: [
+        {
+            "id": "intent-1",
+            "name": "查询关键设备",
+            "question": "项目包含哪些关键设备？",
+            "sub_questions": ["项目包含哪些关键设备？"],
+        },
+        {
+            "id": "intent-2",
+            "name": "查询排放指标",
+            "question": "项目排放指标是多少？",
+            "sub_questions": ["项目排放指标是多少？"],
+        },
+    ]
+    original_execute = graph.retrieval_router.execute_planned
+
+    def execute_planned(**kwargs):
+        result = original_execute(**kwargs)
+        if "排放" in kwargs["query"]:
+            result["evidences"] = []
+        return result
+
+    graph.retrieval_router.execute_planned = execute_planned
+    graph.qwen.judge_evidence = lambda _question, items, *_args, **_kwargs: {
+        "enough": bool(items),
+        "reason": "ok" if items else "not enough",
+    }
+    graph.answer_generator.generate = (
+        lambda question, items, query_profile=None: f"回答：{question}"  # noqa: ARG005
+    )
+
+    result = graph.run(
+        "项目包含哪些关键设备，同时排放指标是多少？",
+        "project_chat",
+        "auto",
+        1,
+        SimpleNamespace(id=1),
+    )
+
+    assert "回答：项目包含哪些关键设备？" in result["answer"]
+    assert result["answer"].count("说明：") == 1
+    assert result["answer"].endswith("说明：部分子问题资料不足。以上内容基于当前可用信息回答。")
+
+
+def test_project_chat_labels_incomplete_calculation_as_available_information_total(monkeypatch):
+    graph = _graph(monkeypatch, [], enough=False)
+    graph.qwen.plan_question_intents = lambda *_args, **_kwargs: [
+        {
+            "id": "intent-1",
+            "name": "汇总区域预算",
+            "question": "分别列出各区域预算并汇总。",
+            "sub_questions": ["列出各区域预算", "汇总区域预算"],
+        }
+    ]
+    graph.answer_generator.synthesize_multi_intent = lambda *_args, **_kwargs: "当前数据合计为 100 万元。"
+
+    result = graph.run(
+        "分别列出各区域预算并汇总。",
+        "project_chat",
+        "auto",
+        1,
+        SimpleNamespace(id=1),
+    )
+
+    assert "可用信息汇总值" in result["answer"]
+    assert result["answer"].count("说明：") == 1
+
+
+def test_project_chat_isolates_failed_intent(monkeypatch):
+    graph = _graph(monkeypatch, [_evidence()], enough=True)
+    graph.qwen.plan_question_intents = lambda *_args, **_kwargs: [
+        {"id": "intent-1", "name": "查询设备", "question": "查询设备", "sub_questions": ["查询设备"]},
+        {"id": "intent-2", "name": "查询排放", "question": "查询排放", "sub_questions": ["查询排放"]},
+    ]
+
+    def generate(question, items, query_profile=None):  # noqa: ARG001
+        if "排放" in question:
+            raise RuntimeError("sensitive internal failure")
+        return "设备回答"
+
+    graph.answer_generator.generate = generate
+
+    result = graph.run("查询设备，同时查询排放", "project_chat", "auto", 1, SimpleNamespace(id=1))
+
+    assert "设备回答" in result["answer"]
+    assert [item["status"] for item in result["intent_results"]] == ["success", "failed"]
+    assert "sensitive internal failure" not in result["answer"]
+
+
+def test_project_chat_reports_omitted_intents(monkeypatch):
+    graph = _graph(monkeypatch, [_evidence()], enough=True)
+    graph.qwen.plan_question_intents = lambda *_args, **_kwargs: [
+        {"id": f"intent-{index}", "name": f"任务{index}", "question": f"任务{index}", "sub_questions": [f"任务{index}"]}
+        for index in range(1, 5)
+    ]
+
+    result = graph.run("任务1；任务2；任务3；任务4", "project_chat", "auto", 1, SimpleNamespace(id=1))
+
+    assert len(result["intent_results"]) == 3
+    assert result["answer"].count("说明：") == 1
+    assert "另有 1 个目标因执行预算未处理" in result["answer"]
 
 
 def test_project_chat_without_evidence_refuses(monkeypatch):
@@ -223,7 +447,7 @@ def test_industry_question_is_not_obvious_common_knowledge(monkeypatch):
 
 def test_base_chat_pending_confirm_and_reject(monkeypatch):
     service = ChatService.__new__(ChatService)
-    service.db = SimpleNamespace(commit=lambda: None)
+    service.db = SimpleNamespace(commit=lambda: None, rollback=lambda: None)
     service.repository = SimpleNamespace(update_session=lambda session: None)
     service._persist_agent_result = lambda payload, user, session, agent_result: agent_result
     monkeypatch.setattr("app.services.chat_service.QwenOrchestrationService", lambda db: SimpleNamespace(answer_general_question=lambda question: "通用答案"))
@@ -309,6 +533,87 @@ def test_stream_base_chat_confirm_only_emits_compact_answering_progress(monkeypa
     assert "event: done" in remaining
     assert '"stage": "retrieving"' not in remaining
     assert '"stage": "filtering"' not in remaining
+
+
+def test_stream_multi_intent_emits_independent_progress_and_passes_frozen_plan(monkeypatch):
+    service = ChatService.__new__(ChatService)
+    service.db = SimpleNamespace(commit=lambda: None)
+    service.repository = SimpleNamespace(
+        add_message=lambda message: SimpleNamespace(id=7, **message.__dict__),
+        update_session=lambda session: None,
+    )
+    service._validate_chat_request = lambda *args, **kwargs: None
+    service._ensure_chat_action_permission = lambda *args, **kwargs: None
+    session = SimpleNamespace(
+        id=3,
+        conversation_state="NORMAL",
+        pending_chat_type=None,
+        pending_general_question=None,
+    )
+    service._get_or_create_session = lambda payload, user: session
+    service._persist_agent_result = lambda payload, user, current_session, result, **kwargs: {
+        **result,
+        "session_id": current_session.id,
+        "citations": [],
+        "sources": [],
+        "feedback_status": None,
+        "raw": {"message_id": 9},
+    }
+    monkeypatch.setattr(
+        "app.services.chat_service.ChatMemoryService",
+        lambda db: SimpleNamespace(prepare_turn_context=lambda *args: None),
+    )
+
+    plan = [
+        {"id": "intent-1", "name": "查询设备", "question": "查询设备", "sub_questions": ["查询设备"]},
+        {"id": "intent-2", "name": "查询排放", "question": "查询排放", "sub_questions": ["查询排放"]},
+    ]
+    execution_calls = []
+
+    class FakeRetrievalGraph:
+        def __init__(self, db):  # noqa: ARG002
+            self.qwen = SimpleNamespace(plan_question_intents=lambda *args, **kwargs: plan)
+
+    class FakeMultiIntentQaService:
+        def __init__(self, graph, db):  # noqa: ARG002
+            pass
+
+        def execute_events(self, question, intent_plan, *args, **kwargs):  # noqa: ARG002
+            execution_calls.append(intent_plan)
+            yield "progress", {"intent_id": "intent-1", "intent_order": 1, "status": "running"}
+            yield "progress", {"intent_id": "intent-2", "intent_order": 2, "status": "running"}
+            yield "progress", {"intent_id": "intent-1", "intent_order": 1, "status": "success"}
+            yield "progress", {"intent_id": "intent-2", "intent_order": 2, "status": "failed"}
+            yield "result", {
+                "answer": "分别回答后给出综合结论",
+                "agent_trace": [],
+                "trace_steps": [],
+                "intent_results": [
+                    {"id": "intent-1", "name": "查询设备", "order": 1, "status": "success"},
+                    {"id": "intent-2", "name": "查询排放", "order": 2, "status": "failed"},
+                ],
+                "raw": {},
+                "query_scope": "auto",
+                "used_retrievers": [],
+                "evidences": [],
+                "chat_type": "project_chat",
+                "mode": "auto",
+            }
+
+    monkeypatch.setattr("app.services.chat_service.RetrievalGraph", FakeRetrievalGraph)
+    monkeypatch.setattr("app.services.chat_service.MultiIntentQaService", FakeMultiIntentQaService)
+    payload = SimpleNamespace(message="查询设备并查询排放", chat_type="project_chat", mode="auto", project_id=1)
+    user = SimpleNamespace(id=1, roles=[SimpleNamespace(code="admin", enabled=True)])
+
+    stream_output = "".join(service.complete_stream(payload, user))
+
+    assert stream_output.count('"intent_id": "intent-1"') == 3
+    assert stream_output.count('"intent_id": "intent-2"') == 3
+    assert '"intent_order": 1' in stream_output
+    assert '"intent_order": 2' in stream_output
+    assert '"status": "failed"' in stream_output
+    assert [intent.id for intent in execution_calls[0].intents] == ["intent-1", "intent-2"]
+    assert "event: done" in stream_output
 
 
 def test_invalid_query_short_circuits_without_heavy_nodes(monkeypatch):

@@ -38,6 +38,8 @@ from app.models.sensitive_content import SensitiveRedactionAudit
 from app.repositories.chat_repository import ChatRepository
 from app.schemas.chat import ChatCompletionRequest, ChatMessageFeedbackUpdate, ChatSessionCreate, ChatSessionUpdate
 from app.services.chat_memory_service import ChatMemoryService, MemoryCitationAnchor, TurnContext, TurnOutcome
+from app.services.multi_intent_qa_service import MultiIntentQaService
+from app.services.multi_intent_models import coerce_question_intent_plan
 from app.services.qwen_orchestration_service import QwenOrchestrationService
 from app.services.retrieval_trace_service import RetrievalTraceService
 from app.services.system_service import SystemService
@@ -342,6 +344,7 @@ class ChatService:
             payload.project_id,
             user,
             turn_context=turn_context,
+            business_id=session.id,
         )
         return self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
 
@@ -381,6 +384,51 @@ class ChatService:
                     return
 
                 retrieval_graph = RetrievalGraph(self.db)
+                planning_started_at = time.perf_counter()
+                try:
+                    intent_plan = retrieval_graph.qwen.plan_question_intents(
+                        payload.message,
+                        payload.chat_type,
+                        payload.mode,
+                        business_id=session.id,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "多意图规划不可用，降级为单意图回答: session_id=%s status=fallback elapsed_ms=%s exception_type=%s",
+                        session.id,
+                        int((time.perf_counter() - planning_started_at) * 1000),
+                        type(exc).__name__,
+                    )
+                    intent_plan = QwenOrchestrationService.single_intent_plan(payload.message)
+                intent_plan = coerce_question_intent_plan(intent_plan)
+                if intent_plan.requires_orchestration:
+                    final_progress_by_intent: dict[str, dict[str, Any]] = {}
+                    agent_result: dict[str, Any] | None = None
+                    for event_name, event_payload in MultiIntentQaService(retrieval_graph, self.db).execute_events(
+                        payload.message,
+                        intent_plan,
+                        payload.chat_type,
+                        payload.mode,
+                        payload.project_id,
+                        user,
+                        business_id=session.id,
+                        turn_context=turn_context,
+                    ):
+                        if event_name == "progress":
+                            final_progress_by_intent[str(event_payload["intent_id"])] = event_payload
+                            yield self._encode_sse("progress", event_payload)
+                        elif event_name == "result":
+                            agent_result = event_payload
+                    if agent_result is None:
+                        raise AppException("多意图问答执行失败", status_code=502, code=502)
+                    agent_result["progress_events"] = sorted(
+                        final_progress_by_intent.values(),
+                        key=lambda item: int(item.get("intent_order") or 0),
+                    )
+                    yield self._encode_sse("delta", {"content": agent_result["answer"]})
+                    result = self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
+                    yield self._encode_sse("done", self._sanitize_stream_result(result))
+                    return
                 for event_name, event_payload in retrieval_graph.prepare_stream(
                     payload.message,
                     payload.chat_type,
@@ -595,10 +643,11 @@ class ChatService:
 
     def _should_emit_progress(self, event: dict[str, Any], emitted_progress: dict[str, str]) -> bool:
         stage = str(event.get("stage") or "")
+        progress_key = f"{stage}:{event.get('intent_id') or ''}"
         signature = f"{event.get('status')}::{event.get('title')}::{event.get('detail')}"
-        if emitted_progress.get(stage) == signature:
+        if emitted_progress.get(progress_key) == signature:
             return False
-        emitted_progress[stage] = signature
+        emitted_progress[progress_key] = signature
         return True
 
     def _manual_progress_event(
@@ -989,6 +1038,7 @@ class ChatService:
             "trace_steps": trace_steps,
             "trace": trace_steps,
             "progress_events": progress_events,
+            "intent_results": list(agent_result.get("intent_results", [])),
             "citations": citation_dicts,
             "sources": citation_dicts,
             "need_user_confirm": bool(agent_result.get("need_user_confirm")),
@@ -1043,6 +1093,7 @@ class ChatService:
                 evidences=list(agent_result.get("evidences", [])),
                 trace_steps=list(agent_result.get("trace_steps", agent_result.get("agent_trace", []))),
                 raw=dict(agent_result.get("raw", {})),
+                intent_results=list(agent_result.get("intent_results", [])),
                 turn_context=turn_context,
             )
             ChatMemoryService(self.db).finalize_turn_memory(session, outcome)

@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     llm_api_key: str | None = Field(default=None, alias="LLM_API_KEY")
     llm_model: str = Field(default="qwen3.7-max", alias="LLM_MODEL")
     llm_timeout_seconds: int = Field(default=60, alias="LLM_TIMEOUT_SECONDS")
+    multi_intent_timeout_seconds: float = Field(default=90.0, alias="MULTI_INTENT_TIMEOUT_SECONDS")
     intent_llm_model: str = Field(default="qwen3.5-flash", alias="INTENT_LLM_MODEL")
     planner_llm_model: str = Field(default="qwen3.5-flash", alias="PLANNER_LLM_MODEL")
     evidence_judge_fast_model: str = Field(default="qwen3.5-flash", alias="EVIDENCE_JUDGE_FAST_MODEL")

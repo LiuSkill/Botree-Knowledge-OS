@@ -53,6 +53,12 @@ _FOLLOW_UP_PATTERNS: tuple[str, ...] = (
     "下一步",
     "第二步",
     "第三步",
+    "第一点",
+    "第二点",
+    "第三点",
+    "第一个",
+    "第二个",
+    "第三个",
     "这一步",
     "那一步",
     "那如果",
@@ -133,6 +139,16 @@ class LastTurnSummary(BaseModel):
     problem_chain_summary: str | None = None
 
 
+class MemoryIntentResult(BaseModel):
+    """上一轮问答意图的受控摘要。"""
+
+    id: str
+    name: str
+    order: int
+    sub_questions: list[str] = Field(default_factory=list)
+    source_message_id: int | None = None
+
+
 class TopicShiftSignals(BaseModel):
     """话题切换痕迹。"""
 
@@ -152,6 +168,7 @@ class SessionMemorySnapshot(BaseModel):
     user_constraints: dict[str, Any] = Field(default_factory=dict)
     last_turn_summary: LastTurnSummary = Field(default_factory=LastTurnSummary)
     topic_shift_signals: TopicShiftSignals = Field(default_factory=TopicShiftSignals)
+    last_intent_results: list[MemoryIntentResult] = Field(default_factory=list)
 
 
 class TurnContext(BaseModel):
@@ -188,6 +205,7 @@ class TurnOutcome(BaseModel):
     evidences: list[Evidence] = Field(default_factory=list)
     trace_steps: list[dict[str, Any]] = Field(default_factory=list)
     raw: dict[str, Any] = Field(default_factory=dict)
+    intent_results: list[dict[str, Any]] = Field(default_factory=list)
     turn_context: TurnContext | None = None
 
 
@@ -291,6 +309,12 @@ class ChatMemoryService:
             topic_shift = self._detect_topic_shift(question, snapshot)
             working_snapshot = self._snapshot_after_read_prune(snapshot, topic_shift)
             memory_source = self._memory_source_for_rewrite(working_snapshot, recent_rounds)
+            referenced_intent = self._referenced_intent(question, working_snapshot.last_intent_results)
+            if referenced_intent is not None:
+                memory_source = {
+                    "id": f"intent::{referenced_intent.id}",
+                    "topic_label": "；".join([referenced_intent.name, *referenced_intent.sub_questions]),
+                }
 
             trigger_mode = "skip"
             decision_reason = "disabled" if not config.enabled else "no_memory"
@@ -389,6 +413,16 @@ class ChatMemoryService:
             evidence_status=self._clip(turn_outcome.evidence_status, SUMMARY_MAX_LEN),
             problem_chain_summary=problem_chain_summary,
         )
+        working_snapshot.last_intent_results = [
+            MemoryIntentResult(
+                id=str(item.get("id") or f"intent-{index}"),
+                name=str(item.get("name") or f"意图 {index}"),
+                order=int(item.get("order") or index),
+                sub_questions=[str(value) for value in item.get("sub_questions", [])],
+                source_message_id=turn_outcome.assistant_message_id,
+            )
+            for index, item in enumerate(turn_outcome.intent_results, start=1)
+        ]
 
         if self._should_promote_confirmed(turn_outcome):
             confirmed_item = self._build_confirmed_item(topic_label, topic_key, turn_outcome, now_iso)
@@ -681,6 +715,25 @@ class ChatMemoryService:
         if any(pattern in question for pattern in _FOLLOW_UP_PATTERNS):
             return True
         return len(normalized) <= 6 and question.endswith("呢")
+
+    def _referenced_intent(
+        self,
+        question: str,
+        intent_results: list[MemoryIntentResult],
+    ) -> MemoryIntentResult | None:
+        """解析“第一点、后者”等对上一轮问答意图的引用。"""
+
+        if not intent_results:
+            return None
+        ordinal_patterns = (
+            (("第一", "第一个", "前者"), 0),
+            (("第二", "第二个"), 1),
+            (("第三", "第三个", "后者"), 2 if len(intent_results) > 2 else len(intent_results) - 1),
+        )
+        for patterns, index in ordinal_patterns:
+            if any(pattern in question for pattern in patterns) and 0 <= index < len(intent_results):
+                return sorted(intent_results, key=lambda item: item.order)[index]
+        return None
 
     def _is_question_complete(self, question: str) -> bool:
         normalized = self._normalize_text(question)

@@ -144,6 +144,22 @@ class ChatProgressEvent(BaseModel):
     status: Literal["pending", "running", "success", "failed"]
     detail: str | None = Field(default=None, description="普通用户可见的阶段结论")
     sequence: int | None = None
+    intent_id: str | None = None
+    intent_name: str | None = None
+    intent_order: int | None = Field(default=None, ge=1)
+    intent_total: int | None = Field(default=None, ge=1)
+
+
+class IntentResultOut(BaseModel):
+    """单个问答意图的公开执行结果。"""
+
+    id: str
+    name: str
+    order: int = Field(ge=1)
+    status: Literal["success", "failed"]
+    elapsed_ms: int = Field(default=0, ge=0)
+    sub_questions: list[str] = Field(default_factory=list)
+    citation_ids: list[str] = Field(default_factory=list)
 
 
 class ChatCompletionResponse(BaseModel):
@@ -161,6 +177,7 @@ class ChatCompletionResponse(BaseModel):
     agent_trace: list[AgentTraceStep]
     trace_steps: list[AgentTraceStep] = Field(default_factory=list, description="前端展示用执行步骤")
     progress_events: list[ChatProgressEvent] = Field(default_factory=list, description="普通用户可见处理进度")
+    intent_results: list[IntentResultOut] = Field(default_factory=list, description="按用户原始顺序排列的问答意图结果")
     citations: list[CitationOut]
     feedback_status: Literal["like", "dislike"] | None = None
     raw: dict[str, Any] = Field(default_factory=dict, description="扩展调试信息")

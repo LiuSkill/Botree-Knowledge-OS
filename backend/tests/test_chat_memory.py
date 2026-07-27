@@ -152,6 +152,42 @@ def test_chat_memory_finalize_then_prepare_rewrites_follow_up() -> None:
         db.close()
 
 
+def test_chat_memory_rewrites_follow_up_to_referenced_intent() -> None:
+    db = make_session()
+    try:
+        session = ChatSession(user_id=1, title="多意图记忆", chat_type="project_chat", mode="auto", project_id=1)
+        db.add(session)
+        db.flush()
+        user_message = ChatMessage(session_id=session.id, user_id=1, role="user", content="查询设备和流程")
+        assistant_message = ChatMessage(session_id=session.id, role="assistant", content="已分别回答")
+        db.add_all([user_message, assistant_message])
+        db.flush()
+        outcome = _build_turn_outcome(
+            session_id=session.id,
+            user_message_id=user_message.id,
+            assistant_message_id=assistant_message.id,
+            question=user_message.content,
+            answer=assistant_message.content,
+        )
+        outcome.intent_results = [
+            {"id": "intent-1", "name": "查询设备", "order": 1, "sub_questions": ["查询关键设备"]},
+            {"id": "intent-2", "name": "查询流程", "order": 2, "sub_questions": ["查询工艺流程"]},
+        ]
+        service = ChatMemoryService(db)
+        service.finalize_turn_memory(session, outcome)
+        db.commit()
+
+        follow_up = ChatMessage(session_id=session.id, user_id=1, role="user", content="第二个详细说明")
+        db.add(follow_up)
+        db.flush()
+        context = service.prepare_turn_context(session, follow_up, follow_up.content)
+
+        assert context.effective_question == "关于查询流程；查询工艺流程，第二个详细说明"
+        assert context.memory_referenced_context_ids == ["intent::intent-2"]
+    finally:
+        db.close()
+
+
 def test_chat_service_complete_does_not_fail_when_memory_writeback_raises(monkeypatch) -> None:
     """短期记忆写回失败不能阻断主回答落库。"""
 
@@ -163,7 +199,7 @@ def test_chat_service_complete_does_not_fail_when_memory_writeback_raises(monkey
             def __init__(self, _db):
                 self.db = _db
 
-            def run(self, question, chat_type, mode, project_id, _user, *, turn_context=None):
+            def run(self, question, chat_type, mode, project_id, _user, *, turn_context=None, business_id=None):  # noqa: ARG002
                 return {
                     "answer": f"回答：{question}",
                     "chat_type": chat_type,

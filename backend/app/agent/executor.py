@@ -38,6 +38,7 @@ class AgentExecutor:
         user: User,
         *,
         turn_context: Any | None = None,
+        business_id: str | int | None = None,
     ) -> dict:
         """
         执行知识问答
@@ -53,4 +54,12 @@ class AgentExecutor:
             Agent 执行结果。
         """
 
-        return self.retrieval_graph.run(question, chat_type, mode, project_id, user, turn_context=turn_context)
+        return self.retrieval_graph.run(
+            question,
+            chat_type,
+            mode,
+            project_id,
+            user,
+            turn_context=turn_context,
+            business_id=business_id,
+        )

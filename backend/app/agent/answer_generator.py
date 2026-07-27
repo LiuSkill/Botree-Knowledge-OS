@@ -87,6 +87,34 @@ class AnswerGenerator:
         self.last_model_route = self.llm_service.model_route("answer", reason)
         return answer
 
+    def synthesize_multi_intent(self, question: str, intent_answers: list[dict[str, str]]) -> str:
+        """基于各意图已生成的答案形成简洁综合结论。"""
+
+        answer = self.llm_service.chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "请根据用户原问题和各问答意图的已有答案生成简洁综合结论。"
+                        "不得引入已有答案之外的新事实，不要重复分节标题，只输出结论正文。"
+                        "涉及求和、平均、差值、比例或单位换算时，必须展示取值依据、统一后的单位、计算式和结果。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"question": question, "intent_answers": intent_answers},
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            model_type=ANSWER_MODEL_TEXT,
+            max_tokens=600,
+            disable_thinking=True,
+        )
+        self.last_model_route = self.llm_service.model_route("answer", "综合多个问答意图的已有答案")
+        return answer.strip()
+
     def generate_by_action(
         self,
         question: str,

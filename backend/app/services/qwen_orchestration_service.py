@@ -14,6 +14,7 @@ import json
 import logging
 import operator
 import re
+import time
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -32,6 +33,7 @@ from app.retrieval.query_utils import (
 from app.retrieval.schemas import Evidence
 from app.services.industry_domain_rules import detect_industry_domains, is_industry_domain_question
 from app.services.llm_service import LLMService
+from app.services.multi_intent_models import IntentSubQuestion, QuestionIntent, QuestionIntentPlan
 from app.services.rag_prompt_templates import EVIDENCE_JUDGE_SYSTEM_PROMPT, KNOWN_RETRIEVERS
 
 logger = logging.getLogger(__name__)
@@ -203,6 +205,186 @@ class QwenOrchestrationService:
         """
 
         return self.detect_route_decision(question, chat_type, mode)["intent"]
+
+    def plan_question_intents(
+        self,
+        question: str,
+        chat_type: str,
+        mode: str,
+        *,
+        business_id: str | int | None = None,
+    ) -> QuestionIntentPlan:
+        """识别并校验问答意图，超过预算时优先合并相关目标。"""
+
+        normalized = question.strip()
+        fallback = self.single_intent_plan(normalized)
+        multi_intent_tokens = ("同时", "并且", "以及", "分别", "然后", "汇总", "另外", "此外", "还要", "；")
+        question_mark_count = normalized.count("？") + normalized.count("?")
+        has_numbered_parts = bool(re.search(r"(?:^|[\n；;])\s*[一二三四五六七八九十\d]+[、.)）]", normalized))
+        if not normalized or not (
+            any(token in normalized for token in multi_intent_tokens)
+            or question_mark_count > 1
+            or has_numbered_parts
+        ):
+            return fallback
+
+        started_at = time.perf_counter()
+        try:
+            llm = LLMService(self.db)
+            raw_text = llm.chat(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "识别用户问题中的问答意图。问答意图可以是独立业务目标，也可以是同一目标下存在依赖关系的操作要求。"
+                            "先识别完整业务目标，再把语义相关且可共同检索的目标合并；最多列出8个候选，保持原始顺序。"
+                            "不要把检索关键词当作意图。只输出JSON："
+                            "{\"intents\":[{\"name\":\"简短名称\",\"original_target\":\"原始目标\","
+                            "\"question\":\"规范化问题\",\"sub_questions\":["
+                            "{\"question\":\"有序子问题\",\"depends_on\":[\"前置子问题序号\"]}]}],"
+                            "\"omitted_targets\":[]}。"
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {"question": normalized, "chat_type": chat_type, "mode": mode},
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                model_type="intent",
+            )
+            payload = json.loads(self._strip_json_fence(raw_text))
+            raw_intents = payload.get("intents")
+            if not isinstance(raw_intents, list):
+                return fallback
+            intents: list[QuestionIntent] = []
+            for index, item in enumerate(raw_intents[:8], start=1):
+                if not isinstance(item, dict):
+                    continue
+                intent_question = str(item.get("question") or "").strip()
+                if not intent_question:
+                    continue
+                raw_sub_questions = item.get("sub_questions")
+                sub_questions = self._parse_intent_sub_questions(raw_sub_questions, index, intent_question)
+                intents.append(
+                    QuestionIntent(
+                        id=f"intent-{index}",
+                        order=index,
+                        name=str(item.get("name") or f"意图 {index}").strip(),
+                        original_target=str(item.get("original_target") or intent_question).strip(),
+                        question=intent_question,
+                        sub_questions=sub_questions,
+                    )
+                )
+            if not intents:
+                return fallback
+            omitted_targets = [
+                str(value).strip()
+                for value in payload.get("omitted_targets", [])
+                if str(value).strip()
+            ] if isinstance(payload.get("omitted_targets"), list) else []
+            return self._fit_intent_budget(intents, omitted_targets)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "多意图识别失败，回退单意图: business_id=%s status=fallback elapsed_ms=%s exception_type=%s",
+                business_id,
+                int((time.perf_counter() - started_at) * 1000),
+                type(exc).__name__,
+            )
+            return fallback
+
+    @staticmethod
+    def single_intent_plan(question: str) -> QuestionIntentPlan:
+        sub_question = IntentSubQuestion(id="intent-1-sub-1", order=1, question=question)
+        return QuestionIntentPlan(
+            intents=[
+                QuestionIntent(
+                    id="intent-1",
+                    order=1,
+                    name="回答问题",
+                    original_target=question,
+                    question=question,
+                    sub_questions=[sub_question],
+                )
+            ]
+        )
+
+    @staticmethod
+    def _parse_intent_sub_questions(
+        raw_sub_questions: Any,
+        intent_order: int,
+        fallback_question: str,
+    ) -> list[IntentSubQuestion]:
+        values = raw_sub_questions if isinstance(raw_sub_questions, list) else [fallback_question]
+        parsed: list[IntentSubQuestion] = []
+        for sub_order, value in enumerate(values, start=1):
+            if isinstance(value, dict):
+                sub_question = str(value.get("question") or "").strip()
+                raw_dependencies = value.get("depends_on")
+                dependencies = [str(item).strip() for item in raw_dependencies if str(item).strip()] if isinstance(raw_dependencies, list) else []
+            else:
+                sub_question = str(value).strip()
+                dependencies = []
+            if not sub_question:
+                continue
+            parsed.append(
+                IntentSubQuestion(
+                    id=f"intent-{intent_order}-sub-{sub_order}",
+                    order=sub_order,
+                    question=sub_question,
+                    depends_on=dependencies,
+                )
+            )
+        return parsed or [
+            IntentSubQuestion(id=f"intent-{intent_order}-sub-1", order=1, question=fallback_question)
+        ]
+
+    def _fit_intent_budget(
+        self,
+        intents: list[QuestionIntent],
+        omitted_targets: list[str],
+    ) -> QuestionIntentPlan:
+        selected = [item.model_copy(deep=True) for item in intents[:3]]
+        omitted = list(omitted_targets)
+        for overflow in intents[3:]:
+            similarities = [self._intent_similarity(overflow, candidate) for candidate in selected]
+            best_index = max(range(len(similarities)), key=similarities.__getitem__)
+            if similarities[best_index] >= 0.35:
+                target = selected[best_index]
+                existing_questions = {item.question for item in target.sub_questions}
+                merged_sub_questions = list(target.sub_questions)
+                for sub_question in overflow.sub_questions:
+                    if sub_question.question in existing_questions:
+                        continue
+                    merged_sub_questions.append(
+                        sub_question.model_copy(
+                            update={
+                                "id": f"{target.id}-sub-{len(merged_sub_questions) + 1}",
+                                "order": len(merged_sub_questions) + 1,
+                            }
+                        )
+                    )
+                selected[best_index] = target.model_copy(
+                    update={
+                        "original_target": f"{target.original_target}；{overflow.original_target}",
+                        "question": f"{target.question}；{overflow.question}",
+                        "sub_questions": merged_sub_questions,
+                    }
+                )
+            else:
+                omitted.append(overflow.original_target)
+        normalized = [item.model_copy(update={"id": f"intent-{index}", "order": index}) for index, item in enumerate(selected, start=1)]
+        return QuestionIntentPlan(intents=normalized, omitted_targets=list(dict.fromkeys(omitted)))
+
+    @staticmethod
+    def _intent_similarity(left: QuestionIntent, right: QuestionIntent) -> float:
+        left_terms = set(extract_query_terms(f"{left.name} {left.question}"))
+        right_terms = set(extract_query_terms(f"{right.name} {right.question}"))
+        if not left_terms or not right_terms:
+            return 0.0
+        return len(left_terms & right_terms) / len(left_terms | right_terms)
 
     def detect_route_decision(self, question: str, chat_type: str, mode: str) -> dict[str, Any]:
         """

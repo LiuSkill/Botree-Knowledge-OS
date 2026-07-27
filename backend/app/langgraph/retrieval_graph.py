@@ -35,6 +35,7 @@ from app.services.evidence_evaluator_service import EvidenceEvaluatorService, Ev
 from app.services.query_profile_service import QueryProfileService
 from app.services.question_understanding_service import QuestionUnderstandingService
 from app.services.qwen_orchestration_service import QwenOrchestrationService
+from app.services.multi_intent_models import QuestionIntentPlan, coerce_question_intent_plan
 from app.services.policy_resolver_service import PolicyResolver
 from app.services.rag_prompt_templates import KNOWN_RETRIEVERS
 from app.services.reranker_service import RerankerService
@@ -390,6 +391,8 @@ class RetrievalGraph:
         require_real_reranker: bool = True,
         allow_reranker_fallback: bool = True,
         reranker_score_order: str = "desc",
+        intent_plan: QuestionIntentPlan | None = None,
+        business_id: str | int | None = None,
     ) -> dict[str, Any]:
         """
         执行在线问答图。
@@ -405,13 +408,43 @@ class RetrievalGraph:
             与旧 AgentExecutor 兼容的结果字典
         """
 
-        state = self._build_initial_state(
+        intent_plan = intent_plan or self.qwen.plan_question_intents(
+            question,
+            chat_type,
+            mode,
+            business_id=business_id,
+        )
+        intent_plan = coerce_question_intent_plan(intent_plan)
+        if intent_plan.requires_orchestration:
+            from app.services.multi_intent_qa_service import MultiIntentQaService
+
+            return MultiIntentQaService(self, self.db).execute(
+                question,
+                intent_plan,
+                chat_type,
+                mode,
+                project_id,
+                user,
+                business_id=business_id,
+                turn_context=turn_context,
+                eval_mode=eval_mode,
+                return_evidence=return_evidence,
+                retrieval_limit=retrieval_limit,
+                candidate_k=candidate_k,
+                rerank_top_k=rerank_top_k,
+                eval_top_k=eval_top_k,
+                answer_top_k=answer_top_k,
+                retrieval_mode=retrieval_mode,
+                require_real_reranker=require_real_reranker,
+                allow_reranker_fallback=allow_reranker_fallback,
+                reranker_score_order=reranker_score_order,
+            )
+        return self.run_single_intent(
             question,
             chat_type,
             mode,
             project_id,
             user,
-            backend="langgraph" if self._compiled_graph is not None else "sequential",
             turn_context=turn_context,
             eval_mode=eval_mode,
             return_evidence=return_evidence,
@@ -424,6 +457,27 @@ class RetrievalGraph:
             require_real_reranker=require_real_reranker,
             allow_reranker_fallback=allow_reranker_fallback,
             reranker_score_order=reranker_score_order,
+        )
+
+    def run_single_intent(
+        self,
+        question: str,
+        chat_type: str,
+        mode: str,
+        project_id: int | None,
+        user: User,
+        **options: Any,
+    ) -> dict[str, Any]:
+        """执行一个问答意图，保持原有单意图链路不变。"""
+
+        state = self._build_initial_state(
+            question,
+            chat_type,
+            mode,
+            project_id,
+            user,
+            backend="langgraph" if self._compiled_graph is not None else "sequential",
+            **options,
         )
         run_id = state.get("raw", {}).get("run_id")
         logger.info(
@@ -4264,6 +4318,15 @@ class RetrievalGraph:
             "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
             "length": len(text),
         }
+
+    def apply_final_answer_filter(
+        self,
+        state: dict[str, Any],
+        answer: str | None = None,
+    ) -> None:
+        """对跨模块生成的最终回答应用统一敏感内容过滤。"""
+
+        self._apply_final_answer_filter(state, answer)
 
     def _apply_final_answer_filter(
         self,
