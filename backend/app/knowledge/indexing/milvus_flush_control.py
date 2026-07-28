@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-import fcntl
 import logging
 import os
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator, TextIO
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from app.core.exceptions import AppException
 
@@ -57,10 +62,36 @@ def _flush_once(collection: Any) -> None:
     state_path = coordination_dir / "flush.state"
 
     with lock_path.open("a+", encoding="utf-8") as lock_file:
+        with _exclusive_file_lock(lock_file):
+            _sleep_until_allowed(state_path)
+            collection.flush()
+            state_path.write_text(f"{time.time():.6f}\n", encoding="utf-8")
+
+
+@contextmanager
+def _exclusive_file_lock(lock_file: TextIO) -> Iterator[None]:
+    """Acquire one cross-process lock on Unix and Windows."""
+
+    if os.name != "nt":
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        _sleep_until_allowed(state_path)
-        collection.flush()
-        state_path.write_text(f"{time.time():.6f}\n", encoding="utf-8")
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return
+
+    lock_file.seek(0)
+    if not lock_file.read(1):
+        lock_file.seek(0)
+        lock_file.write("0")
+        lock_file.flush()
+    lock_file.seek(0)
+    msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+    try:
+        yield
+    finally:
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _sleep_until_allowed(state_path: Path) -> None:

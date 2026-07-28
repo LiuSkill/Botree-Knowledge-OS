@@ -384,3 +384,27 @@ def warmup_models() -> None:
     except Exception:
         logger.exception("模型服务Reranker预热失败")
         raise
+    if not str(settings.visual_embedding_model or "").strip():
+        logger.info("跳过视觉Embedding预热: VISUAL_EMBEDDING_MODEL未配置")
+        return
+    try:
+        from app.services.visual_embedding_local import get_local_visual_embedding
+
+        # 仅加载权重不足以验证处理器与输出维度；执行一次最小文本编码，
+        # 让部署在进入就绪状态前即暴露模型或契约错误。
+        visual_model = get_local_visual_embedding(
+            _configured_visual_embedding_model(),
+            settings.model_service_embedding_device,
+            settings.model_service_embedding_batch_size,
+            settings.visual_embedding_dim,
+        )
+        vectors = visual_model.encode(["visual embedding warmup"])
+        if len(vectors) != 1 or len(vectors[0]) != settings.visual_embedding_dim:
+            raise ValueError(
+                f"视觉Embedding预热维度不一致: expected={settings.visual_embedding_dim} "
+                f"actual={len(vectors[0]) if vectors else 0}"
+            )
+        logger.info("模型服务视觉Embedding预热完成: dimension=%s", settings.visual_embedding_dim)
+    except Exception:
+        logger.exception("模型服务视觉Embedding预热失败")
+        raise

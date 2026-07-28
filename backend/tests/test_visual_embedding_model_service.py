@@ -20,6 +20,45 @@ class _AlignedVisualEmbedding:
         return [[0.1, 0.2], [0.3, 0.4]][: len(inputs)]
 
 
+def test_startup_warmup_loads_and_encodes_visual_model(monkeypatch) -> None:
+    encoded_inputs: list[object] = []
+
+    class _WarmVisualEmbedding:
+        def encode(self, inputs: list[object]) -> list[list[float]]:
+            encoded_inputs.extend(inputs)
+            return [[0.1, 0.2]]
+
+    monkeypatch.setattr(
+        model_service,
+        "settings",
+        SimpleNamespace(
+            model_service_warmup_on_startup=True,
+            model_service_embedding_model="text-model",
+            embedding_model="text-model",
+            model_service_embedding_device="cpu",
+            model_service_embedding_batch_size=2,
+            model_service_embedding_dimension=2,
+            embedding_dim=2,
+            model_service_reranker_model="reranker-model",
+            reranker_model="reranker-model",
+            model_service_reranker_device="cpu",
+            model_service_reranker_batch_size=2,
+            visual_embedding_model="visual-model",
+            visual_embedding_dim=2,
+        ),
+    )
+    monkeypatch.setattr("app.services.embedding_local.get_local_embedding", lambda *args: object())
+    monkeypatch.setattr("app.services.reranker_local.get_local_reranker", lambda *args: object())
+    monkeypatch.setattr(
+        "app.services.visual_embedding_local.get_local_visual_embedding",
+        lambda *args: _WarmVisualEmbedding(),
+    )
+
+    model_service.warmup_models()
+
+    assert encoded_inputs == ["visual embedding warmup"]
+
+
 def test_visual_embedding_response_declares_compatible_index_generation(monkeypatch) -> None:
     """查询端必须能从响应判断向量是否与已发布视觉索引兼容。"""
 

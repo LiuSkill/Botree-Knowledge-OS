@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     visual_embedding_api_key: str | None = Field(default=None, alias="VISUAL_EMBEDDING_API_KEY")
     visual_embedding_dim: int = Field(default=2048, alias="VISUAL_EMBEDDING_DIM")
     visual_embedding_timeout_seconds: float = Field(default=60, alias="VISUAL_EMBEDDING_TIMEOUT_SECONDS")
+    visual_embedding_batch_size: int = Field(default=4, alias="VISUAL_EMBEDDING_BATCH_SIZE")
     visual_index_generation: str = Field(default="qwen3-vl-embedding-2b-v1", alias="VISUAL_INDEX_GENERATION")
     visual_embedding_distance_metric: str = Field(default="COSINE", alias="VISUAL_EMBEDDING_DISTANCE_METRIC")
     runtime_recall_gate_enabled: bool = Field(default=False, alias="RUNTIME_RECALL_GATE_ENABLED")

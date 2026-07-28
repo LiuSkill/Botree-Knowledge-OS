@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select, update
+from sqlalchemy import select, tuple_, update
 from sqlalchemy.orm import Session
 
 from app.models.page_index import IndexPublicationManifest
@@ -43,6 +43,28 @@ class IndexPublicationRepository:
                     IndexPublicationManifest.status == "published",
                 )
                 .order_by(IndexPublicationManifest.id)
+            ).all()
+        )
+
+    def published_document_ids(
+        self,
+        document_versions: list[tuple[int, int]],
+        *,
+        index_generation: str,
+    ) -> set[int]:
+        """返回当前文档版本在指定索引代际下已原子发布的文档 ID。"""
+
+        if not document_versions:
+            return set()
+        return set(
+            self.db.scalars(
+                select(IndexPublicationManifest.document_id).where(
+                    tuple_(IndexPublicationManifest.document_id, IndexPublicationManifest.version_no).in_(
+                        document_versions
+                    ),
+                    IndexPublicationManifest.index_generation == index_generation,
+                    IndexPublicationManifest.status == "published",
+                )
             ).all()
         )
 

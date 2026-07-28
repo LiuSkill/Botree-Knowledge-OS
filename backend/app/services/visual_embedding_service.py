@@ -28,6 +28,7 @@ class VisualEmbeddingService:
         timeout_seconds: float,
         index_generation: str,
         distance_metric: str,
+        batch_size: int = 4,
     ) -> None:
         self.api_base = api_base.rstrip("/")
         self.api_key = api_key
@@ -36,18 +37,23 @@ class VisualEmbeddingService:
         self.timeout_seconds = timeout_seconds
         self.index_generation = index_generation
         self.distance_metric = distance_metric.upper()
+        self.batch_size = max(1, int(batch_size))
 
     def embed_images(self, image_paths: list[Path]) -> list[list[float]]:
-        inputs = []
-        for image_path in image_paths:
-            mime_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
-            inputs.append(
-                {
-                    "image_base64": base64.b64encode(image_path.read_bytes()).decode("ascii"),
-                    "mime_type": mime_type,
-                }
-            )
-        return self._request(inputs)
+        vectors: list[list[float]] = []
+        # 视觉推理耗时远高于文本；限制单次 HTTP 请求规模，避免大文档整批超过客户端超时。
+        for start in range(0, len(image_paths), self.batch_size):
+            inputs = []
+            for image_path in image_paths[start : start + self.batch_size]:
+                mime_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
+                inputs.append(
+                    {
+                        "image_base64": base64.b64encode(image_path.read_bytes()).decode("ascii"),
+                        "mime_type": mime_type,
+                    }
+                )
+            vectors.extend(self._request(inputs))
+        return vectors
 
     def embed_queries(self, queries: list[str]) -> list[list[float]]:
         return self._request([{"text": query} for query in queries])

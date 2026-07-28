@@ -38,7 +38,7 @@ class KnowledgeBaseRebuildService:
         self.document_repository = DocumentRepository(db)
         self.publication_repository = IndexPublicationRepository(db)
 
-    def rebuild(self, knowledge_base_id: int) -> dict[str, object]:
+    def rebuild(self, knowledge_base_id: int, *, resume: bool = False) -> dict[str, object]:
         documents = self.repository.list_source_documents(knowledge_base_id)
         # 迁移前的页面没有准入结论；回填属于重建准备动作，必须在源快照之前完成，
         # 否则重建自身写入的准入状态会被误判为上传源发生变化。
@@ -48,8 +48,24 @@ class KnowledgeBaseRebuildService:
                 raise AppException(f"文档 {document.id} 缺少可复用解析页，无法原地重建")
             self._backfill_admission(document, pages)
         before = self._snapshot(documents)
+        published_document_ids = (
+            self.publication_repository.published_document_ids(
+                [(document.id, document.version_no) for document in documents],
+                index_generation=get_settings().visual_index_generation,
+            )
+            if resume
+            else set()
+        )
+        pending_documents = [document for document in documents if document.id not in published_document_ids]
+        if published_document_ids:
+            logger.info(
+                "知识库续建跳过已发布文档: knowledge_base_id=%s skipped=%s pending=%s",
+                knowledge_base_id,
+                len(published_document_ids),
+                len(pending_documents),
+            )
         results: list[dict[str, object]] = []
-        for document in documents:
+        for document in pending_documents:
             pages = self.repository.list_pages(document)
             payloads = [
                 {
@@ -87,8 +103,18 @@ class KnowledgeBaseRebuildService:
                 knowledge_base_id,
                 document.id,
             )
-        logger.info("知识库原地重建完成: knowledge_base_id=%s document_count=%s", knowledge_base_id, len(documents))
-        return {"knowledge_base_id": knowledge_base_id, "document_count": len(documents), "results": results}
+        logger.info(
+            "知识库原地重建完成: knowledge_base_id=%s document_count=%s skipped=%s",
+            knowledge_base_id,
+            len(pending_documents),
+            len(published_document_ids),
+        )
+        return {
+            "knowledge_base_id": knowledge_base_id,
+            "document_count": len(pending_documents),
+            "skipped_document_count": len(published_document_ids),
+            "results": results,
+        }
 
     @staticmethod
     def ensure_unchanged(before: RebuildSourceSnapshot, after: RebuildSourceSnapshot) -> None:

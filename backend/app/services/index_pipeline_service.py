@@ -144,6 +144,7 @@ class IndexPipelineService:
                 timeout_seconds=self.settings.visual_embedding_timeout_seconds,
                 index_generation=self.settings.visual_index_generation,
                 distance_metric=self.settings.visual_embedding_distance_metric,
+                batch_size=self.settings.visual_embedding_batch_size,
             ),
             VisualMilvusIndexer(),
         )

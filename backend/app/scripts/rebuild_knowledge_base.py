@@ -10,9 +10,10 @@ from app.services.knowledge_base_rebuild_service import KnowledgeBaseRebuildServ
 def main() -> None:
     parser = argparse.ArgumentParser(description="原地完整重建指定知识库")
     parser.add_argument("knowledge_base_id", type=int)
+    parser.add_argument("--resume", action="store_true", help="跳过当前版本和索引代际已经发布的文档")
     args = parser.parse_args()
     with SessionLocal() as db:
-        KnowledgeBaseRebuildService(db).rebuild(args.knowledge_base_id)
+        KnowledgeBaseRebuildService(db).rebuild(args.knowledge_base_id, resume=args.resume)
 
 
 if __name__ == "__main__":
