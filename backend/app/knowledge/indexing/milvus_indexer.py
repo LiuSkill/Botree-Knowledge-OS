@@ -15,6 +15,7 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.core.exceptions import AppException
+from app.knowledge.indexing.milvus_flush_control import flush_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ class MilvusIndexer:
             for record in records
         ]
         collection.upsert(filtered_records)
-        collection.flush()
+        flush_with_retry(collection, collection_name=self.settings.milvus_collection)
         logger.info("Milvus向量写入完成: collection=%s count=%s", self.settings.milvus_collection, len(records))
         return {"status": "indexed", "vector_count": len(records), "collection": self.settings.milvus_collection}
 
@@ -107,7 +108,7 @@ class MilvusIndexer:
             hits.append(result)
         return hits
 
-    def delete_vectors(self, document_id: int, vector_ids: list[str] | None = None) -> dict:
+    def delete_vectors(self, document_id: int, vector_ids: list[str] | None = None, *, flush: bool = True) -> dict:
         """
         删除文档向量。
 
@@ -127,7 +128,8 @@ class MilvusIndexer:
         else:
             expr = f"document_id == {int(document_id)}"
         collection.delete(expr)
-        collection.flush()
+        if flush:
+            flush_with_retry(collection, collection_name=self.settings.milvus_collection)
         logger.info("Milvus向量删除完成: collection=%s document_id=%s ids=%s", self.settings.milvus_collection, document_id, len(vector_ids or []))
         return {"status": "deleted", "deleted_vector_count": len(vector_ids or []), "collection": self.settings.milvus_collection}
 

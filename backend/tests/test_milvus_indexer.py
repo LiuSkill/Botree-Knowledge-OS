@@ -196,6 +196,23 @@ def test_delete_vectors_does_not_load_collection() -> None:
     assert result["status"] == "deleted"
 
 
+def test_delete_vectors_can_skip_flush() -> None:
+    """维护重建路径允许跳过删除 flush，减少对 Milvus 的瞬时压力。"""
+
+    state, modules = make_fake_pymilvus()
+    with patch.dict(sys.modules, modules):
+        indexer = MilvusIndexer()
+        indexer.settings = make_settings()
+
+        result = indexer.delete_vectors(document_id=8, vector_ids=["doc_8_chunk_1_v1"], flush=False)
+
+    collection = latest_collection(state)
+    assert collection.load_calls == 0
+    assert collection.deleted_expr == 'id in ["doc_8_chunk_1_v1"]'
+    assert collection.flushed is False
+    assert result["status"] == "deleted"
+
+
 def test_search_loads_collection_before_query() -> None:
     """向量检索需要 Collection 已加载，search 路径仍保留 load。"""
 

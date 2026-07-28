@@ -91,9 +91,9 @@ def main() -> None:
                     chunks = service._build_chunks(document, payloads)
                     old_chunks = service.document_repository.list_chunks(document.id, include_obsolete=True)
                     vector_ids = [chunk.vector_id for chunk in old_chunks if chunk.vector_id]
-                    IndexService(db).delete_document_index(document.id, vector_ids)
+                    IndexService(db).delete_document_index(document.id, vector_ids, flush=False)
                     if get_settings().visual_index_enabled:
-                        VisualMilvusIndexer().delete_document(document.id)
+                        VisualMilvusIndexer().delete_document(document.id, flush=False)
                     GraphRepository(db).clear_all_document_graph(document.id)
                     PageIndexRepository(db).clear_document_indexes(document.id, document.version_no)
                     service.document_repository.replace_chunks(document.id, chunks, version_no=document.version_no)

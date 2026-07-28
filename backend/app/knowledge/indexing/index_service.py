@@ -83,7 +83,7 @@ class IndexService:
         logger.info("文档真实向量索引完成: document_id=%s vectors=%s", document_id, len(records))
         return {**result, "document_id": document_id, "chunk_count": len(chunks)}
 
-    def delete_document_index(self, document_id: int, vector_ids: list[str] | None = None) -> dict:
+    def delete_document_index(self, document_id: int, vector_ids: list[str] | None = None, *, flush: bool = True) -> dict:
         """
         删除文档旧版本索引信息。
 
@@ -97,4 +97,4 @@ class IndexService:
 
         if not vector_ids:
             return {"document_id": document_id, "deleted_vector_count": 0, "status": "skipped"}
-        return {"document_id": document_id, **self.milvus_indexer.delete_vectors(document_id, vector_ids)}
+        return {"document_id": document_id, **self.milvus_indexer.delete_vectors(document_id, vector_ids, flush=flush)}

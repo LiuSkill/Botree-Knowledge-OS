@@ -63,9 +63,9 @@ class KnowledgeBaseRebuildService:
             chunks = self._build_chunks(document, payloads)
             old_chunks = self.document_repository.list_chunks(document.id, include_obsolete=True)
             vector_ids = [chunk.vector_id for chunk in old_chunks if chunk.vector_id]
-            IndexService(self.db).delete_document_index(document.id, vector_ids)
+            IndexService(self.db).delete_document_index(document.id, vector_ids, flush=False)
             if get_settings().visual_index_enabled:
-                VisualMilvusIndexer().delete_document(document.id)
+                VisualMilvusIndexer().delete_document(document.id, flush=False)
             # Graph 实体通过外键引用旧 Chunk，必须先清理图谱再替换 Chunk。
             GraphRepository(self.db).clear_all_document_graph(document.id)
             # 复用解析页，但旧 PageIndex 仍通过外键引用旧 Chunk，需要先单独清理。
