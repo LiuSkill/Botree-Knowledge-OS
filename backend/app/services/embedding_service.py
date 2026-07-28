@@ -31,6 +31,8 @@ DIMENSION_AWARE_MODEL_KEYWORDS = ("text-embedding-v3", "text-embedding-v4", "tex
 LOCAL_EMBEDDING_PROVIDERS = {"local", "local_qwen", "qwen_local"}
 MODEL_SERVICE_EMBEDDING_PROVIDERS = {"model_service"}
 EMBEDDING_CACHE_MAX_SIZE = 256
+EMBEDDING_REQUEST_MAX_RETRIES = 3
+EMBEDDING_RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
 _EMBEDDING_CACHE: dict[tuple[str, str, str], list[float]] = {}
 
 
@@ -100,7 +102,7 @@ class EmbeddingService:
                 for start_index in range(0, len(texts), batch_size):
                     # 按真实服务限制分批，避免大文档一次性请求导致 Embedding 接口拒绝。
                     batch_texts = texts[start_index : start_index + batch_size]
-                    vectors.extend(self._request_embeddings(batch_texts, runtime_config))
+                    vectors.extend(self._request_embeddings_with_retry(batch_texts, runtime_config))
             if len(vectors) != len(texts):
                 raise ValueError(f"Embedding返回数量不匹配: expected={len(texts)} actual={len(vectors)}")
             logger.info(
@@ -264,6 +266,40 @@ class EmbeddingService:
         if len(vectors) != len(texts):
             raise ValueError(f"Embedding返回数量不匹配: expected={len(texts)} actual={len(vectors)}")
         return [[float(value) for value in vector] for vector in vectors]
+
+    def _request_embeddings_with_retry(
+        self,
+        texts: list[str],
+        runtime_config: RuntimeEmbeddingConfig,
+    ) -> list[list[float]]:
+        for attempt in range(1, EMBEDDING_REQUEST_MAX_RETRIES + 1):
+            try:
+                return self._request_embeddings(texts, runtime_config)
+            except requests.RequestException as exc:
+                if attempt >= EMBEDDING_REQUEST_MAX_RETRIES or not self._is_retryable_request_error(exc):
+                    raise
+                sleep_seconds = attempt
+                logger.warning(
+                    "Embedding请求重试: provider=%s model=%s count=%s attempt=%s/%s sleep_seconds=%s error=%s",
+                    runtime_config.provider,
+                    runtime_config.model_name,
+                    len(texts),
+                    attempt,
+                    EMBEDDING_REQUEST_MAX_RETRIES,
+                    sleep_seconds,
+                    exc,
+                )
+                time.sleep(sleep_seconds)
+        raise RuntimeError("unreachable")
+
+    def _is_retryable_request_error(self, exc: requests.RequestException) -> bool:
+        if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+            return True
+        if isinstance(exc, requests.HTTPError):
+            response = getattr(exc, "response", None)
+            status_code = getattr(response, "status_code", None)
+            return status_code in EMBEDDING_RETRYABLE_STATUS_CODES
+        return False
 
     def _build_embedding_payload(self, texts: list[str], runtime_config: RuntimeEmbeddingConfig) -> dict[str, object]:
         """

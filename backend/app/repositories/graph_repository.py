@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.graph import GraphEntity, GraphRelation
 
 STATUS_UPDATE_BATCH_SIZE = 200
+DELETE_BATCH_SIZE = 200
 
 
 class GraphRepository:
@@ -31,21 +32,10 @@ class GraphRepository:
     def clear_document_graph(self, document_id: int, version_no: int) -> None:
         """清理指定文档版本的 staging 图谱数据。"""
 
-        entity_ids = list(
-            self.db.scalars(
-                select(GraphEntity.id).where(GraphEntity.document_id == document_id, GraphEntity.version_no == version_no)
-            ).all()
-        )
-        if entity_ids:
-            self.db.execute(
-                delete(GraphRelation).where(
-                    or_(
-                        GraphRelation.source_entity_id.in_(entity_ids),
-                        GraphRelation.target_entity_id.in_(entity_ids),
-                    )
-                )
-            )
-        self.db.execute(delete(GraphEntity).where(GraphEntity.document_id == document_id, GraphEntity.version_no == version_no))
+        entity_ids = self._list_document_entity_ids(document_id, version_no=version_no)
+        relation_ids = self._list_document_relation_ids(document_id, entity_ids, version_no=version_no)
+        self._delete_relation_ids(relation_ids)
+        self._delete_entity_ids(entity_ids)
         self.db.flush()
 
     def clear_all_document_graph(self, document_id: int) -> int:
@@ -59,22 +49,12 @@ class GraphRepository:
             删除的实体数量。
         """
 
-        entity_ids = [
-            entity_id
-            for entity_id in self.db.scalars(select(GraphEntity.id).where(GraphEntity.document_id == document_id)).all()
-        ]
-        if entity_ids:
-            self.db.execute(
-                delete(GraphRelation).where(
-                    or_(
-                        GraphRelation.source_entity_id.in_(entity_ids),
-                        GraphRelation.target_entity_id.in_(entity_ids),
-                    )
-                )
-            )
-        entity_result = self.db.execute(delete(GraphEntity).where(GraphEntity.document_id == document_id))
+        entity_ids = self._list_document_entity_ids(document_id)
+        relation_ids = self._list_document_relation_ids(document_id, entity_ids)
+        self._delete_relation_ids(relation_ids)
+        deleted_count = self._delete_entity_ids(entity_ids)
         self.db.flush()
-        return int(entity_result.rowcount or 0)
+        return deleted_count
 
     def add_entity(self, entity: GraphEntity) -> GraphEntity:
         """新增图谱实体。"""
@@ -158,6 +138,59 @@ class GraphRepository:
             result = self.db.execute(update(GraphRelation).where(GraphRelation.id.in_(batch_ids)).values(status=status))
             updated_count += int(result.rowcount or 0)
         return updated_count
+
+    def _list_document_entity_ids(self, document_id: int, *, version_no: int | None = None) -> list[int]:
+        stmt = select(GraphEntity.id).where(GraphEntity.document_id == document_id).order_by(GraphEntity.id)
+        if version_no is not None:
+            stmt = stmt.where(GraphEntity.version_no == version_no)
+        return list(self.db.scalars(stmt).all())
+
+    def _list_document_relation_ids(
+        self,
+        document_id: int,
+        entity_ids: list[int],
+        *,
+        version_no: int | None = None,
+    ) -> list[int]:
+        stmt = select(GraphRelation.id).where(GraphRelation.document_id == document_id).order_by(GraphRelation.id)
+        if version_no is not None:
+            stmt = stmt.where(GraphRelation.version_no == version_no)
+        relation_ids = set(self.db.scalars(stmt).all())
+
+        # 历史数据里 relation.document_id 可能为空；只为这类遗留记录回退到 entity_id 反查，
+        # 避免日常删除路径在 source/target 索引上持有大范围锁。
+        for start in range(0, len(entity_ids), DELETE_BATCH_SIZE):
+            batch_ids = entity_ids[start : start + DELETE_BATCH_SIZE]
+            if not batch_ids:
+                continue
+            fallback_stmt = select(GraphRelation.id).where(
+                GraphRelation.document_id.is_(None),
+                or_(
+                    GraphRelation.source_entity_id.in_(batch_ids),
+                    GraphRelation.target_entity_id.in_(batch_ids),
+                ),
+            )
+            if version_no is not None:
+                fallback_stmt = fallback_stmt.where(GraphRelation.version_no == version_no)
+            relation_ids.update(self.db.scalars(fallback_stmt).all())
+        return sorted(relation_ids)
+
+    def _delete_relation_ids(self, relation_ids: list[int]) -> None:
+        for start in range(0, len(relation_ids), DELETE_BATCH_SIZE):
+            batch_ids = relation_ids[start : start + DELETE_BATCH_SIZE]
+            if not batch_ids:
+                continue
+            self.db.execute(delete(GraphRelation).where(GraphRelation.id.in_(batch_ids)))
+
+    def _delete_entity_ids(self, entity_ids: list[int]) -> int:
+        deleted_count = 0
+        for start in range(0, len(entity_ids), DELETE_BATCH_SIZE):
+            batch_ids = entity_ids[start : start + DELETE_BATCH_SIZE]
+            if not batch_ids:
+                continue
+            result = self.db.execute(delete(GraphEntity).where(GraphEntity.id.in_(batch_ids)))
+            deleted_count += int(result.rowcount or 0)
+        return deleted_count
 
     def search_entities(self, terms: list[str], limit: int = 20) -> list[GraphEntity]:
         """按关键词查询已发布实体。"""

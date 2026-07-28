@@ -155,3 +155,122 @@ def test_publish_document_graph_updates_only_target_document() -> None:
         assert db.get(GraphRelation, other_relation.id).status == "published"
     finally:
         db.close()
+
+
+def test_clear_all_document_graph_deletes_target_relations_in_small_scope() -> None:
+    db = make_session()
+    try:
+        db.add(KnowledgeBase(id=1, name="Base KB", code="base-kb", type="base"))
+        db.flush()
+
+        target_document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="target.pdf",
+            file_type="pdf",
+            file_size=128,
+            storage_path="/tmp/target.pdf",
+            document_name="target.pdf",
+            review_status="approved",
+            index_status="building",
+            version_no=1,
+            current_version=True,
+            is_current_version=True,
+            security_level="public",
+        )
+        other_document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="other.pdf",
+            file_type="pdf",
+            file_size=128,
+            storage_path="/tmp/other.pdf",
+            document_name="other.pdf",
+            review_status="approved",
+            index_status="indexed",
+            version_no=1,
+            current_version=True,
+            is_current_version=True,
+            security_level="public",
+        )
+        db.add_all([target_document, other_document])
+        db.flush()
+
+        target_source = GraphEntity(
+            knowledge_base_id=1,
+            document_id=target_document.id,
+            version_no=1,
+            entity_type="equipment",
+            entity_name="Target Pump",
+            status="published",
+        )
+        target_target = GraphEntity(
+            knowledge_base_id=1,
+            document_id=target_document.id,
+            version_no=1,
+            entity_type="line",
+            entity_name="Target Line",
+            status="published",
+        )
+        other_source = GraphEntity(
+            knowledge_base_id=1,
+            document_id=other_document.id,
+            version_no=1,
+            entity_type="equipment",
+            entity_name="Other Pump",
+            status="published",
+        )
+        other_target = GraphEntity(
+            knowledge_base_id=1,
+            document_id=other_document.id,
+            version_no=1,
+            entity_type="line",
+            entity_name="Other Line",
+            status="published",
+        )
+        db.add_all([target_source, target_target, other_source, other_target])
+        db.flush()
+
+        target_relation = GraphRelation(
+            knowledge_base_id=1,
+            source_entity_id=target_source.id,
+            target_entity_id=target_target.id,
+            relation_type="connects",
+            document_id=target_document.id,
+            version_no=1,
+            status="published",
+        )
+        legacy_target_relation = GraphRelation(
+            knowledge_base_id=1,
+            source_entity_id=target_source.id,
+            target_entity_id=target_target.id,
+            relation_type="connects",
+            document_id=None,
+            version_no=1,
+            status="published",
+        )
+        other_relation = GraphRelation(
+            knowledge_base_id=1,
+            source_entity_id=other_source.id,
+            target_entity_id=other_target.id,
+            relation_type="connects",
+            document_id=other_document.id,
+            version_no=1,
+            status="published",
+        )
+        db.add_all([target_relation, legacy_target_relation, other_relation])
+        db.commit()
+
+        deleted_count = GraphRepository(db).clear_all_document_graph(target_document.id)
+        db.commit()
+
+        assert deleted_count == 2
+        assert db.get(GraphEntity, target_source.id) is None
+        assert db.get(GraphEntity, target_target.id) is None
+        assert db.get(GraphRelation, target_relation.id) is None
+        assert db.get(GraphRelation, legacy_target_relation.id) is None
+        assert db.get(GraphEntity, other_source.id) is not None
+        assert db.get(GraphEntity, other_target.id) is not None
+        assert db.get(GraphRelation, other_relation.id) is not None
+    finally:
+        db.close()

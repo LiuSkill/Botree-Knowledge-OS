@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import requests
 from types import SimpleNamespace
 from typing import Any
 
@@ -83,6 +84,34 @@ def test_embedding_model_service_request_uses_embedding_api_base(monkeypatch) ->
         "dimensions": 3,
     }
     assert vectors == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+
+
+def test_embedding_model_service_retries_timeout(monkeypatch) -> None:
+    service = object.__new__(EmbeddingService)
+    service.settings = SimpleNamespace(embedding_timeout_seconds=5, embedding_dim=3)
+    attempts = {"count": 0}
+
+    def fake_post(url: str, headers: dict[str, str], json: dict[str, Any], timeout: int):  # noqa: A002, ARG001
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise requests.ReadTimeout("model service queue timeout")
+        return _FakeResponse({"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]})
+
+    monkeypatch.setattr("app.services.embedding_service.requests.post", fake_post)
+    monkeypatch.setattr("app.services.embedding_service.time.sleep", lambda *_args, **_kwargs: None)
+
+    vectors = service._request_embeddings_with_retry(  # noqa: SLF001
+        ["alpha"],
+        RuntimeEmbeddingConfig(
+            provider="model_service",
+            model_name="Qwen3-Embedding-0.6B",
+            api_base="http://botree-model-service:8890",
+            api_key=None,
+        ),
+    )
+
+    assert attempts["count"] == 3
+    assert vectors == [[0.1, 0.2, 0.3]]
 
 
 def test_reranker_model_service_maps_scores_back_to_evidences(monkeypatch) -> None:
