@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.base import Base
 from app.models.document import Document
+from app.retrieval.router import RetrievalRouter
 from app.services.verified_retrieval_scope_service import VerifiedRetrievalScopeService
 
 
@@ -40,3 +41,31 @@ def test_governance_invalidation_forces_new_snapshot() -> None:
 
     assert first["snapshot_id"] != second["snapshot_id"]
     db.close()
+
+
+def test_router_verified_scope_normalizes_auto_mode_for_project_knowledge() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add(
+            Document(
+                id=1,
+                knowledge_base_id=2,
+                knowledge_type="project",
+                project_id=5,
+                file_name="meeting.docx",
+                file_type="docx",
+                storage_path="meeting",
+                review_status="approved",
+                index_status="indexed",
+                version_no=1,
+                is_current_version=True,
+                security_level="public",
+            )
+        )
+        db.commit()
+        router = object.__new__(RetrievalRouter)
+        router.verified_scope_service = VerifiedRetrievalScopeService(db, ttl_seconds=30)
+        snapshot = router.create_verified_scope("auto", 5, SimpleNamespace(id=8, roles=[]))
+
+    assert snapshot["document_ids"] == [1]

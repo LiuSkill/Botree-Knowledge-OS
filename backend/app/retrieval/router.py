@@ -516,7 +516,10 @@ class RetrievalRouter:
     ) -> dict[str, Any]:
         """为一次用户请求创建可供所有子查询复用的已验证范围快照。"""
 
-        return self.verified_scope_service.create(mode, project_id, user)
+        # LangGraph 等调用方仍可能传入 legacy `auto`，范围快照必须先归一化，
+        # 否则 repository 无法识别该模式，会把项目问答误判为空范围。
+        effective_mode = self._effective_mode(mode, project_id)
+        return self.verified_scope_service.create(effective_mode, project_id, user)
 
     def _evidence_score(self, evidence: Evidence) -> float:
         try:
