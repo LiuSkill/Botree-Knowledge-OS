@@ -292,9 +292,6 @@ class RetrievalRouter:
 
         effective_mode = self._prepare_scope(mode, project_id, chat_type, user, knowledge_scope=knowledge_scope)
         planned_retrievers = self._filter_retriever_names(retriever_names)
-        # 视觉候选召回默认参与首阶段，不依赖问题中是否出现图片关键词。
-        if "visual" in self.retriever_map and "visual" not in planned_retrievers:
-            planned_retrievers.append("visual")
         fallback_names = self._filter_retriever_names(fallback_retrievers or [])
         normalized_ladder = self._normalize_execution_ladder(planned_retrievers, fallback_names, fallback_ladder)
         runtime_skip_reasons = dict(skip_reasons or {})

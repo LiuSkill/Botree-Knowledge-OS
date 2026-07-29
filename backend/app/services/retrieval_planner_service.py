@@ -29,6 +29,7 @@ RETRIEVER_MILVUS = "milvus"
 RETRIEVER_RIPGREP = "ripgrep"
 RETRIEVER_KEYWORD = "keyword"
 RETRIEVER_GRAPHRAG = "graphrag"
+RETRIEVER_VISUAL = "visual"
 
 ALL_RETRIEVERS = [
     RETRIEVER_PROJECT_METADATA,
@@ -37,6 +38,7 @@ ALL_RETRIEVERS = [
     RETRIEVER_RIPGREP,
     RETRIEVER_KEYWORD,
     RETRIEVER_GRAPHRAG,
+    RETRIEVER_VISUAL,
 ]
 FAST_PATH_INTENTS = {"industry_knowledge_qa", "knowledge_qa", "project_overview"}
 FAST_PATH_QUERY_TYPES = {
@@ -704,6 +706,15 @@ class RetrievalPlannerService:
         graph_requested = bool(query_features.get("has_graph_relation") or (query_features.get("query_profile") or {}).get("need_graph_reasoning"))
         if policy.graphrag == "optional" and graph_requested and RETRIEVER_GRAPHRAG in available_set:
             selected.append(RETRIEVER_GRAPHRAG)
+        visual_requested = bool(
+            policy.visual_evidence
+            and (
+                retrieval_needs.get("visual_evidence")
+                or (query_features.get("query_profile") or {}).get("need_visual_asset")
+            )
+        )
+        if visual_requested and RETRIEVER_VISUAL in available_set:
+            selected.insert(0, RETRIEVER_VISUAL)
         return selected
 
     def _build_policy_skip_reasons(

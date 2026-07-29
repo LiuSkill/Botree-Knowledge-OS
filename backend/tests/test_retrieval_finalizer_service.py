@@ -84,3 +84,47 @@ def test_finalize_owns_merge_guard_rerank_filter_and_visual_enrichment() -> None
     assert result.metadata_filtered_count == 1
     assert result.visual_asset_count == 1
     assert result.pre_rerank_guard["accepted"] == 2
+
+
+def test_process_flow_visual_query_keeps_explicit_flow_diagram_document() -> None:
+    guard = _Guard()
+    reranker = SimpleNamespace(last_details=[], last_runtime={})
+    flow = _evidence(1, "visual")
+    flow.document_id = 117
+    flow.file_name = "10-PS-0200-0000-001_Process Flow Diagram_Rev1.pdf"
+    flow.assets.append(
+        EvidenceAsset(1, "block_image", "/assets/1", "image/jpeg", "flow.jpg", 100, 1)
+    )
+    loop = _evidence(2, "visual")
+    loop.document_id = 100
+    loop.file_name = "Typical Loop Diagram.pdf"
+    loop.assets.append(
+        EvidenceAsset(2, "block_image", "/assets/2", "image/jpeg", "loop.jpg", 100, 1)
+    )
+    comment = _evidence(3, "page_index")
+    comment.document_id = 111
+    comment.file_name = "Comments of PID.xlsx"
+
+    result = RetrievalFinalizerService(
+        evidence_access_guard=guard,
+        reranker=reranker,
+    ).finalize(
+        query="black mass collection system flow diagram",
+        evidence_groups=[[flow, loop, comment]],
+        merge_limit=20,
+        rerank_candidate_limit=20,
+        result_limit=10,
+        chat_type="project_chat",
+        project_id=2,
+        user=SimpleNamespace(id=7),
+        rerank=lambda candidates, limit: list(candidates)[:limit],
+        visual_context={
+            "visual_evidence": True,
+            "query_profile": {"query_type": "process_flow", "need_visual_asset": True},
+        },
+        visual_limit=8,
+    )
+
+    assert [(item.document_id, item.file_name) for item in result.evidences] == [
+        (117, "10-PS-0200-0000-001_Process Flow Diagram_Rev1.pdf")
+    ]

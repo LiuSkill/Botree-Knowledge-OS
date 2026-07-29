@@ -581,6 +581,42 @@ def test_policy_matrix_process_flow_keeps_page_index_without_page_hint() -> None
     assert "Black Mass Feeding" in plan.to_dict()["query_rewrites"]
 
 
+def test_policy_matrix_process_flow_selects_visual_first_when_visual_evidence_is_required() -> None:
+    plan = RetrievalPlannerService(object()).plan(
+        query="black mass collection system flow diagram",
+        sub_queries=["black mass collection system flow diagram"],
+        intent="project_qa",
+        chat_type="project_chat",
+        mode="project_chat",
+        project_id=2,
+        available_retrievers=["visual", "page_index", "milvus", "keyword", "graphrag"],
+        query_profile={
+            "query_type": "process_flow",
+            "answer_shape": "process_steps",
+            "knowledge_scope": "project",
+            "need_visual_asset": True,
+        },
+        policy_resolution={
+            "resolved_task_type": "process_flow",
+            "answer_policy": "STRICT_KB",
+            "knowledge_scope": "project",
+        },
+        question_understanding={
+            "retrieval_needs": {
+                "semantic_retrieval": True,
+                "keyword_retrieval": True,
+                "page_level_retrieval": True,
+                "visual_evidence": True,
+            },
+        },
+    )
+
+    assert plan.selected_retrievers == ["visual", "milvus", "keyword", "page_index"]
+    assert plan.priority == ["visual", "milvus", "keyword", "page_index"]
+    assert "visual" not in plan.skipped_retrievers
+    assert plan.to_dict()["primary_retriever"] == "visual"
+
+
 def test_policy_matrix_document_location_uses_page_index_and_ripgrep() -> None:
     plan = RetrievalPlannerService(object()).plan(
         query="黑粉进料流程在哪张图纸第几页",
@@ -894,14 +930,14 @@ def test_router_process_flow_does_not_skip_page_index_without_page_hint() -> Non
     """process_flow 即使没有页码信号，也应允许 page_index 执行并受 timeout 控制。"""
 
     page_index = FakeRetriever("page_index", [make_evidence("page_index")])
-    router = build_router(page_index)
+    visual = FakeRetriever("visual", [make_evidence("visual")])
+    router = build_router(page_index, visual)
     result = router.execute_planned(
         query="本项目的黑粉进料流程介绍",
         mode="project_chat",
         project_id=1,
         user=None,
         retriever_names=["page_index"],
-        fallback_ladder=[["page_index"]],
         query_features={
             "resolved_task_type": "process_flow",
             "retrieval_needs": {"exact_text_search": False, "visual_evidence": False},
@@ -911,6 +947,7 @@ def test_router_process_flow_does_not_skip_page_index_without_page_hint() -> Non
     )
 
     assert page_index.calls == 1
+    assert visual.calls == 0
     assert result["used_retrievers"] == ["page_index"]
     assert result["retriever_timeouts"] == {"page_index": False}
 

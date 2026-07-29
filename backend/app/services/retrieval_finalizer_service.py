@@ -104,6 +104,8 @@ class RetrievalFinalizerService:
             if any(item.retriever == "visual" for item in evidences):
                 context["visual_evidence"] = True
             evidences = self.visual_evidence_service.enrich(query, evidences, context)
+        if visual_context is not None:
+            evidences = self._prefer_explicit_flow_diagram_documents(evidences, visual_context)
         if visual_limit is not None:
             evidences = self._top(evidences, visual_limit)
 
@@ -142,3 +144,29 @@ class RetrievalFinalizerService:
     @staticmethod
     def _debug_id(evidence: Evidence) -> str:
         return f"{evidence.document_id}:{evidence.chunk_id}"
+
+    @staticmethod
+    def _prefer_explicit_flow_diagram_documents(
+        evidences: list[Evidence],
+        visual_context: dict[str, Any],
+    ) -> list[Evidence]:
+        """Keep explicit flow-diagram documents when a visual flow query found them."""
+
+        profile = dict(visual_context.get("query_profile") or visual_context)
+        if profile.get("query_type") != "process_flow" or not (
+            profile.get("need_visual_asset") or visual_context.get("visual_evidence")
+        ):
+            return evidences
+        flow_tokens = ("process flow diagram", "process_flow_diagram", "pfd", "流程图", "工艺流程")
+        matched_document_ids = {
+            item.document_id
+            for item in evidences
+            if item.assets
+            and any(
+                token in f"{item.file_name} {item.content}".lower()
+                for token in flow_tokens
+            )
+        }
+        if not matched_document_ids:
+            return evidences
+        return [item for item in evidences if item.document_id in matched_document_ids]
