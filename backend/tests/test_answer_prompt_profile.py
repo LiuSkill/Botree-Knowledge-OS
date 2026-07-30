@@ -52,6 +52,23 @@ def test_answer_system_prompt_uses_new_evidence_grounded_style() -> None:
     assert "不要机械套固定模板" in VISION_ANSWER_SYSTEM_PROMPT
 
 
+def test_english_response_language_is_enforced_in_text_and_vision_system_prompts() -> None:
+    service = object.__new__(LLMService)
+    profile = {"query_type": "process_flow", "response_language": "en-US"}
+    text_messages = service._build_text_messages("黑粉收集系统流程", [make_evidence()], profile)  # noqa: SLF001
+    vision_messages = service._build_multimodal_messages(  # noqa: SLF001
+        "黑粉收集系统流程",
+        [make_evidence()],
+        [{"type": "image_url", "image_url": {"url": "https://example.com/test.png"}}],
+        profile,
+    )
+
+    for messages in (text_messages, vision_messages):
+        system_prompt = messages[0]["content"]
+        assert "Your entire final answer must be written in English" in system_prompt
+        assert "even when the question or evidence is in Chinese" in system_prompt
+
+
 def test_answer_prompt_switches_to_direct_value_template() -> None:
     prompt = user_prompt_for({"query_type": "exact_lookup", "answer_shape": "direct_value"})
 

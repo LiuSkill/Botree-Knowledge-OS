@@ -495,7 +495,7 @@ class LLMService:
         return [
             {
                 "role": "system",
-                "content": ANSWER_SYSTEM_PROMPT,
+                "content": self._answer_system_prompt(ANSWER_SYSTEM_PROMPT, query_profile),
             },
             {"role": "user", "content": prompt},
         ]
@@ -507,25 +507,45 @@ class LLMService:
         image_parts: list[dict[str, Any]],
         query_profile: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        uses_english = (query_profile or {}).get("response_language") == "en-US"
+        visual_instruction = (
+            "Image evidence is included with this message. Use visible equipment, pipelines, arrows, and instrument labels "
+            "when answering process questions. If neither the image nor text evidence confirms a detail, explicitly state that it cannot be confirmed."
+            if uses_english
+            else (
+                "图片证据已随本次消息提供。请结合图片中的设备、管线、箭头和仪表标识回答流程问题。"
+                "如果图片或文字证据都无法确认某个细节，请明确说明无法确认。"
+            )
+        )
         prompt = "\n\n".join(
             [
                 self._build_rag_prompt(question, evidences, query_profile),
-                (
-                    "图片证据已随本次消息提供。请结合图片中的设备、管线、箭头和仪表标识回答流程问题。"
-                    "如果图片或文字证据都无法确认某个细节，请明确说明无法确认。"
-                ),
+                visual_instruction,
             ]
         )
         return [
             {
                 "role": "system",
-                "content": VISION_ANSWER_SYSTEM_PROMPT,
+                "content": self._answer_system_prompt(VISION_ANSWER_SYSTEM_PROMPT, query_profile),
             },
             {
                 "role": "user",
                 "content": [{"type": "text", "text": prompt}, *image_parts],
             },
         ]
+
+    @staticmethod
+    def _answer_system_prompt(base_prompt: str, query_profile: dict[str, Any] | None) -> str:
+        """在最高优先级提示中约束回答语言，避免证据语言影响最终输出。"""
+
+        if (query_profile or {}).get("response_language") != "en-US":
+            return base_prompt
+        return (
+            f"{base_prompt}\n\n"
+            "Mandatory output language: Your entire final answer must be written in English, "
+            "even when the question or evidence is in Chinese. Preserve Chinese proper nouns only when necessary, "
+            "and provide an English explanation for them."
+        )
 
     def _extract_stream_delta(self, payload: dict[str, Any]) -> str:
         choices = payload.get("choices")

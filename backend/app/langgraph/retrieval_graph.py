@@ -89,12 +89,21 @@ VISUAL_EVIDENCE_TOP_K = 8
 
 PRESET_GREETING_ANSWER = "您好，我是博萃循环AI智能体，请问有什么可以帮助您的吗？"
 PRESET_IDENTITY_ANSWER = "我是博萃循环AI智能体，可以帮助您查询已授权的知识库资料、项目资料和基础知识。"
+PRESET_GREETING_ANSWER_EN = "Hello, I’m the Botree Circular AI assistant. How can I help you?"
+PRESET_IDENTITY_ANSWER_EN = (
+    "I’m the Botree Circular AI assistant. I can help you search authorized knowledge-base materials, "
+    "project materials, and general knowledge."
+)
 DIRECT_GREETING_ANSWER = PRESET_GREETING_ANSWER
 DIRECT_CAPABILITY_ANSWER = PRESET_IDENTITY_ANSWER
 PROJECT_REFUSAL_ANSWER = PROJECT_REFUSAL_TEXT
 PROJECT_OVERVIEW_INSUFFICIENT_ANSWER = "当前项目资料不足，项目资料中未检索到足够的项目介绍信息。请补充项目概况、建设内容、设计依据、产品方案或处理规模等资料后重试。"
 PROJECT_CLARIFY_ANSWER = "请描述您需要查询的具体项目资料、设备、参数、流程、图纸编号或文件名称。"
 BASE_CLARIFY_ANSWER = "请描述您需要查询的问题，或补充更具体的资料、概念、参数或流程名称。"
+PROJECT_CLARIFY_ANSWER_EN = (
+    "Please describe the specific project material, equipment, parameter, process, drawing number, or file name you need."
+)
+BASE_CLARIFY_ANSWER_EN = "Please describe your question or provide a more specific material, concept, parameter, or process name."
 BASE_GENERAL_CONFIRM_ANSWER = "我没有在当前知识库中检索到足够可靠的资料。是否需要我基于通用知识进行回答？该回答将不引用知识库资料。"
 GENERAL_ANSWER_PREFIX = "以下内容基于通用知识生成，未引用当前知识库资料："
 
@@ -1988,6 +1997,7 @@ class RetrievalGraph:
         """
 
         def run() -> RetrievalGraphState:
+            response_language = self._response_language(state)
             answer_type = str(state.get("direct_answer_type") or state.get("intent") or "general_qa")
             answer_policy = str(state.get("answer_policy") or ANSWER_POLICY_GENERAL_ALLOWED)
             intent_type = str(state.get("intent_type") or answer_type)
@@ -2003,7 +2013,7 @@ class RetrievalGraph:
                 state["answer_type"] = "clarify"
                 route = "clarify"
             elif answer_policy == ANSWER_POLICY_PRESET:
-                answer = self._greeting_answer(state["question"])
+                answer = self._greeting_answer(state["question"], response_language)
                 state.setdefault("model_routes", {})["answer"] = {
                     "task": "answer",
                     "source": "rules",
@@ -2012,7 +2022,11 @@ class RetrievalGraph:
                 query_scope = "闲聊问候"
                 state["answer_type"] = "preset"
             else:
-                answer = self.qwen.answer_general_question(state["question"])
+                answer = (
+                    self.qwen.answer_general_question(state["question"], response_language)
+                    if response_language == "en-US"
+                    else self.qwen.answer_general_question(state["question"])
+                )
                 state.setdefault("model_routes", {})["answer"] = self.qwen.model_routes.get("answer", {})
                 query_scope = "通用问答"
                 state["answer_type"] = "general_llm"
@@ -2033,6 +2047,7 @@ class RetrievalGraph:
                 "is_industry_domain": False,
                 "industry_domains": [],
                 "reason": "直答问题不进入知识库检索链路",
+                "response_language": response_language,
             }
             state["query_features"] = {
                 **state.get("query_features", {}),
@@ -2104,15 +2119,24 @@ class RetrievalGraph:
         return self._with_trace(state, "回答生成", "direct_answer", run)
 
     def _clarify_answer(self, state: RetrievalGraphState) -> str:
+        if self._response_language(state) == "en-US":
+            return PROJECT_CLARIFY_ANSWER_EN if state.get("chat_type") == "project_chat" else BASE_CLARIFY_ANSWER_EN
         if state.get("chat_type") == "project_chat":
             return PROJECT_CLARIFY_ANSWER
         return BASE_CLARIFY_ANSWER
 
-    def _greeting_answer(self, question: str) -> str:
+    @staticmethod
+    def _response_language(state: RetrievalGraphState) -> str:
+        profile = state.get("query_profile") if isinstance(state.get("query_profile"), dict) else {}
+        raw = state.get("raw") if isinstance(state.get("raw"), dict) else {}
+        value = str(profile.get("response_language") or raw.get("response_language") or "zh-CN")
+        return "en-US" if value == "en-US" else "zh-CN"
+
+    def _greeting_answer(self, question: str, response_language: str = "zh-CN") -> str:
         normalized = question.replace(" ", "")
         if any(keyword in normalized for keyword in ("你是谁", "你叫什么", "介绍一下你", "你能做什么", "可以做什么", "有什么功能", "能帮我做什么", "帮助", "怎么用")):
-            return PRESET_IDENTITY_ANSWER
-        return PRESET_GREETING_ANSWER
+            return PRESET_IDENTITY_ANSWER_EN if response_language == "en-US" else PRESET_IDENTITY_ANSWER
+        return PRESET_GREETING_ANSWER_EN if response_language == "en-US" else PRESET_GREETING_ANSWER
 
     def _query_decompose_node(self, state: RetrievalGraphState) -> RetrievalGraphState:
         """

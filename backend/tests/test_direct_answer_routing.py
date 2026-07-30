@@ -50,6 +50,20 @@ def test_identity_question_returns_botree_agent_answer_without_retrieval() -> No
     assert_direct_result(result, "greeting", "direct_greeting")
 
 
+def test_greeting_uses_selected_english_response_language() -> None:
+    result = build_direct_graph().run(
+        "你好",
+        "base_chat",
+        "auto",
+        None,
+        SimpleNamespace(id=1),
+        response_language="en-US",
+    )
+
+    assert result["answer"] == "Hello, I’m the Botree Circular AI assistant. How can I help you?"
+    assert result["raw"]["response_language"] == "en-US"
+
+
 def test_simple_math_uses_general_qa_without_retrieval() -> None:
     result = run_direct_question("1+1=几")
 
