@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FullscreenIcon, RefreshIcon, ZoomInIcon, ZoomOutIcon } from 'tdesign-icons-vue-next';
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 const MIN_ZOOM = 50;
 const MAX_ZOOM = 200;
@@ -14,6 +15,7 @@ const props = defineProps<{
 
 const visible = defineModel<boolean>('visible', { default: false });
 const zoomPercent = ref(DEFAULT_ZOOM);
+const { t } = useI18n();
 const previewStyle = computed(() => ({ zoom: String(zoomPercent.value / DEFAULT_ZOOM) }));
 
 function changeZoom(delta: number): void {
@@ -52,12 +54,12 @@ watch(visible, (isVisible) => {
           <span>{{ props.title }}</span>
           <span class="zoom-dialog-version">{{ props.versionLabel }}</span>
         </div>
-        <div class="zoom-dialog-tools" aria-label="预览缩放工具栏">
+        <div class="zoom-dialog-tools" :aria-label="t('common.preview.toolbar')">
           <t-button
             size="small"
             variant="outline"
             :disabled="zoomPercent <= MIN_ZOOM"
-            aria-label="缩小预览"
+            :aria-label="t('common.preview.zoomOut')"
             @click="changeZoom(-ZOOM_STEP)"
           >
             <template #icon><ZoomOutIcon /></template>
@@ -67,14 +69,14 @@ watch(visible, (isVisible) => {
             size="small"
             variant="outline"
             :disabled="zoomPercent >= MAX_ZOOM"
-            aria-label="放大预览"
+            :aria-label="t('common.preview.zoomIn')"
             @click="changeZoom(ZOOM_STEP)"
           >
             <template #icon><ZoomInIcon /></template>
           </t-button>
           <t-button size="small" variant="text" :disabled="zoomPercent === DEFAULT_ZOOM" @click="resetZoom">
             <template #icon><RefreshIcon /></template>
-            重置
+            {{ t('common.preview.reset') }}
           </t-button>
         </div>
       </div>

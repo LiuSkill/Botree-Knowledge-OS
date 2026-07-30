@@ -841,10 +841,10 @@ class QwenOrchestrationService:
             sub_queries.extend(terms)
         return list(dict.fromkeys(item.strip() for item in sub_queries if item.strip()))[:6]
 
-    def answer_general_question(self, question: str) -> str:
+    def answer_general_question(self, question: str, response_language: str = "zh-CN") -> str:
         """回答不依赖企业资料的通用问题。"""
 
-        rule_answer = self._rule_answer_general_question(question)
+        rule_answer = self._rule_answer_general_question(question) if response_language != "en-US" else None
         if rule_answer:
             self.model_routes["answer"] = {
                 "task": "answer",
@@ -862,6 +862,7 @@ class QwenOrchestrationService:
                         "content": (
                             "你是通用问答助手。请直接回答用户问题，不要引用企业知识库资料，"
                             "不要说“根据资料”。如果问题可能需要结合企业项目资料，请在答案末尾提醒用户指定项目或文件。"
+                            + ("最终答案必须使用英文。" if response_language == "en-US" else "最终答案必须使用简体中文。")
                         ),
                     },
                     {"role": "user", "content": question},

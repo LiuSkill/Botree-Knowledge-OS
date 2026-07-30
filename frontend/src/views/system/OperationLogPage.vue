@@ -8,7 +8,8 @@
 -->
 <script setup lang="ts">
 import { BrowseIcon, RefreshIcon } from 'tdesign-icons-vue-next';
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import { listOperationLogs, listOperationLogUsers, type OperationLogFilters } from '@/api/system';
 import TableActionButton from '@/components/TableActionButton.vue';
@@ -25,6 +26,7 @@ type TagTheme = 'default' | 'primary' | 'success' | 'warning' | 'danger';
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
+const { t } = useI18n();
 const logs = ref<PageResult<OperationLog>>(createEmptyPageResult<OperationLog>());
 const loading = ref(false);
 const detailVisible = ref(false);
@@ -38,13 +40,13 @@ const filters = reactive({
   result: '',
 });
 
-const columns = [
-  { colKey: 'created_at', title: '时间', width: 170 },
-  { colKey: 'username', title: '用户', width: 140 },
-  { colKey: 'action', title: '动作', minWidth: 220 },
-  { colKey: 'result', title: '结果', width: 110 },
-  { colKey: 'operation', title: '操作', width: 90, align: 'center' },
-];
+const columns = computed(() => [
+  { colKey: 'created_at', title: t('system.log.field.time'), width: 170 },
+  { colKey: 'username', title: t('system.log.field.user'), width: 140 },
+  { colKey: 'action', title: t('system.log.field.action'), minWidth: 220 },
+  { colKey: 'result', title: t('system.log.field.result'), width: 110 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 90, align: 'center' as const },
+]);
 
 function createEmptyPageResult<T>(): PageResult<T> {
   return {
@@ -98,9 +100,9 @@ function handlePaginationChange(pageInfo: PaginationInfo): void {
 }
 
 function resultLabel(result: string): string {
-  if (result === 'success') return '成功';
-  if (result === 'failed') return '失败';
-  if (result === 'running' || result === 'processing') return '处理中';
+  if (result === 'success') return t('system.log.result.success');
+  if (result === 'failed') return t('system.log.result.failed');
+  if (result === 'running' || result === 'processing') return t('system.log.result.processing');
   return result || '-';
 }
 
@@ -138,52 +140,52 @@ onMounted(async () => {
 <template>
   <div class="system-card scroll-card">
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item label="用户">
+      <t-form-item :label="t('system.log.field.user')">
         <t-select
           v-model="filters.user_id"
           class="filter-input"
           clearable
           filterable
-          placeholder="请选择用户"
+          :placeholder="t('system.log.placeholder.user')"
           @change="handleSearch"
         >
           <t-option v-for="user in userOptions" :key="user.id" :value="user.id" :label="user.real_name || user.username" />
         </t-select>
       </t-form-item>
-      <t-form-item label="结果">
-        <t-select v-model="filters.result" class="filter-select" clearable placeholder="全部结果" @change="handleSearch">
-          <t-option label="成功" value="success" />
-          <t-option label="失败" value="failed" />
+      <t-form-item :label="t('system.log.field.result')">
+        <t-select v-model="filters.result" class="filter-select" clearable :placeholder="t('system.log.placeholder.allResults')" @change="handleSearch">
+          <t-option :label="t('system.log.result.success')" value="success" />
+          <t-option :label="t('system.log.result.failed')" value="failed" />
         </t-select>
       </t-form-item>
-      <t-form-item label="时间段">
+      <t-form-item :label="t('system.log.field.dateRange')">
         <t-date-range-picker
           v-model="dateRange"
           class="filter-date-range"
           clearable
           value-type="YYYY-MM-DD"
           format="YYYY-MM-DD"
-          separator="至"
-          :placeholder="['开始日期', '结束日期']"
+          :separator="t('common.date.rangeSeparator')"
+          :placeholder="[t('common.date.startDate'), t('common.date.endDate')]"
           @change="handleSearch"
         />
       </t-form-item>
       <t-form-item>
         <t-space>
-          <t-button theme="primary" @click="handleSearch">查询</t-button>
-          <t-button @click="clearFilters">重置</t-button>
+          <t-button theme="primary" @click="handleSearch">{{ t('system.action.query') }}</t-button>
+          <t-button @click="clearFilters">{{ t('system.action.reset') }}</t-button>
         </t-space>
       </t-form-item>
     </t-form>
 
     <div class="system-section-head">
       <div class="system-section-title">
-        <h2>操作日志</h2>
-        <span>共 {{ logs.total }} 条数据</span>
+        <h2>{{ t('system.log.title') }}</h2>
+        <span>{{ t('system.summary.totalRecords', { count: logs.total }) }}</span>
       </div>
       <t-button theme="default" variant="outline" @click="loadLogs">
         <template #icon><RefreshIcon /></template>
-        刷新
+        {{ t('system.action.refresh') }}
       </t-button>
     </div>
 
@@ -196,7 +198,7 @@ onMounted(async () => {
         :data="logs.items"
         :columns="columns"
         :loading="loading"
-        empty="暂无日志"
+        :empty="t('system.log.empty')"
       >
         <template #created_at="{ row }">
           {{ formatDateTime(row.created_at) }}
@@ -208,7 +210,7 @@ onMounted(async () => {
           <t-tag size="small" variant="light" :theme="resultTheme(row.result)">{{ resultLabel(row.result) }}</t-tag>
         </template>
         <template #operation="{ row }">
-          <TableActionButton label="查看详情" @click="openDetail(row)">
+          <TableActionButton :label="t('system.log.action.viewDetail')" @click="openDetail(row)">
             <BrowseIcon />
           </TableActionButton>
         </template>
@@ -226,22 +228,22 @@ onMounted(async () => {
       />
     </div>
 
-    <t-dialog v-model:visible="detailVisible" header="日志详情" width="720px" :footer="false">
+    <t-dialog v-model:visible="detailVisible" :header="t('system.log.detailTitle')" width="720px" :footer="false">
       <t-descriptions v-if="selectedLog" bordered :column="2" label-align="left">
-        <t-descriptions-item label="时间">{{ formatDateTime(selectedLog.created_at) }}</t-descriptions-item>
-        <t-descriptions-item label="用户">{{ userDisplayName(selectedLog) }}</t-descriptions-item>
-        <t-descriptions-item label="动作">{{ displayValue(selectedLog.action) }}</t-descriptions-item>
-        <t-descriptions-item label="结果">
+        <t-descriptions-item :label="t('system.log.field.time')">{{ formatDateTime(selectedLog.created_at) }}</t-descriptions-item>
+        <t-descriptions-item :label="t('system.log.field.user')">{{ userDisplayName(selectedLog) }}</t-descriptions-item>
+        <t-descriptions-item :label="t('system.log.field.action')">{{ displayValue(selectedLog.action) }}</t-descriptions-item>
+        <t-descriptions-item :label="t('system.log.field.result')">
           <t-tag size="small" variant="light" :theme="resultTheme(selectedLog.result)">{{ resultLabel(selectedLog.result) }}</t-tag>
         </t-descriptions-item>
-        <t-descriptions-item label="操作对象">{{ targetLabel(selectedLog) }}</t-descriptions-item>
-        <t-descriptions-item label="项目ID">{{ displayValue(selectedLog.project_id) }}</t-descriptions-item>
-        <t-descriptions-item label="IP地址">{{ displayValue(selectedLog.ip_address) }}</t-descriptions-item>
-        <t-descriptions-item label="用户ID">{{ displayValue(selectedLog.user_id) }}</t-descriptions-item>
-        <t-descriptions-item label="操作详情" :span="2">
+        <t-descriptions-item :label="t('system.log.field.target')">{{ targetLabel(selectedLog) }}</t-descriptions-item>
+        <t-descriptions-item :label="t('system.log.field.projectId')">{{ displayValue(selectedLog.project_id) }}</t-descriptions-item>
+        <t-descriptions-item :label="t('system.log.field.ipAddress')">{{ displayValue(selectedLog.ip_address) }}</t-descriptions-item>
+        <t-descriptions-item :label="t('system.log.field.userId')">{{ displayValue(selectedLog.user_id) }}</t-descriptions-item>
+        <t-descriptions-item :label="t('system.log.field.detail')" :span="2">
           <pre class="detail-content">{{ displayValue(selectedLog.detail) }}</pre>
         </t-descriptions-item>
-        <t-descriptions-item label="客户端信息" :span="2">
+        <t-descriptions-item :label="t('system.log.field.userAgent')" :span="2">
           <div class="detail-content">{{ displayValue(selectedLog.user_agent) }}</div>
         </t-descriptions-item>
       </t-descriptions>

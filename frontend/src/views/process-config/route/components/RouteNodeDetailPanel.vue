@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import { formatDateTime } from '@/utils/format';
-import { PROCESS_NODE_TYPE_OPTIONS, type ProcessLibraryOptionItem, type ProcessNodeDetail, type ProcessNodeType } from '@/views/process-config/node/types';
+import { type ProcessLibraryOptionItem, type ProcessNodeDetail, type ProcessNodeType } from '@/views/process-config/node/types';
+import { processNodeTypeLocaleKey, processStatusLocaleKey } from '@/views/process-config/i18n';
 import { processUnitLabel, type ProcessLibraryStatus } from '@/views/process-config/types';
 
 type TagTheme = 'default' | 'success' | 'warning';
@@ -22,59 +24,54 @@ const props = withDefaults(
   },
 );
 
-const materialColumns = [
-  { colKey: 'material', title: '输入原料', minWidth: 200 },
-  { colKey: 'amount_per_ton', title: '吨耗', width: 110 },
-  { colKey: 'unit', title: '单位', width: 90 },
-];
+const { t } = useI18n();
+const materialColumns = computed(() => [
+  { colKey: 'material', title: t('process.node.field.inputMaterial'), minWidth: 200 },
+  { colKey: 'amount_per_ton', title: t('process.node.field.amountPerTon'), width: 110 },
+  { colKey: 'unit', title: t('process.field.unit'), width: 90 },
+]);
 
-const consumableColumns = [
-  { colKey: 'consumable', title: '消耗品', minWidth: 200 },
-  { colKey: 'amount_per_ton', title: '吨耗', width: 110 },
-  { colKey: 'unit', title: '单位', width: 90 },
-];
+const consumableColumns = computed(() => [
+  { colKey: 'consumable', title: t('process.node.field.consumable'), minWidth: 200 },
+  { colKey: 'amount_per_ton', title: t('process.node.field.amountPerTon'), width: 110 },
+  { colKey: 'unit', title: t('process.field.unit'), width: 90 },
+]);
 
-const publicServiceColumns = [
-  { colKey: 'public_service', title: '公共服务', minWidth: 200 },
-  { colKey: 'amount_per_ton', title: '吨耗', width: 110 },
-  { colKey: 'unit', title: '单位', width: 90 },
-];
+const publicServiceColumns = computed(() => [
+  { colKey: 'public_service', title: t('process.node.field.publicService'), minWidth: 200 },
+  { colKey: 'amount_per_ton', title: t('process.node.field.amountPerTon'), width: 110 },
+  { colKey: 'unit', title: t('process.field.unit'), width: 90 },
+]);
 
-const equipmentColumns = [
-  { colKey: 'equipment_name', title: '设备名称', minWidth: 160 },
-];
+const equipmentColumns = computed(() => [
+  { colKey: 'equipment_name', title: t('process.node.field.equipmentFacility'), minWidth: 160 },
+]);
 
-const outputColumns = [
-  { colKey: 'product', title: '输出产品', minWidth: 200 },
-  { colKey: 'output_per_ton', title: '产出量', width: 110 },
-  { colKey: 'unit', title: '单位', width: 90 },
-  { colKey: 'is_main_product', title: '主产品', width: 80, align: 'center' },
-];
+const outputColumns = computed(() => [
+  { colKey: 'product', title: t('process.node.field.outputProduct'), minWidth: 200 },
+  { colKey: 'output_per_ton', title: t('process.node.field.outputAmount'), width: 110 },
+  { colKey: 'unit', title: t('process.field.unit'), width: 90 },
+  { colKey: 'is_main_product', title: t('process.node.field.mainProduct'), width: 80, align: 'center' as const },
+]);
 
 const nodeTypeText = computed(() => (props.node ? nodeTypeLabel(props.node.node_type) : '-'));
 
 function statusLabel(status: ProcessLibraryStatus): string {
-  return (
-    {
-      enabled: '启用',
-      draft: '草稿',
-      disabled: '停用',
-    }[status] || status
-  );
+  return t(processStatusLocaleKey(status));
 }
 
 function statusTheme(status: ProcessLibraryStatus): TagTheme {
-  return (
-    {
-      enabled: 'success',
-      draft: 'warning',
-      disabled: 'default',
-    }[status] || 'default'
-  );
+  const themes: Record<ProcessLibraryStatus, TagTheme> = {
+    enabled: 'success',
+    draft: 'warning',
+    disabled: 'default',
+  };
+  return themes[status] || 'default';
 }
 
 function nodeTypeLabel(value: ProcessNodeType): string {
-  return PROCESS_NODE_TYPE_OPTIONS.find((item) => item.value === value)?.label || value;
+  const key = processNodeTypeLocaleKey(value);
+  return key ? t(key) : value;
 }
 
 function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
@@ -86,32 +83,32 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
 <template>
   <div class="route-node-detail-panel">
     <t-loading :loading="loading">
-      <t-empty v-if="!node" description="请选择链路中的节点查看详情" />
+      <t-empty v-if="!node" :description="t('process.route.empty.nodeDetail')" />
       <div v-else class="route-node-detail-panel__content">
         <section class="route-node-detail-panel__section">
-          <div class="route-node-detail-panel__section-title">基础信息</div>
+          <div class="route-node-detail-panel__section-title">{{ t('process.node.section.baseInfo') }}</div>
           <t-descriptions bordered :column="2" size="small">
-            <t-descriptions-item label="节点编码">{{ node.code }}</t-descriptions-item>
-            <t-descriptions-item label="节点名称">{{ node.name }}</t-descriptions-item>
-            <t-descriptions-item label="节点类型">{{ nodeTypeText }}</t-descriptions-item>
-            <t-descriptions-item label="版本号">{{ node.version }}</t-descriptions-item>
-            <t-descriptions-item label="人员">{{ node.staff }}</t-descriptions-item>
-            <t-descriptions-item label="占地面积">{{ node.area }}</t-descriptions-item>
-            <t-descriptions-item label="状态">
+            <t-descriptions-item :label="t('process.node.field.nodeCode')">{{ node.code }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.node.field.nodeName')">{{ node.name }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.node.field.nodeType')">{{ nodeTypeText }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.node.field.version')">{{ node.version }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.node.field.staff')">{{ node.staff }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.node.field.area')">{{ node.area }}</t-descriptions-item>
+            <t-descriptions-item :label="t('common.field.status')">
               <t-tag size="small" variant="light" :theme="statusTheme(node.status)">{{ statusLabel(node.status) }}</t-tag>
             </t-descriptions-item>
-            <t-descriptions-item label="排序">{{ node.sort_order }}</t-descriptions-item>
-            <t-descriptions-item label="创建时间">{{ formatDateTime(node.created_at) }}</t-descriptions-item>
-            <t-descriptions-item label="更新时间">{{ formatDateTime(node.updated_at) }}</t-descriptions-item>
-            <t-descriptions-item label="描述">{{ node.description || '-' }}</t-descriptions-item>
-            <t-descriptions-item label="备注">{{ node.remark || '-' }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.field.sort')">{{ node.sort_order }}</t-descriptions-item>
+            <t-descriptions-item :label="t('common.field.createdAt')">{{ formatDateTime(node.created_at) }}</t-descriptions-item>
+            <t-descriptions-item :label="t('common.field.updatedAt')">{{ formatDateTime(node.updated_at) }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.field.description')">{{ node.description || '-' }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.field.remark')">{{ node.remark || '-' }}</t-descriptions-item>
           </t-descriptions>
         </section>
 
         <section class="route-node-detail-panel__section">
-          <div class="route-node-detail-panel__section-title">输入原料</div>
+          <div class="route-node-detail-panel__section-title">{{ t('process.node.section.inputMaterials') }}</div>
           <div class="route-node-detail-panel__table">
-            <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="materialColumns" :data="node.material_inputs" empty="暂无输入原料">
+            <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="materialColumns" :data="node.material_inputs" :empty="t('process.node.empty.material')">
               <template #material="{ row }">{{ optionLabel(materialOptions, row.material_id) }}</template>
               <template #unit="{ row }">{{ processUnitLabel(row.unit) }}</template>
             </t-table>
@@ -119,9 +116,9 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
         </section>
 
         <section class="route-node-detail-panel__section">
-          <div class="route-node-detail-panel__section-title">消耗品</div>
+          <div class="route-node-detail-panel__section-title">{{ t('process.node.section.consumables') }}</div>
           <div class="route-node-detail-panel__table">
-            <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="consumableColumns" :data="node.consumables" empty="暂无消耗品">
+            <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="consumableColumns" :data="node.consumables" :empty="t('process.node.empty.consumables')">
               <template #consumable="{ row }">{{ optionLabel(consumableOptions, row.consumable_id) }}</template>
               <template #unit="{ row }">{{ processUnitLabel(row.unit) }}</template>
             </t-table>
@@ -129,7 +126,7 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
         </section>
 
         <section class="route-node-detail-panel__section">
-          <div class="route-node-detail-panel__section-title">公共服务</div>
+          <div class="route-node-detail-panel__section-title">{{ t('process.node.section.publicServices') }}</div>
           <div class="route-node-detail-panel__table">
             <t-table
               row-key="id"
@@ -138,7 +135,7 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
               table-layout="fixed"
               :columns="publicServiceColumns"
               :data="node.public_services"
-              empty="暂无公共服务"
+              :empty="t('process.node.empty.publicServices')"
             >
               <template #public_service="{ row }">{{ optionLabel(publicServiceOptions, row.public_service_id) }}</template>
               <template #unit="{ row }">{{ processUnitLabel(row.unit) }}</template>
@@ -147,9 +144,9 @@ function optionLabel(options: ProcessLibraryOptionItem[], id: number): string {
         </section>
 
         <section class="route-node-detail-panel__section">
-          <div class="route-node-detail-panel__section-title">设备/投资</div>
+          <div class="route-node-detail-panel__section-title">{{ t('process.node.section.equipment') }}</div>
           <div class="route-node-detail-panel__table">
-            <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="equipmentColumns" :data="node.equipment" empty="暂无设备/投资">
+            <t-table row-key="id" size="small" bordered table-layout="fixed" :columns="equipmentColumns" :data="node.equipment" :empty="t('process.node.empty.equipment')">
               <template #equipment_type="{ row }">{{ row.equipment_type || '-' }}</template>
             </t-table>
           </div>

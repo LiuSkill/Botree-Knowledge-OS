@@ -52,7 +52,7 @@ export function downloadProcessConfigTemplate(moduleKey: ProcessConfigModuleKey)
   }) as Promise<Blob>;
 }
 
-export function exportProcessConfigData(moduleKey: ProcessConfigModuleKey, params?: Record<string, unknown>): Promise<Blob> {
+export function exportProcessConfigData(moduleKey: ProcessConfigModuleKey, params?: ProcessLibraryListParams): Promise<Blob> {
   return request.get(`/process-config/${moduleKey}/export`, {
     params,
     responseType: 'blob',

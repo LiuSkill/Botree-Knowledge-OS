@@ -10,6 +10,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { AddIcon, DeleteIcon, EditIcon, RefreshIcon, SaveIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 
 import { createRole, deleteRole, listRoles, updateRole } from '@/api/roles';
@@ -20,21 +21,90 @@ import { syncAuthorizedRoutes } from '@/router/dynamicRoutes';
 import { useAuthStore } from '@/stores/auth';
 import type { ActionGroupDefinition } from '@/constants/permissions';
 import type { ActionPermissionGroup, ActionPermissionInfo, DataScope, RoleInfo, SecurityLevel, SystemMenuNode } from '@/types/api';
+import { menuLabel } from '@/utils/localizedNavigation';
 import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
 
 type RoleDialogMode = 'create' | 'edit';
 
 const DEFAULT_ROLE_PAGE_SIZE = 200;
 const BUILTIN_ADMIN_ROLE_CODE = 'admin';
-const DATA_SCOPE_OPTIONS: Array<{ value: DataScope; label: string }> = [
-  { value: 'all', label: '全部项目' },
-  { value: 'department', label: '本部门项目' },
-  { value: 'own', label: '自己创建或负责' },
-  { value: 'public_only', label: '仅公开项目' },
-];
+const GROUP_KEY_BY_MODULE: Record<string, string> = {
+  dashboard: 'system.permission.group.dashboard',
+  knowledge: 'system.permission.group.knowledge',
+  project: 'system.permission.group.project',
+  'project-directory': 'system.permission.group.projectDirectory',
+  'project-document': 'system.permission.group.projectDocument',
+  authorization: 'system.permission.group.authorization',
+  review: 'system.permission.group.review',
+  'process-config-material': 'system.permission.group.processConfigMaterial',
+  'process-config-product': 'system.permission.group.processConfigProduct',
+  'process-config-consumable': 'system.permission.group.processConfigConsumable',
+  'process-config-public-service': 'system.permission.group.processConfigPublicService',
+  'process-config-node': 'system.permission.group.processConfigNode',
+  'process-config-route': 'system.permission.group.processConfigRoute',
+  'process-config-calculator': 'system.permission.group.processConfigCalculator',
+  'ai-project-chat': 'system.permission.group.aiProjectChat',
+  'ai-base-chat': 'system.permission.group.aiBaseChat',
+  'system-user': 'system.permission.group.systemUser',
+  'system-department': 'system.permission.group.systemDepartment',
+  'system-permission': 'system.permission.group.systemPermission',
+  'system-model': 'system.permission.group.systemModel',
+  'system-log': 'system.permission.group.systemLog',
+  'system-qa-audit': 'system.permission.group.systemQaAudit',
+  'system-sensitive-content': 'system.permission.group.systemSensitiveContent',
+};
+const ACTION_VERB_KEY_BY_ACTION: Record<string, string> = {
+  view: 'view',
+  create: 'create',
+  edit: 'edit',
+  update: 'update',
+  delete: 'delete',
+  upload: 'upload',
+  download: 'download',
+  import: 'import',
+  export: 'export',
+  'submit-review': 'submitReview',
+  approve: 'approve',
+  reject: 'reject',
+  'build-index': 'buildIndex',
+  chat: 'chat',
+  'retry-parse': 'retryParse',
+  'retry-index': 'retryIndex',
+  'security-update': 'securityUpdate',
+  'version-view': 'versionView',
+  'version-create': 'versionCreate',
+  'version-set-current': 'versionSetCurrent',
+  version: 'version',
+  preview: 'preview',
+  calculate: 'calculate',
+  'create-session': 'createSession',
+  'send-message': 'sendMessage',
+  'manage-session': 'manageSession',
+  'delete-session': 'deleteSession',
+  feedback: 'feedback',
+  disable: 'disable',
+  'reset-password': 'resetPassword',
+  enable: 'enable',
+  'view-detail': 'viewDetail',
+  'create-role': 'createRole',
+  'edit-role': 'editRole',
+  'delete-role': 'deleteRole',
+  save: 'save',
+  test: 'test',
+  'set-default': 'setDefault',
+  'type-create': 'typeCreate',
+  'type-edit': 'typeEdit',
+  'rule-create': 'ruleCreate',
+  'rule-edit': 'ruleEdit',
+  'rule-test': 'ruleTest',
+  'permission-save': 'permissionSave',
+  'cache-refresh': 'cacheRefresh',
+  'audit-view': 'auditView',
+};
 
 const authStore = useAuthStore();
 const router = useRouter();
+const { t, locale } = useI18n();
 const roles = ref<RoleInfo[]>([]);
 const menus = ref<SystemMenuNode[]>([]);
 const actionGroups = ref<ActionPermissionGroup[]>([]);
@@ -53,10 +123,6 @@ const roleForm = reactive({
   security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
   data_scope: 'own' as DataScope,
 });
-
-function dataScopeLabel(scope: DataScope): string {
-  return DATA_SCOPE_OPTIONS.find((item) => item.value === scope)?.label || scope;
-}
 
 function isProtectedAdminRole(role?: RoleInfo | null): boolean {
   return role?.code === BUILTIN_ADMIN_ROLE_CODE;
@@ -88,10 +154,22 @@ const selectedMenuIds = computed(() => {
   );
 });
 const selectedIdsForTree = computed(() => selectedPermissionIds.value);
-const roleDialogTitle = computed(() => (roleDialogMode.value === 'create' ? '新建角色' : '编辑角色'));
+const dataScopeOptions = computed<Array<{ value: DataScope; label: string }>>(() => [
+  { value: 'all', label: t('system.permission.dataScope.all') },
+  { value: 'department', label: t('system.permission.dataScope.department') },
+  { value: 'own', label: t('system.permission.dataScope.own') },
+  { value: 'public_only', label: t('system.permission.dataScope.publicOnly') },
+]);
+const roleDialogTitle = computed(() => (roleDialogMode.value === 'create' ? t('system.permission.createRole') : t('system.permission.editRole')));
 const permissionFooterText = computed(() =>
-  selectedRoleLocked.value ? '超级管理员为内置角色，不支持修改' : `当前选择 ${selectedPermissionIds.value.length} 个权限点`,
+  selectedRoleLocked.value
+    ? t('system.permission.adminLockedFooter')
+    : t('system.summary.selectedPermissions', { count: selectedPermissionIds.value.length }),
 );
+const localizedMenus = computed(() => {
+  void locale.value;
+  return localizeMenuTree(menus.value);
+});
 
 const menuPermissionIdByCode = computed(() => {
   const result = new Map<string, number>();
@@ -103,11 +181,17 @@ const menuPermissionIdByCode = computed(() => {
   return result;
 });
 
-const menuNameByCode = computed(() => {
-  const result = new Map<string, string>();
-  walkMenus((node) => result.set(node.id, node.name));
-  return result;
-});
+function dataScopeLabel(scope: DataScope): string {
+  return dataScopeOptions.value.find((item) => item.value === scope)?.label || scope;
+}
+
+function localizeMenuTree(nodes: SystemMenuNode[]): SystemMenuNode[] {
+  return nodes.map((node) => ({
+    ...node,
+    name: menuLabel(node.id, node.name, t),
+    children: localizeMenuTree(node.children),
+  }));
+}
 
 function walkMenus(visitor: (node: SystemMenuNode) => void, nodes = menus.value): void {
   nodes.forEach((node) => {
@@ -238,7 +322,19 @@ function rolePermissionCount(role: RoleInfo): number {
 }
 
 function boundMenuLabel(group: ActionPermissionGroup): string {
-  return group.menu_ids.map((menuId) => menuNameByCode.value.get(menuId) || menuId).join(' / ');
+  return group.menu_ids.map((menuId) => menuLabel(menuId, menuId, t)).join(' / ');
+}
+
+function actionGroupLabel(group: ActionPermissionGroup): string {
+  const key = GROUP_KEY_BY_MODULE[group.module];
+  return key ? t(key) : group.module_name;
+}
+
+function actionLabel(group: ActionPermissionGroup, action: ActionPermissionInfo): string {
+  const target = actionGroupLabel(group);
+  const verbKey = ACTION_VERB_KEY_BY_ACTION[action.action];
+  if (!verbKey) return t('system.permission.actionVerb.fallback', { action: action.action, target });
+  return t(`system.permission.actionVerb.${verbKey}`, { target });
 }
 
 function toggleMenu(node: SystemMenuNode, checked: boolean): void {
@@ -315,7 +411,7 @@ function openCreateRoleDialog(): void {
 
 function openEditRoleDialog(role: RoleInfo): void {
   if (isProtectedAdminRole(role)) {
-    MessagePlugin.warning('超级管理员为系统内置角色，不允许编辑');
+    MessagePlugin.warning(t('system.permission.message.builtinEditForbidden'));
     return;
   }
   roleDialogMode.value = 'edit';
@@ -333,12 +429,12 @@ function openEditRoleDialog(role: RoleInfo): void {
 
 async function submitRole(): Promise<void> {
   if (!roleForm.name.trim()) {
-    MessagePlugin.warning('请输入角色名称');
+    MessagePlugin.warning(t('system.permission.message.roleNameRequired'));
     return;
   }
   if (roleDialogMode.value === 'create') {
     if (!roleForm.code.trim()) {
-      MessagePlugin.warning('请输入角色编码');
+      MessagePlugin.warning(t('system.permission.message.roleCodeRequired'));
       return;
     }
     const role = await createRole({
@@ -350,11 +446,11 @@ async function submitRole(): Promise<void> {
       permission_ids: [],
     });
     selectedRoleId.value = role.id;
-    MessagePlugin.success('角色已创建');
+    MessagePlugin.success(t('system.permission.message.created'));
   } else if (editingRoleId.value) {
     const editingRole = roles.value.find((role) => role.id === editingRoleId.value);
     if (isProtectedAdminRole(editingRole)) {
-      MessagePlugin.warning('超级管理员为系统内置角色，不允许编辑');
+      MessagePlugin.warning(t('system.permission.message.builtinEditForbidden'));
       return;
     }
     await updateRole(editingRoleId.value, {
@@ -364,7 +460,7 @@ async function submitRole(): Promise<void> {
       security_level: roleForm.security_level,
       data_scope: roleForm.data_scope,
     });
-    MessagePlugin.success('角色已更新');
+    MessagePlugin.success(t('system.permission.message.updated'));
   }
   roleDialogVisible.value = false;
   await loadMatrix();
@@ -372,11 +468,11 @@ async function submitRole(): Promise<void> {
 
 async function removeRole(role: RoleInfo): Promise<void> {
   if (isProtectedAdminRole(role)) {
-    MessagePlugin.warning('超级管理员为系统内置角色，不允许删除');
+    MessagePlugin.warning(t('system.permission.message.builtinDeleteForbidden'));
     return;
   }
   await deleteRole(role.id);
-  MessagePlugin.success('角色已删除');
+  MessagePlugin.success(t('system.permission.message.deleted'));
   if (selectedRoleId.value === role.id) {
     selectedRoleId.value = null;
   }
@@ -386,7 +482,7 @@ async function removeRole(role: RoleInfo): Promise<void> {
 async function savePermissions(): Promise<void> {
   if (!selectedRole.value) return;
   if (selectedRoleLocked.value) {
-    MessagePlugin.warning('超级管理员为系统内置角色，不允许修改权限');
+    MessagePlugin.warning(t('system.permission.message.builtinPermissionForbidden'));
     return;
   }
   saving.value = true;
@@ -407,7 +503,7 @@ async function savePermissions(): Promise<void> {
       await router.replace(authStore.firstAccessiblePath);
     }
     applySelectedRolePermissions();
-    MessagePlugin.success('权限配置已保存');
+    MessagePlugin.success(t('system.permission.message.saved'));
   } finally {
     saving.value = false;
   }
@@ -442,12 +538,12 @@ onMounted(loadMatrix);
       <aside class="role-panel">
         <div class="role-panel-head">
           <div>
-            <h2>角色列表</h2>
-            <span>{{ roles.length }} 个角色</span>
+            <h2>{{ t('system.permission.roleList') }}</h2>
+            <span>{{ t('system.summary.totalRoles', { count: roles.length }) }}</span>
           </div>
           <t-button v-permission="PERMISSIONS.SYSTEM_PERMISSION_CREATE_ROLE" size="small" theme="primary" @click="openCreateRoleDialog">
             <template #icon><AddIcon /></template>
-            新建
+            {{ t('system.permission.createRoleShort') }}
           </t-button>
         </div>
 
@@ -465,7 +561,7 @@ onMounted(loadMatrix);
             <div class="role-main">
               <strong>{{ role.name }}</strong>
               <t-tag size="small" variant="light" :theme="role.enabled ? 'success' : 'danger'">
-                {{ role.enabled ? '启用' : '停用' }}
+                {{ role.enabled ? t('system.status.enabled') : t('system.status.disabled') }}
               </t-tag>
               <t-tag size="small" variant="light" :theme="securityLevelTheme(role.security_level)">
                 {{ securityLevelLabel(role.security_level) }}
@@ -474,15 +570,15 @@ onMounted(loadMatrix);
                 {{ dataScopeLabel(role.data_scope) }}
               </t-tag>
               <t-tag v-if="isProtectedAdminRole(role)" size="small" variant="light" theme="warning">
-                内置
+                {{ t('system.permission.builtin') }}
               </t-tag>
             </div>
             <div class="role-description-row">
-              <p>{{ role.description || '未填写角色说明' }}</p>
-              <span>{{ rolePermissionCount(role) }} 个权限</span>
+              <p>{{ role.description || t('system.permission.noDescription') }}</p>
+              <span>{{ t('system.permission.permissionCount', { count: rolePermissionCount(role) }) }}</span>
             </div>
             <div class="role-actions">
-              <t-tooltip v-if="canEditRoles && isProtectedAdminRole(role)" content="内置角色不可编辑" placement="top">
+              <t-tooltip v-if="canEditRoles && isProtectedAdminRole(role)" :content="t('system.permission.tooltip.builtinCannotEdit')" placement="top">
                 <t-button size="small" variant="text" disabled @click.stop>
                   <template #icon><EditIcon /></template>
                 </t-button>
@@ -490,12 +586,12 @@ onMounted(loadMatrix);
               <t-button v-else-if="canEditRoles" size="small" variant="text" @click.stop="openEditRoleDialog(role)">
                 <template #icon><EditIcon /></template>
               </t-button>
-              <t-tooltip v-if="canDeleteRoles && isProtectedAdminRole(role)" content="内置角色不可删除" placement="top">
+              <t-tooltip v-if="canDeleteRoles && isProtectedAdminRole(role)" :content="t('system.permission.tooltip.builtinCannotDelete')" placement="top">
                 <t-button size="small" variant="text" theme="danger" disabled @click.stop>
                   <template #icon><DeleteIcon /></template>
                 </t-button>
               </t-tooltip>
-              <t-popconfirm v-else-if="canDeleteRoles" content="确认删除该角色？" @confirm="removeRole(role)">
+              <t-popconfirm v-else-if="canDeleteRoles" :content="t('system.permission.confirm.deleteRole')" @confirm="removeRole(role)">
                 <t-button size="small" variant="text" theme="danger" @click.stop>
                   <template #icon><DeleteIcon /></template>
                 </t-button>
@@ -508,51 +604,51 @@ onMounted(loadMatrix);
       <main class="matrix-panel">
         <div class="matrix-head">
           <div>
-            <h2>{{ selectedRole?.name || '请选择角色' }}</h2>
-            <p>{{ selectedRole?.description || '配置该角色可访问的菜单和按钮操作' }}</p>
+            <h2>{{ selectedRole?.name || t('system.permission.selectRole') }}</h2>
+            <p>{{ selectedRole?.description || t('system.permission.selectRoleDesc') }}</p>
           </div>
           <t-button theme="default" variant="outline" @click="loadMatrix">
             <template #icon><RefreshIcon /></template>
-            刷新
+            {{ t('system.action.refresh') }}
           </t-button>
         </div>
 
-        <t-empty v-if="!selectedRole" description="暂无角色，请先新建角色" />
+        <t-empty v-if="!selectedRole" :description="t('system.permission.emptyRoles')" />
 
         <template v-else>
           <div class="permission-grid">
             <section class="permission-section menu-section">
               <div class="section-head">
                 <div>
-                  <h3>菜单权限</h3>
-                  <span>控制路由访问和菜单显示</span>
+                  <h3>{{ t('system.permission.menuPermission') }}</h3>
+                  <span>{{ t('system.permission.menuPermissionDesc') }}</span>
                 </div>
               </div>
               <div class="section-body">
-                <PermissionMenuTree :nodes="menus" :selected-ids="selectedIdsForTree" :disabled="selectedRoleLocked" @toggle-node="toggleMenu" />
+                <PermissionMenuTree :nodes="localizedMenus" :selected-ids="selectedIdsForTree" :disabled="selectedRoleLocked" @toggle-node="toggleMenu" />
               </div>
             </section>
 
             <section class="permission-section action-section">
               <div class="section-head">
                 <div>
-                  <h3>操作权限</h3>
-                  <span>按钮权限必须绑定已授权页面，未授权页面下操作会自动取消</span>
+                  <h3>{{ t('system.permission.actionPermission') }}</h3>
+                  <span>{{ t('system.permission.actionPermissionDesc') }}</span>
                 </div>
               </div>
               <div class="action-table-wrap">
                 <table class="action-table">
                   <thead>
                     <tr>
-                      <th>功能模块</th>
-                      <th>绑定页面</th>
-                      <th>操作权限</th>
+                      <th>{{ t('system.permission.functionModule') }}</th>
+                      <th>{{ t('system.permission.boundPage') }}</th>
+                      <th>{{ t('system.permission.actionPermission') }}</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="group in actionGroups" :key="group.module" :class="{ muted: selectedRoleLocked || !isActionGroupEnabled(group) }">
                       <td>
-                        <strong>{{ group.module_name }}</strong>
+                        <strong>{{ actionGroupLabel(group) }}</strong>
                       </td>
                       <td>{{ boundMenuLabel(group) }}</td>
                       <td>
@@ -561,9 +657,9 @@ onMounted(loadMatrix);
                           :model-value="isActionGroupAllChecked(group)"
                           :indeterminate="isActionGroupPartialChecked(group)"
                           :disabled="selectedRoleLocked || !isActionGroupEnabled(group)"
-                          @change="(checked) => toggleActionGroup(group, Boolean(checked))"
+                          @change="(checked: boolean) => toggleActionGroup(group, Boolean(checked))"
                         >
-                          全选
+                          {{ t('system.action.selectAll') }}
                         </t-checkbox>
                         <t-checkbox
                           v-for="action in group.actions"
@@ -571,9 +667,9 @@ onMounted(loadMatrix);
                           class="check-item"
                           :model-value="isActionChecked(action)"
                           :disabled="selectedRoleLocked || !isActionGroupEnabled(group)"
-                          @change="(checked) => toggleAction(group, action, Boolean(checked))"
+                          @change="(checked: boolean) => toggleAction(group, action, Boolean(checked))"
                         >
-                          {{ action.name }}
+                          {{ actionLabel(group, action) }}
                         </t-checkbox>
                       </td>
                     </tr>
@@ -587,7 +683,7 @@ onMounted(loadMatrix);
             <span>{{ permissionFooterText }}</span>
             <t-button v-permission="PERMISSIONS.SYSTEM_PERMISSION_SAVE" theme="primary" :loading="saving" :disabled="selectedRoleLocked" @click="savePermissions">
               <template #icon><SaveIcon /></template>
-              保存配置
+              {{ t('system.action.saveConfig') }}
             </t-button>
           </div>
         </template>
@@ -596,10 +692,10 @@ onMounted(loadMatrix);
 
     <t-dialog v-model:visible="roleDialogVisible" :header="roleDialogTitle" width="520px" @confirm="submitRole">
       <t-form :data="roleForm" label-align="top">
-        <t-form-item label="角色名称" required-mark><t-input v-model="roleForm.name" /></t-form-item>
-        <t-form-item label="角色编码" required-mark><t-input v-model="roleForm.code" :disabled="roleDialogMode === 'edit'" /></t-form-item>
-        <t-form-item label="角色说明"><t-textarea v-model="roleForm.description" /></t-form-item>
-        <t-form-item label="最高密级">
+        <t-form-item :label="t('system.permission.field.roleName')" required-mark><t-input v-model="roleForm.name" /></t-form-item>
+        <t-form-item :label="t('system.permission.field.roleCode')" required-mark><t-input v-model="roleForm.code" :disabled="roleDialogMode === 'edit'" /></t-form-item>
+        <t-form-item :label="t('system.permission.field.roleDescription')"><t-textarea v-model="roleForm.description" /></t-form-item>
+        <t-form-item :label="t('system.permission.field.maxSecurityLevel')">
           <t-select v-model="roleForm.security_level">
             <t-option
               v-for="item in securityLevelOptions(authStore.maxSecurityLevel, roleForm.security_level)"
@@ -610,10 +706,10 @@ onMounted(loadMatrix);
             />
           </t-select>
         </t-form-item>
-        <t-form-item v-if="roleDialogMode === 'edit'" label="状态"><t-switch v-model="roleForm.enabled" /></t-form-item>
-        <t-form-item label="项目数据范围">
+        <t-form-item v-if="roleDialogMode === 'edit'" :label="t('system.permission.field.status')"><t-switch v-model="roleForm.enabled" /></t-form-item>
+        <t-form-item :label="t('system.permission.field.dataScope')">
           <t-select v-model="roleForm.data_scope">
-            <t-option v-for="item in DATA_SCOPE_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+            <t-option v-for="item in dataScopeOptions" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
         </t-form-item>
       </t-form>

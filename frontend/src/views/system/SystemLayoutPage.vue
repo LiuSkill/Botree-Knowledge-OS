@@ -5,19 +5,25 @@
 -->
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 
 const route = useRoute();
+const { t } = useI18n();
 
 const descriptionByMenuId: Record<string, string> = {
-  'system:sensitive-content': '维护敏感信息类型、识别规则和角色查看权限。',
-  'system:department:view': '维护组织部门、上下级关系和部门成员归属。',
+  'system:sensitive-content': 'system.layout.description.sensitiveContent',
+  'system:department:view': 'system.layout.description.department',
 };
 
-const pageTitle = computed(() => (route.meta.title as string | undefined) || '系统管理');
+const pageTitle = computed(() => {
+  const titleKey = route.meta.titleKey as string | undefined;
+  return titleKey ? t(titleKey) : t('system.layout.title');
+});
 const pageDescription = computed(() => {
   const menuId = route.meta.menuId as string | undefined;
-  return (menuId && descriptionByMenuId[menuId]) || '维护用户、角色权限、模型配置、操作日志与问答审计。';
+  const descriptionKey = menuId ? descriptionByMenuId[menuId] : '';
+  return descriptionKey ? t(descriptionKey) : t('system.layout.defaultDescription');
 });
 </script>
 

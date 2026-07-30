@@ -1,17 +1,17 @@
-# I18n Module
+# Legacy I18n Module
 
 ## 功能
 
-提供轻量级中英文切换能力，不引入复杂国际化库。
+历史说明目录。当前系统已迁移到 `src/locales`，使用 `vue-i18n` 统一管理中英文语言包。
 
 ## 调用关系
 
-Zustand Store 保存当前语言，`useTranslation` 读取语言并调用 `dictionary.ts` 中的 `translate` 方法。
+`src/locales/index.ts` 创建 i18n 实例，`src/stores/locale.ts` 负责语言状态、LocalStorage 持久化和 HTML `lang` 同步。
 
 ## 输入
 
 - `language`: `zh-CN` 或 `en-US`
-- 翻译 key：界面文本
+- 翻译 key：语义化模块 key
 
 ## 输出
 
@@ -19,7 +19,7 @@ Zustand Store 保存当前语言，`useTranslation` 读取语言并调用 `dicti
 
 ## 示例
 
-```tsx
-const { t } = useTranslation();
-t('首页');
+```ts
+const { t } = useI18n();
+t('common.action.save');
 ```

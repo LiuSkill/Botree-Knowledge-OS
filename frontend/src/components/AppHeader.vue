@@ -10,15 +10,17 @@
 import { computed, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
+import { useI18n } from 'vue-i18n';
 
 import botreeLogo from '@/assets/botree-logo.png';
+import LanguageSwitcher from '@/components/LanguageSwitcher/index.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { useAuthStore } from '@/stores/auth';
 import type { SecurityLevel } from '@/types/api';
-import { securityLevelLabel } from '@/utils/securityLevels';
 
 const authStore = useAuthStore();
 const router = useRouter();
+const { t } = useI18n();
 const profileVisible = ref(false);
 const avatarInputRef = ref<HTMLInputElement | null>(null);
 const selectedAvatarFile = ref<File | null>(null);
@@ -30,7 +32,7 @@ const passwordForm = reactive({
   confirmPassword: '',
 });
 
-const displayName = computed(() => authStore.user?.real_name || authStore.user?.username || '用户');
+const displayName = computed(() => authStore.user?.real_name || authStore.user?.username || t('common.field.user'));
 const roleNames = computed(() => authStore.user?.roles.map((role) => role.name).join('、') || '-');
 const securityLevelRank: Record<SecurityLevel, number> = {
   public: 0,
@@ -65,7 +67,7 @@ function handleAvatarChange(event: Event): void {
 
 async function uploadAvatar(): Promise<void> {
   if (!selectedAvatarFile.value) {
-    MessagePlugin.warning('请先选择头像图片');
+    MessagePlugin.warning(t('common.profile.selectAvatarFirst'));
     return;
   }
   avatarUploading.value = true;
@@ -73,7 +75,7 @@ async function uploadAvatar(): Promise<void> {
     await authStore.uploadAvatar(selectedAvatarFile.value);
     selectedAvatarFile.value = null;
     if (avatarInputRef.value) avatarInputRef.value.value = '';
-    MessagePlugin.success('头像已更新');
+    MessagePlugin.success(t('common.profile.avatarUpdated'));
   } finally {
     avatarUploading.value = false;
   }
@@ -85,7 +87,7 @@ async function deleteAvatar(): Promise<void> {
     await authStore.deleteAvatar();
     selectedAvatarFile.value = null;
     if (avatarInputRef.value) avatarInputRef.value.value = '';
-    MessagePlugin.success('头像已移除');
+    MessagePlugin.success(t('common.profile.avatarRemoved'));
   } finally {
     avatarUploading.value = false;
   }
@@ -97,22 +99,22 @@ function resetPasswordForm(): void {
 
 async function submitPasswordChange(): Promise<void> {
   if (!passwordForm.currentPassword || !passwordForm.newPassword) {
-    MessagePlugin.warning('请填写当前密码和新密码');
+    MessagePlugin.warning(t('common.profile.passwordsRequired'));
     return;
   }
   if (passwordForm.newPassword.length < 8) {
-    MessagePlugin.warning('新密码至少 8 位');
+    MessagePlugin.warning(t('common.profile.passwordMinLength'));
     return;
   }
   if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-    MessagePlugin.warning('两次输入的新密码不一致');
+    MessagePlugin.warning(t('common.profile.passwordMismatch'));
     return;
   }
   passwordSubmitting.value = true;
   try {
     await authStore.changePassword(passwordForm.currentPassword, passwordForm.newPassword);
     resetPasswordForm();
-    MessagePlugin.success('密码已修改');
+    MessagePlugin.success(t('common.profile.passwordChanged'));
   } finally {
     passwordSubmitting.value = false;
   }
@@ -133,10 +135,11 @@ async function logout(): Promise<void> {
       <img class="brand-logo" :src="botreeLogo" alt="Botree Knowledge OS" />
       <div>
         <div class="brand-title">Botree Knowledge OS</div>
-        <div class="brand-subtitle">博萃循环知识管理与智能体应用平台</div>
+        <div class="brand-subtitle">{{ t('common.productSubtitle') }}</div>
       </div>
     </div>
     <div class="header-actions">
+      <LanguageSwitcher />
       <t-button class="avatar-button" variant="text" shape="circle" @click="openProfile">
         <UserAvatar
           :user-id="authStore.user?.id"
@@ -148,14 +151,14 @@ async function logout(): Promise<void> {
         />
       </t-button>
       <span class="user-name">{{ displayName }}</span>
-      <t-button variant="text" theme="danger" @click="logout">退出</t-button>
+      <t-button variant="text" theme="danger" @click="logout">{{ t('common.action.logout') }}</t-button>
     </div>
 
     <t-drawer
       v-model:visible="profileVisible"
       attach="body"
       class="drawer-scroll"
-      header="个人中心"
+      :header="t('common.profile.title')"
       placement="right"
       size="420px"
       :footer="false"
@@ -180,30 +183,30 @@ async function logout(): Promise<void> {
           </div>
           <dl class="profile-info">
             <div>
-              <dt>姓名</dt>
+              <dt>{{ t('common.field.name') }}</dt>
               <dd>{{ authStore.user?.real_name || '-' }}</dd>
             </div>
             <div>
-              <dt>邮箱</dt>
+              <dt>{{ t('common.field.email') }}</dt>
               <dd>{{ authStore.user?.email || '-' }}</dd>
             </div>
             <div>
-              <dt>手机</dt>
+              <dt>{{ t('common.field.phone') }}</dt>
               <dd>{{ authStore.user?.phone || '-' }}</dd>
             </div>
             <div>
-              <dt>部门</dt>
+              <dt>{{ t('common.field.department') }}</dt>
               <dd>{{ authStore.user?.department || '-' }}</dd>
             </div>
             <div>
-              <dt>角色</dt>
+              <dt>{{ t('common.field.role') }}</dt>
               <dd>{{ roleNames }}</dd>
             </div>
             <div>
-              <dt>最高密级</dt>
+              <dt>{{ t('common.profile.highestSecurityLevel') }}</dt>
               <dd>
                 <span class="security-level-text" :class="maxSecurityLevelClass">
-                  {{ securityLevelLabel(maxSecurityLevel) }}
+                  {{ t(`status.${maxSecurityLevel}`) }}
                 </span>
               </dd>
             </div>
@@ -211,9 +214,9 @@ async function logout(): Promise<void> {
         </section>
 
         <section class="profile-section">
-          <h4>头像</h4>
+          <h4>{{ t('common.profile.avatar') }}</h4>
           <t-form label-align="top">
-            <t-form-item label="图片文件">
+            <t-form-item :label="t('common.profile.imageFile')">
               <div class="avatar-upload-actions">
                 <input
                   ref="avatarInputRef"
@@ -222,12 +225,12 @@ async function logout(): Promise<void> {
                   accept="image/png,image/jpeg,image/jpg,image/webp"
                   @change="handleAvatarChange"
                 />
-                <t-button variant="outline" @click="chooseAvatar">选择图片</t-button>
+                <t-button variant="outline" @click="chooseAvatar">{{ t('common.profile.chooseImage') }}</t-button>
                 <t-button theme="primary" :loading="avatarUploading" :disabled="!selectedAvatarFile" @click="uploadAvatar">
-                  上传头像
+                  {{ t('common.profile.uploadAvatar') }}
                 </t-button>
                 <t-button variant="text" theme="danger" :disabled="!authStore.user?.avatar_url" @click="deleteAvatar">
-                  移除
+                  {{ t('common.profile.removeAvatar') }}
                 </t-button>
               </div>
               <div v-if="selectedAvatarName" class="selected-avatar-file">{{ selectedAvatarName }}</div>
@@ -236,20 +239,20 @@ async function logout(): Promise<void> {
         </section>
 
         <section class="profile-section">
-          <h4>修改密码</h4>
+          <h4>{{ t('common.profile.changePassword') }}</h4>
           <t-form :data="passwordForm" label-align="top">
-            <t-form-item label="当前密码">
-              <t-input v-model="passwordForm.currentPassword" type="password" placeholder="请输入当前密码" />
+            <t-form-item :label="t('common.profile.currentPassword')">
+              <t-input v-model="passwordForm.currentPassword" type="password" :placeholder="t('common.profile.currentPasswordPlaceholder')" />
             </t-form-item>
-            <t-form-item label="新密码">
-              <t-input v-model="passwordForm.newPassword" type="password" placeholder="至少 8 位" />
+            <t-form-item :label="t('common.profile.newPassword')">
+              <t-input v-model="passwordForm.newPassword" type="password" :placeholder="t('common.profile.newPasswordPlaceholder')" />
             </t-form-item>
-            <t-form-item label="确认新密码">
-              <t-input v-model="passwordForm.confirmPassword" type="password" placeholder="请再次输入新密码" />
+            <t-form-item :label="t('common.profile.confirmPassword')">
+              <t-input v-model="passwordForm.confirmPassword" type="password" :placeholder="t('common.profile.confirmPasswordPlaceholder')" />
             </t-form-item>
             <div class="password-actions">
-              <t-button variant="outline" @click="resetPasswordForm">重置</t-button>
-              <t-button theme="primary" :loading="passwordSubmitting" @click="submitPasswordChange">保存密码</t-button>
+              <t-button variant="outline" @click="resetPasswordForm">{{ t('common.action.reset') }}</t-button>
+              <t-button theme="primary" :loading="passwordSubmitting" @click="submitPasswordChange">{{ t('common.profile.savePassword') }}</t-button>
             </div>
           </t-form>
         </section>

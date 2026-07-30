@@ -10,6 +10,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { AssignmentCheckedIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { submitDocumentReview } from '@/api/documents';
@@ -31,6 +32,7 @@ const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 const loading = ref(false);
 const uploading = ref(false);
 const knowledgeBase = ref<KnowledgeBaseInfo | null>(null);
@@ -83,7 +85,7 @@ async function loadData(): Promise<void> {
     categories.value = baseCategories;
 
     if (baseInfo.type !== 'base') {
-      MessagePlugin.warning('该资料库属于项目资料，请在项目中心管理');
+      MessagePlugin.warning(t('knowledge.message.projectBaseRedirect'));
       documents.value = [];
       await router.replace(baseInfo.project_id ? `/projects/${baseInfo.project_id}` : '/projects');
       return;
@@ -108,26 +110,26 @@ async function handleUpload(): Promise<void> {
    * 上传企业资料，后端会写入草稿状态和系统递增版本号。
    */
   if (!canUploadDocuments.value) {
-    MessagePlugin.warning('无权限上传知识资料');
+    MessagePlugin.warning(t('knowledge.message.uploadKnowledgeForbidden'));
     return;
   }
   if (!selectedUploadFile.value) {
-    MessagePlugin.warning('请选择需要上传的资料');
+    MessagePlugin.warning(t('knowledge.message.materialRequired'));
     return;
   }
   if (!uploadForm.category_id) {
-    MessagePlugin.warning('请选择企业知识分类');
+    MessagePlugin.warning(t('knowledge.message.enterpriseCategoryRequired'));
     return;
   }
 
   uploading.value = true;
   try {
     await uploadKnowledgeDocument(currentId(), selectedUploadFile.value, uploadForm.category_id, uploadForm.security_level);
-    MessagePlugin.success('上传成功，资料处于草稿状态');
+    MessagePlugin.success(t('knowledge.message.uploadMaterialDraftSuccess'));
     selectedUploadFile.value = null;
     await loadData();
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '上传失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('knowledge.message.uploadFailed'));
   } finally {
     uploading.value = false;
   }
@@ -138,11 +140,11 @@ async function submitReview(document: DocumentInfo): Promise<void> {
    * 提交资料审核。
    */
   if (!canSubmitDocumentReview.value) {
-    MessagePlugin.warning('无权限提交审核');
+    MessagePlugin.warning(t('knowledge.message.submitForbidden'));
     return;
   }
   await submitDocumentReview(document.id);
-  MessagePlugin.success('已提交审核');
+  MessagePlugin.success(t('knowledge.message.submitted'));
   await loadData();
 }
 
@@ -151,7 +153,7 @@ function viewDocument(document: DocumentInfo): void {
    * 查看知识资料详情，和详情接口使用相同查看权限。
    */
   if (!canViewDocuments.value) {
-    MessagePlugin.warning('无权限查看知识资料');
+    MessagePlugin.warning(t('knowledge.message.viewForbidden'));
     return;
   }
   router.push(withBreadcrumbContext(route, `/documents/${document.id}`));
@@ -168,75 +170,75 @@ onMounted(loadData);
 </script>
 
 <template>
-  <PageContainer :title="knowledgeBase?.name || '知识库详情'" subtitle="企业资料上传、分类筛选和审核提交入口">
+  <PageContainer :title="knowledgeBase?.name || t('knowledge.title.collectionFallback')" :subtitle="t('knowledge.subtitle.collection')">
     <template #actions>
-      <t-button variant="outline" @click="router.push('/knowledge')">返回知识中心</t-button>
+      <t-button variant="outline" @click="router.push('/knowledge')">{{ t('knowledge.action.backToCenter') }}</t-button>
     </template>
 
     <div class="panel-stack knowledge-detail-stack data-scroll" v-loading="loading">
       <t-card>
         <div class="detail-grid">
           <div class="detail-item">
-            <div class="detail-label">知识库编码</div>
+            <div class="detail-label">{{ t('knowledge.field.knowledgeBaseCode') }}</div>
             <div class="detail-value">{{ knowledgeBase?.code || '-' }}</div>
           </div>
           <div class="detail-item">
-            <div class="detail-label">知识类型</div>
-            <div class="detail-value">企业知识</div>
+            <div class="detail-label">{{ t('knowledge.field.knowledgeType') }}</div>
+            <div class="detail-value">{{ t('knowledge.value.enterpriseKnowledge') }}</div>
           </div>
           <div class="detail-item">
-            <div class="detail-label">知识分块</div>
+            <div class="detail-label">{{ t('knowledge.field.chunkCount') }}</div>
             <div class="detail-value">{{ knowledgeBase?.chunk_count || 0 }}</div>
           </div>
         </div>
       </t-card>
 
-      <t-card title="上传资料">
+      <t-card :title="t('knowledge.section.upload')">
         <t-form label-align="top">
           <div class="upload-grid">
-            <t-form-item label="首次版本">
-              <div class="version-rule">新资料首次上传为 v1；同一资料的新版本请在文档详情中上传，系统自动递增。</div>
+            <t-form-item :label="t('knowledge.field.firstVersion')">
+              <div class="version-rule">{{ t('knowledge.upload.firstVersionRule') }}</div>
             </t-form-item>
-            <t-form-item label="企业知识分类" required-mark>
-              <t-select v-model="uploadForm.category_id" placeholder="请选择分类">
+            <t-form-item :label="t('knowledge.field.enterpriseCategory')" required-mark>
+              <t-select v-model="uploadForm.category_id" :placeholder="t('knowledge.upload.enterpriseCategoryPlaceholder')">
                 <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
               </t-select>
             </t-form-item>
-            <t-form-item label="文档密级" required-mark>
+            <t-form-item :label="t('knowledge.field.documentSecurityLevel')" required-mark>
               <t-select v-model="uploadForm.security_level">
                 <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
               </t-select>
             </t-form-item>
-            <t-form-item label="资料文件" required-mark>
+            <t-form-item :label="t('knowledge.field.materialFile')" required-mark>
               <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
               <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
             </t-form-item>
           </div>
-          <t-button v-permission="PERMISSIONS.KNOWLEDGE_UPLOAD" theme="primary" :loading="uploading" @click="handleUpload">上传资料</t-button>
+          <t-button v-permission="PERMISSIONS.KNOWLEDGE_UPLOAD" theme="primary" :loading="uploading" @click="handleUpload">{{ t('knowledge.action.uploadMaterial') }}</t-button>
         </t-form>
       </t-card>
 
-      <t-card title="资料列表">
+      <t-card :title="t('knowledge.section.list')">
         <template #actions>
-          <t-select v-model="filterForm.category_id" clearable placeholder="按分类筛选" style="width: 220px">
+          <t-select v-model="filterForm.category_id" clearable :placeholder="t('knowledge.filter.categoryPlaceholder')" style="width: 220px">
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
           </t-select>
         </template>
 
-        <t-empty v-if="!filteredDocuments.length" description="暂无资料" />
+        <t-empty v-if="!filteredDocuments.length" :description="t('knowledge.empty.noMaterials')" />
         <div v-else class="table-scroll">
           <table class="plain-table">
           <thead>
             <tr>
-              <th>文件名</th>
-              <th>分类</th>
-              <th>密级</th>
-              <th>版本</th>
-              <th>大小</th>
-              <th>审核状态</th>
-              <th>构建状态</th>
-              <th>更新时间</th>
-              <th>操作</th>
+              <th>{{ t('knowledge.field.fileName') }}</th>
+              <th>{{ t('knowledge.field.category') }}</th>
+              <th>{{ t('knowledge.field.securityLevel') }}</th>
+              <th>{{ t('knowledge.field.version') }}</th>
+              <th>{{ t('knowledge.field.size') }}</th>
+              <th>{{ t('knowledge.field.reviewStatus') }}</th>
+              <th>{{ t('knowledge.field.indexStatus') }}</th>
+              <th>{{ t('knowledge.field.updatedAt') }}</th>
+              <th>{{ t('common.field.operation') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -255,7 +257,7 @@ onMounted(loadData);
               <td>{{ formatDateTime(doc.updated_at) }}</td>
               <td>
                 <TableActionButton
-                  label="提交审核"
+                  :label="t('knowledge.action.submitReview')"
                   :permission="PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW"
                   :disabled="!canSubmitReview(doc)"
                   @click="submitReview(doc)"

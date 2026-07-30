@@ -1,4 +1,5 @@
 import type { SecurityLevel, UserInfo } from '@/types/api';
+import { i18n } from '@/locales';
 
 export interface SecurityLevelOption {
   label: string;
@@ -12,16 +13,10 @@ export const SECURITY_LEVEL_RANK: Record<SecurityLevel, number> = {
   confidential: 2,
 };
 
-export const SECURITY_LEVEL_OPTIONS: SecurityLevelOption[] = [
-  { label: '公开', value: 'public' },
-  { label: '内部', value: 'internal' },
-  { label: '秘密', value: 'confidential' },
-];
-
-export const SECURITY_LEVEL_LABELS: Record<SecurityLevel, string> = {
-  public: '公开',
-  internal: '内部',
-  confidential: '秘密',
+const SECURITY_LEVEL_KEYS: Record<SecurityLevel, string> = {
+  public: 'status.public',
+  internal: 'status.internal',
+  confidential: 'status.confidential',
 };
 
 export const SECURITY_LEVEL_THEMES: Record<SecurityLevel, 'success' | 'warning' | 'danger'> = {
@@ -49,21 +44,16 @@ export function resolveUserMaxSecurityLevel(user?: UserInfo | null): SecurityLev
 
 export function allowedSecurityLevels(maxSecurityLevel?: string | null): SecurityLevel[] {
   const normalizedMax = normalizeSecurityLevel(maxSecurityLevel, 'public');
-  return SECURITY_LEVEL_OPTIONS.filter((option) => SECURITY_LEVEL_RANK[option.value] <= SECURITY_LEVEL_RANK[normalizedMax]).map(
-    (option) => option.value,
-  );
+  return (Object.keys(SECURITY_LEVEL_RANK) as SecurityLevel[]).filter((level) => SECURITY_LEVEL_RANK[level] <= SECURITY_LEVEL_RANK[normalizedMax]);
 }
 
 /** 越权旧值仅用于兼容展示，并明确禁用，防止编辑表单打开时静默修改数据。 */
 export function securityLevelOptions(maxSecurityLevel?: string | null, currentValue?: string | null): SecurityLevelOption[] {
   const normalizedMax = normalizeSecurityLevel(maxSecurityLevel, 'public');
-  const options = SECURITY_LEVEL_OPTIONS.filter((option) => SECURITY_LEVEL_RANK[option.value] <= SECURITY_LEVEL_RANK[normalizedMax]).map(
-    (option) => ({ ...option }),
-  );
+  const options: SecurityLevelOption[] = allowedSecurityLevels(normalizedMax).map((value) => ({ label: securityLevelLabel(value), value }));
   const normalizedCurrent = currentValue ? normalizeSecurityLevel(currentValue, 'public') : null;
   if (normalizedCurrent && SECURITY_LEVEL_RANK[normalizedCurrent] > SECURITY_LEVEL_RANK[normalizedMax]) {
-    const legacyOption = SECURITY_LEVEL_OPTIONS.find((option) => option.value === normalizedCurrent);
-    if (legacyOption) options.push({ ...legacyOption, disabled: true });
+    options.push({ label: securityLevelLabel(normalizedCurrent), value: normalizedCurrent, disabled: true });
   }
   return options.sort((left, right) => SECURITY_LEVEL_RANK[left.value] - SECURITY_LEVEL_RANK[right.value]);
 }
@@ -79,7 +69,7 @@ export function clampSecurityLevel(
 }
 
 export function securityLevelLabel(level?: string | null): string {
-  return SECURITY_LEVEL_LABELS[normalizeSecurityLevel(level)];
+  return i18n.global.t(SECURITY_LEVEL_KEYS[normalizeSecurityLevel(level)]);
 }
 
 export function securityLevelTheme(level?: string | null): 'success' | 'warning' | 'danger' {

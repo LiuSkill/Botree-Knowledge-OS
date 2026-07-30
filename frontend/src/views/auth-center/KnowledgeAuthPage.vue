@@ -8,6 +8,7 @@
 -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import { getAuthorizationSummary } from '@/api/knowledgeBases';
 import PageContainer from '@/components/PageContainer.vue';
@@ -16,6 +17,11 @@ import type { KnowledgeBaseInfo } from '@/types/api';
 const summary = ref<Record<string, unknown>>({});
 const bases = computed(() => (summary.value.knowledge_bases || []) as KnowledgeBaseInfo[]);
 const permissions = computed(() => (summary.value.permissions || []) as Array<Record<string, unknown>>);
+const { t } = useI18n();
+
+function knowledgeBaseVisibility(base: KnowledgeBaseInfo): string {
+  return (base as KnowledgeBaseInfo & { visibility?: string }).visibility || '-';
+}
 
 async function loadSummary(): Promise<void> {
   /**
@@ -28,43 +34,43 @@ onMounted(loadSummary);
 </script>
 
 <template>
-  <PageContainer title="知识授权中心" subtitle="查看基础知识、项目知识和外部授权预留能力">
+  <PageContainer :title="t('knowledge.authorization.title')" :subtitle="t('knowledge.authorization.subtitle')">
     <div class="auth-layout">
-      <t-card title="知识库授权概览" class="scroll-card">
+      <t-card :title="t('knowledge.authorization.overview')" class="scroll-card">
         <div class="auth-grid data-scroll">
           <div v-for="base in bases" :key="base.id" class="auth-card">
             <div class="auth-title">
               <span>{{ base.name }}</span>
-              <t-tag size="small" variant="light">{{ base.type === 'project' ? '项目知识' : '基础知识' }}</t-tag>
+              <t-tag size="small" variant="light">{{ base.type === 'project' ? t('knowledge.authorization.projectKnowledge') : t('knowledge.authorization.baseKnowledge') }}</t-tag>
             </div>
-            <p class="muted">{{ base.description || '暂无描述' }}</p>
+            <p class="muted">{{ base.description || t('knowledge.authorization.noDescription') }}</p>
             <div class="auth-meta">
-              <span>资料 {{ base.document_count || 0 }}</span>
-              <span>分块 {{ base.chunk_count || 0 }}</span>
-              <span>{{ base.visibility }}</span>
+              <span>{{ t('knowledge.authorization.documents', { count: base.document_count || 0 }) }}</span>
+              <span>{{ t('knowledge.authorization.chunks', { count: base.chunk_count || 0 }) }}</span>
+              <span>{{ knowledgeBaseVisibility(base) }}</span>
             </div>
           </div>
         </div>
       </t-card>
 
-      <t-card title="权限边界" class="scroll-card">
+      <t-card :title="t('knowledge.authorization.boundary')" class="scroll-card">
         <div class="table-scroll">
           <table class="plain-table">
           <thead>
             <tr>
-              <th>权限对象</th>
-              <th>权限范围</th>
-              <th>状态</th>
+              <th>{{ t('knowledge.authorization.subject') }}</th>
+              <th>{{ t('knowledge.authorization.scope') }}</th>
+              <th>{{ t('knowledge.authorization.status') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in permissions" :key="String(item.id)">
               <td>{{ item.subject_type || 'system' }} #{{ item.subject_id || '-' }}</td>
               <td>{{ item.scope_type || '-' }} #{{ item.scope_id || '-' }}</td>
-              <td>{{ item.enabled === false ? '停用' : '启用' }}</td>
+              <td>{{ item.enabled === false ? t('knowledge.authorization.disabled') : t('knowledge.authorization.enabled') }}</td>
             </tr>
             <tr v-if="!permissions.length">
-              <td colspan="3" class="muted">MVP 阶段展示当前用户可见知识库，外部用户授权能力已预留数据结构。</td>
+              <td colspan="3" class="muted">{{ t('knowledge.authorization.empty') }}</td>
             </tr>
           </tbody>
           </table>

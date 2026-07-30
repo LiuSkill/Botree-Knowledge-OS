@@ -80,6 +80,7 @@ class ChatCompletionRequest(BaseModel):
     session_id: int | None = Field(default=None, description="会话ID")
     message: str = Field(..., description="用户问题")
     agent_enabled: bool = Field(default=True, description="是否启用 Agent 执行过程")
+    response_language: Literal["zh-CN", "en-US"] = Field(default="zh-CN", description="回答输出语言")
 
 
 class ChatMessageFeedbackUpdate(BaseModel):

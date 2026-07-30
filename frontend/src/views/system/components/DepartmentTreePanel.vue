@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { ChevronDownIcon, ChevronRightIcon, RefreshIcon } from 'tdesign-icons-vue-next';
+import { useI18n } from 'vue-i18n';
 
 import type { DepartmentInfo, DepartmentStatus } from '@/types/api';
 
@@ -32,6 +33,7 @@ const emit = defineEmits<{
   refresh: [];
 }>();
 
+const { t } = useI18n();
 const expandedIds = ref<Set<number>>(new Set());
 
 const visibleRows = computed(() => {
@@ -76,7 +78,7 @@ function toggleExpand(row: DepartmentTreeRow): void {
 }
 
 function statusLabel(status: DepartmentStatus): string {
-  return status === 'disabled' ? '停用' : '启用';
+  return status === 'disabled' ? t('system.status.disabled') : t('system.status.enabled');
 }
 
 function collectDepartmentIds(items: DepartmentInfo[], ids = new Set<number>()): Set<number> {
@@ -99,7 +101,7 @@ watch(
 <template>
   <aside class="department-panel">
     <div class="department-panel__head">
-      <h2>部门</h2>
+      <h2>{{ t('system.department.tree.title') }}</h2>
       <t-button v-if="refreshable" theme="default" variant="text" shape="square" size="small" :loading="loading" @click="emit('refresh')">
         <template #icon><RefreshIcon /></template>
       </t-button>
@@ -108,15 +110,15 @@ watch(
     <div class="department-tree" :class="{ 'is-loading': loading }">
       <button class="department-node" :class="{ 'is-active': isSelected(null) }" type="button" @click="selectDepartment(null)">
         <span class="department-node__spacer" />
-        <span class="department-node__name">全部</span>
+        <span class="department-node__name">{{ t('system.department.tree.all') }}</span>
       </button>
 
       <t-loading :loading="loading" size="small">
         <div v-if="error" class="department-state">
           <span>{{ error }}</span>
-          <t-button v-if="refreshable" size="small" variant="outline" @click="emit('refresh')">重试</t-button>
+          <t-button v-if="refreshable" size="small" variant="outline" @click="emit('refresh')">{{ t('system.department.action.retry') }}</t-button>
         </div>
-        <div v-else-if="!departments.length" class="department-state">暂无部门</div>
+        <div v-else-if="!departments.length" class="department-state">{{ t('system.department.empty') }}</div>
         <div v-else class="department-tree__rows">
           <div
             v-for="row in visibleRows"
@@ -134,7 +136,7 @@ watch(
               type="button"
               @click="selectDepartment(row.id)"
             >
-              <span class="department-node__name" :title="`${row.name}（${row.code}）`">{{ row.name }}</span>
+              <span class="department-node__name" :title="`${row.name} (${row.code})`">{{ row.name }}</span>
               <t-tag v-if="row.status === 'disabled'" size="small" variant="light" theme="danger">{{ statusLabel(row.status) }}</t-tag>
             </button>
           </div>

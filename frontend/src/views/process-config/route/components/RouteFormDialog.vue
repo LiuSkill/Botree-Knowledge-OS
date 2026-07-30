@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import type { ProcessLibraryOptionItem } from '@/views/process-config/node/types';
 import { createEmptyRoutePayload, PROCESS_ROUTE_STATUS_OPTIONS, type ProcessCalculationOutputPayload, type ProcessRouteDetail, type ProcessRoutePayload, type RouteEditableNode, type RouteNodeOption } from '@/views/process-config/route/types';
 import RouteNodeChainEditor from '@/views/process-config/route/components/RouteNodeChainEditor.vue';
+import { processFormulaTypeLocaleKey, processOutputTypeLocaleKey, processStatusLocaleKey } from '@/views/process-config/i18n';
 
 type FormMode = 'create' | 'edit';
 
@@ -33,22 +35,30 @@ const emit = defineEmits<{
   submit: [payload: ProcessRoutePayload, calculationOutputs: ProcessCalculationOutputPayload[]];
 }>();
 
+const { t } = useI18n();
 const form = reactive<ProcessRoutePayload>(createEmptyRoutePayload());
 const outputRows = ref<ProcessCalculationOutputPayload[]>([]);
-const outputColumns = [
-  { colKey: 'product_id', title: '产出物', minWidth: 180 }, { colKey: 'output_type', title: '类型', width: 110 },
-  { colKey: 'output_ratio', title: '最终产出系数', width: 150 }, { colKey: 'unit', title: '单位', width: 120 },
-  { colKey: 'recovery_rate', title: '收率（追溯）', width: 130 }, { colKey: 'formula_type', title: '系数类型', width: 110 },
-  { colKey: 'expression', title: '来源表达式', minWidth: 170 }, { colKey: 'operation', title: '操作', width: 70 },
-];
+const outputColumns = computed(() => [
+  { colKey: 'product_id', title: t('process.route.field.outputItem'), minWidth: 180 },
+  { colKey: 'output_type', title: t('process.field.type'), width: 110 },
+  { colKey: 'output_ratio', title: t('process.route.field.outputRatio'), width: 150 },
+  { colKey: 'unit', title: t('process.field.unit'), width: 120 },
+  { colKey: 'recovery_rate', title: t('process.route.field.recoveryRate'), width: 130 },
+  { colKey: 'formula_type', title: t('process.node.field.formulaType'), width: 110 },
+  { colKey: 'expression', title: t('process.node.field.sourceExpression'), minWidth: 170 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 70 },
+]);
 
 const visibleProxy = computed({
   get: () => props.visible,
   set: (value: boolean) => emit('update:visible', value),
 });
 
-const drawerTitle = computed(() => (props.mode === 'create' ? '新增工艺路线' : '编辑工艺路线'));
-const submitText = computed(() => (props.mode === 'create' ? '创建路线' : '保存修改'));
+const drawerTitle = computed(() => (props.mode === 'create' ? t('process.route.title.create') : t('process.route.title.edit')));
+const submitText = computed(() => (props.mode === 'create' ? t('process.route.action.createSubmit') : t('process.route.action.updateSubmit')));
+const statusOptions = computed(() =>
+  PROCESS_ROUTE_STATUS_OPTIONS.map((item) => ({ ...item, label: t(processStatusLocaleKey(item.value)) })),
+);
 
 watch(
   () => [props.visible, props.mode, props.route] as const,
@@ -111,7 +121,7 @@ function validateRequired(value: string | undefined | null, message: string): bo
 function validateNodeRows(rows: RouteEditableNode[]): boolean {
   return rows.every((row, index) => {
     if (row.node_id) return true;
-    MessagePlugin.warning(`请为第 ${index + 1} 个路线节点选择工艺节点`);
+    MessagePlugin.warning(t('process.route.message.nodeRowRequired', { row: index + 1 }));
     return false;
   });
 }
@@ -137,19 +147,19 @@ function buildPayload(): ProcessRoutePayload {
 }
 
 function handleSubmit(): void {
-  if (!validateRequired(form.code, '请输入路线编码')) return;
-  if (!validateRequired(form.name, '请输入路线名称')) return;
+  if (!validateRequired(form.code, t('process.route.message.codeRequired'))) return;
+  if (!validateRequired(form.name, t('process.route.message.nameRequired'))) return;
   if (!form.input_material_id) {
-    MessagePlugin.warning('请选择输入原料');
+    MessagePlugin.warning(t('process.route.message.inputMaterialRequired'));
     return;
   }
   if (!form.final_product_id) {
-    MessagePlugin.warning('请选择最终产品');
+    MessagePlugin.warning(t('process.route.message.finalProductRequired'));
     return;
   }
-  if (!validateRequired(form.version, '请输入版本号')) return;
+  if (!validateRequired(form.version, t('process.route.message.versionRequired'))) return;
   if (form.status === 'enabled' && form.nodes.length === 0) {
-    MessagePlugin.warning('启用路线至少需要配置一个节点');
+    MessagePlugin.warning(t('process.route.message.nodeRequired'));
     return;
   }
   if (!validateNodeRows(form.nodes as RouteEditableNode[])) return;
@@ -158,10 +168,20 @@ function handleSubmit(): void {
     return { ...row, output_name: row.output_name.trim() || product?.name || '', sort_order: index + 1 };
   });
   if (outputs.some((row) => !row.product_id || !row.output_name || Number(row.output_ratio) < 0 || !row.unit.trim())) {
-    MessagePlugin.warning('请完整填写路线测算产出配置');
+    MessagePlugin.warning(t('process.route.message.outputConfigRequired'));
     return;
   }
   emit('submit', buildPayload(), outputs);
+}
+
+function outputTypeLabel(value: string): string {
+  const key = processOutputTypeLocaleKey(value);
+  return key ? t(key) : value;
+}
+
+function formulaTypeLabel(value: string): string {
+  const key = processFormulaTypeLocaleKey(value);
+  return key ? t(key) : value;
 }
 </script>
 
@@ -179,16 +199,16 @@ function handleSubmit(): void {
     <t-loading :loading="optionsLoading">
       <t-form :data="form" class="route-form" label-align="top">
         <section class="route-form__section">
-          <div class="route-form__section-title">基础信息</div>
+          <div class="route-form__section-title">{{ t('process.route.section.baseInfo') }}</div>
           <div class="route-form__grid">
-            <t-form-item label="路线编码" required-mark>
-              <t-input v-model="form.code" clearable maxlength="100" placeholder="请输入唯一路线编码" />
+            <t-form-item :label="t('process.route.field.routeCode')" required-mark>
+              <t-input v-model="form.code" clearable maxlength="100" :placeholder="t('process.route.placeholder.code')" />
             </t-form-item>
-            <t-form-item label="路线名称" required-mark>
-              <t-input v-model="form.name" clearable maxlength="150" placeholder="请输入路线名称" />
+            <t-form-item :label="t('process.route.field.routeName')" required-mark>
+              <t-input v-model="form.name" clearable maxlength="150" :placeholder="t('process.route.placeholder.name')" />
             </t-form-item>
-            <t-form-item label="输入原料" required-mark>
-              <t-select v-model="form.input_material_id" filterable clearable placeholder="请选择输入原料">
+            <t-form-item :label="t('process.route.field.inputMaterial')" required-mark>
+              <t-select v-model="form.input_material_id" filterable clearable :placeholder="t('process.route.placeholder.inputMaterial')">
                 <t-option
                   v-for="item in materialOptions"
                   :key="item.id"
@@ -197,8 +217,8 @@ function handleSubmit(): void {
                 />
               </t-select>
             </t-form-item>
-            <t-form-item label="最终产品" required-mark>
-              <t-select v-model="form.final_product_id" filterable clearable placeholder="请选择最终产品">
+            <t-form-item :label="t('process.route.field.finalProduct')" required-mark>
+              <t-select v-model="form.final_product_id" filterable clearable :placeholder="t('process.route.placeholder.finalProduct')">
                 <t-option
                   v-for="item in productOptions"
                   :key="item.id"
@@ -207,42 +227,42 @@ function handleSubmit(): void {
                 />
               </t-select>
             </t-form-item>
-            <t-form-item label="版本号" required-mark>
-              <t-input v-model="form.version" clearable maxlength="50" placeholder="例如 V1" />
+            <t-form-item :label="t('process.route.field.version')" required-mark>
+              <t-input v-model="form.version" clearable maxlength="50" :placeholder="t('process.route.placeholder.version')" />
             </t-form-item>
-            <t-form-item label="状态" required-mark>
+            <t-form-item :label="t('common.field.status')" required-mark>
               <t-radio-group v-model="form.status">
-                <t-radio-button v-for="item in PROCESS_ROUTE_STATUS_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</t-radio-button>
+                <t-radio-button v-for="item in statusOptions" :key="item.value" :value="item.value">{{ item.label }}</t-radio-button>
               </t-radio-group>
             </t-form-item>
-            <t-form-item label="排序">
+            <t-form-item :label="t('process.field.sort')">
               <t-input-number v-model="form.sort_order" :min="0" :max="999999" :step="1" theme="normal" />
             </t-form-item>
           </div>
-          <t-form-item label="描述">
-            <t-textarea v-model="form.description" maxlength="1000" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="请输入路线描述" />
+          <t-form-item :label="t('process.field.description')">
+            <t-textarea v-model="form.description" maxlength="1000" :autosize="{ minRows: 2, maxRows: 4 }" :placeholder="t('process.route.placeholder.description')" />
           </t-form-item>
-          <t-form-item label="备注">
-            <t-textarea v-model="form.remark" maxlength="500" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="请输入备注" />
+          <t-form-item :label="t('process.field.remark')">
+            <t-textarea v-model="form.remark" maxlength="500" :autosize="{ minRows: 2, maxRows: 4 }" :placeholder="t('process.placeholder.remark')" />
           </t-form-item>
         </section>
 
         <section class="route-form__section">
-          <div class="route-form__section-head"><div class="route-form__section-title">测算产出配置</div><t-button size="small" variant="outline" @click="addOutput">新增产出</t-button></div>
+          <div class="route-form__section-head"><div class="route-form__section-title">{{ t('process.route.section.calculationOutputs') }}</div><t-button size="small" variant="outline" @click="addOutput">{{ t('process.route.action.addOutput') }}</t-button></div>
           <div class="route-output-table"><t-table row-key="sort_order" bordered size="small" table-layout="fixed" :columns="outputColumns" :data="outputRows">
             <template #product_id="{ row }"><t-select v-model="row.product_id" filterable><t-option v-for="item in productOptions" :key="item.id" :label="`${item.code} / ${item.name}`" :value="item.id" /></t-select></template>
-            <template #output_type="{ row }"><t-select v-model="row.output_type"><t-option label="产品" value="product" /><t-option label="副产品" value="byproduct" /></t-select></template>
+            <template #output_type="{ row }"><t-select v-model="row.output_type"><t-option :label="outputTypeLabel('product')" value="product" /><t-option :label="outputTypeLabel('byproduct')" value="byproduct" /></t-select></template>
             <template #output_ratio="{ row }"><t-input-number v-model="row.output_ratio" :min="0" :decimal-places="6" theme="normal" /></template>
             <template #unit="{ row }"><t-input v-model="row.unit" /></template>
             <template #recovery_rate="{ row }"><t-input-number v-model="row.recovery_rate" :min="0" :decimal-places="6" theme="normal" /></template>
-            <template #formula_type="{ row }"><t-select v-model="row.formula_type"><t-option label="固定系数" value="fixed" /><t-option label="导入表达式" value="expression" /></t-select></template>
-            <template #expression="{ row }"><t-input v-model="row.expression" placeholder="可选" /></template>
+            <template #formula_type="{ row }"><t-select v-model="row.formula_type"><t-option :label="formulaTypeLabel('fixed')" value="fixed" /><t-option :label="formulaTypeLabel('expression')" value="expression" /></t-select></template>
+            <template #expression="{ row }"><t-input v-model="row.expression" :placeholder="t('process.placeholder.optional')" /></template>
             <template #operation="{ rowIndex }"><t-button shape="square" theme="danger" variant="text" @click="removeOutput(rowIndex)">×</t-button></template>
           </t-table></div>
         </section>
 
         <section class="route-form__section">
-          <div class="route-form__section-title">节点链路配置</div>
+          <div class="route-form__section-title">{{ t('process.route.section.nodeChain') }}</div>
           <RouteNodeChainEditor v-model="form.nodes as RouteEditableNode[]" :node-options="nodeOptions" :disabled="saving" />
         </section>
       </t-form>
@@ -250,7 +270,7 @@ function handleSubmit(): void {
 
     <template #footer>
       <div class="route-form__footer">
-        <t-button variant="outline" :disabled="saving" @click="closeDrawer">取消</t-button>
+        <t-button variant="outline" :disabled="saving" @click="closeDrawer">{{ t('common.action.cancel') }}</t-button>
         <t-button theme="primary" :loading="saving" @click="handleSubmit">{{ submitText }}</t-button>
       </div>
     </template>

@@ -10,6 +10,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { DeleteIcon, EditIcon, RefreshIcon, UserCheckedIcon, UserLockedIcon, UserPasswordIcon } from 'tdesign-icons-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { createUser, deleteUser, listUserDepartmentTree, listUsers, resetUserPassword, updateUser } from '@/api/users';
@@ -56,6 +57,7 @@ const SECURITY_LEVEL_RANK: Record<SecurityLevel, number> = {
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
 const users = ref<PageResult<UserInfo>>(createEmptyPageResult<UserInfo>());
 const roles = ref<RoleInfo[]>([]);
 const departments = ref<DepartmentInfo[]>([]);
@@ -96,8 +98,8 @@ const form = reactive({
   role_ids: [] as number[],
 });
 
-const dialogTitle = computed(() => (dialogMode.value === 'create' ? '新建用户' : '编辑用户'));
-const avatarDisplayName = computed(() => form.real_name || form.username || '用户');
+const dialogTitle = computed(() => (dialogMode.value === 'create' ? t('system.user.dialog.create') : t('system.user.dialog.edit')));
+const avatarDisplayName = computed(() => form.real_name || form.username || t('common.field.user'));
 const selectedAvatarName = computed(() => selectedAvatarFile.value?.name || '');
 const departmentFormOptions = computed(() => toDepartmentOptions(departments.value, true, editingOriginalDepartmentId.value));
 const canViewUsers = computed(() => authStore.hasActionPermission(PERMISSIONS.SYSTEM_USER_VIEW));
@@ -107,16 +109,16 @@ const canMaintainAvatar = computed(() =>
     : authStore.hasActionPermission(PERMISSIONS.SYSTEM_USER_EDIT),
 );
 
-const columns = [
-  { colKey: 'avatar', title: '头像', width: 88, align: 'center' },
-  { colKey: 'real_name', title: '姓名', width: 150 },
-  { colKey: 'department', title: '所属部门', width: 160 },
-  { colKey: 'email', title: '邮箱', minWidth: 180 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'roles', title: '角色', minWidth: 180 },
-  { colKey: 'max_security_level', title: '最高密级', width: 120 },
-  { colKey: 'operation', title: '操作', width: 160, fixed: 'right' },
-];
+const columns = computed(() => [
+  { colKey: 'avatar', title: t('system.user.field.avatar'), width: 88, align: 'center' as const },
+  { colKey: 'real_name', title: t('system.user.field.name'), width: 150 },
+  { colKey: 'department', title: t('system.user.field.department'), width: 160 },
+  { colKey: 'email', title: t('system.user.field.email'), minWidth: 180 },
+  { colKey: 'status', title: t('system.user.field.status'), width: 100 },
+  { colKey: 'roles', title: t('system.user.field.role'), minWidth: 180 },
+  { colKey: 'max_security_level', title: t('system.user.field.maxSecurityLevel'), width: 120 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 160, fixed: 'right' as const },
+]);
 
 function createEmptyPageResult<T>(): PageResult<T> {
   return {
@@ -183,7 +185,7 @@ async function loadDepartmentOptions(): Promise<void> {
     departments.value = await listUserDepartmentTree();
   } catch {
     departments.value = [];
-    departmentLoadError.value = '部门加载失败';
+    departmentLoadError.value = t('system.user.message.departmentLoadFailed');
   } finally {
     departmentOptionLoading.value = false;
   }
@@ -227,11 +229,11 @@ function resetAvatarState(): void {
 
 function validateAvatarFile(file: File): boolean {
   if (!AVATAR_CONTENT_TYPES.has(file.type)) {
-    MessagePlugin.warning('头像仅支持 JPG、JPEG、PNG、WEBP 图片');
+    MessagePlugin.warning(t('system.user.avatar.invalidType'));
     return false;
   }
   if (file.size > AVATAR_MAX_BYTES) {
-    MessagePlugin.warning('头像文件不能超过 2MB');
+    MessagePlugin.warning(t('system.user.avatar.tooLarge'));
     return false;
   }
   return true;
@@ -360,13 +362,13 @@ async function handleSubmit(): Promise<void> {
     const avatarOptions = buildAvatarOptions();
     if (dialogMode.value === 'create') {
       await createUser(buildSubmitPayload(), avatarOptions);
-      MessagePlugin.success('用户已创建');
+      MessagePlugin.success(t('system.user.message.created'));
     } else if (editingUserId.value) {
       await updateUser(editingUserId.value, buildSubmitPayload(), avatarOptions);
       if (editingUserId.value === authStore.user?.id) {
         await authStore.loadMe();
       }
-      MessagePlugin.success('用户已更新');
+      MessagePlugin.success(t('system.user.message.updated'));
     }
     dialogVisible.value = false;
     resetAvatarState();
@@ -381,18 +383,18 @@ async function toggleStatus(user: UserInfo): Promise<void> {
   await updateUser(user.id, {
     status: nextStatus,
   });
-  MessagePlugin.success(nextStatus === 'enabled' ? '用户已启用' : '用户已停用');
+  MessagePlugin.success(nextStatus === 'enabled' ? t('system.user.message.enabled') : t('system.user.message.disabled'));
   await reloadAfterMutation();
 }
 
 async function handleResetPassword(user: UserInfo): Promise<void> {
   const result = await resetUserPassword(user.id);
-  MessagePlugin.success(`密码已重置为 ${result.default_password}`);
+  MessagePlugin.success(t('system.user.message.passwordReset', { password: result.default_password }));
 }
 
 async function handleDelete(user: UserInfo): Promise<void> {
   await deleteUser(user.id);
-  MessagePlugin.success('用户已删除');
+  MessagePlugin.success(t('system.user.message.deleted'));
   await reloadAfterMutation();
 }
 
@@ -415,7 +417,7 @@ function handlePaginationChange(pageInfo: PaginationInfo): void {
 }
 
 function statusLabel(status: string): string {
-  return status === 'disabled' ? '停用' : '启用';
+  return status === 'disabled' ? t('system.status.disabled') : t('system.status.enabled');
 }
 
 function statusTheme(status: string): TagTheme {
@@ -423,7 +425,7 @@ function statusTheme(status: string): TagTheme {
 }
 
 function roleNames(userRoles: UserInfo['roles']): string {
-  return userRoles.map((role) => role.name).join('、') || '-';
+  return userRoles.map((role) => role.name).join(t('common.separator.list')) || '-';
 }
 
 function userMaxSecurityLevel(user: UserInfo): SecurityLevel {
@@ -436,8 +438,8 @@ function userMaxSecurityLevel(user: UserInfo): SecurityLevel {
 function departmentDisplay(user: UserInfo): string {
   if (user.department_name) return user.department_name;
   if (user.department) return user.department;
-  if (!user.department_id) return '未分配';
-  return findDepartmentName(user.department_id, departments.value) || '未分配';
+  if (!user.department_id) return t('system.user.value.unassigned');
+  return findDepartmentName(user.department_id, departments.value) || t('system.user.value.unassigned');
 }
 
 function findDepartmentName(departmentId: number, items: DepartmentInfo[]): string | null {
@@ -460,7 +462,7 @@ function findDepartmentById(departmentId: number, items: DepartmentInfo[]): Depa
 
 function toDepartmentOptions(items: DepartmentInfo[], disableDisabled: boolean, keepEnabledId: number | null = null): DepartmentTreeOption[] {
   return items.map((item) => ({
-    label: `${item.name}（${item.code}）${item.status === 'disabled' ? ' - 停用' : ''}`,
+    label: `${item.name} (${item.code})${item.status === 'disabled' ? ` - ${t('system.status.disabled')}` : ''}`,
     value: item.id,
     disabled: disableDisabled && item.status === 'disabled' && item.id !== keepEnabledId,
     children: item.children?.length ? toDepartmentOptions(item.children, disableDisabled, keepEnabledId) : undefined,
@@ -497,23 +499,23 @@ onBeforeUnmount(() => {
 
     <div class="system-card scroll-card user-list-card">
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item label="关键字">
-        <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="用户名 / 姓名 / 邮箱 / 部门" @enter="handleSearch" />
+      <t-form-item :label="t('system.user.field.keyword')">
+        <t-input v-model="filters.keyword" class="filter-input" clearable :placeholder="t('system.user.placeholder.keyword')" @enter="handleSearch" />
       </t-form-item>
-      <t-form-item label="状态">
-        <t-select v-model="filters.status" class="filter-select" clearable placeholder="全部状态" @change="handleSearch">
-          <t-option label="启用" value="enabled" />
-          <t-option label="停用" value="disabled" />
+      <t-form-item :label="t('system.user.field.status')">
+        <t-select v-model="filters.status" class="filter-select" clearable :placeholder="t('system.status.all')" @change="handleSearch">
+          <t-option :label="t('system.status.enabled')" value="enabled" />
+          <t-option :label="t('system.status.disabled')" value="disabled" />
         </t-select>
       </t-form-item>
-      <t-form-item label="角色">
+      <t-form-item :label="t('system.user.field.role')">
         <t-select
           v-model="filters.role_id"
           class="filter-select"
           clearable
           filterable
           :loading="optionLoading"
-          placeholder="全部角色"
+          :placeholder="t('system.user.placeholder.allRoles')"
           @change="handleSearch"
         >
           <t-option v-for="role in roles" :key="role.id" :value="role.id" :label="role.name" />
@@ -521,23 +523,23 @@ onBeforeUnmount(() => {
       </t-form-item>
       <t-form-item>
         <t-space>
-          <t-button v-permission="PERMISSIONS.SYSTEM_USER_VIEW" theme="primary" @click="handleSearch">查询</t-button>
-          <t-button v-permission="PERMISSIONS.SYSTEM_USER_VIEW" @click="clearFilters">重置</t-button>
+          <t-button v-permission="PERMISSIONS.SYSTEM_USER_VIEW" theme="primary" @click="handleSearch">{{ t('system.action.query') }}</t-button>
+          <t-button v-permission="PERMISSIONS.SYSTEM_USER_VIEW" @click="clearFilters">{{ t('system.action.reset') }}</t-button>
         </t-space>
       </t-form-item>
     </t-form>
 
     <div class="system-section-head">
       <div class="system-section-title">
-        <h2>用户列表</h2>
-        <span>共 {{ users.total }} 条数据</span>
+        <h2>{{ t('system.user.title') }}</h2>
+        <span>{{ t('system.summary.totalRecords', { count: users.total }) }}</span>
       </div>
       <t-space>
         <t-button v-permission="PERMISSIONS.SYSTEM_USER_VIEW" theme="default" variant="outline" @click="loadUsers()">
           <template #icon><RefreshIcon /></template>
-          刷新
+          {{ t('system.action.refresh') }}
         </t-button>
-        <t-button v-permission="PERMISSIONS.SYSTEM_USER_CREATE" theme="primary" @click="openCreateDialog">新建用户</t-button>
+        <t-button v-permission="PERMISSIONS.SYSTEM_USER_CREATE" theme="primary" @click="openCreateDialog">{{ t('system.user.action.create') }}</t-button>
       </t-space>
     </div>
 
@@ -549,7 +551,7 @@ onBeforeUnmount(() => {
         :data="users.items"
         :columns="columns"
         :loading="loading"
-        empty="暂无用户"
+        :empty="t('system.user.empty')"
       >
         <template #avatar="{ row }">
           <UserAvatar
@@ -580,20 +582,20 @@ onBeforeUnmount(() => {
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <TableActionButton label="编辑" :permission="PERMISSIONS.SYSTEM_USER_EDIT" @click="openEditDialog(row)">
+            <TableActionButton :label="t('system.action.edit')" :permission="PERMISSIONS.SYSTEM_USER_EDIT" @click="openEditDialog(row)">
               <EditIcon />
             </TableActionButton>
-            <TableActionButton :label="row.status === 'disabled' ? '启用' : '停用'" :permission="PERMISSIONS.SYSTEM_USER_DISABLE" @click="toggleStatus(row)">
+            <TableActionButton :label="row.status === 'disabled' ? t('system.action.enable') : t('system.action.disable')" :permission="PERMISSIONS.SYSTEM_USER_DISABLE" @click="toggleStatus(row)">
               <UserCheckedIcon v-if="row.status === 'disabled'" />
               <UserLockedIcon v-else />
             </TableActionButton>
-            <t-popconfirm content="确认重置该用户密码？" @confirm="handleResetPassword(row)">
-              <TableActionButton label="重置密码" :permission="PERMISSIONS.SYSTEM_USER_RESET_PASSWORD">
+            <t-popconfirm :content="t('system.user.confirm.resetPassword')" @confirm="handleResetPassword(row)">
+              <TableActionButton :label="t('system.user.action.resetPassword')" :permission="PERMISSIONS.SYSTEM_USER_RESET_PASSWORD">
                 <UserPasswordIcon />
               </TableActionButton>
             </t-popconfirm>
-            <t-popconfirm content="确认删除该用户？" @confirm="handleDelete(row)">
-              <TableActionButton label="删除" :permission="PERMISSIONS.SYSTEM_USER_DELETE" theme="danger">
+            <t-popconfirm :content="t('system.user.confirm.delete')" @confirm="handleDelete(row)">
+              <TableActionButton :label="t('system.action.delete')" :permission="PERMISSIONS.SYSTEM_USER_DELETE" theme="danger">
                 <DeleteIcon />
               </TableActionButton>
             </t-popconfirm>
@@ -615,8 +617,8 @@ onBeforeUnmount(() => {
 
     <t-dialog v-model:visible="dialogVisible" :header="dialogTitle" width="560px" :confirm-loading="submitting" @confirm="handleSubmit">
       <t-form :data="form" label-align="top">
-        <t-form-item label="用户名" required-mark><t-input v-model="form.username" :disabled="dialogMode === 'edit'" /></t-form-item>
-        <t-form-item label="头像">
+        <t-form-item :label="t('system.user.field.username')" required-mark><t-input v-model="form.username" :disabled="dialogMode === 'edit'" /></t-form-item>
+        <t-form-item :label="t('system.user.field.avatar')">
           <div class="avatar-maintenance">
             <t-avatar
               v-if="selectedAvatarFile"
@@ -642,7 +644,7 @@ onBeforeUnmount(() => {
               <input ref="avatarInputRef" class="hidden-file-input" type="file" :accept="AVATAR_ACCEPT" @change="handleAvatarChange" />
               <t-space size="small">
                 <t-button variant="outline" :disabled="!canMaintainAvatar" @click="chooseAvatar">
-                  {{ selectedAvatarFile || editingAvatar.avatarUrl ? '更换图片' : '选择图片' }}
+                  {{ selectedAvatarFile || editingAvatar.avatarUrl ? t('system.user.avatar.changeImage') : t('system.user.avatar.chooseImage') }}
                 </t-button>
                 <t-button
                   v-if="selectedAvatarFile || (dialogMode === 'edit' && editingAvatar.avatarUrl && !avatarMarkedForClear)"
@@ -651,40 +653,40 @@ onBeforeUnmount(() => {
                   :disabled="!canMaintainAvatar"
                   @click="clearAvatar"
                 >
-                  {{ selectedAvatarFile ? '移除选择' : '清除头像' }}
+                  {{ selectedAvatarFile ? t('system.user.avatar.removeSelection') : t('system.user.avatar.clearAvatar') }}
                 </t-button>
-                <t-button v-if="avatarMarkedForClear" variant="text" :disabled="!canMaintainAvatar" @click="undoClearAvatar">撤销清除</t-button>
+                <t-button v-if="avatarMarkedForClear" variant="text" :disabled="!canMaintainAvatar" @click="undoClearAvatar">{{ t('system.user.avatar.undoClear') }}</t-button>
               </t-space>
               <div class="avatar-helper">
                 <span v-if="selectedAvatarName">{{ selectedAvatarName }}</span>
-                <span v-else-if="avatarMarkedForClear">保存后将清除头像</span>
-                <span v-else>支持 JPG、JPEG、PNG、WEBP，最大 2MB</span>
+                <span v-else-if="avatarMarkedForClear">{{ t('system.user.avatar.pendingClear') }}</span>
+                <span v-else>{{ t('system.user.avatar.helper') }}</span>
               </div>
             </div>
           </div>
         </t-form-item>
-        <t-form-item v-if="dialogMode === 'create'" label="初始密码" required-mark><t-input v-model="form.password" type="password" /></t-form-item>
-        <t-form-item label="姓名" required-mark><t-input v-model="form.real_name" /></t-form-item>
-        <t-form-item label="邮箱"><t-input v-model="form.email" /></t-form-item>
-        <t-form-item label="电话"><t-input v-model="form.phone" /></t-form-item>
-        <t-form-item label="所属部门">
+        <t-form-item v-if="dialogMode === 'create'" :label="t('system.user.field.password')" required-mark><t-input v-model="form.password" type="password" /></t-form-item>
+        <t-form-item :label="t('system.user.field.name')" required-mark><t-input v-model="form.real_name" /></t-form-item>
+        <t-form-item :label="t('system.user.field.email')"><t-input v-model="form.email" /></t-form-item>
+        <t-form-item :label="t('system.user.field.phone')"><t-input v-model="form.phone" /></t-form-item>
+        <t-form-item :label="t('system.user.field.department')">
           <t-tree-select
             v-model="form.department_id"
             :data="departmentFormOptions"
             clearable
             filterable
             :loading="departmentOptionLoading"
-            placeholder="请选择所属部门"
+            :placeholder="t('system.user.placeholder.department')"
           />
         </t-form-item>
-        <t-form-item v-if="dialogMode === 'edit'" label="状态">
+        <t-form-item v-if="dialogMode === 'edit'" :label="t('system.user.field.status')">
           <t-radio-group v-model="form.status">
-            <t-radio-button value="enabled">启用</t-radio-button>
-            <t-radio-button value="disabled">停用</t-radio-button>
+            <t-radio-button value="enabled">{{ t('system.status.enabled') }}</t-radio-button>
+            <t-radio-button value="disabled">{{ t('system.status.disabled') }}</t-radio-button>
           </t-radio-group>
         </t-form-item>
-        <t-form-item label="角色">
-          <t-select v-model="form.role_ids" multiple filterable :loading="optionLoading" placeholder="请选择角色">
+        <t-form-item :label="t('system.user.field.role')">
+          <t-select v-model="form.role_ids" multiple filterable :loading="optionLoading" :placeholder="t('system.user.placeholder.roles')">
             <t-option v-for="role in roles" :key="role.id" :value="role.id" :label="role.name" />
           </t-select>
         </t-form-item>
@@ -693,7 +695,7 @@ onBeforeUnmount(() => {
     </div>
   </div>
   <div v-else class="system-card user-no-permission">
-    <t-empty description="无权限访问用户管理" />
+    <t-empty :description="t('system.user.noPermission')" />
   </div>
 </template>
 

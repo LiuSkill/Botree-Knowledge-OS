@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeftIcon, RefreshIcon } from 'tdesign-icons-vue-next';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { getProcessRouteTreePreview } from '@/api/process-config';
@@ -33,6 +34,7 @@ interface PreviewTreeEdgePath {
 
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
 
 const loading = ref(false);
 const previewData = ref<ProcessRouteTreePreview | null>(null);
@@ -198,7 +200,7 @@ function appendWasteOutputs(
         key: `${parent.key}>waste:${output.product_id}`,
         label: product?.name || `#${output.product_id}`,
         code: product?.code || null,
-        meta: output.output_type === 'solid_waste' ? '废固' : '废水',
+        meta: output.output_type === 'solid_waste' ? t('process.route.preview.solidWaste') : t('process.route.preview.wastewater'),
         kind: 'waste',
         active: isCurrentRoute,
         children: [],
@@ -374,32 +376,32 @@ function backToDetail(): void {
   <div class="route-preview-page">
     <div class="route-preview-page__toolbar">
       <div class="route-preview-page__title">
-        <h2>线路预览</h2>
+        <h2>{{ t('process.route.title.preview') }}</h2>
         <span v-if="routeSummary">{{ routeSummary }}</span>
       </div>
       <t-space>
-        <t-tag variant="light" theme="primary">当前路线节点</t-tag>
-        <t-tag variant="light" theme="danger">红色为产品</t-tag>
-        <t-tag class="route-preview-page__legend-waste" variant="light">紫色为三废</t-tag>
-        <t-button size="small" variant="outline" @click="fitToWidth">适应宽度</t-button>
-        <t-button size="small" variant="outline" @click="zoomOut">缩小</t-button>
+        <t-tag variant="light" theme="primary">{{ t('process.route.preview.currentRouteNode') }}</t-tag>
+        <t-tag variant="light" theme="danger">{{ t('process.route.preview.productLegend') }}</t-tag>
+        <t-tag class="route-preview-page__legend-waste" variant="light">{{ t('process.route.preview.wasteLegend') }}</t-tag>
+        <t-button size="small" variant="outline" @click="fitToWidth">{{ t('process.route.action.fitWidth') }}</t-button>
+        <t-button size="small" variant="outline" @click="zoomOut">{{ t('process.route.action.zoomOut') }}</t-button>
         <t-tag variant="light">{{ zoomPercent }}</t-tag>
-        <t-button size="small" variant="outline" @click="zoomIn">放大</t-button>
+        <t-button size="small" variant="outline" @click="zoomIn">{{ t('process.route.action.zoomIn') }}</t-button>
         <t-button size="small" variant="outline" @click="resetZoom">100%</t-button>
         <t-button size="small" variant="outline" :loading="loading" @click="loadPreviewData">
           <template #icon><RefreshIcon /></template>
-          刷新
+          {{ t('common.action.refresh') }}
         </t-button>
         <t-button size="small" variant="outline" @click="backToDetail">
           <template #icon><ArrowLeftIcon /></template>
-          返回详情
+          {{ t('process.route.action.backDetail') }}
         </t-button>
       </t-space>
     </div>
 
     <t-loading class="route-preview-page__loading" :loading="loading">
       <div ref="canvasRef" class="route-preview-page__canvas">
-        <t-empty v-if="!previewTree.length" description="暂无可预览的工艺路线" />
+        <t-empty v-if="!previewTree.length" :description="t('process.route.empty.preview')" />
         <div v-else class="route-preview-page__stage" :style="stageStyle">
           <div ref="treeContentRef" class="preview-tree" :style="treeTransformStyle">
             <svg

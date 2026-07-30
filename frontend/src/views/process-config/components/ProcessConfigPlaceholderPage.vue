@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AddIcon, DownloadIcon, HistoryIcon, RefreshIcon, UploadIcon } from 'tdesign-icons-vue-next';
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import type { PermissionCode } from '@/constants/permissions';
 
@@ -26,6 +27,7 @@ const props = defineProps<{
 
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+const { t } = useI18n();
 
 const filters = reactive({
   keyword: '',
@@ -36,15 +38,15 @@ const pageSize = ref(DEFAULT_PAGE_SIZE);
 const loading = ref(false);
 const rows = ref([]);
 
-const columns = [
-  { colKey: 'code', title: '编码', width: 160 },
-  { colKey: 'name', title: '名称', minWidth: 180 },
-  { colKey: 'type', title: '类型', width: 140 },
-  { colKey: 'unit', title: '单位', width: 110 },
-  { colKey: 'status', title: '状态', width: 110 },
-  { colKey: 'updated_at', title: '更新时间', width: 170 },
-  { colKey: 'operation', title: '操作', fixed: 'right', width: 150 },
-];
+const columns = computed(() => [
+  { colKey: 'code', title: t('process.field.code'), width: 160 },
+  { colKey: 'name', title: t('process.field.name'), minWidth: 180 },
+  { colKey: 'type', title: t('process.field.type'), width: 140 },
+  { colKey: 'unit', title: t('process.field.unit'), width: 110 },
+  { colKey: 'status', title: t('common.field.status'), width: 110 },
+  { colKey: 'updated_at', title: t('common.field.updatedAt'), width: 170 },
+  { colKey: 'operation', title: t('common.field.operation'), fixed: 'right' as const, width: 150 },
+]);
 
 function handleSearch(): void {
   page.value = 1;
@@ -65,20 +67,20 @@ function handlePaginationChange(pageInfo: PaginationInfo): void {
 <template>
   <div class="system-card scroll-card">
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item v-permission="props.permissions.view" label="关键词">
-        <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="编码 / 名称 / 类型" @enter="handleSearch" />
+      <t-form-item v-permission="props.permissions.view" :label="t('process.field.keyword')">
+        <t-input v-model="filters.keyword" class="filter-input" clearable :placeholder="t('process.placeholder.keyword')" @enter="handleSearch" />
       </t-form-item>
-      <t-form-item v-permission="props.permissions.view" label="状态">
-        <t-select v-model="filters.status" class="filter-select" clearable placeholder="全部状态" @change="handleSearch">
-          <t-option label="启用" value="enabled" />
-          <t-option label="草稿" value="draft" />
-          <t-option label="停用" value="disabled" />
+      <t-form-item v-permission="props.permissions.view" :label="t('common.field.status')">
+        <t-select v-model="filters.status" class="filter-select" clearable :placeholder="t('process.route.placeholder.allStatus')" @change="handleSearch">
+          <t-option :label="t('process.status.enabled')" value="enabled" />
+          <t-option :label="t('process.status.draft')" value="draft" />
+          <t-option :label="t('process.status.disabled')" value="disabled" />
         </t-select>
       </t-form-item>
       <t-form-item>
         <t-space>
-          <t-button v-permission="props.permissions.view" theme="primary" @click="handleSearch">查询</t-button>
-          <t-button v-permission="props.permissions.view" @click="clearFilters">重置</t-button>
+          <t-button v-permission="props.permissions.view" theme="primary" @click="handleSearch">{{ t('common.action.search') }}</t-button>
+          <t-button v-permission="props.permissions.view" @click="clearFilters">{{ t('common.action.reset') }}</t-button>
         </t-space>
       </t-form-item>
     </t-form>
@@ -86,28 +88,28 @@ function handlePaginationChange(pageInfo: PaginationInfo): void {
     <div class="system-section-head">
       <div class="system-section-title">
         <h2>{{ props.title }}</h2>
-        <span>共 0 条数据</span>
+        <span>{{ t('process.summary.totalRecords', { count: 0 }) }}</span>
       </div>
       <t-space>
         <t-button v-permission="props.permissions.view" theme="default" variant="outline" :loading="loading" @click="handleSearch">
           <template #icon><RefreshIcon /></template>
-          刷新
+          {{ t('common.action.refresh') }}
         </t-button>
         <t-button v-permission="props.permissions.import" theme="default" variant="outline" disabled>
           <template #icon><UploadIcon /></template>
-          导入
+          {{ t('process.action.import') }}
         </t-button>
         <t-button v-permission="props.permissions.export" theme="default" variant="outline" disabled>
           <template #icon><DownloadIcon /></template>
-          导出
+          {{ t('process.action.export') }}
         </t-button>
         <t-button v-if="props.permissions.version" v-permission="props.permissions.version" theme="default" variant="outline" disabled>
           <template #icon><HistoryIcon /></template>
-          版本
+          {{ t('common.field.version') }}
         </t-button>
         <t-button v-permission="props.permissions.create" theme="primary" disabled>
           <template #icon><AddIcon /></template>
-          新增
+          {{ t('common.action.create') }}
         </t-button>
       </t-space>
     </div>
@@ -121,12 +123,12 @@ function handlePaginationChange(pageInfo: PaginationInfo): void {
         :data="rows"
         :columns="columns"
         :loading="loading"
-        empty="暂无配置数据"
+        :empty="t('common.message.noData')"
       >
         <template #operation>
           <t-space size="small">
-            <t-link v-permission="props.permissions.update" theme="primary" disabled>编辑</t-link>
-            <t-link v-permission="props.permissions.delete" theme="danger" disabled>删除</t-link>
+            <t-link v-permission="props.permissions.update" theme="primary" disabled>{{ t('common.action.edit') }}</t-link>
+            <t-link v-permission="props.permissions.delete" theme="danger" disabled>{{ t('common.action.delete') }}</t-link>
           </t-space>
         </template>
       </t-table>

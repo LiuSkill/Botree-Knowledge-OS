@@ -10,6 +10,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { AddIcon, BrowseIcon, CheckCircleIcon, CloseCircleIcon, DeleteIcon, EditIcon, RefreshIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import {
   createDepartment,
@@ -37,6 +38,7 @@ interface TreeOption {
 }
 
 const departments = ref<DepartmentInfo[]>([]);
+const { t } = useI18n();
 const expandedDepartmentIds = ref<Array<string | number>>([]);
 const leaderOptions = ref<DepartmentUserOption[]>([]);
 const selectedDepartment = ref<DepartmentInfo | null>(null);
@@ -64,21 +66,21 @@ const form = reactive({
   description: '',
 });
 
-const columns = [
-  { colKey: 'name', title: '部门名称', minWidth: 180 },
-  { colKey: 'parent_name', title: '上级部门', width: 150, ellipsis: true },
-  { colKey: 'leader_name', title: '部门负责人', width: 150, ellipsis: true },
-  { colKey: 'status', title: '状态', width: 100, align: 'center' },
-  { colKey: 'created_at', title: '创建时间', width: 170 },
-  { colKey: 'operation', title: '操作', width: 230, fixed: 'right' },
-];
+const columns = computed(() => [
+  { colKey: 'name', title: t('system.department.field.name'), minWidth: 180 },
+  { colKey: 'parent_name', title: t('system.department.field.parent'), width: 150, ellipsis: true },
+  { colKey: 'leader_name', title: t('system.department.field.leader'), width: 150, ellipsis: true },
+  { colKey: 'status', title: t('common.field.status'), width: 100, align: 'center' as const },
+  { colKey: 'created_at', title: t('common.field.createdAt'), width: 170 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 230, fixed: 'right' as const },
+]);
 
 const treeConfig = {
   childrenKey: 'children',
   treeNodeColumnIndex: 0,
 };
 
-const dialogTitle = computed(() => (dialogMode.value === 'create' ? '新增部门' : '编辑部门'));
+const dialogTitle = computed(() => (dialogMode.value === 'create' ? t('system.department.dialog.create') : t('system.department.dialog.edit')));
 const departmentTotal = computed(() => countDepartments(departments.value));
 const parentTreeOptions = computed(() => {
   const disabledIds = editingDepartmentId.value ? collectDepartmentAndDescendantIds(editingDepartmentId.value, departments.value) : new Set<number>();
@@ -174,29 +176,29 @@ function buildSubmitPayload(): DepartmentSubmitPayload {
 
 function validateForm(): boolean {
   if (!form.name.trim()) {
-    MessagePlugin.warning('请输入部门名称');
+    MessagePlugin.warning(t('system.department.validation.nameRequired'));
     return false;
   }
   if (!form.code.trim()) {
-    MessagePlugin.warning('请输入部门编码');
+    MessagePlugin.warning(t('system.department.validation.codeRequired'));
     return false;
   }
   if (!/^[A-Za-z0-9_-]{2,50}$/.test(form.code.trim())) {
-    MessagePlugin.warning('部门编码支持 2-50 位字母、数字、下划线或短横线');
+    MessagePlugin.warning(t('system.department.validation.codeFormat'));
     return false;
   }
   if (!Number.isInteger(Number(form.sort_order)) || Number(form.sort_order) < 0 || Number(form.sort_order) > 999999) {
-    MessagePlugin.warning('排序必须为 0-999999 的整数');
+    MessagePlugin.warning(t('system.department.validation.sortRange'));
     return false;
   }
   if (!['enabled', 'disabled'].includes(form.status)) {
-    MessagePlugin.warning('请选择部门状态');
+    MessagePlugin.warning(t('system.department.validation.statusRequired'));
     return false;
   }
   if (editingDepartmentId.value && form.parent_id) {
     const disabledIds = collectDepartmentAndDescendantIds(editingDepartmentId.value, departments.value);
     if (disabledIds.has(form.parent_id)) {
-      MessagePlugin.warning('上级部门不能选择自己或自己的下级部门');
+      MessagePlugin.warning(t('system.department.validation.invalidParent'));
       return false;
     }
   }
@@ -210,10 +212,10 @@ async function handleSubmit(): Promise<void> {
     const payload = buildSubmitPayload();
     if (dialogMode.value === 'create') {
       await createDepartment(payload);
-      MessagePlugin.success('部门已新增');
+      MessagePlugin.success(t('system.department.message.created'));
     } else if (editingDepartmentId.value) {
       await updateDepartment(editingDepartmentId.value, payload);
-      MessagePlugin.success('部门已更新');
+      MessagePlugin.success(t('system.department.message.updated'));
     }
     dialogVisible.value = false;
     await loadDepartments();
@@ -225,13 +227,13 @@ async function handleSubmit(): Promise<void> {
 async function handleToggleStatus(department: DepartmentInfo): Promise<void> {
   const nextStatus: DepartmentStatus = department.status === 'disabled' ? 'enabled' : 'disabled';
   await updateDepartmentStatus(department.id, nextStatus);
-  MessagePlugin.success(nextStatus === 'enabled' ? '部门已启用' : '部门已停用');
+  MessagePlugin.success(nextStatus === 'enabled' ? t('system.department.message.enabled') : t('system.department.message.disabled'));
   await loadDepartments();
 }
 
 async function handleDelete(department: DepartmentInfo): Promise<void> {
   await deleteDepartment(department.id);
-  MessagePlugin.success('部门已删除');
+  MessagePlugin.success(t('system.department.message.deleted'));
   await loadDepartments();
 }
 
@@ -245,7 +247,7 @@ function clearFilters(): void {
 }
 
 function statusLabel(status: DepartmentStatus | string): string {
-  return status === 'disabled' ? '停用' : '启用';
+  return status === 'disabled' ? t('system.status.disabled') : t('system.status.enabled');
 }
 
 function statusTheme(status: DepartmentStatus | string): TagTheme {
@@ -257,16 +259,16 @@ function statusActionPermission(department: DepartmentInfo): string {
 }
 
 function statusActionLabel(department: DepartmentInfo): string {
-  return department.status === 'disabled' ? '启用' : '停用';
+  return department.status === 'disabled' ? t('system.action.enable') : t('system.action.disable');
 }
 
 function confirmStatusText(department: DepartmentInfo): string {
-  return department.status === 'disabled' ? '确认启用该部门？' : '确认停用该部门？停用后该部门将不能作为新增或编辑用户时的可选启用部门。';
+  return department.status === 'disabled' ? t('system.department.confirm.enable') : t('system.department.confirm.disable');
 }
 
 function toDepartmentOptions(items: DepartmentInfo[], disabledIds: Set<number>): TreeOption[] {
   return items.map((item) => ({
-    label: `${item.name}（${item.code}）`,
+    label: `${item.name} (${item.code})`,
     value: item.id,
     disabled: disabledIds.has(item.id),
     children: item.children?.length ? toDepartmentOptions(item.children, disabledIds) : undefined,
@@ -313,36 +315,36 @@ onMounted(async () => {
 <template>
   <div class="system-card scroll-card">
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item label="部门名称">
-        <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="请输入部门名称或编码" @enter="handleSearch" />
+      <t-form-item :label="t('system.department.field.name')">
+        <t-input v-model="filters.keyword" class="filter-input" clearable :placeholder="t('system.department.placeholder.keyword')" @enter="handleSearch" />
       </t-form-item>
-      <t-form-item label="部门状态">
-        <t-select v-model="filters.status" class="filter-select" clearable placeholder="全部状态" @change="handleSearch">
-          <t-option label="启用" value="enabled" />
-          <t-option label="停用" value="disabled" />
+      <t-form-item :label="t('system.department.field.status')">
+        <t-select v-model="filters.status" class="filter-select" clearable :placeholder="t('system.status.all')" @change="handleSearch">
+          <t-option :label="t('system.status.enabled')" value="enabled" />
+          <t-option :label="t('system.status.disabled')" value="disabled" />
         </t-select>
       </t-form-item>
       <t-form-item>
         <t-space>
-          <t-button theme="primary" @click="handleSearch">查询</t-button>
-          <t-button @click="clearFilters">重置</t-button>
+          <t-button theme="primary" @click="handleSearch">{{ t('system.action.query') }}</t-button>
+          <t-button @click="clearFilters">{{ t('system.action.reset') }}</t-button>
         </t-space>
       </t-form-item>
     </t-form>
 
     <div class="system-section-head">
       <div class="system-section-title">
-        <h2>部门列表</h2>
-        <span>共 {{ departmentTotal }} 个部门</span>
+        <h2>{{ t('system.department.title') }}</h2>
+        <span>{{ t('system.summary.totalDepartments', { count: departmentTotal }) }}</span>
       </div>
       <t-space>
         <t-button theme="default" variant="outline" @click="refreshAll">
           <template #icon><RefreshIcon /></template>
-          刷新
+          {{ t('system.action.refresh') }}
         </t-button>
         <t-button v-permission="PERMISSIONS.SYSTEM_DEPARTMENT_CREATE" theme="primary" @click="openCreateDialog()">
           <template #icon><AddIcon /></template>
-          新增部门
+          {{ t('system.department.action.create') }}
         </t-button>
       </t-space>
     </div>
@@ -357,7 +359,7 @@ onMounted(async () => {
         :tree="treeConfig"
         v-model:expanded-tree-nodes="expandedDepartmentIds"
         :loading="loading"
-        empty="暂无部门"
+        :empty="t('system.department.empty')"
       >
         <template #parent_name="{ row }">
           {{ row.parent_name || '-' }}
@@ -373,13 +375,13 @@ onMounted(async () => {
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <TableActionButton label="查看" :permission="PERMISSIONS.SYSTEM_DEPARTMENT_VIEW_DETAIL" @click="openDetailDialog(row)">
+            <TableActionButton :label="t('system.action.view')" :permission="PERMISSIONS.SYSTEM_DEPARTMENT_VIEW_DETAIL" @click="openDetailDialog(row)">
               <BrowseIcon />
             </TableActionButton>
-            <TableActionButton label="编辑" :permission="PERMISSIONS.SYSTEM_DEPARTMENT_EDIT" @click="openEditDialog(row)">
+            <TableActionButton :label="t('system.action.edit')" :permission="PERMISSIONS.SYSTEM_DEPARTMENT_EDIT" @click="openEditDialog(row)">
               <EditIcon />
             </TableActionButton>
-            <TableActionButton label="新增下级" :permission="PERMISSIONS.SYSTEM_DEPARTMENT_CREATE" @click="openCreateDialog(row)">
+            <TableActionButton :label="t('system.department.action.createChild')" :permission="PERMISSIONS.SYSTEM_DEPARTMENT_CREATE" @click="openCreateDialog(row)">
               <AddIcon />
             </TableActionButton>
             <t-popconfirm :content="confirmStatusText(row)" @confirm="handleToggleStatus(row)">
@@ -388,8 +390,8 @@ onMounted(async () => {
                 <CloseCircleIcon v-else />
               </TableActionButton>
             </t-popconfirm>
-            <t-popconfirm content="确认删除该部门？删除前系统会检查子部门和归属用户。" @confirm="handleDelete(row)">
-              <TableActionButton label="删除" :permission="PERMISSIONS.SYSTEM_DEPARTMENT_DELETE" theme="danger">
+            <t-popconfirm :content="t('system.department.confirm.delete')" @confirm="handleDelete(row)">
+              <TableActionButton :label="t('system.action.delete')" :permission="PERMISSIONS.SYSTEM_DEPARTMENT_DELETE" theme="danger">
                 <DeleteIcon />
               </TableActionButton>
             </t-popconfirm>
@@ -400,47 +402,47 @@ onMounted(async () => {
 
     <t-dialog v-model:visible="dialogVisible" :header="dialogTitle" width="620px" :confirm-loading="submitting" @confirm="handleSubmit">
       <t-form :data="form" label-align="top">
-        <t-form-item label="部门名称" required-mark>
-          <t-input v-model="form.name" clearable maxlength="100" placeholder="请输入部门名称" />
+        <t-form-item :label="t('system.department.field.name')" required-mark>
+          <t-input v-model="form.name" clearable maxlength="100" :placeholder="t('system.department.validation.nameRequired')" />
         </t-form-item>
-        <t-form-item label="部门编码" required-mark>
-          <t-input v-model="form.code" clearable maxlength="50" placeholder="请输入唯一部门编码，如 DEFAULT" />
+        <t-form-item :label="t('system.department.field.code')" required-mark>
+          <t-input v-model="form.code" clearable maxlength="50" :placeholder="t('system.department.placeholder.code')" />
         </t-form-item>
-        <t-form-item label="上级部门">
-          <t-tree-select v-model="form.parent_id" :data="parentTreeOptions" clearable filterable placeholder="无上级部门" />
+        <t-form-item :label="t('system.department.field.parent')">
+          <t-tree-select v-model="form.parent_id" :data="parentTreeOptions" clearable filterable :placeholder="t('system.department.placeholder.noParent')" />
         </t-form-item>
-        <t-form-item label="部门负责人">
-          <t-select v-model="form.leader_user_id" clearable filterable :loading="userOptionLoading" placeholder="请选择负责人">
-            <t-option v-for="user in leaderOptions" :key="user.id" :value="user.id" :label="`${user.real_name}（${user.username}）`" />
+        <t-form-item :label="t('system.department.field.leader')">
+          <t-select v-model="form.leader_user_id" clearable filterable :loading="userOptionLoading" :placeholder="t('system.department.placeholder.leader')">
+            <t-option v-for="user in leaderOptions" :key="user.id" :value="user.id" :label="`${user.real_name} (${user.username})`" />
           </t-select>
         </t-form-item>
-        <t-form-item label="排序" required-mark>
+        <t-form-item :label="t('system.department.field.sort')" required-mark>
           <t-input-number v-model="form.sort_order" :min="0" :max="999999" :step="1" />
         </t-form-item>
-        <t-form-item label="状态" required-mark>
+        <t-form-item :label="t('common.field.status')" required-mark>
           <t-radio-group v-model="form.status">
-            <t-radio-button value="enabled">启用</t-radio-button>
-            <t-radio-button value="disabled">停用</t-radio-button>
+            <t-radio-button value="enabled">{{ t('system.status.enabled') }}</t-radio-button>
+            <t-radio-button value="disabled">{{ t('system.status.disabled') }}</t-radio-button>
           </t-radio-group>
         </t-form-item>
-        <t-form-item label="备注">
-          <t-textarea v-model="form.description" maxlength="500" autosize placeholder="请输入备注" />
+        <t-form-item :label="t('system.department.field.remark')">
+          <t-textarea v-model="form.description" maxlength="500" autosize :placeholder="t('system.department.placeholder.remark')" />
         </t-form-item>
       </t-form>
     </t-dialog>
 
-    <t-dialog v-model:visible="detailVisible" header="部门详情" width="620px" :footer="false">
+    <t-dialog v-model:visible="detailVisible" :header="t('system.department.detailTitle')" width="620px" :footer="false">
       <t-loading :loading="detailLoading">
         <t-descriptions v-if="selectedDepartment" bordered :column="2" size="small">
-          <t-descriptions-item label="部门名称">{{ selectedDepartment.name }}</t-descriptions-item>
-          <t-descriptions-item label="部门编码">{{ selectedDepartment.code }}</t-descriptions-item>
-          <t-descriptions-item label="上级部门">{{ selectedDepartment.parent_name || '-' }}</t-descriptions-item>
-          <t-descriptions-item label="部门负责人">{{ selectedDepartment.leader_name || '-' }}</t-descriptions-item>
-          <t-descriptions-item label="排序">{{ selectedDepartment.sort_order }}</t-descriptions-item>
-          <t-descriptions-item label="状态">{{ statusLabel(selectedDepartment.status) }}</t-descriptions-item>
-          <t-descriptions-item label="创建时间">{{ formatDateTime(selectedDepartment.created_at) }}</t-descriptions-item>
-          <t-descriptions-item label="更新时间">{{ formatDateTime(selectedDepartment.updated_at) }}</t-descriptions-item>
-          <t-descriptions-item label="备注" :span="2">{{ selectedDepartment.description || '-' }}</t-descriptions-item>
+          <t-descriptions-item :label="t('system.department.field.name')">{{ selectedDepartment.name }}</t-descriptions-item>
+          <t-descriptions-item :label="t('system.department.field.code')">{{ selectedDepartment.code }}</t-descriptions-item>
+          <t-descriptions-item :label="t('system.department.field.parent')">{{ selectedDepartment.parent_name || '-' }}</t-descriptions-item>
+          <t-descriptions-item :label="t('system.department.field.leader')">{{ selectedDepartment.leader_name || '-' }}</t-descriptions-item>
+          <t-descriptions-item :label="t('system.department.field.sort')">{{ selectedDepartment.sort_order }}</t-descriptions-item>
+          <t-descriptions-item :label="t('common.field.status')">{{ statusLabel(selectedDepartment.status) }}</t-descriptions-item>
+          <t-descriptions-item :label="t('common.field.createdAt')">{{ formatDateTime(selectedDepartment.created_at) }}</t-descriptions-item>
+          <t-descriptions-item :label="t('common.field.updatedAt')">{{ formatDateTime(selectedDepartment.updated_at) }}</t-descriptions-item>
+          <t-descriptions-item :label="t('system.department.field.remark')" :span="2">{{ selectedDepartment.description || '-' }}</t-descriptions-item>
         </t-descriptions>
       </t-loading>
     </t-dialog>

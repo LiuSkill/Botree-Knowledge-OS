@@ -29,6 +29,7 @@ export interface AskKnowledgeAgentPayload {
   session_id?: number | null;
   message: string;
   agent_enabled: boolean;
+  response_language: 'zh-CN' | 'en-US';
 }
 
 export type ChatFeedbackStatus = 'like' | 'dislike' | null;

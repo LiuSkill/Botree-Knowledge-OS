@@ -6,6 +6,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, type Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 import {
   BookOpenIcon,
   CalculatorIcon,
@@ -30,10 +31,12 @@ import {
 import { useAuthStore } from '@/stores/auth';
 import type { SystemMenuNode } from '@/types/api';
 import { firstMenuPath } from '@/utils/rbacMenus';
+import { menuLabel } from '@/utils/localizedNavigation';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 
 type MenuItem = {
   id: string;
@@ -151,7 +154,7 @@ function toMenuItem(node: SystemMenuNode): MenuItem | null {
   return {
     id: node.id,
     path,
-    label: node.name,
+    label: menuLabel(node.id, node.name, t),
     icon: iconByMenuId[node.id] || SettingIcon,
     menuIds: collectMenuIds(node),
     children,

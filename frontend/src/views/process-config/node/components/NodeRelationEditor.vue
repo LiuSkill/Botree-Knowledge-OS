@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import { AddIcon, DeleteIcon } from 'tdesign-icons-vue-next';
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import type { ProcessLibraryOptionItem } from '@/views/process-config/node/types';
+import { processFormulaTypeLocaleKey, processOutputTypeLocaleKey } from '@/views/process-config/i18n';
 import { PROCESS_UNIT_OPTIONS } from '@/views/process-config/types';
 
 type RelationFieldValue = string | number | boolean | null | undefined;
+type RelationColumn = {
+  colKey: string;
+  title: string;
+  width?: number;
+  minWidth?: number;
+  align?: 'center';
+};
 
 interface EditableRelationRow {
   _rowKey: string;
@@ -43,29 +52,30 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>[]];
 }>();
 
+const { t } = useI18n();
 const rows = ref<EditableRelationRow[]>([]);
 let rowSeed = 0;
 
-const columns = computed(() => {
-  const baseColumns = [
+const columns = computed<RelationColumn[]>(() => {
+  const baseColumns: RelationColumn[] = [
     { colKey: 'resource', title: props.resourceLabel, minWidth: 220 },
     { colKey: 'amount', title: props.amountLabel, width: 140 },
-    { colKey: 'unit', title: '单位', width: 110 },
+    { colKey: 'unit', title: t('process.field.unit'), width: 110 },
   ];
   if (props.showMainProduct) {
-    baseColumns.push({ colKey: 'is_main_product', title: '主产品', width: 96 });
+    baseColumns.push({ colKey: 'is_main_product', title: t('process.node.field.mainProduct'), width: 96 });
   }
   if (props.showOutputFields) {
-    baseColumns.push({ colKey: 'output_type', title: '产出类型', width: 120 });
-    baseColumns.push({ colKey: 'treatment_cost', title: '处理单价', width: 130 });
+    baseColumns.push({ colKey: 'output_type', title: t('process.node.field.outputKind'), width: 120 });
+    baseColumns.push({ colKey: 'treatment_cost', title: t('process.node.field.treatmentPrice'), width: 130 });
   }
   if (props.showCalculationFields) {
-    baseColumns.push({ colKey: 'formula_type', title: '系数类型', width: 110 });
-    baseColumns.push({ colKey: 'expression', title: '来源表达式', minWidth: 180 });
+    baseColumns.push({ colKey: 'formula_type', title: t('process.node.field.formulaType'), width: 110 });
+    baseColumns.push({ colKey: 'expression', title: t('process.node.field.sourceExpression'), minWidth: 180 });
   }
   baseColumns.push(
-    { colKey: 'remark', title: '备注', minWidth: 160 },
-    { colKey: 'operation', title: '操作', width: 72, align: 'center' },
+    { colKey: 'remark', title: t('process.field.remark'), minWidth: 160 },
+    { colKey: 'operation', title: t('common.field.operation'), width: 72, align: 'center' },
   );
   return baseColumns;
 });
@@ -134,7 +144,17 @@ function syncUnit(row: EditableRelationRow): void {
 }
 
 function optionLabel(option: ProcessLibraryOptionItem): string {
-  return `${option.code} / ${option.name}${option.unit ? `（${option.unit}）` : ''}`;
+  return `${option.code} / ${option.name}${option.unit ? ` (${option.unit})` : ''}`;
+}
+
+function formulaTypeLabel(value: string): string {
+  const key = processFormulaTypeLocaleKey(value);
+  return key ? t(key) : value;
+}
+
+function outputTypeLabel(value: string): string {
+  const key = processOutputTypeLocaleKey(value);
+  return key ? t(key) : value;
 }
 
 function emitRows(): void {
@@ -164,7 +184,7 @@ function emitRows(): void {
         size="small"
         :columns="columns"
         :data="rows"
-        :empty="`暂无${resourceLabel}配置`"
+        :empty="t('process.node.empty.relation', { resource: resourceLabel })"
       >
         <template #resource="{ row }">
           <t-select
@@ -173,7 +193,7 @@ function emitRows(): void {
             :disabled="disabled"
             :model-value="getField(row, idKey)"
             :placeholder="selectPlaceholder"
-            @update:model-value="(value) => updateField(row, idKey, value as RelationFieldValue)"
+            @update:model-value="(value: RelationFieldValue) => updateField(row, idKey, value)"
           >
             <t-option v-for="option in options" :key="option.id" :label="optionLabel(option)" :value="option.id" />
           </t-select>
@@ -185,7 +205,7 @@ function emitRows(): void {
             :step="0.0001"
             theme="normal"
             :model-value="getField(row, amountKey) as number | string"
-            @update:model-value="(value) => updateField(row, amountKey, value as RelationFieldValue)"
+            @update:model-value="(value: RelationFieldValue) => updateField(row, amountKey, value)"
           />
         </template>
         <template #unit="{ row }">
@@ -195,8 +215,8 @@ function emitRows(): void {
             clearable
             :disabled="disabled"
             :model-value="String(row.unit || '')"
-            placeholder="单位"
-            @update:model-value="(value) => updateField(row, 'unit', value as RelationFieldValue)"
+            :placeholder="t('process.node.placeholder.unit')"
+            @update:model-value="(value: RelationFieldValue) => updateField(row, 'unit', value)"
           >
             <t-option v-for="option in PROCESS_UNIT_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
           </t-select>
@@ -205,33 +225,33 @@ function emitRows(): void {
           <t-switch
             :disabled="disabled"
             :model-value="Boolean(row.is_main_product)"
-            @update:model-value="(value) => updateField(row, 'is_main_product', value as RelationFieldValue)"
+            @update:model-value="(value: RelationFieldValue) => updateField(row, 'is_main_product', value)"
           />
         </template>
         <template #output_type="{ row }">
-          <t-select :model-value="getField(row, 'output_type')" @update:model-value="(value) => updateField(row, 'output_type', value as RelationFieldValue)">
-            <t-option label="产品" value="product" /><t-option label="副产品" value="byproduct" />
-            <t-option label="固废" value="solid_waste" /><t-option label="废水" value="wastewater" />
+          <t-select :model-value="getField(row, 'output_type')" @update:model-value="(value: RelationFieldValue) => updateField(row, 'output_type', value)">
+            <t-option :label="outputTypeLabel('product')" value="product" /><t-option :label="outputTypeLabel('byproduct')" value="byproduct" />
+            <t-option :label="outputTypeLabel('solid_waste')" value="solid_waste" /><t-option :label="outputTypeLabel('wastewater')" value="wastewater" />
           </t-select>
         </template>
         <template #treatment_cost="{ row }">
-          <t-input-number :min="0" theme="normal" :model-value="getField(row, 'treatment_cost') as number | string" @update:model-value="(value) => updateField(row, 'treatment_cost', value as RelationFieldValue)" />
+          <t-input-number :min="0" theme="normal" :model-value="getField(row, 'treatment_cost') as number | string" @update:model-value="(value: RelationFieldValue) => updateField(row, 'treatment_cost', value)" />
         </template>
         <template #formula_type="{ row }">
-          <t-select :model-value="getField(row, 'formula_type')" @update:model-value="(value) => updateField(row, 'formula_type', value as RelationFieldValue)">
-            <t-option label="固定系数" value="fixed" /><t-option label="导入表达式" value="expression" />
+          <t-select :model-value="getField(row, 'formula_type')" @update:model-value="(value: RelationFieldValue) => updateField(row, 'formula_type', value)">
+            <t-option :label="formulaTypeLabel('fixed')" value="fixed" /><t-option :label="formulaTypeLabel('expression')" value="expression" />
           </t-select>
         </template>
         <template #expression="{ row }">
-          <t-input :model-value="String(row.expression || '')" placeholder="可选" @update:model-value="(value) => updateField(row, 'expression', value as RelationFieldValue)" />
+          <t-input :model-value="String(row.expression || '')" :placeholder="t('process.node.placeholder.optional')" @update:model-value="(value: RelationFieldValue) => updateField(row, 'expression', value)" />
         </template>
         <template #remark="{ row }">
           <t-input
             clearable
             :disabled="disabled"
             :model-value="String(row.remark || '')"
-            placeholder="备注"
-            @update:model-value="(value) => updateField(row, 'remark', value as RelationFieldValue)"
+            :placeholder="t('process.node.placeholder.remark')"
+            @update:model-value="(value: RelationFieldValue) => updateField(row, 'remark', value)"
           />
         </template>
         <template #operation="{ rowIndex }">

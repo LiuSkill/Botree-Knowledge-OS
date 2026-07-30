@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import { createProcessRouteVersion, listProcessRouteVersions } from '@/api/process-config';
 import { formatDateTime } from '@/utils/format';
@@ -33,17 +34,22 @@ const form = reactive({
   change_log: '',
 });
 
+const { t } = useI18n();
 const visibleProxy = computed({
   get: () => props.visible,
   set: (value: boolean) => emit('update:visible', value),
 });
 
-const columns = [
-  { colKey: 'version_no', title: '版本号', width: 100, align: 'center' },
-  { colKey: 'node_count', title: '节点数', width: 100, align: 'center' },
-  { colKey: 'created_at', title: '创建时间', width: 170 },
-  { colKey: 'change_log', title: '变更说明', minWidth: 240 },
-];
+const dialogHeader = computed(() =>
+  props.routeName ? t('process.route.title.versionWithName', { name: props.routeName }) : t('process.route.title.version'),
+);
+
+const columns = computed(() => [
+  { colKey: 'version_no', title: t('process.route.field.version'), width: 100, align: 'center' as const },
+  { colKey: 'node_count', title: t('process.route.field.nodeCount'), width: 100, align: 'center' as const },
+  { colKey: 'created_at', title: t('common.field.createdAt'), width: 170 },
+  { colKey: 'change_log', title: t('process.route.field.changeLog'), minWidth: 240 },
+]);
 
 watch(
   () => [props.visible, props.routeId] as const,
@@ -73,7 +79,7 @@ async function handleCreateVersion(): Promise<void> {
       version_no: form.version_no ?? null,
       change_log: normalizeOptionalText(form.change_log),
     });
-    MessagePlugin.success('路线版本已保存');
+    MessagePlugin.success(t('process.route.message.versionSaved'));
     emit('created', version);
     form.version_no = undefined;
     form.change_log = '';
@@ -99,31 +105,31 @@ function resolveNodeCount(snapshotJson: string): number {
 </script>
 
 <template>
-  <t-dialog v-model:visible="visibleProxy" :header="`版本管理${routeName ? ` - ${routeName}` : ''}`" width="960px" :footer="false">
+  <t-dialog v-model:visible="visibleProxy" :header="dialogHeader" width="960px" :footer="false">
     <div class="route-version-dialog">
       <section v-if="canCreate" class="route-version-dialog__section">
-        <div class="route-version-dialog__section-title">创建版本快照</div>
+        <div class="route-version-dialog__section-title">{{ t('process.route.section.createVersion') }}</div>
         <div class="route-version-dialog__form">
           <t-form label-align="top">
             <div class="route-version-dialog__form-grid">
-              <t-form-item label="版本号">
-                <t-input-number v-model="form.version_no" :min="1" :step="1" theme="normal" placeholder="为空时自动递增" />
+              <t-form-item :label="t('process.route.field.version')">
+                <t-input-number v-model="form.version_no" :min="1" :step="1" theme="normal" :placeholder="t('process.route.placeholder.versionAuto')" />
               </t-form-item>
-              <t-form-item label="变更说明">
-                <t-input v-model="form.change_log" clearable maxlength="300" placeholder="请输入本次版本变更说明" />
+              <t-form-item :label="t('process.route.field.changeLog')">
+                <t-input v-model="form.change_log" clearable maxlength="300" :placeholder="t('process.route.placeholder.changeLog')" />
               </t-form-item>
             </div>
           </t-form>
           <div class="route-version-dialog__actions">
-            <t-button theme="primary" :loading="saving" @click="handleCreateVersion">保存版本</t-button>
+            <t-button theme="primary" :loading="saving" @click="handleCreateVersion">{{ t('process.route.action.saveVersion') }}</t-button>
           </div>
         </div>
       </section>
 
       <section class="route-version-dialog__section">
-        <div class="route-version-dialog__section-title">历史版本</div>
+        <div class="route-version-dialog__section-title">{{ t('process.route.section.versionHistory') }}</div>
         <t-loading :loading="loading">
-          <t-empty v-if="!versions.length" description="暂无路线版本记录" />
+          <t-empty v-if="!versions.length" :description="t('process.route.empty.version')" />
           <div v-else class="route-version-dialog__table">
             <t-table row-key="id" bordered table-layout="fixed" size="small" :columns="columns" :data="versions">
               <template #version_no="{ row }">v{{ row.version_no }}</template>

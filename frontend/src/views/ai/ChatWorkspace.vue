@@ -27,6 +27,7 @@ import {
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
 
 import {
@@ -73,7 +74,7 @@ interface UiChatMessage extends Omit<ChatMessage, 'id' | 'citations'> {
   id: number | string;
   citations: Citation[];
   progressEvents: ChatProgressEvent[];
-  status?: '' | 'streaming' | 'complete' | 'stop' | 'error';
+  status?: 'streaming' | 'complete' | 'stop' | 'error';
   streaming?: boolean;
   securityNotice?: string | null;
 }
@@ -91,6 +92,7 @@ const authStore = useAuthStore();
 const chatRunStore = useChatRunStore();
 const route = useRoute();
 const router = useRouter();
+const { t, locale } = useI18n();
 const sessions = ref<ChatSession[]>([]);
 const messages = ref<UiChatMessage[]>([]);
 const projects = ref<ProjectInfo[]>([]);
@@ -122,7 +124,7 @@ const traceDetailCache = ref<Record<number, AgentTraceStep[] | null>>({});
 const traceDetailLoadingMap = ref<Record<number, boolean>>({});
 const traceDetailErrorMap = ref<Record<number, string>>({});
 // 正文通过插槽渲染，外层 TChatMessage 保持空状态，避免底层加载态替换插槽内容。
-const chatMessageStatus = '';
+const chatMessageStatus = undefined;
 
 const chatPermissionSet = computed(() => {
   if (props.chatType === 'project_chat') {
@@ -171,26 +173,26 @@ const newSessionDisabled = computed(
     (props.requireProject && !projectId.value),
 );
 const sessionEmptyDescription = computed(() => {
-  if (props.chatType === 'project_chat' && !projectsLoaded.value) return '正在加载项目';
-  if (props.chatType === 'project_chat' && !projects.value.length) return '暂无可访问项目';
-  if (props.chatType === 'project_chat' && !projectId.value) return '请先选择项目';
-  return '暂无会话';
+  if (props.chatType === 'project_chat' && !projectsLoaded.value) return t('ai.workspace.emptyTitleLoadingProjects');
+  if (props.chatType === 'project_chat' && !projects.value.length) return t('ai.workspace.emptyTitleNoProjects');
+  if (props.chatType === 'project_chat' && !projectId.value) return t('ai.workspace.emptyTitleSelectProject');
+  return t('ai.workspace.emptyTitleNoSessions');
 });
 const chatEmptyDescription = computed(() => {
-  if (props.chatType === 'project_chat' && !projectsLoaded.value) return '正在加载项目问答';
-  if (props.chatType === 'project_chat' && !projects.value.length) return '暂无可访问项目，无法发起项目问答';
-  return '当前入口只会基于有权限、已审核、已索引资料回答';
+  if (props.chatType === 'project_chat' && !projectsLoaded.value) return t('ai.workspace.emptySubtitleLoadingProjectChat');
+  if (props.chatType === 'project_chat' && !projects.value.length) return t('ai.workspace.emptySubtitleNoProjectAccess');
+  return t('ai.workspace.emptySubtitleScope');
 });
 const projectSelectPlaceholder = computed(() => {
-  if (!projectsLoaded.value) return '正在加载项目';
-  return projects.value.length ? '请选择项目' : '暂无可访问项目';
+  if (!projectsLoaded.value) return t('ai.workspace.emptyTitleLoadingProjects');
+  return projects.value.length ? t('ai.workspace.projectPlaceholder') : t('ai.workspace.emptyTitleNoProjects');
 });
 const userAvatarLabel = computed(() => authStore.user?.real_name || authStore.user?.username || 'User');
 const activeDetailMessage = computed(
   () => messages.value.find((item) => item.role === 'assistant' && item.id === activeDetailMessageId.value) || null,
 );
 const isDetailOpen = computed(() => Boolean(activeDetailMode.value && activeDetailMessage.value));
-const detailPanelTitle = computed(() => (activeDetailMode.value === 'citations' ? '引用来源' : '生成过程'));
+const detailPanelTitle = computed(() => (activeDetailMode.value === 'citations' ? t('ai.workspace.detailCitations') : t('ai.workspace.detailTrace')));
 const activeDetailCitations = computed(() => activeDetailMessage.value?.citations || []);
 const activeDetailQuestion = computed(() => (activeDetailMessage.value ? questionForAssistant(activeDetailMessage.value) : ''));
 const activeTraceMessageId = computed(() => (typeof activeDetailMessageId.value === 'number' ? activeDetailMessageId.value : null));
@@ -211,9 +213,9 @@ const sessionGroups = computed(() => {
   const recentSessions = sessions.value.filter((session) => !session.is_pinned && !session.is_favorite);
   const favoriteSessions = sessions.value.filter((session) => session.is_favorite);
   const groups: Array<{ key: SessionGroupKey; title: string; items: ChatSession[] }> = [
-    { key: 'pinned', title: '置顶', items: pinnedSessions },
-    { key: 'recent', title: '最近', items: recentSessions },
-    { key: 'favorite', title: '收藏', items: favoriteSessions },
+    { key: 'pinned', title: t('ai.workspace.groupPinned'), items: pinnedSessions },
+    { key: 'recent', title: t('ai.workspace.groupRecent'), items: recentSessions },
+    { key: 'favorite', title: t('ai.workspace.groupFavorite'), items: favoriteSessions },
   ];
   return groups.filter((group) => group.items.length > 0);
 });
@@ -245,7 +247,7 @@ function toUiMessage(message: ChatMessage): UiChatMessage {
     id: message.id,
     citations: message.citations || [],
     progressEvents: progressEvents.length ? progressEvents : progressEventsFromTrace(fallbackTrace, Boolean(message.content.trim())),
-    status: '',
+    status: undefined,
     streaming: false,
   };
 }
@@ -439,7 +441,7 @@ async function loadDetailTrace(message: UiChatMessage): Promise<void> {
   } catch (error) {
     traceDetailErrorMap.value = {
       ...traceDetailErrorMap.value,
-      [messageId]: error instanceof Error ? error.message : '生成过程加载失败',
+      [messageId]: error instanceof Error ? error.message : t('ai.message.traceLoadFailed'),
     };
   } finally {
     const { [messageId]: _removed, ...remaining } = traceDetailLoadingMap.value;
@@ -458,7 +460,7 @@ function isFeedbackUpdating(message: UiChatMessage): boolean {
 async function handleFeedbackClick(message: UiChatMessage, feedbackStatus: Exclude<ChatFeedbackStatus, null>): Promise<void> {
   if (!shouldShowAssistantActions(message) || typeof message.id !== 'number' || isFeedbackUpdating(message)) return;
   if (!canFeedbackMessage.value) {
-    MessagePlugin.warning('无权限反馈答案');
+    MessagePlugin.warning(t('ai.message.noFeedbackPermission'));
     return;
   }
   const nextStatus: ChatFeedbackStatus = message.feedback_status === feedbackStatus ? null : feedbackStatus;
@@ -470,7 +472,7 @@ async function handleFeedbackClick(message: UiChatMessage, feedbackStatus: Exclu
     message.feedback_status = result.feedback_status;
   } catch (error) {
     message.feedback_status = previousStatus;
-    MessagePlugin.error(error instanceof Error ? error.message : '反馈保存失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('ai.message.feedbackSaveFailed'));
   } finally {
     const { [message.id]: _removed, ...remaining } = feedbackUpdatingMap.value;
     feedbackUpdatingMap.value = remaining;
@@ -512,7 +514,7 @@ function resetConversationState(): void {
 }
 
 function projectOptionLabel(project: ProjectInfo): string {
-  return project.project_name || project.name || `项目 #${project.id}`;
+  return project.project_name || project.name || t('ai.workspace.projectLabel', { id: project.id });
 }
 
 function parseProjectIdValue(value: unknown): number | null {
@@ -568,7 +570,7 @@ async function applyRouteProjectSelection(forceReload = false): Promise<void> {
   const shouldWarnFallback = routeHasProject && nextProjectId !== null && nextProjectId !== requestedProjectId;
 
   if (shouldWarnFallback) {
-    MessagePlugin.info('当前项目无权限或不存在，已切换到第一个可访问项目');
+    MessagePlugin.info(t('ai.message.projectSwitched'));
   }
 
   await applyProjectSelection(nextProjectId, forceReload);
@@ -617,7 +619,7 @@ async function loadBaseData(): Promise<void> {
 
 async function selectSession(session: ChatSession): Promise<void> {
   if (!canViewChat.value) {
-    MessagePlugin.warning('无权限查看会话');
+    MessagePlugin.warning(t('ai.message.noViewPermission'));
     return;
   }
   closeDetailPanel();
@@ -638,11 +640,11 @@ async function selectSession(session: ChatSession): Promise<void> {
 function startNewSession(): void {
   if (streaming.value || hasRunningChat.value) return;
   if (!canCreateSession.value) {
-    MessagePlugin.warning('无权限新建会话');
+    MessagePlugin.warning(t('ai.message.noCreatePermission'));
     return;
   }
   if (props.requireProject && !projectId.value) {
-    MessagePlugin.warning(projects.value.length ? '请先选择项目' : '暂无可访问项目');
+    MessagePlugin.warning(projects.value.length ? t('ai.message.selectProjectFirst') : t('ai.message.noProjectAccess'));
     return;
   }
   resetConversationState();
@@ -671,7 +673,7 @@ function showStreamingSession(sessionId: number, title: string, currentProjectId
   replaceSession({
     id: sessionId,
     user_id: authStore.user?.id || 0,
-    title: title.slice(0, 30) || '新的知识问答',
+    title: title.slice(0, 30) || t('ai.workspace.defaultSessionTitle'),
     chat_type: props.chatType,
     mode: 'auto',
     project_id: currentProjectId,
@@ -693,14 +695,14 @@ function toggleSessionMenu(sessionId: number): void {
 
 async function togglePinnedSession(session: ChatSession): Promise<void> {
   if (!canManageSession.value) {
-    MessagePlugin.warning('无权限管理会话');
+    MessagePlugin.warning(t('ai.message.noManagePermission'));
     return;
   }
   closeSessionMenu();
   try {
     replaceSession(await updateChatSession(session.id, { is_pinned: !session.is_pinned }));
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '置顶状态更新失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('ai.message.pinUpdateFailed'));
   } finally {
     await focusQuestionInput();
   }
@@ -708,14 +710,14 @@ async function togglePinnedSession(session: ChatSession): Promise<void> {
 
 async function toggleFavoriteSession(session: ChatSession): Promise<void> {
   if (!canManageSession.value) {
-    MessagePlugin.warning('无权限管理会话');
+    MessagePlugin.warning(t('ai.message.noManagePermission'));
     return;
   }
   closeSessionMenu();
   try {
     replaceSession(await updateChatSession(session.id, { is_favorite: !session.is_favorite }));
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '收藏状态更新失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('ai.message.favoriteUpdateFailed'));
   } finally {
     await focusQuestionInput();
   }
@@ -723,7 +725,7 @@ async function toggleFavoriteSession(session: ChatSession): Promise<void> {
 
 function openRenameSessionDialog(session: ChatSession): void {
   if (!canManageSession.value) {
-    MessagePlugin.warning('无权限管理会话');
+    MessagePlugin.warning(t('ai.message.noManagePermission'));
     return;
   }
   closeSessionMenu();
@@ -735,12 +737,12 @@ function openRenameSessionDialog(session: ChatSession): void {
 async function confirmRenameSession(): Promise<void> {
   if (!renamingSession.value || renameSubmitting.value) return;
   if (!canManageSession.value) {
-    MessagePlugin.warning('无权限管理会话');
+    MessagePlugin.warning(t('ai.message.noManagePermission'));
     return;
   }
   const title = renameTitle.value.trim();
   if (!title) {
-    MessagePlugin.warning('会话名称不能为空');
+    MessagePlugin.warning(t('ai.message.emptySessionName'));
     return;
   }
 
@@ -751,7 +753,7 @@ async function confirmRenameSession(): Promise<void> {
     renamingSession.value = null;
     renameTitle.value = '';
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '会话重命名失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('ai.message.renameFailed'));
   } finally {
     renameSubmitting.value = false;
     await focusQuestionInput();
@@ -761,18 +763,18 @@ async function confirmRenameSession(): Promise<void> {
 async function confirmRemoveSession(session: ChatSession): Promise<void> {
   closeSessionMenu();
   if (!canDeleteSession.value) {
-    MessagePlugin.warning('无权限删除会话');
+    MessagePlugin.warning(t('ai.message.noDeletePermission'));
     return;
   }
   if (streaming.value && session.id === activeSessionId.value) {
-    MessagePlugin.warning('当前会话正在回答中，暂不能删除');
+    MessagePlugin.warning(t('ai.message.deleteDuringStreaming'));
     return;
   }
   const confirmed = await showConfirmDialog({
-    header: '确认删除会话',
-    body: `确认删除会话“${session.title}”吗？`,
+    header: t('ai.workspace.deleteConfirmTitle'),
+    body: t('ai.workspace.deleteConfirmBody', { title: session.title }),
     theme: 'danger',
-    confirmBtn: '删除',
+    confirmBtn: t('ai.workspace.delete'),
   });
   if (!confirmed) {
     await focusQuestionInput();
@@ -790,9 +792,9 @@ async function confirmRemoveSession(session: ChatSession): Promise<void> {
       queryScope.value = '';
       closeDetailPanel();
     }
-    MessagePlugin.success('会话已删除');
+    MessagePlugin.success(t('ai.message.sessionDeleted'));
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '会话删除失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('ai.message.deleteFailed'));
   } finally {
     await focusQuestionInput();
   }
@@ -818,7 +820,7 @@ function stopStreaming(): void {
     currentAssistant.status = 'stop';
     currentAssistant.progressEvents = [];
     if (!currentAssistant.content.trim()) {
-      currentAssistant.content = '已停止生成';
+      currentAssistant.content = t('ai.workspace.stopped');
     }
   }
   chatRunStore.stopRun(props.chatType);
@@ -849,7 +851,7 @@ async function restoreChatRun(): Promise<void> {
         citations: [],
         progressEvents: [],
         created_at: run.startedAt,
-        status: '',
+        status: undefined,
         streaming: false,
       },
     ];
@@ -872,19 +874,19 @@ async function submitQuestion(): Promise<void> {
   const content = question.value.trim();
   const currentProjectId = props.chatType === 'project_chat' ? projectId.value : null;
   if (!canSendMessage.value) {
-    MessagePlugin.warning('无权限发送消息');
+    MessagePlugin.warning(t('ai.message.noSendPermission'));
     return;
   }
   if (props.requireProject && !currentProjectId) {
-    MessagePlugin.warning('请先选择项目');
+    MessagePlugin.warning(t('ai.message.selectProjectFirst'));
     return;
   }
   if (props.chatType === 'base_chat' && isExternalUser.value) {
-    MessagePlugin.warning('外部用户默认不能访问基础问答');
+    MessagePlugin.warning(t('ai.message.externalBaseForbidden'));
     return;
   }
   if (!content) {
-    MessagePlugin.warning('请输入问题');
+    MessagePlugin.warning(t('ai.message.emptyQuestion'));
     return;
   }
   if (streaming.value || hasRunningChat.value) return;
@@ -899,7 +901,7 @@ async function submitQuestion(): Promise<void> {
     citations: [],
     progressEvents: [],
     created_at: new Date().toISOString(),
-    status: '',
+    status: undefined,
     streaming: false,
   };
   const assistantMessage = createStreamingAssistantMessage();
@@ -934,6 +936,7 @@ async function submitQuestion(): Promise<void> {
         session_id: activeSessionId.value,
         message: originalQuestion,
         agent_enabled: true,
+        response_language: locale.value === 'en-US' ? 'en-US' : 'zh-CN',
       },
       {
         signal: streamController.signal,
@@ -992,43 +995,44 @@ async function submitQuestion(): Promise<void> {
       },
     );
 
-    if (finalResult) {
+    const completedResult = finalResult as ChatStreamDoneEvent | null;
+    if (completedResult) {
       chatRunStore.completeRun(props.chatType, {
-        sessionId: finalResult.session_id,
-        queryScope: finalResult.query_scope,
-        citations: finalResult.citations,
-        progressEvents: finalResult.progress_events?.length
-          ? markProgressComplete(finalResult.progress_events)
-          : progressEventsFromTrace(finalResult.agent_trace || [], true),
-        securityNotice: finalResult.security_notice,
+        sessionId: completedResult.session_id,
+        queryScope: completedResult.query_scope,
+        citations: completedResult.citations,
+        progressEvents: completedResult.progress_events?.length
+          ? markProgressComplete(completedResult.progress_events)
+          : progressEventsFromTrace(completedResult.agent_trace || [], true),
+        securityNotice: completedResult.security_notice,
       });
-      await refreshSessionState(finalResult.session_id);
+      await refreshSessionState(completedResult.session_id);
       const latestAssistant = [...messages.value].reverse().find((item) => item.role === 'assistant');
-      if (latestAssistant) latestAssistant.securityNotice = finalResult.security_notice;
+      if (latestAssistant) latestAssistant.securityNotice = completedResult.security_notice;
     }
   } catch (error) {
     const currentAssistant = messages.value.find((item) => item.id === assistantId);
     if (error instanceof DOMException && error.name === 'AbortError') {
       chatRunStore.stopRun(props.chatType);
       if (currentAssistant && !currentAssistant.content.trim()) {
-        currentAssistant.content = '已停止生成';
+        currentAssistant.content = t('ai.workspace.stopped');
       }
       if (currentAssistant) {
         currentAssistant.status = 'stop';
         currentAssistant.streaming = false;
         currentAssistant.progressEvents = [];
       }
-      MessagePlugin.info('已停止本次回答生成');
+      MessagePlugin.info(t('ai.message.stopInfo'));
       return;
     }
     chatRunStore.failRun(props.chatType);
     if (currentAssistant) {
       currentAssistant.status = 'error';
       if (!currentAssistant.content.trim()) {
-        currentAssistant.content = '回答生成失败，请重试。';
+        currentAssistant.content = t('ai.workspace.answerFailed');
       }
     }
-    MessagePlugin.error(error instanceof Error ? error.message : '问答失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('ai.message.qaFailed'));
   } finally {
     streaming.value = false;
     processingSessionId.value = null;
@@ -1036,7 +1040,7 @@ async function submitQuestion(): Promise<void> {
     if (currentAssistant) {
       currentAssistant.streaming = false;
       if (currentAssistant.status === 'streaming') {
-        currentAssistant.status = currentAssistant.content.trim() ? 'complete' : '';
+        currentAssistant.status = currentAssistant.content.trim() ? 'complete' : undefined;
       }
     }
     await scrollToBottom();
@@ -1086,15 +1090,17 @@ onBeforeUnmount(() => {
 <template>
   <section class="chat-workspace-page">
     <div v-if="!canViewChat" class="surface no-access">
-      无权限访问当前问答入口。
+      {{ t('ai.workspace.noAccess') }}
     </div>
     <div v-else-if="chatType === 'base_chat' && isExternalUser" class="surface no-access">
-      外部用户默认不能访问基础问答，请从项目问答入口进入已授权项目。
+      {{ t('ai.workspace.externalBaseForbidden') }}
     </div>
     <div v-else class="agent-layout" :class="{ 'with-detail': isDetailOpen }">
       <aside class="agent-sidebar surface">
         <div class="sidebar-header">
-          <div class="agent-title">{{ chatType === 'project_chat' ? '项目问答会话' : '基础问答会话' }}</div>
+          <div class="agent-title">
+            {{ chatType === 'project_chat' ? t('ai.workspace.projectChatSessions') : t('ai.workspace.baseChatSessions') }}
+          </div>
           <t-select
             v-if="requireProject"
             :model-value="projectId"
@@ -1114,7 +1120,7 @@ onBeforeUnmount(() => {
             @click="startNewSession"
           >
             <template #icon><AddIcon /></template>
-            新建对话
+            {{ t('ai.workspace.newConversation') }}
           </t-button>
         </div>
         <div class="session-list">
@@ -1143,11 +1149,11 @@ onBeforeUnmount(() => {
             >
               <span v-if="processingSessionId === session.id" class="session-processing" role="status" aria-live="polite">
                 <span class="session-processing-spinner" aria-hidden="true" />
-                <span>正在处理</span>
+                <span>{{ t('ai.workspace.processing') }}</span>
               </span>
               <span v-else class="session-title-text" :title="session.title">{{ session.title }}</span>
               <div v-if="processingSessionId !== session.id && (canManageSession || canDeleteSession)" class="session-actions" @click.stop>
-                <t-tooltip v-if="canManageSession" :content="session.is_pinned ? '取消置顶' : '置顶'">
+                <t-tooltip v-if="canManageSession" :content="session.is_pinned ? t('ai.workspace.cancelPin') : t('ai.workspace.pin')">
                   <button type="button" class="session-icon-button" @click.stop="togglePinnedSession(session)">
                     <PinFilledIcon v-if="session.is_pinned" />
                     <PinIcon v-else />
@@ -1160,15 +1166,15 @@ onBeforeUnmount(() => {
                   <div v-if="openSessionMenuId === session.id" class="session-menu">
                     <button v-if="canManageSession" type="button" class="session-menu-item" @click.stop="openRenameSessionDialog(session)">
                       <EditIcon />
-                      <span>重命名</span>
+                      <span>{{ t('ai.workspace.rename') }}</span>
                     </button>
                     <button v-if="canManageSession" type="button" class="session-menu-item" @click.stop="toggleFavoriteSession(session)">
                       <component :is="session.is_favorite ? StarFilledIcon : StarIcon" />
-                      <span>{{ session.is_favorite ? '取消收藏' : '收藏' }}</span>
+                      <span>{{ session.is_favorite ? t('ai.workspace.cancelFavorite') : t('ai.workspace.favorite') }}</span>
                     </button>
                     <button v-if="canDeleteSession" type="button" class="session-menu-item danger" @click.stop="confirmRemoveSession(session)">
                       <DeleteIcon />
-                      <span>删除</span>
+                      <span>{{ t('ai.workspace.delete') }}</span>
                     </button>
                   </div>
                 </div>
@@ -1194,7 +1200,7 @@ onBeforeUnmount(() => {
                   :class="{ 'with-answer': Boolean(message.content.trim()) }"
                   :events="message.progressEvents"
                   :streaming="message.streaming"
-                  :title="message.content.trim() ? '处理过程' : '正在处理...'"
+                  :title="message.content.trim() ? t('ai.workspace.processPanel') : t('ai.workspace.processingPanel')"
                   :collapsible="true"
                   :default-collapsed="Boolean(message.content.trim())"
                 />
@@ -1212,7 +1218,7 @@ onBeforeUnmount(() => {
                     {{ message.securityNotice }}
                   </div>
                   <div v-if="shouldShowAssistantActions(message)" class="message-action-bar">
-                    <t-tooltip v-if="canFeedbackMessage" content="点赞">
+                    <t-tooltip v-if="canFeedbackMessage" :content="t('ai.workspace.like')">
                       <t-button
                         class="message-action-button"
                         :class="{ active: message.feedback_status === 'like' }"
@@ -1224,7 +1230,7 @@ onBeforeUnmount(() => {
                         <ThumbUpIcon />
                       </t-button>
                     </t-tooltip>
-                    <t-tooltip v-if="canFeedbackMessage" content="点踩">
+                    <t-tooltip v-if="canFeedbackMessage" :content="t('ai.workspace.dislike')">
                       <t-button
                         class="message-action-button"
                         :class="{ active: message.feedback_status === 'dislike' }"
@@ -1236,7 +1242,7 @@ onBeforeUnmount(() => {
                         <ThumbDownIcon />
                       </t-button>
                     </t-tooltip>
-                    <t-tooltip content="引用来源">
+                    <t-tooltip :content="t('ai.workspace.detailCitations')">
                       <t-button
                         class="message-action-button"
                         :class="{ active: isDetailButtonActive(message, 'citations') }"
@@ -1247,7 +1253,7 @@ onBeforeUnmount(() => {
                         <QuoteIcon />
                       </t-button>
                     </t-tooltip>
-                    <t-tooltip content="生成过程">
+                    <t-tooltip :content="t('ai.workspace.detailTrace')">
                       <t-button
                         class="message-action-button"
                         :class="{ active: isDetailButtonActive(message, 'trace') }"
@@ -1298,7 +1304,7 @@ onBeforeUnmount(() => {
             :disabled="senderDisabled"
             :stop-disabled="false"
             :send-btn-disabled="senderDisabled"
-            :textarea-props="{ autosize: { minRows: 1, maxRows: 2 }, placeholder: '有问题，尽管问' }"
+            :textarea-props="{ autosize: { minRows: 1, maxRows: 2 }, placeholder: t('ai.workspace.askPlaceholder') }"
             @send="submitQuestion"
             @stop="stopStreaming"
           />
@@ -1309,21 +1315,23 @@ onBeforeUnmount(() => {
         <div class="detail-panel-header">
           <div class="detail-panel-heading">
             <span class="detail-panel-label">{{ detailPanelTitle }}</span>
-            <p class="detail-panel-question"><span>原始问题：</span>{{ activeDetailQuestion || '未找到原始问题' }}</p>
+            <p class="detail-panel-question">
+              <span>{{ t('ai.workspace.originalQuestion') }}</span>{{ activeDetailQuestion || t('ai.workspace.missingOriginalQuestion') }}
+            </p>
           </div>
-          <t-button variant="text" shape="square" aria-label="关闭详情" @click="closeDetailPanelAndFocus">
+          <t-button variant="text" shape="square" :aria-label="t('ai.workspace.closeDetail')" @click="closeDetailPanelAndFocus">
             <CloseIcon />
           </t-button>
         </div>
         <div class="detail-panel-body">
           <CitationList v-if="activeDetailMode === 'citations'" :citations="activeDetailCitations" :chat-type="chatType" />
           <div v-else-if="activeDetailMode === 'trace'" class="detail-trace-panel">
-            <div v-if="activeDetailTraceState.loading" class="detail-trace-loading">正在加载生成过程...</div>
+            <div v-if="activeDetailTraceState.loading" class="detail-trace-loading">{{ t('ai.workspace.traceLoading') }}</div>
             <div v-else-if="activeDetailTraceState.error" class="detail-trace-error">
               {{ activeDetailTraceState.error }}
             </div>
             <AgentTracePanel v-else-if="activeDetailTraceState.steps.length" :steps="activeDetailTraceState.steps" />
-            <t-empty v-else size="small" description="暂无生成过程记录" />
+            <t-empty v-else size="small" :description="t('ai.workspace.traceEmpty')" />
           </div>
         </div>
       </aside>
@@ -1331,13 +1339,13 @@ onBeforeUnmount(() => {
 
     <t-dialog
       v-model:visible="renameDialogVisible"
-      header="重命名会话"
+      :header="t('ai.workspace.renameSession')"
       width="420px"
-      :confirm-btn="{ content: '保存', loading: renameSubmitting }"
+      :confirm-btn="{ content: t('common.action.save'), loading: renameSubmitting }"
       @confirm="confirmRenameSession"
       @close="renamingSession = null"
     >
-      <t-input v-model="renameTitle" placeholder="请输入会话名称" maxlength="100" autofocus />
+      <t-input v-model="renameTitle" :placeholder="t('ai.workspace.sessionNamePlaceholder')" maxlength="100" autofocus />
     </t-dialog>
   </section>
 </template>

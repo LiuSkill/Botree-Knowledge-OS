@@ -5,6 +5,7 @@ import type {
   ChatProgressStatus,
   ChatTraceDeltaEvent,
 } from '@/types/api';
+import { i18n } from '@/locales';
 
 export interface ChatProgressStageConfig {
   stage: ChatProgressStage;
@@ -17,11 +18,11 @@ export interface ChatProgressRow extends ChatProgressStageConfig {
 }
 
 export const CHAT_PROGRESS_STAGES: ChatProgressStageConfig[] = [
-  { stage: 'understanding', title: '正在理解你的问题' },
-  { stage: 'planning', title: '正在规划资料检索方式' },
-  { stage: 'retrieving', title: '正在检索相关资料' },
-  { stage: 'filtering', title: '正在筛选可用依据' },
-  { stage: 'answering', title: '正在整理回答内容' },
+  { stage: 'understanding', title: 'ai.progress.stages.understanding.title' },
+  { stage: 'planning', title: 'ai.progress.stages.planning.title' },
+  { stage: 'retrieving', title: 'ai.progress.stages.retrieving.title' },
+  { stage: 'filtering', title: 'ai.progress.stages.filtering.title' },
+  { stage: 'answering', title: 'ai.progress.stages.answering.title' },
 ];
 
 const STAGE_TITLE_BY_KEY = CHAT_PROGRESS_STAGES.reduce<Record<ChatProgressStage, string>>(
@@ -33,6 +34,14 @@ const STAGE_INDEX = CHAT_PROGRESS_STAGES.reduce<Record<ChatProgressStage, number
   (result, item, index) => ({ ...result, [item.stage]: index }),
   {} as Record<ChatProgressStage, number>,
 );
+
+function stageTitle(stage: ChatProgressStage): string {
+  return i18n.global.t(`ai.progress.stages.${stage}.title`);
+}
+
+function stageDetail(stage: ChatProgressStage, status: ChatProgressStatus): string {
+  return i18n.global.t(`ai.progress.stages.${stage}.${status}`);
+}
 
 const TRACE_STAGE_KEYWORDS: Array<[ChatProgressStage, string[]]> = [
   [
@@ -116,39 +125,6 @@ const TRACE_STAGE_KEYWORDS: Array<[ChatProgressStage, string[]]> = [
 const RETRIEVAL_EMPTY_PATTERNS = ['未命中有效资料', '未找到足够的相关资料'];
 const PROJECT_REFUSAL_PATTERNS = ['当前项目资料中未检索到', '当前项目资料中未找到'];
 
-const STAGE_DETAIL_BY_STATUS: Record<ChatProgressStage, Record<ChatProgressStatus, string>> = {
-  understanding: {
-    pending: '等待开始理解问题',
-    running: '正在确认问题意图和回答范围',
-    success: '已确认问题意图和回答范围',
-    failed: '问题理解遇到波动，正在继续处理',
-  },
-  planning: {
-    pending: '等待生成资料查找思路',
-    running: '正在选择适合的资料查找方式',
-    success: '已确定资料检索路径',
-    failed: '资料检索规划遇到波动，正在继续处理',
-  },
-  retrieving: {
-    pending: '等待开始查找资料',
-    running: '正在查找可能相关的资料',
-    success: '已完成相关资料查找',
-    failed: '资料检索遇到问题，正在尝试继续处理',
-  },
-  filtering: {
-    pending: '等待筛选可用依据',
-    running: '正在判断资料是否可以支持回答',
-    success: '已筛选可用于回答的依据',
-    failed: '依据筛选遇到问题，正在继续处理',
-  },
-  answering: {
-    pending: '等待整理回答内容',
-    running: '正在基于可用依据组织回答',
-    success: '已完成回答整理',
-    failed: '回答整理遇到问题，正在继续处理',
-  },
-};
-
 const FORBIDDEN_DETAIL_PATTERNS = [
   'intent',
   'route',
@@ -200,25 +176,25 @@ function normalizeStatus(value: unknown): ChatProgressStatus {
 
 function safeTitle(stage: ChatProgressStage, status: ChatProgressStatus, sourceText = ''): string {
   if (stage === 'retrieving' && status === 'failed') {
-    return '资料检索遇到问题，正在尝试继续处理';
+    return stageDetail('retrieving', 'failed');
   }
   if (stage === 'retrieving' && RETRIEVAL_EMPTY_PATTERNS.some((pattern) => sourceText.includes(pattern))) {
-    return '未找到足够的相关资料';
+    return i18n.global.t('ai.progress.stages.retrieving.emptyTitle');
   }
-  return STAGE_TITLE_BY_KEY[stage];
+  return stageTitle(stage);
 }
 
 function defaultDetail(stage: ChatProgressStage, status: ChatProgressStatus, sourceText = ''): string {
   if (stage === 'retrieving' && status === 'failed') {
-    return '已切换为继续处理，尽量保留可用信息';
+    return i18n.global.t('ai.progress.stages.retrieving.failedDetail');
   }
   if (stage === 'retrieving' && RETRIEVAL_EMPTY_PATTERNS.some((pattern) => sourceText.includes(pattern))) {
-    return '未找到足够相关资料，后续会基于可确认内容作答';
+    return i18n.global.t('ai.progress.stages.retrieving.emptyDetail');
   }
   if (PROJECT_REFUSAL_PATTERNS.some((pattern) => sourceText.includes(pattern))) {
-    return '当前项目资料中未找到可以支持回答的内容';
+    return i18n.global.t('ai.progress.stages.retrieving.projectRefusalDetail');
   }
-  return STAGE_DETAIL_BY_STATUS[stage][status];
+  return stageDetail(stage, status);
 }
 
 function safeDetail(
@@ -228,8 +204,12 @@ function safeDetail(
   candidate?: string | null,
 ): string {
   const trimmedDetail = typeof candidate === 'string' ? candidate.trim() : '';
+  const candidateUsesWrongLanguage =
+    (i18n.global.locale.value === 'en-US' && /[\u3400-\u9fff]/u.test(trimmedDetail)) ||
+    (i18n.global.locale.value === 'zh-CN' && /^[\x00-\x7f\s.,;:!?()'"-]+$/u.test(trimmedDetail));
   if (
     trimmedDetail &&
+    !candidateUsesWrongLanguage &&
     trimmedDetail.length <= 80 &&
     !FORBIDDEN_DETAIL_PATTERNS.some((pattern) => trimmedDetail.toLowerCase().includes(pattern.toLowerCase()))
   ) {
@@ -289,7 +269,7 @@ export function progressEventsFromTrace(steps: AgentTraceStep[], completed = fal
     const answeringEvent: ChatProgressEvent = {
       visible: true,
       stage: 'answering',
-      title: STAGE_TITLE_BY_KEY.answering,
+      title: stageTitle('answering'),
       status: 'success',
       detail: safeDetail('answering', 'success'),
       sequence: null,
@@ -328,7 +308,7 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
       stage: event.stage,
       title: event.intent_name || event.title,
       status: streaming && event.status === 'pending' ? 'running' : toVisibleStatus(event.status),
-      detail: event.detail || `正在处理 ${event.intent_order ?? 1}/${event.intent_total ?? normalized.length}`,
+      detail: event.detail || i18n.global.t('ai.progress.intentDetail', { current: event.intent_order ?? 1, total: event.intent_total ?? normalized.length }),
     }));
   }
   const eventByStage = new Map(normalized.map((item) => [item.stage, item]));
@@ -362,7 +342,7 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
       const completedDetail = event && normalizeStatus(event.status) === 'success' ? event.detail : null;
       return {
         ...config,
-        title: event?.title ?? config.title,
+        title: event?.title ?? stageTitle(config.stage),
         status: 'success',
         detail: safeDetail(config.stage, 'success', event?.title ?? '', completedDetail),
       };
@@ -378,9 +358,9 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
       };
     }
     if (streaming && index === activeIndex) {
-      return { ...config, status: 'running', detail: safeDetail(config.stage, 'running') };
+      return { ...config, title: stageTitle(config.stage), status: 'running', detail: safeDetail(config.stage, 'running') };
     }
-    return { ...config, status: 'pending', detail: safeDetail(config.stage, 'pending') };
+    return { ...config, title: stageTitle(config.stage), status: 'pending', detail: safeDetail(config.stage, 'pending') };
   });
 }
 
@@ -398,7 +378,7 @@ export function markProgressComplete(events: ChatProgressEvent[]): ChatProgressE
   return CHAT_PROGRESS_STAGES.slice(0, latestIndex + 1).map((item) => ({
     visible: true,
     stage: item.stage,
-    title: STAGE_TITLE_BY_KEY[item.stage],
+    title: stageTitle(item.stage),
     status: 'success',
     detail: safeDetail(item.stage, 'success', byStage.get(item.stage)?.title ?? '', byStage.get(item.stage)?.detail),
     sequence: byStage.get(item.stage)?.sequence ?? null,

@@ -8,18 +8,26 @@
 -->
 <script setup lang="ts">
 import { computed } from 'vue';
-
-import { INDEX_STATUS_TEXT, REVIEW_STATUS_TEXT } from '@/utils/constants';
+import { useI18n } from 'vue-i18n';
 
 const props = defineProps<{
   type: 'review' | 'index' | 'project' | 'generic';
   value: string;
 }>();
 
+const { t } = useI18n();
+
+const STATUS_KEYS: Record<string, string> = {
+  draft: 'status.draft', submitted: 'status.submitted', reviewing: 'status.reviewing', pending: 'status.pending',
+  approved: 'status.approved', rejected: 'status.rejected', parsing: 'status.parsing', parsed: 'status.parsed',
+  parsed_pending_review: 'status.parsedPendingReview', not_indexed: 'status.notIndexed', indexing: 'status.indexing', indexed: 'status.indexed',
+  active: 'status.active', archived: 'status.archived', enabled: 'status.enabled', disabled: 'status.disabled', running: 'status.running',
+  success: 'status.success', failed: 'status.failed', canceled: 'status.canceled',
+};
+
 const text = computed(() => {
-  if (props.type === 'review') return REVIEW_STATUS_TEXT[props.value] || props.value;
-  if (props.type === 'index') return INDEX_STATUS_TEXT[props.value] || props.value;
-  return props.value;
+  const key = STATUS_KEYS[props.value];
+  return key ? t(key) : props.value;
 });
 
 const theme = computed(() => {

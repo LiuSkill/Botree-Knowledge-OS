@@ -9,6 +9,7 @@
 <script setup lang="ts">
 import { FileSearchIcon, RefreshIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import { listProjects } from '@/api/projects';
 import { listQAAudits, listQAAuditSessions } from '@/api/system';
@@ -43,6 +44,7 @@ interface PaginationInfo {
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
+const { t } = useI18n();
 const activeTab = ref<AuditTab>('sessions');
 const users = ref<UserInfo[]>([]);
 const projects = ref<ProjectInfo[]>([]);
@@ -64,29 +66,29 @@ const selectedDetail = ref<QAAuditDetail | null>(null);
 const detailDrawerVisible = ref(false);
 const detailDrawerTab = ref<DetailDrawerTab>('citations');
 
-const sessionColumns = [
-  { colKey: 'user', title: '用户', width: 120 },
-  { colKey: 'project', title: '项目', width: 150 },
-  { colKey: 'title', title: '会话', width: 180, ellipsis: true },
-  { colKey: 'chat_type', title: '类型', width: 110 },
-  { colKey: 'question_count', title: '问题数', width: 80, align: 'center' },
-  { colKey: 'answer_count', title: '回答数', width: 80, align: 'center' },
-  { colKey: 'citation_count', title: '引用数', width: 80, align: 'center' },
-  { colKey: 'latest_question', title: '最近问题', minWidth: 240 },
-  { colKey: 'latest_qa_at', title: '最近回答时间', width: 150 },
-];
+const sessionColumns = computed(() => [
+  { colKey: 'user', title: t('system.audit.field.user'), width: 120 },
+  { colKey: 'project', title: t('system.audit.field.project'), width: 150 },
+  { colKey: 'title', title: t('system.audit.field.session'), width: 180, ellipsis: true },
+  { colKey: 'chat_type', title: t('system.audit.field.type'), width: 110 },
+  { colKey: 'question_count', title: t('system.audit.field.questionCount'), width: 80, align: 'center' as const },
+  { colKey: 'answer_count', title: t('system.audit.field.answerCount'), width: 80, align: 'center' as const },
+  { colKey: 'citation_count', title: t('system.audit.field.citationCount'), width: 80, align: 'center' as const },
+  { colKey: 'latest_question', title: t('system.audit.field.latestQuestion'), minWidth: 240 },
+  { colKey: 'latest_qa_at', title: t('system.audit.field.latestAnswerTime'), width: 150 },
+]);
 
-const detailColumns = [
-  { colKey: 'user', title: '用户', width: 120 },
-  { colKey: 'project', title: '项目', width: 150 },
-  { colKey: 'question', title: '问题', minWidth: 240 },
-  { colKey: 'feedback_status', title: '反馈', width: 100 },
-  { colKey: 'citation_count', title: '引用数', width: 80, align: 'center' },
-  { colKey: 'session_title', title: '会话', width: 180, ellipsis: true },
-  { colKey: 'retrievers', title: '检索器', width: 160 },
-  { colKey: 'answered_at', title: '回答时间', width: 150 },
-  { colKey: 'operation', title: '操作', width: 72, fixed: 'right' },
-];
+const detailColumns = computed(() => [
+  { colKey: 'user', title: t('system.audit.field.user'), width: 120 },
+  { colKey: 'project', title: t('system.audit.field.project'), width: 150 },
+  { colKey: 'question', title: t('system.audit.field.question'), minWidth: 240 },
+  { colKey: 'feedback_status', title: t('system.audit.field.feedback'), width: 100 },
+  { colKey: 'citation_count', title: t('system.audit.field.citationCount'), width: 80, align: 'center' as const },
+  { colKey: 'session_title', title: t('system.audit.field.session'), width: 180, ellipsis: true },
+  { colKey: 'retrievers', title: t('system.audit.field.retrievers'), width: 160 },
+  { colKey: 'answered_at', title: t('system.audit.field.answerTime'), width: 150 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 72, fixed: 'right' as const },
+]);
 
 const selectedDetailTrace = computed<AgentTraceStep[]>(() => parseAgentTrace(selectedDetail.value?.agent_trace_json));
 const selectedDetailCitations = computed(() => selectedDetail.value?.citations || []);
@@ -280,15 +282,15 @@ function normalizeMarkdownDisplay(content: string): string {
 }
 
 function userOptionLabel(user: UserInfo): string {
-  return `${user.real_name || user.username}（${user.username}）`;
+  return `${user.real_name || user.username} (${user.username})`;
 }
 
 function projectOptionLabel(project: ProjectInfo): string {
-  return `${project.name}（${project.code}）`;
+  return `${project.name} (${project.code})`;
 }
 
 function chatTypeLabel(chatType: QAAuditSession['chat_type'] | QAAuditDetail['chat_type']): string {
-  return chatType === 'project_chat' ? '项目问答' : '基础问答';
+  return chatType === 'project_chat' ? t('system.audit.chatType.project') : t('system.audit.chatType.base');
 }
 
 function chatTypeTheme(chatType: QAAuditSession['chat_type'] | QAAuditDetail['chat_type']): TagTheme {
@@ -296,9 +298,9 @@ function chatTypeTheme(chatType: QAAuditSession['chat_type'] | QAAuditDetail['ch
 }
 
 function feedbackLabel(status?: QAAuditDetail['feedback_status']): string {
-  if (status === 'like') return '点赞';
-  if (status === 'dislike') return '点踩';
-  return '未反馈';
+  if (status === 'like') return t('system.audit.feedback.like');
+  if (status === 'dislike') return t('system.audit.feedback.dislike');
+  return t('system.audit.feedback.none');
 }
 
 function feedbackTheme(status?: QAAuditDetail['feedback_status']): TagTheme {
@@ -316,7 +318,7 @@ function projectLabel(item: QAAuditSession | QAAuditDetail): string {
 }
 
 function retrieverLabel(retrievers: string[]): string {
-  return retrievers.length ? retrievers.join('、') : '-';
+  return retrievers.length ? retrievers.join(t('common.separator.list')) : '-';
 }
 
 function durationLabel(elapsedMs?: number | null): string {
@@ -332,70 +334,70 @@ onMounted(async () => {
 <template>
   <div class="system-card scroll-card">
     <t-form class="audit-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item label="用户">
+      <t-form-item :label="t('system.audit.field.user')">
         <t-select
           v-model="selectedUserId"
           class="audit-select"
           clearable
           filterable
           :loading="optionLoading"
-          placeholder="全部用户"
+          :placeholder="t('system.audit.placeholder.allUsers')"
           @change="handleFilterChange"
         >
           <t-option v-for="user in users" :key="user.id" :value="user.id" :label="userOptionLabel(user)" />
         </t-select>
       </t-form-item>
-      <t-form-item label="项目">
+      <t-form-item :label="t('system.audit.field.project')">
         <t-select
           v-model="selectedProjectId"
           class="audit-select"
           clearable
           filterable
           :loading="optionLoading"
-          placeholder="全部项目"
+          :placeholder="t('system.audit.placeholder.allProjects')"
           @change="handleFilterChange"
         >
           <t-option v-for="project in projects" :key="project.id" :value="project.id" :label="projectOptionLabel(project)" />
         </t-select>
       </t-form-item>
-      <t-form-item label="问答时间">
+      <t-form-item :label="t('system.audit.field.qaTime')">
         <t-date-range-picker
           v-model="dateRange"
           class="audit-date-range"
           clearable
           value-type="YYYY-MM-DD"
           format="YYYY-MM-DD"
-          separator="至"
-          :placeholder="['开始日期', '结束日期']"
+          :separator="t('common.date.rangeSeparator')"
+          :placeholder="[t('common.date.startDate'), t('common.date.endDate')]"
           @change="handleFilterChange"
         />
       </t-form-item>
-      <t-form-item v-if="activeTab === 'details'" label="反馈">
-        <t-select v-model="feedbackStatus" class="feedback-select" placeholder="全部反馈" @change="handleFeedbackChange">
-          <t-option label="全部反馈" value="" />
-          <t-option label="点赞" value="like" />
-          <t-option label="点踩" value="dislike" />
-          <t-option label="未反馈" value="none" />
+      <t-form-item v-if="activeTab === 'details'" :label="t('system.audit.field.feedback')">
+        <t-select v-model="feedbackStatus" class="feedback-select" :placeholder="t('system.audit.placeholder.allFeedback')" @change="handleFeedbackChange">
+          <t-option :label="t('system.audit.feedback.all')" value="" />
+          <t-option :label="t('system.audit.feedback.like')" value="like" />
+          <t-option :label="t('system.audit.feedback.dislike')" value="dislike" />
+          <t-option :label="t('system.audit.feedback.none')" value="none" />
         </t-select>
       </t-form-item>
       <t-form-item class="audit-filter-action">
-        <t-button @click="clearFilters">重置</t-button>
+        <t-button @click="clearFilters">{{ t('system.action.reset') }}</t-button>
       </t-form-item>
     </t-form>
 
     <t-tabs :value="activeTab" @change="handleTabChange">
-      <t-tab-panel value="sessions" label="用户会话记录" />
-      <t-tab-panel value="details" label="问答详情" />
+      <t-tab-panel value="sessions" :label="t('system.audit.title.sessions')" />
+      <t-tab-panel value="details" :label="t('system.audit.title.details')" />
     </t-tabs>
 
     <div class="system-section-head">
       <div class="system-section-title">
-        <h2>{{ activeTab === 'sessions' ? '用户会话记录' : '问答详情' }}</h2>
-        <span>共 {{ activeTab === 'sessions' ? sessionResult.total : detailResult.total }} 条数据</span>
+        <h2>{{ activeTab === 'sessions' ? t('system.audit.title.sessions') : t('system.audit.title.details') }}</h2>
+        <span>{{ t('system.summary.totalRecords', { count: activeTab === 'sessions' ? sessionResult.total : detailResult.total }) }}</span>
       </div>
       <t-button theme="default" variant="outline" @click="loadActiveTab">
         <template #icon><RefreshIcon /></template>
-        刷新
+        {{ t('system.action.refresh') }}
       </t-button>
     </div>
 
@@ -409,7 +411,7 @@ onMounted(async () => {
           :data="sessionResult.items"
           :columns="sessionColumns"
           :loading="sessionLoading"
-          empty="暂无匹配的会话记录"
+          :empty="t('system.audit.empty.sessions')"
         >
           <template #latest_qa_at="{ row }">
             {{ formatDateTime(row.latest_qa_at) }}
@@ -450,7 +452,7 @@ onMounted(async () => {
           :data="detailResult.items"
           :columns="detailColumns"
           :loading="detailLoading"
-          empty="暂无匹配的问答详情"
+          :empty="t('system.audit.empty.details')"
         >
           <template #answered_at="{ row }">
             {{ formatDateTime(row.answered_at || row.created_at) }}
@@ -471,7 +473,7 @@ onMounted(async () => {
             {{ retrieverLabel(row.retrievers) }}
           </template>
           <template #operation="{ row }">
-            <TableActionButton label="查看详情" @click="openDetailDrawer(row)">
+            <TableActionButton :label="t('system.audit.action.viewDetail')" @click="openDetailDrawer(row)">
               <FileSearchIcon />
             </TableActionButton>
           </template>
@@ -492,7 +494,7 @@ onMounted(async () => {
     <t-drawer
       v-model:visible="detailDrawerVisible"
       class="qa-detail-drawer drawer-scroll"
-      header="问答详情"
+      :header="t('system.audit.title.details')"
       placement="right"
       size="min(760px, 96vw)"
       :footer="false"
@@ -501,37 +503,37 @@ onMounted(async () => {
       <div v-if="selectedDetail" class="qa-detail-drawer-body">
         <div class="qa-detail-meta-grid">
           <div class="qa-detail-meta-item">
-            <span>用户</span>
+            <span>{{ t('system.audit.field.user') }}</span>
             <strong>{{ userLabel(selectedDetail) }}</strong>
           </div>
           <div class="qa-detail-meta-item">
-            <span>项目</span>
+            <span>{{ t('system.audit.field.project') }}</span>
             <strong>{{ projectLabel(selectedDetail) }}</strong>
           </div>
           <div class="qa-detail-meta-item">
-            <span>会话</span>
+            <span>{{ t('system.audit.field.session') }}</span>
             <strong>{{ selectedDetail.session_title || '-' }}</strong>
           </div>
           <div class="qa-detail-meta-item">
-            <span>类型</span>
+            <span>{{ t('system.audit.field.type') }}</span>
             <t-tag :theme="chatTypeTheme(selectedDetail.chat_type)" variant="light">
               {{ chatTypeLabel(selectedDetail.chat_type) }}
             </t-tag>
           </div>
           <div class="qa-detail-meta-item">
-            <span>检索器</span>
+            <span>{{ t('system.audit.field.retrievers') }}</span>
             <strong>{{ retrieverLabel(selectedDetail.retrievers) }}</strong>
           </div>
           <div class="qa-detail-meta-item">
-            <span>意图</span>
+            <span>{{ t('system.audit.field.intent') }}</span>
             <strong>{{ selectedDetail.intent || '-' }}</strong>
           </div>
           <div class="qa-detail-meta-item">
-            <span>耗时</span>
+            <span>{{ t('system.audit.field.duration') }}</span>
             <strong>{{ durationLabel(selectedDetail.elapsed_ms) }}</strong>
           </div>
           <div class="qa-detail-meta-item">
-            <span>回答时间</span>
+            <span>{{ t('system.audit.field.answerTime') }}</span>
             <strong>{{ formatDateTime(selectedDetail.answered_at || selectedDetail.created_at) }}</strong>
           </div>
         </div>
@@ -563,8 +565,8 @@ onMounted(async () => {
 
         <div class="qa-detail-related">
           <t-tabs :value="detailDrawerTab" @change="handleDrawerTabChange">
-            <t-tab-panel value="citations" label="引用来源" />
-            <t-tab-panel value="trace" label="执行过程" />
+            <t-tab-panel value="citations" :label="t('system.audit.drawer.citations')" />
+            <t-tab-panel value="trace" :label="t('system.audit.drawer.trace')" />
           </t-tabs>
           <div class="qa-detail-related-body">
             <CitationList

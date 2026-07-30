@@ -10,6 +10,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { CheckCircleIcon, DeleteIcon, EditIcon, PlayCircleIcon, PoweroffIcon, RefreshIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import {
   createModelConfig,
@@ -34,18 +35,19 @@ type TagTheme = 'default' | 'primary' | 'success' | 'warning' | 'danger';
 
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
-const modelTypeOptions = [
-  { value: 'llm', label: 'LLM' },
-  { value: 'intent', label: '意图识别' },
-  { value: 'planner', label: '检索规划' },
-  { value: 'evidence_judge_fast', label: '证据判断 Flash' },
-  { value: 'evidence_judge', label: '证据判断 Plus' },
-  { value: 'answer_llm', label: '普通回答' },
-  { value: 'vision_llm', label: '视觉回答' },
-  { value: 'analysis_llm', label: '复杂分析' },
-  { value: 'embedding', label: 'Embedding' },
-];
+const MODEL_TYPE_LABEL_KEYS: Record<string, string> = {
+  llm: 'system.model.type.llm',
+  intent: 'system.model.type.intent',
+  planner: 'system.model.type.planner',
+  evidence_judge_fast: 'system.model.type.evidenceJudgeFast',
+  evidence_judge: 'system.model.type.evidenceJudge',
+  answer_llm: 'system.model.type.answerLlm',
+  vision_llm: 'system.model.type.visionLlm',
+  analysis_llm: 'system.model.type.analysisLlm',
+  embedding: 'system.model.type.embedding',
+};
 
+const { t } = useI18n();
 const configs = ref<PageResult<ModelConfig>>(createEmptyPageResult<ModelConfig>());
 const loading = ref(false);
 const dialogVisible = ref(false);
@@ -69,17 +71,20 @@ const form = reactive({
   enabled: true,
 });
 
-const dialogTitle = computed(() => (dialogMode.value === 'create' ? '新增模型配置' : '编辑模型配置'));
+const dialogTitle = computed(() => (dialogMode.value === 'create' ? t('system.model.createTitle') : t('system.model.editTitle')));
+const modelTypeOptions = computed(() =>
+  Object.entries(MODEL_TYPE_LABEL_KEYS).map(([value, labelKey]) => ({ value, label: t(labelKey) })),
+);
 
-const columns = [
-  { colKey: 'provider', title: '供应商', width: 140 },
-  { colKey: 'model_name', title: '模型', minWidth: 180 },
-  { colKey: 'model_type', title: '类型', width: 150 },
+const columns = computed(() => [
+  { colKey: 'provider', title: t('system.model.field.provider'), width: 140 },
+  { colKey: 'model_name', title: t('system.model.field.model'), minWidth: 180 },
+  { colKey: 'model_type', title: t('common.field.type'), width: 150 },
   { colKey: 'api_base', title: 'API Base', minWidth: 220 },
-  { colKey: 'is_default', title: '默认', width: 90 },
-  { colKey: 'enabled', title: '状态', width: 90 },
-  { colKey: 'operation', title: '操作', width: 180, fixed: 'right' },
-];
+  { colKey: 'is_default', title: t('system.model.field.default'), width: 90 },
+  { colKey: 'enabled', title: t('common.field.status'), width: 90 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 180, fixed: 'right' as const },
+]);
 
 function createEmptyPageResult<T>(): PageResult<T> {
   return {
@@ -173,10 +178,10 @@ function buildSubmitPayload(): Record<string, unknown> {
 async function handleSubmit(): Promise<void> {
   if (dialogMode.value === 'create') {
     await createModelConfig(buildSubmitPayload());
-    MessagePlugin.success('模型配置已创建');
+    MessagePlugin.success(t('system.model.message.created'));
   } else if (editingConfigId.value) {
     await updateModelConfig(editingConfigId.value, buildSubmitPayload());
-    MessagePlugin.success('模型配置已更新');
+    MessagePlugin.success(t('system.model.message.updated'));
   }
   dialogVisible.value = false;
   await loadConfigs();
@@ -184,24 +189,24 @@ async function handleSubmit(): Promise<void> {
 
 async function toggleEnabled(config: ModelConfig): Promise<void> {
   await updateModelConfig(config.id, { enabled: !config.enabled });
-  MessagePlugin.success(config.enabled ? '模型已停用' : '模型已启用');
+  MessagePlugin.success(config.enabled ? t('system.model.message.disabled') : t('system.model.message.enabled'));
   await loadConfigs();
 }
 
 async function handleSetDefault(config: ModelConfig): Promise<void> {
   await setDefaultModelConfig(config.id);
-  MessagePlugin.success('默认模型已更新');
+  MessagePlugin.success(t('system.model.message.defaultUpdated'));
   await loadConfigs();
 }
 
 async function handleTest(config: ModelConfig): Promise<void> {
   await testModelConfig(config.id);
-  MessagePlugin.success('模型连通性测试通过');
+  MessagePlugin.success(t('system.model.message.testPassed'));
 }
 
 async function handleDelete(config: ModelConfig): Promise<void> {
   await deleteModelConfig(config.id);
-  MessagePlugin.success('模型配置已删除');
+  MessagePlugin.success(t('system.model.message.deleted'));
   await reloadAfterMutation();
 }
 
@@ -231,7 +236,8 @@ function defaultTheme(isDefault: boolean): TagTheme {
 }
 
 function modelTypeLabel(modelType: string): string {
-  return modelTypeOptions.find((item) => item.value === modelType)?.label || modelType;
+  const key = MODEL_TYPE_LABEL_KEYS[modelType];
+  return key ? t(key) : modelType;
 }
 
 onMounted(loadConfigs);
@@ -240,45 +246,45 @@ onMounted(loadConfigs);
 <template>
   <div class="system-card scroll-card">
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item label="关键字">
-        <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="供应商 / 模型 / API Base" @enter="handleSearch" />
+      <t-form-item :label="t('system.model.field.keyword')">
+        <t-input v-model="filters.keyword" class="filter-input" clearable :placeholder="t('system.model.placeholder.keyword')" @enter="handleSearch" />
       </t-form-item>
-      <t-form-item label="类型">
-        <t-select v-model="filters.model_type" class="filter-select" clearable placeholder="全部类型" @change="handleSearch">
+      <t-form-item :label="t('common.field.type')">
+        <t-select v-model="filters.model_type" class="filter-select" clearable :placeholder="t('system.model.placeholder.allTypes')" @change="handleSearch">
           <t-option v-for="option in modelTypeOptions" :key="option.value" :value="option.value" :label="option.label" />
         </t-select>
       </t-form-item>
-      <t-form-item label="状态">
-        <t-select v-model="filters.enabled" class="filter-select" clearable placeholder="全部状态" @change="handleSearch">
-          <t-option label="启用" value="enabled" />
-          <t-option label="停用" value="disabled" />
+      <t-form-item :label="t('common.field.status')">
+        <t-select v-model="filters.enabled" class="filter-select" clearable :placeholder="t('system.status.all')" @change="handleSearch">
+          <t-option :label="t('system.status.enabled')" value="enabled" />
+          <t-option :label="t('system.status.disabled')" value="disabled" />
         </t-select>
       </t-form-item>
-      <t-form-item label="默认">
-        <t-select v-model="filters.is_default" class="filter-select" clearable placeholder="全部" @change="handleSearch">
-          <t-option label="默认" value="default" />
-          <t-option label="非默认" value="normal" />
+      <t-form-item :label="t('system.model.field.default')">
+        <t-select v-model="filters.is_default" class="filter-select" clearable :placeholder="t('system.model.placeholder.all')" @change="handleSearch">
+          <t-option :label="t('system.model.value.default')" value="default" />
+          <t-option :label="t('system.model.value.nonDefault')" value="normal" />
         </t-select>
       </t-form-item>
       <t-form-item>
         <t-space>
-          <t-button theme="primary" @click="handleSearch">查询</t-button>
-          <t-button @click="clearFilters">重置</t-button>
+          <t-button theme="primary" @click="handleSearch">{{ t('system.action.query') }}</t-button>
+          <t-button @click="clearFilters">{{ t('system.action.reset') }}</t-button>
         </t-space>
       </t-form-item>
     </t-form>
 
     <div class="system-section-head">
       <div class="system-section-title">
-        <h2>模型配置列表</h2>
-        <span>共 {{ configs.total }} 条数据</span>
+        <h2>{{ t('system.model.title') }}</h2>
+        <span>{{ t('system.summary.totalRecords', { count: configs.total }) }}</span>
       </div>
       <t-space>
         <t-button theme="default" variant="outline" @click="loadConfigs">
           <template #icon><RefreshIcon /></template>
-          刷新
+          {{ t('system.action.refresh') }}
         </t-button>
-        <t-button v-permission="PERMISSIONS.SYSTEM_MODEL_CREATE" theme="primary" @click="openCreateDialog">新增模型</t-button>
+        <t-button v-permission="PERMISSIONS.SYSTEM_MODEL_CREATE" theme="primary" @click="openCreateDialog">{{ t('system.model.action.create') }}</t-button>
       </t-space>
     </div>
 
@@ -290,7 +296,7 @@ onMounted(loadConfigs);
         :data="configs.items"
         :columns="columns"
         :loading="loading"
-        empty="暂无模型配置"
+        :empty="t('system.model.empty')"
       >
         <template #model_type="{ row }">
           {{ modelTypeLabel(row.model_type) }}
@@ -299,29 +305,29 @@ onMounted(loadConfigs);
           {{ row.api_base || '-' }}
         </template>
         <template #is_default="{ row }">
-          <t-tag size="small" variant="light" :theme="defaultTheme(row.is_default)">{{ row.is_default ? '默认' : '普通' }}</t-tag>
+          <t-tag size="small" variant="light" :theme="defaultTheme(row.is_default)">{{ row.is_default ? t('system.model.value.default') : t('system.model.value.normal') }}</t-tag>
         </template>
         <template #enabled="{ row }">
-          <t-tag size="small" variant="light" :theme="statusTheme(row.enabled)">{{ row.enabled ? '启用' : '停用' }}</t-tag>
+          <t-tag size="small" variant="light" :theme="statusTheme(row.enabled)">{{ row.enabled ? t('system.status.enabled') : t('system.status.disabled') }}</t-tag>
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <TableActionButton label="编辑" :permission="PERMISSIONS.SYSTEM_MODEL_EDIT" @click="openEditDialog(row)">
+            <TableActionButton :label="t('system.action.edit')" :permission="PERMISSIONS.SYSTEM_MODEL_EDIT" @click="openEditDialog(row)">
               <EditIcon />
             </TableActionButton>
-            <TableActionButton :label="row.enabled ? '停用' : '启用'" :permission="PERMISSIONS.SYSTEM_MODEL_EDIT" @click="toggleEnabled(row)">
+            <TableActionButton :label="row.enabled ? t('system.action.disable') : t('system.action.enable')" :permission="PERMISSIONS.SYSTEM_MODEL_EDIT" @click="toggleEnabled(row)">
               <PoweroffIcon />
             </TableActionButton>
-            <TableActionButton label="设为默认" :permission="PERMISSIONS.SYSTEM_MODEL_SET_DEFAULT" :disabled="row.is_default" @click="handleSetDefault(row)">
+            <TableActionButton :label="t('system.model.action.setDefault')" :permission="PERMISSIONS.SYSTEM_MODEL_SET_DEFAULT" :disabled="row.is_default" @click="handleSetDefault(row)">
               <CheckCircleIcon />
             </TableActionButton>
-            <t-popconfirm content="确认测试该模型配置？" @confirm="handleTest(row)">
-              <TableActionButton label="测试" :permission="PERMISSIONS.SYSTEM_MODEL_TEST">
+            <t-popconfirm :content="t('system.model.confirm.test')" @confirm="handleTest(row)">
+              <TableActionButton :label="t('system.model.action.test')" :permission="PERMISSIONS.SYSTEM_MODEL_TEST">
                 <PlayCircleIcon />
               </TableActionButton>
             </t-popconfirm>
-            <t-popconfirm content="确认删除该模型配置？" @confirm="handleDelete(row)">
-              <TableActionButton label="删除" :permission="PERMISSIONS.SYSTEM_MODEL_DELETE" theme="danger">
+            <t-popconfirm :content="t('system.model.confirm.delete')" @confirm="handleDelete(row)">
+              <TableActionButton :label="t('system.action.delete')" :permission="PERMISSIONS.SYSTEM_MODEL_DELETE" theme="danger">
                 <DeleteIcon />
               </TableActionButton>
             </t-popconfirm>
@@ -343,19 +349,19 @@ onMounted(loadConfigs);
 
     <t-dialog v-model:visible="dialogVisible" :header="dialogTitle" width="620px" @confirm="handleSubmit">
       <t-form :data="form" label-align="top">
-        <t-form-item label="供应商" required-mark><t-input v-model="form.provider" /></t-form-item>
-        <t-form-item label="模型名称" required-mark><t-input v-model="form.model_name" /></t-form-item>
-        <t-form-item label="模型类型" required-mark>
+        <t-form-item :label="t('system.model.field.provider')" required-mark><t-input v-model="form.provider" /></t-form-item>
+        <t-form-item :label="t('system.model.field.modelName')" required-mark><t-input v-model="form.model_name" /></t-form-item>
+        <t-form-item :label="t('system.model.field.modelType')" required-mark>
           <t-select v-model="form.model_type">
             <t-option v-for="option in modelTypeOptions" :key="option.value" :value="option.value" :label="option.label" />
           </t-select>
         </t-form-item>
         <t-form-item label="API Base"><t-input v-model="form.api_base" /></t-form-item>
-        <t-form-item :label="dialogMode === 'create' ? 'API Key' : 'API Key（留空则不修改）'">
+        <t-form-item :label="dialogMode === 'create' ? 'API Key' : t('system.model.field.apiKeyKeep')">
           <t-input v-model="form.api_key" type="password" />
         </t-form-item>
-        <t-form-item label="默认模型"><t-switch v-model="form.is_default" /></t-form-item>
-        <t-form-item label="启用"><t-switch v-model="form.enabled" /></t-form-item>
+        <t-form-item :label="t('system.model.field.defaultModel')"><t-switch v-model="form.is_default" /></t-form-item>
+        <t-form-item :label="t('system.model.field.enabled')"><t-switch v-model="form.enabled" /></t-form-item>
       </t-form>
     </t-dialog>
   </div>

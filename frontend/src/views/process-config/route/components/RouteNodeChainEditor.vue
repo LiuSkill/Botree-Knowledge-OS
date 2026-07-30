@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { AddIcon, ArrowDownIcon, ArrowUpIcon, DeleteIcon } from 'tdesign-icons-vue-next';
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
-import { PROCESS_NODE_TYPE_OPTIONS, type ProcessNodeItem } from '@/views/process-config/node/types';
+import type { ProcessNodeItem } from '@/views/process-config/node/types';
+import { processNodeTypeLocaleKey, processStatusLocaleKey } from '@/views/process-config/i18n';
 import type { RouteEditableNode } from '@/views/process-config/route/types';
 import type { ProcessLibraryStatus } from '@/views/process-config/types';
 
@@ -25,18 +27,19 @@ const emit = defineEmits<{
   'update:modelValue': [value: RouteEditableNode[]];
 }>();
 
+const { t } = useI18n();
 const rows = ref<EditableRouteNodeRow[]>([]);
 let rowSeed = 0;
 
-const columns = [
-  { colKey: 'node_id', title: '工艺节点', minWidth: 240 },
-  { colKey: 'node_type', title: '节点类型', width: 120 },
-  { colKey: 'status', title: '状态', width: 100, align: 'center' },
-  { colKey: 'version', title: '版本', width: 110 },
-  { colKey: 'node_params_json', title: '节点参数(JSON)', minWidth: 220 },
-  { colKey: 'remark', title: '备注', minWidth: 180 },
-  { colKey: 'operation', title: '操作', width: 122, align: 'center' },
-];
+const columns = computed(() => [
+  { colKey: 'node_id', title: t('process.entity.nodes'), minWidth: 240 },
+  { colKey: 'node_type', title: t('process.node.field.nodeType'), width: 120 },
+  { colKey: 'status', title: t('common.field.status'), width: 100, align: 'center' as const },
+  { colKey: 'version', title: t('common.field.version'), width: 110 },
+  { colKey: 'node_params_json', title: t('process.route.field.nodeParamsJson'), minWidth: 220 },
+  { colKey: 'remark', title: t('process.field.remark'), minWidth: 180 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 122, align: 'center' as const },
+]);
 
 const optionMap = computed(() => {
   const map = new Map<number, ProcessNodeItem>();
@@ -130,34 +133,33 @@ function normalizeOptionalText(value?: string | null): string | null {
 }
 
 function nodeOptionLabel(option: ProcessNodeItem): string {
-  const typeLabel = PROCESS_NODE_TYPE_OPTIONS.find((item) => item.value === option.node_type)?.label || option.node_type;
+  const typeLabel = nodeTypeLabelByValue(option.node_type);
   return `${option.code} / ${option.name} / ${typeLabel}`;
 }
 
 function statusLabel(status: ProcessLibraryStatus): string {
-  return (
-    {
-      enabled: '启用',
-      draft: '草稿',
-      disabled: '停用',
-    }[status] || status
-  );
+  return t(processStatusLocaleKey(status));
 }
 
 function statusTheme(status: ProcessLibraryStatus): 'success' | 'warning' | 'default' {
-  return (
-    {
-      enabled: 'success',
-      draft: 'warning',
-      disabled: 'default',
-    }[status] || 'default'
-  );
+  const themes: Record<ProcessLibraryStatus, 'success' | 'warning' | 'default'> = {
+    enabled: 'success',
+    draft: 'warning',
+    disabled: 'default',
+  };
+  return themes[status] || 'default';
 }
 
 function nodeTypeLabel(nodeId: number | null): string {
   if (!nodeId) return '-';
   const option = optionMap.value.get(nodeId);
-  return PROCESS_NODE_TYPE_OPTIONS.find((item) => item.value === option?.node_type)?.label || option?.node_type || '-';
+  return nodeTypeLabelByValue(option?.node_type);
+}
+
+function nodeTypeLabelByValue(value?: string | null): string {
+  if (!value) return '-';
+  const key = processNodeTypeLocaleKey(value);
+  return key ? t(key) : value;
 }
 
 function nodeStatus(nodeId: number | null): ProcessLibraryStatus | null {
@@ -176,7 +178,7 @@ function nodeVersion(nodeId: number | null): string {
     <div class="route-chain-editor__toolbar">
       <t-button size="small" variant="outline" :disabled="disabled" @click="addRow">
         <template #icon><AddIcon /></template>
-        添加节点
+        {{ t('process.route.action.addNode') }}
       </t-button>
     </div>
 
@@ -188,7 +190,7 @@ function nodeVersion(nodeId: number | null): string {
         size="small"
         :columns="columns"
         :data="rows"
-        empty="暂无路线节点配置"
+        :empty="t('process.route.empty.chain')"
       >
         <template #node_id="{ row }">
           <t-select
@@ -196,8 +198,8 @@ function nodeVersion(nodeId: number | null): string {
             clearable
             :disabled="disabled"
             :model-value="row.node_id"
-            placeholder="请选择工艺节点"
-            @update:model-value="(value) => updateField(row, 'node_id', (value as number | null) ?? null)"
+            :placeholder="t('process.route.placeholder.node')"
+            @update:model-value="(value: number | null) => updateField(row, 'node_id', value ?? null)"
           >
             <t-option v-for="option in nodeOptions" :key="option.id" :label="nodeOptionLabel(option)" :value="option.id" />
           </t-select>
@@ -219,8 +221,8 @@ function nodeVersion(nodeId: number | null): string {
             clearable
             :disabled="disabled"
             :model-value="String(row.node_params_json || '')"
-            placeholder="可选，JSON 字符串"
-            @update:model-value="(value) => updateField(row, 'node_params_json', value as string)"
+            :placeholder="t('process.route.placeholder.nodeParamsJson')"
+            @update:model-value="(value: string) => updateField(row, 'node_params_json', value)"
           />
         </template>
         <template #remark="{ row }">
@@ -228,8 +230,8 @@ function nodeVersion(nodeId: number | null): string {
             clearable
             :disabled="disabled"
             :model-value="String(row.remark || '')"
-            placeholder="备注"
-            @update:model-value="(value) => updateField(row, 'remark', value as string)"
+            :placeholder="t('process.node.placeholder.remark')"
+            @update:model-value="(value: string) => updateField(row, 'remark', value)"
           />
         </template>
         <template #operation="{ rowIndex }">

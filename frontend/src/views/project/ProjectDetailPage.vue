@@ -25,6 +25,7 @@ import {
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref, type Component } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import {
@@ -67,7 +68,7 @@ import type {
 } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
-import { REVIEW_TASK_STATUS } from '@/utils/constants';
+import { indexStatusText, parseStatusText, REVIEW_TASK_STATUS } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
 import ProjectFormDrawer from '@/views/project/ProjectFormDrawer.vue';
@@ -82,7 +83,7 @@ interface CategoryRow {
 
 interface DirectoryTemplateNode {
   code: string;
-  name: string;
+  nameKey: string;
   children: DirectoryTemplateNode[];
 }
 
@@ -111,23 +112,6 @@ interface RecentDocumentDisplayItem {
 }
 
 const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
-const PROJECT_STATUS_OPTIONS: ProjectStatus[] = ['待启动', '进行中', '已完成', '已暂停'];
-const DOCUMENT_STATUS_OPTIONS = [
-  { label: '待审核', value: '待审核' },
-  { label: '已发布', value: '已发布' },
-];
-const PARSE_STATUS_OPTIONS = [
-  { label: '未解析', value: 'unparsed' },
-  { label: '解析中', value: 'parsing' },
-  { label: '成功', value: 'success' },
-  { label: '失败', value: 'failed' },
-];
-const INDEX_STATUS_OPTIONS = [
-  { label: '未索引', value: 'not_indexed' },
-  { label: '索引中', value: 'indexing' },
-  { label: '成功', value: 'indexed' },
-  { label: '失败', value: 'failed' },
-];
 const DOCUMENT_TYPE_OPTIONS = [
   '合同文件',
   '程序文件',
@@ -146,63 +130,93 @@ const DOCUMENT_TYPE_OPTIONS = [
   '其他',
 ];
 const DISCIPLINE_OPTIONS = ['工艺', '管道', '设备', '仪表', '电气', '结构', '造价', '拆解', '采购', '项目管理', '其他'];
+const DOCUMENT_TYPE_KEY_MAP: Record<string, string> = {
+  合同文件: 'project.detail.documentType.contract',
+  程序文件: 'project.detail.documentType.procedure',
+  组织通讯录: 'project.detail.documentType.directory',
+  WBS文件: 'project.detail.documentType.wbs',
+  进度计划: 'project.detail.documentType.schedule',
+  月报: 'project.detail.documentType.monthlyReport',
+  会议纪要: 'project.detail.documentType.meetingMinutes',
+  设计输入: 'project.detail.documentType.designInput',
+  设计基础: 'project.detail.documentType.designBasis',
+  设计成品: 'project.detail.documentType.designOutput',
+  厂商资料: 'project.detail.documentType.vendorData',
+  图纸: 'project.detail.documentType.drawing',
+  设备资料: 'project.detail.documentType.equipmentData',
+  采购文件: 'project.detail.documentType.procurement',
+  其他: 'project.detail.documentType.other',
+};
+const DISCIPLINE_KEY_MAP: Record<string, string> = {
+  工艺: 'project.detail.discipline.process',
+  管道: 'project.detail.discipline.piping',
+  设备: 'project.detail.discipline.equipment',
+  仪表: 'project.detail.discipline.instrument',
+  电气: 'project.detail.discipline.electrical',
+  结构: 'project.detail.discipline.structure',
+  造价: 'project.detail.discipline.cost',
+  拆解: 'project.detail.discipline.dismantling',
+  采购: 'project.detail.discipline.procurement',
+  项目管理: 'project.detail.discipline.projectManagement',
+  其他: 'project.detail.discipline.other',
+};
 const ACCEPTED_UPLOAD_EXTENSIONS = new Set(['txt', 'md', 'csv', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'odt', 'odp', 'ods', 'rtf', 'zip', 'rar']);
 const RECENT_UPLOAD_DOCUMENT_LIMIT = 5;
 const DEFAULT_PROJECT_DIRECTORY_TEMPLATE: DirectoryTemplateNode[] = [
   {
     code: 'A',
-    name: '项目管理',
+    nameKey: 'project.detail.defaultDirectory.projectManagement',
     children: [
-      { code: 'A01', name: '项目合同文件', children: [] },
-      { code: 'A02', name: '项目程序文件', children: [] },
-      { code: 'A03', name: '项目组织机构与通讯录', children: [] },
-      { code: 'A04', name: 'WBS', children: [] },
-      { code: 'A05', name: '项目模板文件', children: [] },
-      { code: 'A06', name: '项目进度计划', children: [] },
-      { code: 'A07', name: '项目月报', children: [] },
-      { code: 'A08', name: '会议纪要', children: [] },
+      { code: 'A01', nameKey: 'project.detail.defaultDirectory.projectContract', children: [] },
+      { code: 'A02', nameKey: 'project.detail.defaultDirectory.projectProcedure', children: [] },
+      { code: 'A03', nameKey: 'project.detail.defaultDirectory.projectOrganization', children: [] },
+      { code: 'A04', nameKey: 'project.detail.defaultDirectory.wbs', children: [] },
+      { code: 'A05', nameKey: 'project.detail.defaultDirectory.projectTemplate', children: [] },
+      { code: 'A06', nameKey: 'project.detail.defaultDirectory.projectSchedule', children: [] },
+      { code: 'A07', nameKey: 'project.detail.defaultDirectory.monthlyReport', children: [] },
+      { code: 'A08', nameKey: 'project.detail.defaultDirectory.meetingMinutes', children: [] },
     ],
   },
   {
     code: 'E',
-    name: '设计资料',
+    nameKey: 'project.detail.defaultDirectory.designData',
     children: [
-      { code: 'E01', name: '设计输入资料', children: [] },
-      { code: 'E02', name: '设计基础', children: [] },
-      { code: 'E03', name: '设计成品文件', children: [] },
-      { code: 'E04', name: '厂商资料', children: [] },
+      { code: 'E01', nameKey: 'project.detail.defaultDirectory.designInput', children: [] },
+      { code: 'E02', nameKey: 'project.detail.defaultDirectory.designBasis', children: [] },
+      { code: 'E03', nameKey: 'project.detail.defaultDirectory.designOutput', children: [] },
+      { code: 'E04', nameKey: 'project.detail.defaultDirectory.vendorData', children: [] },
     ],
   },
   {
     code: 'D',
-    name: '专业资料',
+    nameKey: 'project.detail.defaultDirectory.disciplineData',
     children: [
-      { code: '00', name: '项目统一规定', children: [] },
-      { code: '01', name: '工艺', children: [] },
-      { code: '02', name: '管道', children: [] },
-      { code: '03', name: '设备', children: [] },
-      { code: '04', name: '仪表', children: [] },
-      { code: '05', name: '电气', children: [] },
-      { code: '06', name: '结构', children: [] },
-      { code: '07', name: '造价', children: [] },
-      { code: '08', name: '拆解', children: [] },
+      { code: '00', nameKey: 'project.detail.defaultDirectory.projectGeneralRules', children: [] },
+      { code: '01', nameKey: 'project.detail.defaultDirectory.process', children: [] },
+      { code: '02', nameKey: 'project.detail.defaultDirectory.piping', children: [] },
+      { code: '03', nameKey: 'project.detail.defaultDirectory.equipment', children: [] },
+      { code: '04', nameKey: 'project.detail.defaultDirectory.instrument', children: [] },
+      { code: '05', nameKey: 'project.detail.defaultDirectory.electrical', children: [] },
+      { code: '06', nameKey: 'project.detail.defaultDirectory.structure', children: [] },
+      { code: '07', nameKey: 'project.detail.defaultDirectory.cost', children: [] },
+      { code: '08', nameKey: 'project.detail.defaultDirectory.dismantling', children: [] },
     ],
   },
   {
     code: 'P',
-    name: '采购资料',
+    nameKey: 'project.detail.defaultDirectory.procurementData',
     children: [
-      { code: '01', name: '主合同内容', children: [] },
-      { code: '02', name: '采购管理', children: [] },
-      { code: '03', name: '采购合同', children: [] },
-      { code: '04', name: '提交检验', children: [] },
-      { code: '05', name: '运输', children: [] },
-      { code: '06', name: '现场采购', children: [] },
-      { code: '07', name: '状态表', children: [] },
-      { code: '08', name: '备件', children: [] },
-      { code: '09', name: '厂商资料', children: [] },
-      { code: '10', name: '需要采购', children: [] },
-      { code: '11', name: '内部采购合同', children: [] },
+      { code: '01', nameKey: 'project.detail.defaultDirectory.mainContract', children: [] },
+      { code: '02', nameKey: 'project.detail.defaultDirectory.procurementManagement', children: [] },
+      { code: '03', nameKey: 'project.detail.defaultDirectory.procurementContract', children: [] },
+      { code: '04', nameKey: 'project.detail.defaultDirectory.inspectionSubmission', children: [] },
+      { code: '05', nameKey: 'project.detail.defaultDirectory.transportation', children: [] },
+      { code: '06', nameKey: 'project.detail.defaultDirectory.siteProcurement', children: [] },
+      { code: '07', nameKey: 'project.detail.defaultDirectory.statusSheet', children: [] },
+      { code: '08', nameKey: 'project.detail.defaultDirectory.spareParts', children: [] },
+      { code: '09', nameKey: 'project.detail.defaultDirectory.vendorData', children: [] },
+      { code: '10', nameKey: 'project.detail.defaultDirectory.procurementRequired', children: [] },
+      { code: '11', nameKey: 'project.detail.defaultDirectory.internalProcurementContract', children: [] },
     ],
   },
 ];
@@ -210,6 +224,7 @@ const DEFAULT_PROJECT_DIRECTORY_TEMPLATE: DirectoryTemplateNode[] = [
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t, locale } = useI18n();
 const project = ref<ProjectOverviewInfo | null>(null);
 const documents = ref<DocumentInfo[]>([]);
 const selectedDocument = ref<DocumentInfo | null>(null);
@@ -241,6 +256,12 @@ const editingCategoryId = ref<number | null>(null);
 
 const projectId = computed(() => Number(route.params.id));
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
+const documentStatusOptions = computed(() => [
+  { label: t('project.detail.document.statusPendingReview'), value: '待审核' },
+  { label: t('project.detail.document.statusPublished'), value: '已发布' },
+]);
+const documentTypeOptions = computed(() => DOCUMENT_TYPE_OPTIONS.map((value) => ({ label: t(DOCUMENT_TYPE_KEY_MAP[value]), value })));
+const disciplineOptions = computed(() => DISCIPLINE_OPTIONS.map((value) => ({ label: t(DISCIPLINE_KEY_MAP[value]), value })));
 const canViewProjectDetail = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
 const canEditProject = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_EDIT));
 const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
@@ -392,6 +413,7 @@ const filteredDocuments = computed(() => {
 });
 
 const overviewDirectoryTree = computed<OverviewDirectoryNode[]>(() => {
+  locale.value;
   if (categories.value.length) {
     return categories.value.map(toOverviewDirectoryNode);
   }
@@ -412,8 +434,9 @@ const overviewDirectoryRows = computed<OverviewDirectoryRow[]>(() => {
   return rows;
 });
 
-const recentUploadDocuments = computed<RecentDocumentDisplayItem[]>(() =>
-  (project.value?.recent_documents || []).slice(0, RECENT_UPLOAD_DOCUMENT_LIMIT).map((document) => {
+const recentUploadDocuments = computed<RecentDocumentDisplayItem[]>(() => {
+  locale.value;
+  return (project.value?.recent_documents || []).slice(0, RECENT_UPLOAD_DOCUMENT_LIMIT).map((document) => {
     const fileMeta = recentDocumentFileMeta(document);
     return {
       id: document.id,
@@ -425,8 +448,8 @@ const recentUploadDocuments = computed<RecentDocumentDisplayItem[]>(() =>
       icon: fileMeta.icon,
       tone: fileMeta.tone,
     };
-  }),
-);
+  });
+});
 
 const selectedDocuments = computed(() => documents.value.filter((document) => selectedDocumentIds.value.includes(document.id)));
 
@@ -477,7 +500,7 @@ async function loadProjectDetailSafely(): Promise<ProjectOverviewInfo | null> {
   try {
     return await getProjectOverview(projectId.value);
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '项目详情加载失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('project.detail.message.loadFailed'));
     project.value = null;
     categories.value = [];
     documents.value = [];
@@ -496,7 +519,7 @@ async function loadProjectDirectoriesSafely(): Promise<KnowledgeCategory[]> {
   try {
     return await listProjectDirectories(projectId.value);
   } catch (error) {
-    MessagePlugin.warning(error instanceof Error ? error.message : '项目资料目录加载失败');
+    MessagePlugin.warning(error instanceof Error ? error.message : t('project.detail.message.directoryLoadFailed'));
     return [];
   }
 }
@@ -506,7 +529,7 @@ async function loadProjectDocumentsSafely(): Promise<DocumentInfo[]> {
   try {
     return await listProjectDocuments(projectId.value);
   } catch (error) {
-    MessagePlugin.warning(error instanceof Error ? error.message : '项目资料加载失败');
+    MessagePlugin.warning(error instanceof Error ? error.message : t('project.detail.message.documentsLoadFailed'));
     return [];
   }
 }
@@ -515,7 +538,7 @@ async function loadProjectMembersSafely(): Promise<Array<Record<string, unknown>
   try {
     return await listProjectMembers(projectId.value);
   } catch (error) {
-    MessagePlugin.warning(error instanceof Error ? error.message : '项目成员加载失败');
+    MessagePlugin.warning(error instanceof Error ? error.message : t('project.detail.message.membersLoadFailed'));
     return [];
   }
 }
@@ -559,9 +582,9 @@ function toOverviewDirectoryNode(category: KnowledgeCategory): OverviewDirectory
 
 function toDefaultDirectoryNode(item: DirectoryTemplateNode): OverviewDirectoryNode {
   return {
-    key: `default-${item.code}-${item.name}`,
+    key: `default-${item.code}-${item.nameKey}`,
     code: item.code,
-    name: item.name,
+    name: t(item.nameKey),
     count: 0,
     enabled: true,
     children: item.children.map(toDefaultDirectoryNode),
@@ -586,7 +609,7 @@ function recentDocumentFileType(document: ProjectRecentDocumentSummary): string 
 function recentDocumentUploader(document: ProjectRecentDocumentSummary): string {
   if (document.uploader_name) return document.uploader_name;
   if (document.uploader_username) return document.uploader_username;
-  return document.upload_user_id ? `用户 #${document.upload_user_id}` : '-';
+  return document.upload_user_id ? t('project.detail.userFallback', { id: document.upload_user_id }) : '-';
 }
 
 function recentDocumentFileMeta(document: ProjectRecentDocumentSummary): Pick<RecentDocumentDisplayItem, 'icon' | 'tone'> {
@@ -600,14 +623,14 @@ function recentDocumentFileMeta(document: ProjectRecentDocumentSummary): Pick<Re
 
 function openUploadDialog(): void {
   if (!canUploadDocuments.value) {
-    MessagePlugin.warning('无权限上传项目资料');
+    MessagePlugin.warning(t('project.detail.message.noUploadPermission'));
     return;
   }
   /**
    * 打开上传弹窗，并预填当前选中的项目资料目录。
    */
   if (!categoryOptions.value.length) {
-    MessagePlugin.warning('请先配置项目资料目录');
+    MessagePlugin.warning(t('project.detail.message.configureDirectoryFirst'));
     return;
   }
   uploadForm.category_id = activeCategoryId.value || categoryOptions.value.find((item) => !item.disabled)?.value || null;
@@ -625,7 +648,7 @@ function openUploadDialog(): void {
 
 function openProjectDialog(): void {
   if (!canEditProject.value) {
-    MessagePlugin.warning('无权限编辑项目');
+    MessagePlugin.warning(t('project.message.noEditPermission'));
     return;
   }
   if (!project.value) return;
@@ -637,7 +660,7 @@ async function confirmProjectDialog(payload: ProjectPayload): Promise<void> {
   projectSaving.value = true;
   try {
     await updateProject(project.value.id, payload);
-    MessagePlugin.success('项目已更新');
+    MessagePlugin.success(t('project.message.updated'));
     projectDialogVisible.value = false;
     await loadData();
   } finally {
@@ -655,6 +678,16 @@ function normalizeProjectStatus(status?: string): ProjectStatus {
     inactive: '已暂停',
   };
   return legacyMap[status || ''] || '进行中';
+}
+
+function projectStatusLabel(status?: string): string {
+  const keyMap: Record<ProjectStatus, string> = {
+    待启动: 'project.status.pending',
+    进行中: 'project.status.active',
+    已完成: 'project.status.completed',
+    已暂停: 'project.status.paused',
+  };
+  return t(keyMap[normalizeProjectStatus(status)]);
 }
 
 function projectStatusTheme(status?: string): 'default' | 'primary' | 'success' | 'warning' {
@@ -705,25 +738,25 @@ function setUploadFiles(files: File[]): void {
     return ACCEPTED_UPLOAD_EXTENSIONS.has(extension);
   });
   if (validFiles.length !== files.length) {
-    MessagePlugin.warning('已过滤不支持的文件类型');
+    MessagePlugin.warning(t('project.detail.message.unsupportedFilesFiltered'));
   }
   selectedUploadFiles.value = validFiles;
 }
 
 async function confirmUpload(): Promise<void> {
   if (!canUploadDocuments.value) {
-    MessagePlugin.warning('无权限上传项目资料');
+    MessagePlugin.warning(t('project.detail.message.noUploadPermission'));
     return;
   }
   /**
    * 批量上传沿用后端单文件上传协议，逐个上传后再用现有元数据接口补写类型、专业和备注。
    */
   if (!selectedUploadFiles.value.length) {
-    MessagePlugin.warning('请选择需要上传的资料');
+    MessagePlugin.warning(t('project.detail.message.selectUploadFiles'));
     return;
   }
   if (!uploadForm.category_id) {
-    MessagePlugin.warning('请选择项目资料目录');
+    MessagePlugin.warning(t('project.detail.message.selectDirectory'));
     return;
   }
 
@@ -741,12 +774,12 @@ async function confirmUpload(): Promise<void> {
         });
       }
     }
-    MessagePlugin.success(`已上传 ${selectedUploadFiles.value.length} 个文件，默认进入待审核状态`);
+    MessagePlugin.success(t('project.detail.message.uploadSuccess', { count: selectedUploadFiles.value.length }));
     uploadDialogVisible.value = false;
     selectedUploadFiles.value = [];
     await loadData();
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '项目资料上传失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('project.detail.message.uploadFailed'));
   } finally {
     uploading.value = false;
   }
@@ -754,14 +787,14 @@ async function confirmUpload(): Promise<void> {
 
 async function submitReview(document: DocumentInfo): Promise<void> {
   if (!canPublishDocuments.value) {
-    MessagePlugin.warning('无权限发布文件');
+    MessagePlugin.warning(t('project.detail.message.noPublishPermission'));
     return;
   }
   /**
    * 项目资料提交审核，解析与索引构建由审核中心统一触发。
    */
   await publishProjectDocument(projectId.value, document.id);
-  MessagePlugin.success('文件已发布');
+  MessagePlugin.success(t('project.detail.message.filePublished'));
   await loadData();
 }
 
@@ -769,7 +802,7 @@ function canSubmitReview(document: DocumentInfo): boolean {
   /**
    * 仅草稿和驳回状态允许重新提交审核。
    */
-  return documentStatusText(document) !== '已发布' && SUBMITTABLE_REVIEW_STATUSES.has(document.review_status);
+  return documentStatusCode(document) !== 'published' && SUBMITTABLE_REVIEW_STATUSES.has(document.review_status);
 }
 
 function selectDocument(document: DocumentInfo): void {
@@ -786,7 +819,7 @@ function closeDocumentDetail(): void {
 
 function openDocumentPreview(document: DocumentInfo): void {
   if (!canPreviewDocuments.value) {
-    MessagePlugin.warning('无权限预览文件');
+    MessagePlugin.warning(t('project.detail.message.noPreviewPermission'));
     return;
   }
   openProjectDocumentDetail(document.id);
@@ -794,7 +827,7 @@ function openDocumentPreview(document: DocumentInfo): void {
 
 function openRecentDocument(document: RecentDocumentDisplayItem): void {
   if (!canViewDocuments.value) {
-    MessagePlugin.warning('无权限查看项目资料');
+    MessagePlugin.warning(t('project.detail.message.noViewDocumentPermission'));
     return;
   }
   openProjectDocumentDetail(document.id);
@@ -811,7 +844,7 @@ function openProjectDocumentDetail(documentId: number): void {
 
 async function downloadDocument(document: DocumentInfo): Promise<void> {
   if (!canDownloadDocuments.value) {
-    MessagePlugin.warning('无权限下载文件');
+    MessagePlugin.warning(t('project.detail.message.noDownloadPermission'));
     return;
   }
   const blob = await downloadDocumentVersion(document.id, document.version_no);
@@ -821,7 +854,7 @@ async function downloadDocument(document: DocumentInfo): Promise<void> {
 function openVersionUploadDialog(): void {
   if (!selectedDocument.value) return;
   if (!canCreateDocumentVersion.value) {
-    MessagePlugin.warning('无权限上传新版本');
+    MessagePlugin.warning(t('project.detail.message.noVersionCreatePermission'));
     return;
   }
   versionForm.directory_id = documentDirectoryId(selectedDocument.value);
@@ -838,11 +871,11 @@ function handleVersionFileChange(event: Event): void {
 async function confirmVersionUpload(): Promise<void> {
   if (!selectedDocument.value) return;
   if (!canCreateDocumentVersion.value) {
-    MessagePlugin.warning('无权限上传新版本');
+    MessagePlugin.warning(t('project.detail.message.noVersionCreatePermission'));
     return;
   }
   if (!selectedVersionFile.value) {
-    MessagePlugin.warning('请选择新版本文件');
+    MessagePlugin.warning(t('project.detail.message.selectNewVersionFile'));
     return;
   }
   await createProjectDocumentVersion(projectId.value, selectedDocument.value.id, selectedVersionFile.value, {
@@ -850,7 +883,7 @@ async function confirmVersionUpload(): Promise<void> {
     category_id: versionForm.directory_id,
     version_note: versionForm.version_note.trim() || null,
   });
-  MessagePlugin.success('新版本已上传，已进入待审核状态');
+  MessagePlugin.success(t('project.detail.message.versionUploaded'));
   versionDialogVisible.value = false;
   await loadData();
 }
@@ -858,11 +891,11 @@ async function confirmVersionUpload(): Promise<void> {
 async function setCurrentVersion(version: DocumentVersionInfo): Promise<void> {
   if (!selectedDocument.value) return;
   if (!canSetCurrentDocumentVersion.value) {
-    MessagePlugin.warning('无权限切换当前版本');
+    MessagePlugin.warning(t('project.detail.message.noSetVersionPermission'));
     return;
   }
   await setProjectDocumentCurrentVersion(projectId.value, selectedDocument.value.id, version.id);
-  MessagePlugin.success('当前版本已更新');
+  MessagePlugin.success(t('project.detail.message.currentVersionUpdated'));
   await loadData();
   if (selectedDocument.value) {
     await loadDocumentVersions(selectedDocument.value);
@@ -871,7 +904,7 @@ async function setCurrentVersion(version: DocumentVersionInfo): Promise<void> {
 
 function removeDocument(document: DocumentInfo): void {
   if (!canDeleteDocuments.value) {
-    MessagePlugin.warning('无权限删除文件');
+    MessagePlugin.warning(t('project.detail.message.noDeleteFilePermission'));
     return;
   }
   deleteTargetDocuments.value = [document];
@@ -880,11 +913,11 @@ function removeDocument(document: DocumentInfo): void {
 
 function openBatchDeleteDialog(): void {
   if (!selectedDocumentIds.value.length) {
-    MessagePlugin.warning('请选择文件');
+    MessagePlugin.warning(t('project.detail.message.selectFiles'));
     return;
   }
   if (!canDeleteDocuments.value) {
-    MessagePlugin.warning('无权限删除文件');
+    MessagePlugin.warning(t('project.detail.message.noDeleteFilePermission'));
     return;
   }
   deleteTargetDocuments.value = [...selectedDocuments.value];
@@ -894,14 +927,14 @@ function openBatchDeleteDialog(): void {
 async function confirmDeleteDocuments(): Promise<void> {
   if (!deleteTargetDocuments.value.length) return;
   if (!canDeleteDocuments.value) {
-    MessagePlugin.warning('无权限删除文件');
+    MessagePlugin.warning(t('project.detail.message.noDeleteFilePermission'));
     return;
   }
   deleteSubmitting.value = true;
   try {
     const deletedIds = deleteTargetDocuments.value.map((document) => document.id);
     await Promise.all(deletedIds.map((id) => deleteProjectDocument(projectId.value, id)));
-    MessagePlugin.success(`已删除 ${deletedIds.length} 个文件`);
+    MessagePlugin.success(t('project.detail.message.deleteSuccess', { count: deletedIds.length }));
     if (selectedDocument.value && deletedIds.includes(selectedDocument.value.id)) {
       selectedDocument.value = null;
       documentDetailVisible.value = false;
@@ -917,74 +950,74 @@ async function confirmDeleteDocuments(): Promise<void> {
 
 async function applyBatchRetryParse(): Promise<void> {
   if (!selectedDocumentIds.value.length) {
-    MessagePlugin.warning('请选择文件');
+    MessagePlugin.warning(t('project.detail.message.selectFiles'));
     return;
   }
   if (!canRetryParseDocuments.value) {
-    MessagePlugin.warning('无权限重试解析');
+    MessagePlugin.warning(t('project.detail.message.noRetryParsePermission'));
     return;
   }
   await Promise.all(selectedDocuments.value.map((document) => retryParseProjectDocument(projectId.value, document.id, document.version_no)));
-  MessagePlugin.success('已触发批量解析重试');
+  MessagePlugin.success(t('project.detail.message.batchParseRetryStarted'));
   await loadData();
 }
 
 async function retryParse(document: DocumentInfo): Promise<void> {
   if (!canRetryParseDocuments.value) {
-    MessagePlugin.warning('无权限重试解析');
+    MessagePlugin.warning(t('project.detail.message.noRetryParsePermission'));
     return;
   }
   await retryParseProjectDocument(projectId.value, document.id, document.version_no);
-  MessagePlugin.success('已触发解析重试');
+  MessagePlugin.success(t('project.detail.message.parseRetryStarted'));
   await loadData();
 }
 
 async function retryIndex(document: DocumentInfo): Promise<void> {
   if (!canRetryIndexDocuments.value) {
-    MessagePlugin.warning('无权限重试索引');
+    MessagePlugin.warning(t('project.detail.message.noRetryIndexPermission'));
     return;
   }
   await retryIndexProjectDocument(projectId.value, document.id, document.version_no);
-  MessagePlugin.success('已触发索引重试');
+  MessagePlugin.success(t('project.detail.message.indexRetryStarted'));
   await loadData();
 }
 
 async function applyBatchRetryIndex(): Promise<void> {
   if (!selectedDocumentIds.value.length) {
-    MessagePlugin.warning('请选择文件');
+    MessagePlugin.warning(t('project.detail.message.selectFiles'));
     return;
   }
   if (!canRetryIndexDocuments.value) {
-    MessagePlugin.warning('无权限重试索引');
+    MessagePlugin.warning(t('project.detail.message.noRetryIndexPermission'));
     return;
   }
   await Promise.all(selectedDocuments.value.map((document) => retryIndexProjectDocument(projectId.value, document.id, document.version_no)));
-  MessagePlugin.success('已触发批量索引重试');
+  MessagePlugin.success(t('project.detail.message.batchIndexRetryStarted'));
   await loadData();
 }
 
 async function updateSelectedDocumentSecurity(): Promise<void> {
   if (!selectedDocument.value) return;
   if (!canUpdateDocumentSecurity.value) {
-    MessagePlugin.warning('无权限修改文件密级');
+    MessagePlugin.warning(t('project.detail.message.noSecurityPermission'));
     return;
   }
   await updateProjectDocumentSecurityLevel(projectId.value, selectedDocument.value.id, selectedDocument.value.security_level);
-  MessagePlugin.success('文件密级已更新');
+  MessagePlugin.success(t('project.detail.message.securityUpdated'));
   await loadData();
 }
 
 async function applyBatchSecurityLevel(): Promise<void> {
   if (!selectedDocumentIds.value.length) {
-    MessagePlugin.warning('请选择文件');
+    MessagePlugin.warning(t('project.detail.message.selectFiles'));
     return;
   }
   if (!canUpdateDocumentSecurity.value) {
-    MessagePlugin.warning('无权限修改文件密级');
+    MessagePlugin.warning(t('project.detail.message.noSecurityPermission'));
     return;
   }
   await Promise.all(selectedDocumentIds.value.map((id) => updateProjectDocumentSecurityLevel(projectId.value, id, batchForm.security_level)));
-  MessagePlugin.success('批量密级已更新');
+  MessagePlugin.success(t('project.detail.message.batchSecurityUpdated'));
   await loadData();
 }
 
@@ -1005,22 +1038,33 @@ function documentDirectoryId(document: DocumentInfo | null): number | null {
   return document?.directory_id || document?.category_id || null;
 }
 
-function documentStatusText(document: DocumentInfo): string {
+function documentStatusCode(document: DocumentInfo): 'pending_review' | 'published' | string {
   const status = document.status || document.document_status || document.review_status;
-  const map: Record<string, string> = {
-    pending_review: '待审核',
-    pending: '待审核',
-    active: '已发布',
-    published: '已发布',
-    reviewed: '已发布',
-    draft: '待审核',
-    approved: '已发布',
+  const map: Record<string, 'pending_review' | 'published'> = {
+    pending_review: 'pending_review',
+    pending: 'pending_review',
+    active: 'published',
+    published: 'published',
+    reviewed: 'published',
+    draft: 'pending_review',
+    approved: 'published',
+    待审核: 'pending_review',
+    已发布: 'published',
   };
-  return map[status] || status || '-';
+  return map[status] || status || '';
+}
+
+function documentStatusText(document: DocumentInfo): string {
+  const status = documentStatusCode(document);
+  const map: Record<string, string> = {
+    pending_review: 'project.detail.document.statusPendingReview',
+    published: 'project.detail.document.statusPublished',
+  };
+  return map[status] ? t(map[status]) : status || '-';
 }
 
 function documentFileStatusTheme(document: DocumentInfo): 'default' | 'primary' | 'success' | 'warning' {
-  return documentStatusText(document) === '已发布' ? 'success' : 'warning';
+  return documentStatusCode(document) === 'published' ? 'success' : 'warning';
 }
 
 function documentParseStatus(document: DocumentInfo | DocumentVersionInfo | null): string {
@@ -1059,10 +1103,10 @@ function documentIndexStatus(document: DocumentInfo | DocumentVersionInfo | null
 
 function documentEmbeddingStatus(document: DocumentInfo | null): string {
   const indexStatus = documentIndexStatus(document);
-  if (indexStatus === 'indexed') return 'ready';
-  if (indexStatus === 'failed') return 'failed';
-  if (indexStatus === 'indexing') return 'building';
-  return 'pending';
+  if (indexStatus === 'indexed') return t('status.project.ready');
+  if (indexStatus === 'failed') return t('status.failed');
+  if (indexStatus === 'indexing') return t('status.project.building');
+  return t('status.pending');
 }
 
 function documentChunkCount(document: DocumentInfo | null): number | string {
@@ -1086,7 +1130,7 @@ function documentUploader(document: DocumentInfo | DocumentVersionInfo): string 
 }
 
 function isPublishedDocument(document: DocumentInfo): boolean {
-  return documentStatusText(document) === '已发布';
+  return documentStatusCode(document) === 'published';
 }
 
 function fillDocumentMetadataForm(document: DocumentInfo): void {
@@ -1103,15 +1147,15 @@ function fillDocumentMetadataForm(document: DocumentInfo): void {
 async function saveSelectedDocumentMetadata(): Promise<void> {
   if (!selectedDocument.value) return;
   if (!canUpdateDocumentMetadata.value) {
-    MessagePlugin.warning('无权限编辑文件元数据');
+    MessagePlugin.warning(t('project.detail.message.noMetadataPermission'));
     return;
   }
   if (!metadataForm.document_name.trim()) {
-    MessagePlugin.warning('请输入文件名称');
+    MessagePlugin.warning(t('project.detail.message.enterFileName'));
     return;
   }
   if (!metadataForm.directory_id) {
-    MessagePlugin.warning('请选择所属目录');
+    MessagePlugin.warning(t('project.detail.message.selectParentDirectory'));
     return;
   }
   const updated = await updateProjectDocument(projectId.value, selectedDocument.value.id, {
@@ -1125,7 +1169,7 @@ async function saveSelectedDocumentMetadata(): Promise<void> {
   });
   selectedDocument.value = updated;
   fillDocumentMetadataForm(updated);
-  MessagePlugin.success('文件元数据已保存');
+  MessagePlugin.success(t('project.detail.message.metadataSaved'));
   await loadData();
 }
 
@@ -1138,13 +1182,13 @@ async function loadDocumentVersions(document: DocumentInfo): Promise<void> {
     documentVersions.value = await listProjectDocumentVersions(projectId.value, document.id);
   } catch (error) {
     documentVersions.value = [];
-    MessagePlugin.warning(error instanceof Error ? error.message : '历史版本加载失败');
+    MessagePlugin.warning(error instanceof Error ? error.message : t('project.detail.message.versionLoadFailed'));
   }
 }
 
 function openCreateCategoryDialog(): void {
   if (!canCreateCategories.value) {
-    MessagePlugin.warning('无权限新建目录');
+    MessagePlugin.warning(t('project.detail.message.noCreateDirectoryPermission'));
     return;
   }
   /**
@@ -1164,7 +1208,7 @@ function openCreateCategoryDialog(): void {
 
 function openEditCategoryDialog(): void {
   if (!canEditCategories.value) {
-    MessagePlugin.warning('无权限编辑目录');
+    MessagePlugin.warning(t('project.detail.message.noEditDirectoryPermission'));
     return;
   }
   /**
@@ -1172,7 +1216,7 @@ function openEditCategoryDialog(): void {
    */
   const category = findCategory(categories.value, activeCategoryId.value);
   if (!category) {
-    MessagePlugin.warning('请先选择需要编辑的目录');
+    MessagePlugin.warning(t('project.detail.message.selectEditDirectory'));
     return;
   }
   categoryDialogMode.value = 'edit';
@@ -1189,18 +1233,18 @@ function openEditCategoryDialog(): void {
 
 async function confirmCategoryDialog(): Promise<void> {
   if (categoryDialogMode.value === 'create' && !canCreateCategories.value) {
-    MessagePlugin.warning('无权限新建目录');
+    MessagePlugin.warning(t('project.detail.message.noCreateDirectoryPermission'));
     return;
   }
   if (categoryDialogMode.value === 'edit' && !canEditCategories.value) {
-    MessagePlugin.warning('无权限编辑目录');
+    MessagePlugin.warning(t('project.detail.message.noEditDirectoryPermission'));
     return;
   }
   /**
    * 保存项目资料目录配置，后端会按项目隔离校验父级和编码。
    */
   if (!categoryForm.name.trim()) {
-    MessagePlugin.warning('请输入目录名称');
+    MessagePlugin.warning(t('project.detail.message.enterDirectoryName'));
     return;
   }
   const code = categoryForm.code.trim() || `project-${projectId.value}-${Date.now()}`;
@@ -1219,41 +1263,41 @@ async function confirmCategoryDialog(): Promise<void> {
   } else if (editingCategoryId.value) {
     await updateProjectDirectory(projectId.value, editingCategoryId.value, payload);
   }
-  MessagePlugin.success('项目资料目录已保存');
+  MessagePlugin.success(t('project.detail.message.directorySaved'));
   categoryDialogVisible.value = false;
   await loadData();
 }
 
 async function removeActiveCategory(): Promise<void> {
   if (!canDeleteCategories.value) {
-    MessagePlugin.warning('无权限删除目录');
+    MessagePlugin.warning(t('project.detail.message.noDeleteDirectoryPermission'));
     return;
   }
   /**
    * 删除当前目录。后端只允许删除无子级、无文档引用的目录。
    */
   if (!activeCategoryId.value) {
-    MessagePlugin.warning('请先选择目录');
+    MessagePlugin.warning(t('project.detail.message.selectDirectoryFirst'));
     return;
   }
   await deleteProjectDirectory(projectId.value, activeCategoryId.value);
-  MessagePlugin.success('目录已删除');
+  MessagePlugin.success(t('project.detail.message.directoryDeleted'));
   activeCategoryId.value = null;
   await loadData();
 }
 
 function openProjectChat(): void {
   if (!canAskProjectChat.value || !authStore.hasActionPermission(PERMISSIONS.AI_PROJECT_CHAT_VIEW)) {
-    MessagePlugin.warning('无权限使用项目问答');
+    MessagePlugin.warning(t('project.detail.message.noProjectChatPermission'));
     return;
   }
   if (!authStore.hasMenuPermission(PERMISSIONS.AI_PROJECT_CHAT)) {
-    MessagePlugin.warning('无权限访问项目问答页面');
+    MessagePlugin.warning(t('project.detail.message.noProjectChatPagePermission'));
     return;
   }
   const targetProjectId = currentProjectId.value;
   if (!targetProjectId) {
-    MessagePlugin.warning('项目ID无效，无法进入项目问答');
+    MessagePlugin.warning(t('project.detail.message.invalidProjectIdForChat'));
     return;
   }
   router.push(withBreadcrumbContext(route, { path: ROUTE_PATHS.aiProjectChat, query: { projectId: String(targetProjectId) } }));
@@ -1261,12 +1305,12 @@ function openProjectChat(): void {
 
 function openProjectDocumentManagement(focusDirectories = false): void {
   if (!canViewDocuments.value) {
-    MessagePlugin.warning('无权限访问项目资料管理');
+    MessagePlugin.warning(t('project.detail.message.noDocumentManagePermission'));
     return;
   }
   const targetProjectId = currentProjectId.value;
   if (!targetProjectId) {
-    MessagePlugin.warning('项目ID无效，无法进入资料管理');
+    MessagePlugin.warning(t('project.detail.message.invalidProjectIdForDocuments'));
     return;
   }
   router.push(
@@ -1279,12 +1323,12 @@ function openProjectDocumentManagement(focusDirectories = false): void {
 
 function openPendingReviewDocuments(): void {
   if (!authStore.hasActionPermission(PERMISSIONS.REVIEW_VIEW) || !authStore.hasMenuPermission(PERMISSIONS.REVIEW)) {
-    MessagePlugin.warning('无权限访问审核中心');
+    MessagePlugin.warning(t('project.detail.message.noReviewCenterPermission'));
     return;
   }
   const targetProjectId = currentProjectId.value;
   if (!targetProjectId) {
-    MessagePlugin.warning('项目ID无效，无法查看待审核文档');
+    MessagePlugin.warning(t('project.detail.message.invalidProjectIdForReview'));
     return;
   }
   router.push(
@@ -1306,14 +1350,14 @@ onMounted(loadData);
   <PageContainer class="project-detail-page" title="">
     <div v-if="!canViewProjectDetail" class="panel-stack project-detail-stack data-scroll">
       <t-card class="project-state-card">
-        <t-empty description="无权限访问项目详情" />
+        <t-empty :description="t('project.message.noDetailPermission')" />
       </t-card>
     </div>
 
     <div v-else-if="loading" class="panel-stack project-detail-stack data-scroll">
       <t-card class="project-state-card">
         <div class="project-state-content">
-          <t-loading text="正在加载项目详情" />
+          <t-loading :text="t('project.detail.loading')" />
         </div>
       </t-card>
     </div>
@@ -1321,8 +1365,8 @@ onMounted(loadData);
     <div v-else-if="!project" class="panel-stack project-detail-stack data-scroll">
       <t-card class="project-state-card">
         <div class="project-state-content">
-          <t-empty description="项目详情加载失败或项目不存在" />
-          <t-button variant="outline" @click="router.push('/projects')">返回项目中心</t-button>
+          <t-empty :description="t('project.detail.notFound')" />
+          <t-button variant="outline" @click="router.push('/projects')">{{ t('project.action.backToCenter') }}</t-button>
         </div>
       </t-card>
     </div>
@@ -1334,7 +1378,7 @@ onMounted(loadData);
             <div class="project-title-row">
               <h2>{{ project.project_name || project.name }}</h2>
               <t-tag size="small" variant="light" :theme="projectStatusTheme(project.project_status || project.status)">
-                {{ normalizeProjectStatus(project.project_status || project.status) }}
+                {{ projectStatusLabel(project.project_status || project.status) }}
               </t-tag>
             </div>
             <p>{{ profileText(project.project_short_name || project.project_code || project.code) }}</p>
@@ -1343,44 +1387,44 @@ onMounted(loadData);
 
         <div class="project-profile-sections">
           <section class="project-profile-section">
-            <h3>基础信息</h3>
+            <h3>{{ t('project.detail.section.basic') }}</h3>
             <div class="project-profile-list">
               <div class="project-profile-item">
-                <span>项目简称</span>
+                <span>{{ t('project.field.shortName') }}</span>
                 <strong>{{ profileText(project.project_short_name) }}</strong>
               </div>
               <div class="project-profile-item">
-                <span>英文名称</span>
+                <span>{{ t('project.field.englishName') }}</span>
                 <strong>{{ profileText(project.project_english_name) }}</strong>
               </div>
               <div class="project-profile-item">
-                <span>客户名称</span>
+                <span>{{ t('project.field.customerName') }}</span>
                 <strong>{{ profileText(project.customer_name || project.client) }}</strong>
               </div>
               <div class="project-profile-item">
-                <span>项目负责人</span>
+                <span>{{ t('project.field.ownerName') }}</span>
                 <strong>{{ profileText(project.owner_name || project.manager) }}</strong>
               </div>
               <div class="project-profile-item project-profile-item--wide">
-                <span>项目简介</span>
+                <span>{{ t('project.field.description') }}</span>
                 <strong>{{ profileText(project.description) }}</strong>
               </div>
             </div>
           </section>
 
           <section class="project-profile-section">
-            <h3>管控信息</h3>
+            <h3>{{ t('project.detail.section.control') }}</h3>
             <div class="project-profile-list">
               <div class="project-profile-item">
-                <span>项目状态</span>
+                <span>{{ t('project.field.status') }}</span>
                 <strong>
                   <t-tag size="small" variant="light" :theme="projectStatusTheme(project.project_status || project.status)">
-                    {{ normalizeProjectStatus(project.project_status || project.status) }}
+                    {{ projectStatusLabel(project.project_status || project.status) }}
                   </t-tag>
                 </strong>
               </div>
               <div class="project-profile-item">
-                <span>项目密级</span>
+                <span>{{ t('project.field.securityLevel') }}</span>
                 <strong>
                   <t-tag size="small" variant="light" :theme="securityLevelTheme(project.security_level)">
                     {{ securityLevelLabel(project.security_level) }}
@@ -1391,10 +1435,10 @@ onMounted(loadData);
           </section>
 
           <section class="project-profile-section">
-            <h3>项目属性</h3>
+            <h3>{{ t('project.detail.section.properties') }}</h3>
             <div class="project-profile-list">
               <div class="project-profile-item">
-                <span>项目类型</span>
+                <span>{{ t('project.field.projectType') }}</span>
                 <strong>
                   <t-tag v-if="project.project_type" size="small" variant="light" :theme="projectFieldTagTheme('project_type')">
                     {{ project.project_type }}
@@ -1403,7 +1447,7 @@ onMounted(loadData);
                 </strong>
               </div>
               <div class="project-profile-item">
-                <span>项目阶段</span>
+                <span>{{ t('project.field.projectStage') }}</span>
                 <strong>
                   <t-tag v-if="project.project_stage" size="small" variant="light" :theme="projectFieldTagTheme('project_stage')">
                     {{ project.project_stage }}
@@ -1412,7 +1456,7 @@ onMounted(loadData);
                 </strong>
               </div>
               <div class="project-profile-item">
-                <span>原料类型</span>
+                <span>{{ t('project.field.rawMaterialType') }}</span>
                 <strong>
                   <t-tag v-if="project.raw_material_type" size="small" variant="light" :theme="projectFieldTagTheme('raw_material_type')">
                     {{ project.raw_material_type }}
@@ -1421,29 +1465,29 @@ onMounted(loadData);
                 </strong>
               </div>
               <div class="project-profile-item">
-                <span>处理能力</span>
+                <span>{{ t('project.field.capacity') }}</span>
                 <strong>{{ profileText(project.capacity) }}</strong>
               </div>
             </div>
           </section>
 
           <section class="project-profile-section">
-            <h3>建设与交付</h3>
+            <h3>{{ t('project.detail.section.delivery') }}</h3>
             <div class="project-profile-list">
               <div class="project-profile-item project-profile-item--wide">
-                <span>工艺路线</span>
+                <span>{{ t('project.field.processRoute') }}</span>
                 <strong>{{ profileText(project.process_route) }}</strong>
               </div>
               <div class="project-profile-item project-profile-item--wide">
-                <span>主要产品</span>
+                <span>{{ t('project.field.mainProducts') }}</span>
                 <strong>{{ profileText(project.main_products) }}</strong>
               </div>
               <div class="project-profile-item project-profile-item--wide">
-                <span>项目范围</span>
+                <span>{{ t('project.field.scope') }}</span>
                 <strong>{{ profileText(project.scope_description) }}</strong>
               </div>
               <div class="project-profile-item project-profile-item--wide">
-                <span>交付成果</span>
+                <span>{{ t('project.field.deliverables') }}</span>
                 <strong>{{ profileText(project.deliverables) }}</strong>
               </div>
             </div>
@@ -1454,11 +1498,11 @@ onMounted(loadData);
       <section class="project-overview-main">
         <div class="overview-band overview-stat-band">
           <div class="overview-section-heading">
-            <h3>数据统计</h3>
+            <h3>{{ t('project.detail.section.stats') }}</h3>
             <t-space class="overview-action-group" size="small">
-              <t-button variant="outline" @click="router.push('/projects')">返回项目中心</t-button>
-              <t-button v-if="canOpenProjectChat" variant="outline" @click="openProjectChat">项目问答</t-button>
-              <t-button v-if="canEditProject" theme="primary" variant="outline" @click="openProjectDialog">编辑项目</t-button>
+              <t-button variant="outline" @click="router.push('/projects')">{{ t('project.action.backToCenter') }}</t-button>
+              <t-button v-if="canOpenProjectChat" variant="outline" @click="openProjectChat">{{ t('project.action.projectChat') }}</t-button>
+              <t-button v-if="canEditProject" theme="primary" variant="outline" @click="openProjectDialog">{{ t('project.action.editProject') }}</t-button>
             </t-space>
           </div>
           <div class="overview-stat-grid">
@@ -1467,14 +1511,14 @@ onMounted(loadData);
               class="overview-stat-card overview-stat-card--blue"
               :class="{ 'is-clickable': canOpenProjectDocuments }"
               :disabled="!canOpenProjectDocuments"
-              aria-label="查看当前项目资料数量"
+              :aria-label="t('project.detail.aria.viewDocumentCount')"
               @click="openProjectDocumentManagement()"
             >
               <div class="overview-stat-icon">
                 <FolderIcon />
               </div>
               <div>
-                <span>资料数量</span>
+                <span>{{ t('project.detail.field.documentCount') }}</span>
                 <strong>{{ project.document_count }}</strong>
               </div>
             </button>
@@ -1483,14 +1527,14 @@ onMounted(loadData);
               class="overview-stat-card overview-stat-card--green"
               :class="{ 'is-clickable': canOpenProjectChat }"
               :disabled="!canOpenProjectChat"
-              aria-label="进入当前项目问答"
+              :aria-label="t('project.detail.aria.openProjectChat')"
               @click="openProjectChat"
             >
               <div class="overview-stat-icon">
                 <ChatBubbleHelpIcon />
               </div>
               <div>
-                <span>问答次数</span>
+                <span>{{ t('project.detail.field.qaCount') }}</span>
                 <strong>{{ project.qa_count ?? 0 }}</strong>
               </div>
             </button>
@@ -1499,14 +1543,14 @@ onMounted(loadData);
               class="overview-stat-card overview-stat-card--blue"
               :class="{ 'is-clickable': canOpenPendingReviewDocuments }"
               :disabled="!canOpenPendingReviewDocuments"
-              aria-label="查看当前项目待审核文档"
+              :aria-label="t('project.detail.aria.viewPendingReviewDocuments')"
               @click="openPendingReviewDocuments"
             >
               <div class="overview-stat-icon">
                 <TaskCheckedIcon />
               </div>
               <div>
-                <span>待审核文档</span>
+                <span>{{ t('project.detail.field.pendingReviewDocuments') }}</span>
                 <strong>{{ project.pending_review_document_count }}</strong>
               </div>
             </button>
@@ -1515,7 +1559,7 @@ onMounted(loadData);
 
         <div class="overview-band overview-directory-band">
           <div class="overview-section-heading">
-            <h3>资料目录结构</h3>
+            <h3>{{ t('project.detail.section.directories') }}</h3>
             <t-button
               v-if="canOpenProjectDocuments"
               class="overview-heading-action"
@@ -1525,7 +1569,7 @@ onMounted(loadData);
               @click="openProjectDocumentManagement(true)"
             >
               <template #icon><FolderIcon /></template>
-              查看全部目录
+              {{ t('project.action.viewAllDirectories') }}
             </t-button>
           </div>
           <div class="overview-directory-list">
@@ -1553,7 +1597,7 @@ onMounted(loadData);
 
         <div class="overview-band overview-recent-band">
           <div class="overview-section-heading">
-            <h3>最近上传资料</h3>
+            <h3>{{ t('project.detail.section.recentUploads') }}</h3>
             <t-button
               v-if="canOpenProjectDocuments"
               class="overview-heading-action"
@@ -1563,7 +1607,7 @@ onMounted(loadData);
               @click="openProjectDocumentManagement()"
             >
               <template #icon><FileSearchIcon /></template>
-              进入资料管理
+              {{ t('project.action.documentManagement') }}
             </t-button>
           </div>
           <div v-if="recentUploadDocuments.length" class="recent-upload-list">
@@ -1588,7 +1632,7 @@ onMounted(loadData);
               </div>
             </button>
           </div>
-          <t-empty v-else description="暂无最近上传资料" />
+          <t-empty v-else :description="t('project.detail.emptyRecentUploads')" />
         </div>
       </section>
     </div>
@@ -1597,13 +1641,13 @@ onMounted(loadData);
       v-if="canViewDocuments"
       v-model:visible="documentDetailVisible"
       class="project-document-drawer drawer-scroll"
-      header="文件详情"
+      :header="t('project.detail.document.drawerTitle')"
       placement="right"
       size="min(760px, 96vw)"
       :footer="false"
       @close="closeDocumentDetail"
     >
-      <t-empty v-if="!selectedDocument" description="请选择文件" />
+      <t-empty v-if="!selectedDocument" :description="t('project.detail.document.selectFile')" />
       <div v-else class="document-detail-panel">
         <div class="drawer-file-header">
           <div class="file-type-badge">{{ selectedDocument.file_type || 'FILE' }}</div>
@@ -1614,20 +1658,20 @@ onMounted(loadData);
         </div>
 
         <div class="drawer-tabs">
-          <button :class="{ active: drawerTab === 'basic' }" type="button" @click="drawerTab = 'basic'">基本信息</button>
-          <button :class="{ active: drawerTab === 'versions' }" type="button" @click="drawerTab = 'versions'">版本管理</button>
-          <button :class="{ active: drawerTab === 'parse' }" type="button" @click="drawerTab = 'parse'">解析信息</button>
-          <button :class="{ active: drawerTab === 'index' }" type="button" @click="drawerTab = 'index'">索引信息</button>
+          <button :class="{ active: drawerTab === 'basic' }" type="button" @click="drawerTab = 'basic'">{{ t('project.detail.document.tabBasic') }}</button>
+          <button :class="{ active: drawerTab === 'versions' }" type="button" @click="drawerTab = 'versions'">{{ t('project.detail.document.tabVersions') }}</button>
+          <button :class="{ active: drawerTab === 'parse' }" type="button" @click="drawerTab = 'parse'">{{ t('project.detail.document.tabParse') }}</button>
+          <button :class="{ active: drawerTab === 'index' }" type="button" @click="drawerTab = 'index'">{{ t('project.detail.document.tabIndex') }}</button>
         </div>
 
         <div class="drawer-action-row">
           <t-button v-if="canPreviewDocuments" variant="outline" @click="openDocumentPreview(selectedDocument)">
             <template #icon><FileSearchIcon /></template>
-            预览
+            {{ t('common.action.preview') }}
           </t-button>
           <t-button v-if="canDownloadDocuments" variant="outline" @click="downloadDocument(selectedDocument)">
             <template #icon><DownloadIcon /></template>
-            下载
+            {{ t('common.action.download') }}
           </t-button>
           <t-button
             v-if="canRetryParseDocuments"
@@ -1637,7 +1681,7 @@ onMounted(loadData);
             @click="retryParse(selectedDocument)"
           >
             <template #icon><RefreshIcon /></template>
-            重试解析
+            {{ t('project.detail.document.retryParse') }}
           </t-button>
           <t-button
             v-if="canRetryIndexDocuments"
@@ -1647,78 +1691,78 @@ onMounted(loadData);
             @click="retryIndex(selectedDocument)"
           >
             <template #icon><RefreshIcon /></template>
-            重试索引
+            {{ t('project.detail.document.retryIndex') }}
           </t-button>
           <t-button v-if="canCreateDocumentVersion" theme="primary" @click="openVersionUploadDialog">
             <template #icon><AddIcon /></template>
-            上传新版本
+            {{ t('project.detail.upload.versionTitle') }}
           </t-button>
         </div>
 
         <div v-if="drawerTab === 'basic'" class="drawer-tab-panel">
           <section class="drawer-section">
-            <div class="drawer-section-title">文件信息</div>
+            <div class="drawer-section-title">{{ t('project.detail.document.sectionFile') }}</div>
             <div class="drawer-info-grid">
-              <div><span>所属项目</span><strong>{{ project?.project_name || project?.name || '-' }}</strong></div>
-              <div><span>所属目录</span><strong>{{ selectedDocument.category_path || selectedDocument.category_name || '-' }}</strong></div>
-              <div><span>文档类型</span><strong>{{ selectedDocument.document_type || selectedDocument.file_type || '-' }}</strong></div>
-              <div><span>所属专业</span><strong>{{ selectedDocument.discipline || '-' }}</strong></div>
-              <div><span>版本号</span><strong>{{ documentVersionLabel(selectedDocument) }}</strong></div>
-              <div><span>当前版本</span><strong>{{ (selectedDocument.is_current_version ?? selectedDocument.current_version) ? '是' : '否' }}</strong></div>
-              <div><span>文件状态</span><strong>{{ documentStatusText(selectedDocument) }}</strong></div>
-              <div><span>密级</span><strong>{{ securityLevelLabel(selectedDocument.security_level) }}</strong></div>
-              <div><span>上传人</span><strong>{{ documentUploader(selectedDocument) }}</strong></div>
-              <div><span>上传时间</span><strong>{{ formatDateTime(selectedDocument.created_at) }}</strong></div>
-              <div><span>文件大小</span><strong>{{ formatFileSize(selectedDocument.file_size) }}</strong></div>
-              <div><span>备注</span><strong>{{ selectedDocument.remark || '-' }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldProject') }}</span><strong>{{ project?.project_name || project?.name || '-' }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldDirectory') }}</span><strong>{{ selectedDocument.category_path || selectedDocument.category_name || '-' }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldType') }}</span><strong>{{ selectedDocument.document_type || selectedDocument.file_type || '-' }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldDiscipline') }}</span><strong>{{ selectedDocument.discipline || '-' }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldVersion') }}</span><strong>{{ documentVersionLabel(selectedDocument) }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldCurrentVersion') }}</span><strong>{{ (selectedDocument.is_current_version ?? selectedDocument.current_version) ? t('project.detail.document.yes') : t('project.detail.document.no') }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldStatus') }}</span><strong>{{ documentStatusText(selectedDocument) }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldSecurity') }}</span><strong>{{ securityLevelLabel(selectedDocument.security_level) }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldUploader') }}</span><strong>{{ documentUploader(selectedDocument) }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldUploadedAt') }}</span><strong>{{ formatDateTime(selectedDocument.created_at) }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldSize') }}</span><strong>{{ formatFileSize(selectedDocument.file_size) }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldRemark') }}</span><strong>{{ selectedDocument.remark || '-' }}</strong></div>
             </div>
             <div v-if="selectedDocument.review_status === 'rejected' && selectedDocument.review_comment" class="reject-reason-panel">
-              <div class="reject-reason-title">驳回原因</div>
+              <div class="reject-reason-title">{{ t('project.detail.document.rejectReason') }}</div>
               <div class="reject-reason-content">{{ selectedDocument.review_comment }}</div>
             </div>
           </section>
 
           <section class="drawer-section">
-            <div class="drawer-section-title">RAG 状态</div>
+            <div class="drawer-section-title">{{ t('project.detail.document.sectionRag') }}</div>
             <div class="rag-status-grid">
-              <div><span>解析状态</span><StatusTag type="generic" :value="documentParseStatus(selectedDocument)" /></div>
-              <div><span>索引状态</span><StatusTag type="index" :value="documentIndexStatus(selectedDocument)" /></div>
+              <div><span>{{ t('project.detail.document.parseStatus') }}</span><StatusTag type="generic" :value="documentParseStatus(selectedDocument)" /></div>
+              <div><span>{{ t('project.detail.document.indexStatus') }}</span><StatusTag type="index" :value="documentIndexStatus(selectedDocument)" /></div>
               <div><span>Embedding</span><strong>{{ documentEmbeddingStatus(selectedDocument) }}</strong></div>
-              <div><span>Chunk 数量</span><strong>{{ documentChunkCount(selectedDocument) }}</strong></div>
+              <div><span>{{ t('project.detail.document.chunkCount') }}</span><strong>{{ documentChunkCount(selectedDocument) }}</strong></div>
             </div>
           </section>
 
           <section class="drawer-section">
-            <div class="drawer-section-title">编辑信息</div>
+            <div class="drawer-section-title">{{ t('project.detail.document.sectionEdit') }}</div>
             <t-form label-align="top" class="document-detail-form">
-              <t-form-item label="文件名称">
+              <t-form-item :label="t('project.detail.document.fileName')">
                 <t-input v-model="metadataForm.document_name" :disabled="!canUpdateDocumentMetadata" />
               </t-form-item>
               <div class="drawer-form-grid">
-                <t-form-item label="所属目录">
-                  <t-select v-model="metadataForm.directory_id" :disabled="!canUpdateDocumentMetadata" placeholder="请选择项目资料目录">
+                <t-form-item :label="t('project.detail.document.fieldDirectory')">
+                  <t-select v-model="metadataForm.directory_id" :disabled="!canUpdateDocumentMetadata" :placeholder="t('project.detail.message.selectDirectory')">
                     <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
                   </t-select>
                 </t-form-item>
-                <t-form-item label="版本号">
+                <t-form-item :label="t('project.detail.document.fieldVersion')">
                   <t-input v-model="metadataForm.version" :disabled="!canUpdateDocumentMetadata" />
                 </t-form-item>
-                <t-form-item label="文档类型">
-                  <t-select v-model="metadataForm.document_type" :disabled="!canUpdateDocumentMetadata" clearable placeholder="请选择文档类型">
-                    <t-option v-for="item in DOCUMENT_TYPE_OPTIONS" :key="item" :value="item" :label="item" />
+                <t-form-item :label="t('project.detail.document.fieldType')">
+                  <t-select v-model="metadataForm.document_type" :disabled="!canUpdateDocumentMetadata" clearable :placeholder="t('project.detail.upload.typePlaceholder')">
+                    <t-option v-for="item in documentTypeOptions" :key="item.value" :value="item.value" :label="item.label" />
                   </t-select>
                 </t-form-item>
-                <t-form-item label="所属专业">
-                  <t-select v-model="metadataForm.discipline" :disabled="!canUpdateDocumentMetadata" clearable placeholder="请选择专业">
-                    <t-option v-for="item in DISCIPLINE_OPTIONS" :key="item" :value="item" :label="item" />
+                <t-form-item :label="t('project.detail.document.fieldDiscipline')">
+                  <t-select v-model="metadataForm.discipline" :disabled="!canUpdateDocumentMetadata" clearable :placeholder="t('project.detail.upload.disciplinePlaceholder')">
+                    <t-option v-for="item in disciplineOptions" :key="item.value" :value="item.value" :label="item.label" />
                   </t-select>
                 </t-form-item>
-                <t-form-item label="文件状态">
+                <t-form-item :label="t('project.detail.document.fieldStatus')">
                   <t-select v-model="selectedDocument.status" disabled>
-                    <t-option v-for="item in DOCUMENT_STATUS_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+                    <t-option v-for="item in documentStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
                   </t-select>
                 </t-form-item>
-                <t-form-item label="文件密级">
+                <t-form-item :label="t('project.detail.document.fieldSecurity')">
                   <t-select v-model="selectedDocument.security_level" :disabled="!canUpdateDocumentSecurity">
                     <t-option
                       v-for="item in securityLevelOptions(authStore.maxSecurityLevel, selectedDocument.security_level)"
@@ -1730,12 +1774,12 @@ onMounted(loadData);
                   </t-select>
                 </t-form-item>
               </div>
-              <t-form-item label="备注">
+              <t-form-item :label="t('project.detail.document.fieldRemark')">
                 <t-textarea v-model="metadataForm.remark" :disabled="!canUpdateDocumentMetadata" :autosize="{ minRows: 3, maxRows: 4 }" />
               </t-form-item>
               <t-space class="document-form-actions">
-                <t-button v-if="canUpdateDocumentMetadata" variant="outline" @click="saveSelectedDocumentMetadata">保存元数据</t-button>
-                <t-button v-if="canUpdateDocumentSecurity" variant="outline" @click="updateSelectedDocumentSecurity">保存密级</t-button>
+                <t-button v-if="canUpdateDocumentMetadata" variant="outline" @click="saveSelectedDocumentMetadata">{{ t('project.detail.document.saveMetadata') }}</t-button>
+                <t-button v-if="canUpdateDocumentSecurity" variant="outline" @click="updateSelectedDocumentSecurity">{{ t('project.detail.document.saveSecurity') }}</t-button>
               </t-space>
             </t-form>
           </section>
@@ -1744,24 +1788,24 @@ onMounted(loadData);
         <div v-else-if="drawerTab === 'versions'" class="drawer-tab-panel">
           <section class="drawer-section">
             <div class="drawer-section-heading">
-              <div class="drawer-section-title">版本管理</div>
-              <t-button v-if="canCreateDocumentVersion" theme="primary" @click="openVersionUploadDialog">上传新版本</t-button>
+              <div class="drawer-section-title">{{ t('project.detail.document.sectionVersionSnapshot') }}</div>
+              <t-button v-if="canCreateDocumentVersion" theme="primary" @click="openVersionUploadDialog">{{ t('project.detail.upload.versionTitle') }}</t-button>
             </div>
-            <t-empty v-if="!documentVersions.length" description="暂无历史版本" />
+            <t-empty v-if="!documentVersions.length" :description="t('project.detail.document.noVersions')" />
             <div v-else class="version-table-wrap">
               <table class="plain-table version-table">
                 <thead>
                   <tr>
-                    <th>版本号</th>
-                    <th>文件大小</th>
-                    <th>文件状态</th>
-                    <th>解析状态</th>
-                    <th>索引状态</th>
-                    <th>是否当前版本</th>
-                    <th>上传人</th>
-                    <th>上传时间</th>
-                    <th>版本备注</th>
-                    <th>操作</th>
+                    <th>{{ t('project.detail.document.fieldVersion') }}</th>
+                    <th>{{ t('project.detail.document.fieldSize') }}</th>
+                    <th>{{ t('project.detail.document.fieldStatus') }}</th>
+                    <th>{{ t('project.detail.document.parseStatus') }}</th>
+                    <th>{{ t('project.detail.document.indexStatus') }}</th>
+                    <th>{{ t('project.detail.document.isCurrentVersion') }}</th>
+                    <th>{{ t('project.detail.document.fieldUploader') }}</th>
+                    <th>{{ t('project.detail.document.fieldUploadedAt') }}</th>
+                    <th>{{ t('project.detail.document.versionRemark') }}</th>
+                    <th>{{ t('project.detail.document.operation') }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1771,7 +1815,7 @@ onMounted(loadData);
                     <td>{{ version.version_status || version.review_status || '-' }}</td>
                     <td><StatusTag type="generic" :value="documentParseStatus(version)" /></td>
                     <td><StatusTag type="index" :value="documentIndexStatus(version)" /></td>
-                    <td>{{ version.is_current || version.is_current_version ? '是' : '否' }}</td>
+                    <td>{{ version.is_current || version.is_current_version ? t('project.detail.document.yes') : t('project.detail.document.no') }}</td>
                     <td>{{ documentUploader(version) }}</td>
                     <td>{{ formatDateTime(version.created_at) }}</td>
                     <td>{{ version.version_note || version.change_summary || '-' }}</td>
@@ -1782,7 +1826,7 @@ onMounted(loadData);
                         variant="outline"
                         @click="setCurrentVersion(version)"
                       >
-                        设为当前版本
+                        {{ t('project.detail.document.setCurrentVersion') }}
                       </t-button>
                     </td>
                   </tr>
@@ -1795,22 +1839,22 @@ onMounted(loadData);
         <div v-else-if="drawerTab === 'parse'" class="drawer-tab-panel">
           <section class="drawer-section">
             <div class="drawer-section-heading">
-              <div class="drawer-section-title">解析信息</div>
+              <div class="drawer-section-title">{{ t('project.detail.document.sectionParse') }}</div>
               <t-button
                 v-if="canRetryParseDocuments"
                 variant="outline"
                 :disabled="documentParseStatus(selectedDocument) !== 'failed'"
                 @click="retryParse(selectedDocument)"
               >
-                重试解析
+                {{ t('project.detail.document.retryParse') }}
               </t-button>
             </div>
             <div class="drawer-info-grid">
-              <div><span>解析状态</span><strong>{{ documentParseStatus(selectedDocument) }}</strong></div>
-              <div><span>开始时间</span><strong>{{ formatDateTime(selectedDocument.parse_started_at || '') }}</strong></div>
-              <div><span>完成时间</span><strong>{{ formatDateTime(selectedDocument.parse_finished_at || '') }}</strong></div>
-              <div class="drawer-info-wide"><span>错误信息</span><strong>{{ selectedDocument.parse_error || '-' }}</strong></div>
-              <div class="drawer-info-wide"><span>解析日志</span><strong>{{ selectedDocument.parse_log || '-' }}</strong></div>
+              <div><span>{{ t('project.detail.document.parseStatus') }}</span><strong>{{ parseStatusText(documentParseStatus(selectedDocument)) }}</strong></div>
+              <div><span>{{ t('project.detail.document.startTime') }}</span><strong>{{ formatDateTime(selectedDocument.parse_started_at || '') }}</strong></div>
+              <div><span>{{ t('project.detail.document.finishTime') }}</span><strong>{{ formatDateTime(selectedDocument.parse_finished_at || '') }}</strong></div>
+              <div class="drawer-info-wide"><span>{{ t('project.detail.document.errorInfo') }}</span><strong>{{ selectedDocument.parse_error || '-' }}</strong></div>
+              <div class="drawer-info-wide"><span>{{ t('project.detail.document.parseLog') }}</span><strong>{{ selectedDocument.parse_log || '-' }}</strong></div>
             </div>
           </section>
         </div>
@@ -1818,35 +1862,35 @@ onMounted(loadData);
         <div v-else class="drawer-tab-panel">
           <section class="drawer-section">
             <div class="drawer-section-heading">
-              <div class="drawer-section-title">索引信息</div>
+              <div class="drawer-section-title">{{ t('project.detail.document.sectionIndex') }}</div>
               <t-button
                 v-if="canRetryIndexDocuments"
                 variant="outline"
                 :disabled="documentIndexStatus(selectedDocument) !== 'failed'"
                 @click="retryIndex(selectedDocument)"
               >
-                重试索引
+                {{ t('project.detail.document.retryIndex') }}
               </t-button>
             </div>
             <div class="drawer-info-grid">
-              <div><span>索引状态</span><strong>{{ documentIndexStatus(selectedDocument) }}</strong></div>
+              <div><span>{{ t('project.detail.document.indexStatus') }}</span><strong>{{ indexStatusText(documentIndexStatus(selectedDocument)) }}</strong></div>
               <div><span>Embedding</span><strong>{{ documentEmbeddingStatus(selectedDocument) }}</strong></div>
-              <div><span>Chunk 数量</span><strong>{{ documentChunkCount(selectedDocument) }}</strong></div>
-              <div><span>构建开始</span><strong>{{ formatDateTime(selectedDocument.build_started_at || '') }}</strong></div>
-              <div><span>构建完成</span><strong>{{ formatDateTime(selectedDocument.build_finished_at || '') }}</strong></div>
-              <div class="drawer-info-wide"><span>构建错误</span><strong>{{ selectedDocument.build_error || '-' }}</strong></div>
+              <div><span>{{ t('project.detail.document.chunkCount') }}</span><strong>{{ documentChunkCount(selectedDocument) }}</strong></div>
+              <div><span>{{ t('project.detail.document.buildStart') }}</span><strong>{{ formatDateTime(selectedDocument.build_started_at || '') }}</strong></div>
+              <div><span>{{ t('project.detail.document.buildFinish') }}</span><strong>{{ formatDateTime(selectedDocument.build_finished_at || '') }}</strong></div>
+              <div class="drawer-info-wide"><span>{{ t('project.detail.document.buildError') }}</span><strong>{{ selectedDocument.build_error || '-' }}</strong></div>
             </div>
           </section>
         </div>
       </div>
     </t-drawer>
 
-    <t-dialog v-model:visible="uploadDialogVisible" header="上传项目资料" width="680px" :confirm-loading="uploading" @confirm="confirmUpload">
+    <t-dialog v-model:visible="uploadDialogVisible" :header="t('project.detail.upload.title')" width="680px" :confirm-loading="uploading" @confirm="confirmUpload">
       <div class="upload-dialog-content">
         <div class="version-rule">
-          新资料首次上传为 v1；同一资料的新版本请在文件详情中上传，系统自动递增。
+          {{ t('project.detail.upload.rule') }}
         </div>
-        <t-form-item label="资料文件" required-mark>
+        <t-form-item :label="t('project.detail.upload.file')" required-mark>
           <div class="upload-dropzone" @click="browseUploadFiles" @dragover.prevent @drop.prevent="handleUploadDrop">
             <input
               ref="uploadInputRef"
@@ -1857,58 +1901,58 @@ onMounted(loadData);
               @change="handleFileChange"
             />
             <div class="upload-cloud">↑</div>
-            <strong>点击或将文件拖拽到此区域上传</strong>
-            <span>支持单个或批量上传，格式：PDF、DOC、DOCX、PPT、XLS、TXT、ZIP、RAR</span>
+            <strong>{{ t('project.detail.upload.dropTitle') }}</strong>
+            <span>{{ t('project.detail.upload.dropHint') }}</span>
           </div>
           <div v-if="selectedUploadFiles.length" class="upload-file-list">
             <div v-for="(file, index) in selectedUploadFiles" :key="`${file.name}-${file.size}-${index}`" class="upload-file-item">
               <span>{{ file.name }}</span>
               <strong>{{ formatFileSize(file.size) }}</strong>
-              <t-button size="small" variant="text" theme="danger" @click.stop="removeUploadFile(index)">移除</t-button>
+              <t-button size="small" variant="text" theme="danger" @click.stop="removeUploadFile(index)">{{ t('project.detail.upload.remove') }}</t-button>
             </div>
           </div>
         </t-form-item>
         <t-form label-align="top">
           <div class="upload-form-grid">
-            <t-form-item label="项目资料目录" required-mark>
-              <t-select v-model="uploadForm.category_id" placeholder="请选择项目资料目录">
+            <t-form-item :label="t('project.detail.upload.directory')" required-mark>
+              <t-select v-model="uploadForm.category_id" :placeholder="t('project.detail.message.selectDirectory')">
                 <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
               </t-select>
             </t-form-item>
-            <t-form-item label="文档密级" required-mark>
+            <t-form-item :label="t('project.detail.upload.security')" required-mark>
               <t-select v-model="uploadForm.security_level">
-                <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
+                <t-option v-for="item in securityLevelOptions(authStore.maxSecurityLevel)" :key="item.value" :value="item.value" :label="item.label" />
               </t-select>
             </t-form-item>
-            <t-form-item label="文档类型">
-              <t-select v-model="uploadForm.document_type" clearable placeholder="请选择文档类型">
-                <t-option v-for="item in DOCUMENT_TYPE_OPTIONS" :key="item" :value="item" :label="item" />
+            <t-form-item :label="t('project.detail.document.fieldType')">
+              <t-select v-model="uploadForm.document_type" clearable :placeholder="t('project.detail.upload.typePlaceholder')">
+                <t-option v-for="item in documentTypeOptions" :key="item.value" :value="item.value" :label="item.label" />
               </t-select>
             </t-form-item>
-            <t-form-item label="所属专业">
-              <t-select v-model="uploadForm.discipline" clearable placeholder="请选择专业">
-                <t-option v-for="item in DISCIPLINE_OPTIONS" :key="item" :value="item" :label="item" />
+            <t-form-item :label="t('project.detail.document.fieldDiscipline')">
+              <t-select v-model="uploadForm.discipline" clearable :placeholder="t('project.detail.upload.disciplinePlaceholder')">
+                <t-option v-for="item in disciplineOptions" :key="item.value" :value="item.value" :label="item.label" />
               </t-select>
             </t-form-item>
           </div>
-          <t-form-item label="备注">
-            <t-textarea v-model="uploadForm.remark" :autosize="{ minRows: 3, maxRows: 4 }" placeholder="请输入备注信息（非必填）" />
+          <t-form-item :label="t('project.detail.document.fieldRemark')">
+            <t-textarea v-model="uploadForm.remark" :autosize="{ minRows: 3, maxRows: 4 }" :placeholder="t('project.detail.upload.remarkPlaceholder')" />
           </t-form-item>
         </t-form>
       </div>
     </t-dialog>
 
-    <t-dialog v-model:visible="versionDialogVisible" header="上传新版本" width="560px" @confirm="confirmVersionUpload">
+    <t-dialog v-model:visible="versionDialogVisible" :header="t('project.detail.upload.versionTitle')" width="560px" @confirm="confirmVersionUpload">
       <t-form label-align="top">
-        <t-form-item label="所属目录">
-          <t-select v-model="versionForm.directory_id" clearable placeholder="默认沿用当前目录">
+        <t-form-item :label="t('project.detail.document.fieldDirectory')">
+          <t-select v-model="versionForm.directory_id" clearable :placeholder="t('project.detail.upload.directoryPlaceholder')">
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
           </t-select>
         </t-form-item>
-        <t-form-item label="版本备注">
+        <t-form-item :label="t('project.detail.document.versionRemark')">
           <t-textarea v-model="versionForm.version_note" :autosize="{ minRows: 2, maxRows: 4 }" />
         </t-form-item>
-        <t-form-item label="新版本文件" required-mark>
+        <t-form-item :label="t('project.detail.upload.fileVersion')" required-mark>
           <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleVersionFileChange" />
           <div v-if="selectedVersionFile" class="selected-file">{{ selectedVersionFile.name }}</div>
         </t-form-item>
@@ -1917,21 +1961,21 @@ onMounted(loadData);
 
     <t-dialog
       v-model:visible="deleteDialogVisible"
-      header="删除确认"
+      :header="t('project.detail.deleteFile.title')"
       width="560px"
       theme="warning"
       :confirm-loading="deleteSubmitting"
-      confirm-btn="确认删除"
-      cancel-btn="取消"
+      :confirm-btn="t('project.detail.deleteFile.confirm')"
+      :cancel-btn="t('common.action.cancel')"
       @confirm="confirmDeleteDocuments"
     >
       <div class="delete-confirm-panel">
-        <div class="delete-confirm-title">确定要删除选中的 {{ deleteTargetDocuments.length }} 个文件吗？</div>
+        <div class="delete-confirm-title">{{ t('project.detail.deleteFile.warning', { count: deleteTargetDocuments.length }) }}</div>
         <div class="delete-impact-box">
-          <div>项目：文件会从当前项目资料列表默认视图移除。</div>
-          <div>文件：后端按现有删除接口处理，前端不改变删除协议。</div>
-          <div>RAG 索引：已索引文件将通过删除状态和权限过滤从项目问答中失效。</div>
-          <div>历史版本：历史版本记录不在前端批量清理，保留后端审计与回溯策略。</div>
+          <div>{{ t('project.detail.deleteFile.projectImpact') }}</div>
+          <div>{{ t('project.detail.deleteFile.fileImpact') }}</div>
+          <div>{{ t('project.detail.deleteFile.indexImpact') }}</div>
+          <div>{{ t('project.detail.deleteFile.versionImpact') }}</div>
         </div>
         <div class="delete-file-list">
           <div v-for="document in deleteTargetDocuments" :key="document.id">
@@ -1953,20 +1997,20 @@ onMounted(loadData);
 
     <t-dialog
       v-model:visible="categoryDialogVisible"
-      :header="categoryDialogMode === 'create' ? '新增项目资料目录' : '编辑项目资料目录'"
+      :header="categoryDialogMode === 'create' ? t('project.detail.directory.createTitle') : t('project.detail.directory.editTitle')"
       width="560px"
       @confirm="confirmCategoryDialog"
     >
       <t-form :data="categoryForm" label-align="top">
-        <t-form-item label="父目录">
-          <t-select v-model="categoryForm.parent_id" clearable placeholder="根目录">
+        <t-form-item :label="t('project.detail.directory.parent')">
+          <t-select v-model="categoryForm.parent_id" clearable :placeholder="t('project.detail.directory.root')">
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.value === editingCategoryId" />
           </t-select>
         </t-form-item>
-        <t-form-item label="目录名称" required-mark><t-input v-model="categoryForm.name" /></t-form-item>
-        <t-form-item label="目录编码"><t-input v-model="categoryForm.code" placeholder="为空时自动生成" /></t-form-item>
-        <t-form-item label="排序"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
-        <t-form-item label="默认密级">
+        <t-form-item :label="t('project.detail.directory.name')" required-mark><t-input v-model="categoryForm.name" /></t-form-item>
+        <t-form-item :label="t('project.detail.directory.code')"><t-input v-model="categoryForm.code" :placeholder="t('project.detail.directory.autoCode')" /></t-form-item>
+        <t-form-item :label="t('project.detail.directory.sort')"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
+        <t-form-item :label="t('project.detail.directory.defaultSecurity')">
           <t-select v-model="categoryForm.default_security_level">
             <t-option
               v-for="item in securityLevelOptions(authStore.maxSecurityLevel, categoryForm.default_security_level)"
@@ -1977,8 +2021,8 @@ onMounted(loadData);
             />
           </t-select>
         </t-form-item>
-        <t-form-item label="说明"><t-textarea v-model="categoryForm.description" /></t-form-item>
-        <t-form-item label="启用"><t-switch v-model="categoryForm.enabled" /></t-form-item>
+        <t-form-item :label="t('project.detail.directory.description')"><t-textarea v-model="categoryForm.description" /></t-form-item>
+        <t-form-item :label="t('project.detail.directory.enabled')"><t-switch v-model="categoryForm.enabled" /></t-form-item>
       </t-form>
     </t-dialog>
   </PageContainer>

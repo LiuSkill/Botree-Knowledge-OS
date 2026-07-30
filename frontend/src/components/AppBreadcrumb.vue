@@ -7,11 +7,13 @@
 import { computed } from 'vue';
 import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router';
 import { HomeIcon } from 'tdesign-icons-vue-next';
+import { useI18n } from 'vue-i18n';
 
 import { useAuthStore } from '@/stores/auth';
 import type { SystemMenuNode } from '@/types/api';
 import { breadcrumbItemTarget, hasBreadcrumbContext, resolveRouteBreadcrumbTrail } from '@/utils/breadcrumbContext';
 import { findMenuNode, findMenuNodePath, firstMenuPath } from '@/utils/rbacMenus';
+import { menuLabel } from '@/utils/localizedNavigation';
 
 type BreadcrumbItem = {
   key: string;
@@ -22,6 +24,7 @@ type BreadcrumbItem = {
 
 type RouteBreadcrumbItem = {
   title?: string;
+  titleKey?: string;
   label?: string;
   path?: string;
   query?: Record<string, string>;
@@ -46,12 +49,13 @@ const DASHBOARD_MENU_ID = 'dashboard';
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 
 const breadcrumbItems = computed<BreadcrumbItem[]>(() => {
   if (hasBreadcrumbContext(route)) {
     return resolveRouteBreadcrumbTrail(route).map((item, index, items) => ({
       key: `context:${index}:${item.label}`,
-      label: item.label,
+      label: translatedContextLabel(item),
       to: index === items.length - 1 ? null : breadcrumbItemTarget(item),
       current: index === items.length - 1,
     }));
@@ -73,7 +77,7 @@ const breadcrumbItems = computed<BreadcrumbItem[]>(() => {
     return routeBreadcrumb.replaceBase ? routeBreadcrumb.items : [...items, ...routeBreadcrumb.items];
   }
 
-  const breadcrumbTitle = normalizeRouteTitle(route.meta.breadcrumbTitle);
+  const breadcrumbTitle = translatedRouteTitle(route.meta.breadcrumbTitleKey, route.meta.breadcrumbTitle);
   if (breadcrumbTitle && (!items.length || items[items.length - 1].label !== breadcrumbTitle)) {
     return [
       ...items,
@@ -92,7 +96,7 @@ const breadcrumbItems = computed<BreadcrumbItem[]>(() => {
     return items;
   }
 
-  const routeTitle = normalizeRouteTitle(route.meta.title);
+  const routeTitle = translatedRouteTitle(route.meta.titleKey, route.meta.title);
   return routeTitle
     ? [
         {
@@ -105,8 +109,23 @@ const breadcrumbItems = computed<BreadcrumbItem[]>(() => {
     : [];
 });
 
+function translatedContextLabel(item: { label: string; titleKey?: string; path?: string; query?: Record<string, string> }): string {
+  if (item.titleKey) return t(item.titleKey);
+  const target = breadcrumbItemTarget(item);
+  if (!target) return item.label;
+  const resolved = router.resolve(target);
+  const configured = normalizeRouteBreadcrumb(resolved.meta.breadcrumbItems);
+  const configuredKey = configured.items[configured.items.length - 1]?.key;
+  if (configuredKey) return configured.items[configured.items.length - 1].label;
+  return translatedRouteTitle(resolved.meta.breadcrumbTitleKey || resolved.meta.titleKey, item.label);
+}
+
 function normalizeRouteTitle(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function translatedRouteTitle(key: unknown, fallback: unknown): string {
+  return typeof key === 'string' && key.trim() ? t(key) : normalizeRouteTitle(fallback);
 }
 
 function normalizeRouteBreadcrumb(value: unknown): ResolvedRouteBreadcrumb {
@@ -145,7 +164,7 @@ function queryBreadcrumb(value: unknown): ResolvedRouteBreadcrumb | null {
 function toConfiguredBreadcrumbItem(value: unknown, current: boolean): BreadcrumbItem | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as RouteBreadcrumbItem;
-  const label = normalizeRouteTitle(item.title || item.label);
+  const label = translatedRouteTitle(item.titleKey, item.title || item.label);
   if (!label) return null;
   return {
     key: `${String(route.name || route.path)}:${label}`,
@@ -160,7 +179,7 @@ function toBreadcrumbItem(node: SystemMenuNode): BreadcrumbItem | null {
   if (!node.name) return null;
   return {
     key: node.id,
-    label: node.name,
+    label: menuLabel(node.id, node.name, t),
     to: path,
     current: false,
   };
@@ -199,7 +218,7 @@ function handleBreadcrumbClick(item: BreadcrumbItem): void {
 </script>
 
 <template>
-  <nav v-if="breadcrumbItems.length" class="app-breadcrumb" aria-label="面包屑导航">
+  <nav v-if="breadcrumbItems.length" class="app-breadcrumb" :aria-label="t('common.navigation.breadcrumb')">
     <span class="app-breadcrumb__home-icon" aria-hidden="true">
       <HomeIcon />
     </span>

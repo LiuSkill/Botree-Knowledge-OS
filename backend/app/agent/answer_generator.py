@@ -87,9 +87,20 @@ class AnswerGenerator:
         self.last_model_route = self.llm_service.model_route("answer", reason)
         return answer
 
-    def synthesize_multi_intent(self, question: str, intent_answers: list[dict[str, str]]) -> str:
+    def synthesize_multi_intent(
+        self,
+        question: str,
+        intent_answers: list[dict[str, str]],
+        query_profile: dict[str, Any] | None = None,
+    ) -> str:
         """基于各意图已生成的答案形成简洁综合结论。"""
 
+        response_language = "en-US" if self._uses_english(query_profile or {}) else "zh-CN"
+        language_instruction = (
+            "The final answer must be in English."
+            if response_language == "en-US"
+            else "最终答案必须使用简体中文。"
+        )
         answer = self.llm_service.chat(
             [
                 {
@@ -98,6 +109,7 @@ class AnswerGenerator:
                         "请根据用户原问题和各问答意图的已有答案生成简洁综合结论。"
                         "不得引入已有答案之外的新事实，不要重复分节标题，只输出结论正文。"
                         "涉及求和、平均、差值、比例或单位换算时，必须展示取值依据、统一后的单位、计算式和结果。"
+                        f"{language_instruction}"
                     ),
                 },
                 {
@@ -133,20 +145,20 @@ class AnswerGenerator:
             return self._general_answer(question, query_profile=query_profile)
         if action == ACTION_LIMITED_ANSWER:
             self.last_model_route = self._rule_answer_route("证据仅包含标题、图名或弱证据，生成有限回答")
-            return self._limited_answer(question, evidences, evidence_evaluation or {})
+            return self._limited_answer(question, evidences, evidence_evaluation or {}, query_profile or {})
         if action == ACTION_PARTIAL_ANSWER_WITH_LLM:
             try:
                 return self._partial_answer_with_llm(question, evidences, evidence_evaluation or {}, query_profile or {})
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Partial LLM answer failed, downgrade to rule partial answer: %s", exc, exc_info=True)
                 self.last_model_route = self._rule_answer_route("partial_llm_failed_rule_partial_answer")
-                return self._partial_answer(question, evidences, evidence_evaluation or {})
+                return self._partial_answer(question, evidences, evidence_evaluation or {}, query_profile or {})
         if action == ACTION_PARTIAL_ANSWER:
             self.last_model_route = self._rule_answer_route("证据不完整，生成部分回答")
-            return self._partial_answer(question, evidences, evidence_evaluation or {})
+            return self._partial_answer(question, evidences, evidence_evaluation or {}, query_profile or {})
         if action == ACTION_CONFLICT_ANSWER:
             self.last_model_route = self._rule_answer_route("证据存在冲突，生成冲突说明")
-            return self._conflict_answer(question, evidences, evidence_evaluation or {})
+            return self._conflict_answer(question, evidences, evidence_evaluation or {}, query_profile or {})
         if action == ACTION_REFUSAL:
             self.last_model_route = self._rule_answer_route("无有效可用证据，生成拒答")
             return self._refusal_answer(question, evidence_evaluation or {}, query_profile or {})
@@ -179,7 +191,7 @@ class AnswerGenerator:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Streaming partial LLM answer failed, downgrade to rule partial answer: %s", exc, exc_info=True)
                 self.last_model_route = self._rule_answer_route("stream_partial_llm_failed_rule_partial_answer")
-                yield self._partial_answer(question, evidences, evidence_evaluation or {})
+                yield self._partial_answer(question, evidences, evidence_evaluation or {}, query_profile or {})
             return
         if action != ACTION_NORMAL_ANSWER:
             yield self.generate_by_action(
@@ -271,8 +283,20 @@ class AnswerGenerator:
             return self.llm_service.model_route("answer", "行业知识库未召回证据，使用模型通用知识兜底回答")
         return {"task": "answer", "source": "not_called", "reason": reason}
 
-    def _limited_answer(self, question: str, evidences: list[Evidence], evidence_evaluation: dict[str, Any]) -> str:
+    def _limited_answer(
+        self,
+        question: str,
+        evidences: list[Evidence],
+        evidence_evaluation: dict[str, Any],
+        query_profile: dict[str, Any] | None = None,
+    ) -> str:
         topic = self._topic_text(question)
+        if self._uses_english(query_profile or {}):
+            return (
+                f'Only headings, figure names, or weak evidence related to "{topic}" were found. '
+                "The available project materials do not contain enough body text, process details, parameters, or explanations to provide a complete answer. "
+                "Please add the relevant body pages, parsed drawings, parameter tables, or equipment relationship descriptions and try again."
+            )
         lines = [
             f"基于当前项目资料，只检索到与「{topic}」相关的标题、图名或弱证据，未检索到足够的正文流程/参数/说明，因此无法给出完整回答。"
         ]
@@ -286,8 +310,18 @@ class AnswerGenerator:
         lines.append("建议补充正文页、图纸解析结果、参数表或设备关系说明后再检索；如需使用通用知识补充，请先确认。")
         return "\n".join(lines)
 
-    def _partial_answer(self, question: str, evidences: list[Evidence], evidence_evaluation: dict[str, Any]) -> str:
+    def _partial_answer(
+        self,
+        question: str,
+        evidences: list[Evidence],
+        evidence_evaluation: dict[str, Any],
+        query_profile: dict[str, Any] | None = None,
+    ) -> str:
         topic = self._topic_text(question)
+        if self._uses_english(query_profile or {}):
+            evidence_lines = self._evidence_excerpt_lines(evidences)
+            summary = "\n".join(evidence_lines) if evidence_lines else "The available evidence is insufficient to extract a definite conclusion."
+            return f'Only partial text related to "{topic}" was found. The information is incomplete; the following is limited to what the evidence confirms:\n{summary}'
         lines = [
             f"基于当前项目资料，只检索到与「{topic}」相关的部分正文片段，信息不完整，以下仅概括已能从现有证据中确认的内容："
         ]
@@ -312,7 +346,7 @@ class AnswerGenerator:
 
         if not evidences:
             self.last_model_route = self._rule_answer_route("无可用证据，受限 LLM 回答降级为规则部分回答")
-            return self._partial_answer(question, evidences, evidence_evaluation)
+            return self._partial_answer(question, evidences, evidence_evaluation, query_profile)
         if self._should_use_limited_vision(evidences, query_profile):
             image_parts = self.llm_service._build_image_parts(evidences)  # noqa: SLF001
             if image_parts:
@@ -347,7 +381,7 @@ class AnswerGenerator:
         query_profile: dict[str, Any],
     ) -> Iterator[str]:
         if not evidences:
-            yield self._partial_answer(question, evidences, evidence_evaluation)
+            yield self._partial_answer(question, evidences, evidence_evaluation, query_profile)
             self.last_model_route = self._rule_answer_route("无可用证据，受限 LLM 流式回答降级为规则部分回答")
             return
         if self._should_use_limited_vision(evidences, query_profile):
@@ -498,6 +532,11 @@ class AnswerGenerator:
                     "你可以回答问候、身份说明、明显常识或简单公式问题。"
                     "不得声称答案来自知识库，不要编造项目资料、文件名、图号或引用。"
                     "如果问题涉及项目事实或专业资料，应提示需要知识库证据。"
+                    + (
+                        "最终答案必须使用英文。"
+                        if query_profile.get("response_language") == "en-US"
+                        else "最终答案必须使用简体中文。"
+                    )
                 ),
             },
             {
@@ -506,7 +545,19 @@ class AnswerGenerator:
             },
         ]
 
-    def _conflict_answer(self, question: str, evidences: list[Evidence], evidence_evaluation: dict[str, Any]) -> str:
+    def _conflict_answer(
+        self,
+        question: str,
+        evidences: list[Evidence],
+        evidence_evaluation: dict[str, Any],
+        query_profile: dict[str, Any] | None = None,
+    ) -> str:
+        if self._uses_english(query_profile or {}):
+            return (
+                "The retrieved materials conflict with one another, so the knowledge base cannot support a definite conclusion.\n"
+                f"Question: {self._topic_text(question)}\n"
+                "Please verify document versions, review status, source priority, and publication dates before confirming the answer."
+            )
         lines = [
             "检索到的资料之间存在冲突，当前无法基于知识库给出确定结论。",
             f"问题：{self._topic_text(question)}",
@@ -525,9 +576,20 @@ class AnswerGenerator:
         self,
         question: str,
         evidence_evaluation: dict[str, Any],
-        query_profile: dict[str, Any],
+        query_profile: dict[str, Any] | None = None,
     ) -> str:
-        reason_code = self._refusal_reason_code(evidence_evaluation, query_profile)
+        profile = query_profile or {}
+        reason_code = self._refusal_reason_code(evidence_evaluation, profile)
+        if self._uses_english(profile):
+            messages = {
+                "no_project_evidence": "No relevant valid information was found in the current project materials, so the question cannot be answered from project evidence.",
+                "conflict_evidence": "The retrieved materials conflict, so a definite conclusion cannot be provided.",
+                "permission_denied": "No relevant materials are accessible with the current permissions.",
+                "invalid_question": "The question is unclear or lacks sufficient business context. Please specify the project, material, or object.",
+                "out_of_scope": "The question is outside the current knowledge-base or project scope.",
+                "unsafe_generalization": "The question concerns project facts and cannot be supplemented with general knowledge.",
+            }
+            return f"{messages.get(reason_code, 'The available materials do not support an answer.')}\nQuestion: {self._topic_text(question)}"
         messages = {
             "no_project_evidence": "当前项目资料中未检索到相关有效信息，无法基于项目资料回答。",
             "conflict_evidence": "检索到的资料存在冲突，无法给出确定结论。",
@@ -547,6 +609,10 @@ class AnswerGenerator:
         detail = messages.get(reason_code, PROJECT_REFUSAL_TEXT)
         reason_label = reason_labels.get(reason_code, "当前资料不足以支撑回答")
         return f"{detail}\n拒答原因：{reason_label}\n问题：{self._topic_text(question)}"
+
+    @staticmethod
+    def _uses_english(query_profile: dict[str, Any]) -> bool:
+        return query_profile.get("response_language") == "en-US"
 
     def _refusal_reason_code(self, evidence_evaluation: dict[str, Any], query_profile: dict[str, Any]) -> str:
         risk = str(evidence_evaluation.get("risk") or "")

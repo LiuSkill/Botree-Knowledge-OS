@@ -13,6 +13,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { NOT_FOUND_ROUTE_NAME, ROOT_ROUTE_NAME, resetAuthorizedRoutes, syncAuthorizedRoutes } from '@/router/dynamicRoutes';
 import { useAuthStore } from '@/stores/auth';
 import { getToken } from '@/utils/auth';
+import { i18n } from '@/locales';
 
 const EmptyRouteView = defineComponent({
   name: 'EmptyRouteView',
@@ -24,7 +25,7 @@ const routes: RouteRecordRaw[] = [
     path: '/login',
     name: 'login',
     component: () => import('@/views/login/LoginPage.vue'),
-    meta: { public: true },
+    meta: { public: true, title: 'Sign In', titleKey: 'auth.login' },
   },
   {
     path: '/process-config/routes/:id/preview',
@@ -32,7 +33,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/process-config/route/preview.vue'),
     meta: {
       permission: 'process_config:route',
-      title: '线路预览',
+      title: 'Route Preview',
+      titleKey: 'route.previewRoute',
     },
   },
   {
@@ -42,7 +44,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       permission: 'process_config:calculator',
       menuId: 'process_config:calculator',
-      title: '快速财务计算器',
+      title: 'Quick Financial Calculator',
+      titleKey: 'route.quickCalculator',
     },
   },
   {
@@ -104,6 +107,13 @@ router.beforeEach(async (to) => {
   }
 
   return true;
+});
+
+router.afterEach((to) => {
+  const key = typeof to.meta.titleKey === 'string' ? to.meta.titleKey : '';
+  const fallback = typeof to.meta.title === 'string' ? to.meta.title : 'Botree Knowledge OS';
+  document.documentElement.dataset.titleKey = key;
+  document.title = key ? `${i18n.global.t(key)} | Botree Knowledge OS` : fallback;
 });
 
 export default router;

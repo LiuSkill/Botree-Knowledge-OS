@@ -7,12 +7,14 @@ import type { LocationQueryRaw, RouteLocationNormalizedLoaded, RouteLocationRaw 
 
 export type BreadcrumbContextItem = {
   label: string;
+  titleKey?: string;
   path?: string;
   query?: Record<string, string>;
 };
 
 type RouteBreadcrumbItem = {
   title?: string;
+  titleKey?: string;
   label?: string;
   path?: string;
   query?: Record<string, string>;
@@ -70,10 +72,12 @@ export function resolveRouteBreadcrumbTrail(route: RouteLocationNormalizedLoaded
 export function currentRouteBreadcrumbContextItem(route: RouteLocationNormalizedLoaded): BreadcrumbContextItem | null {
   const configured = resolveRouteBreadcrumb(route);
   const lastItem = configured.items[configured.items.length - 1];
-  const label = normalizeTitle(lastItem?.title || lastItem?.label || route.meta.breadcrumbTitle || route.meta.title);
+  const titleKey = normalizeTitle(lastItem?.titleKey || route.meta.breadcrumbTitleKey || route.meta.titleKey);
+  const label = normalizeTitle(lastItem?.title || lastItem?.label || route.meta.breadcrumbTitle || route.meta.title || titleKey);
   if (!label) return null;
   return {
     label,
+    ...(titleKey ? { titleKey } : {}),
     path: route.path,
     query: cleanRouteQuery(route.query),
   };
@@ -130,9 +134,11 @@ function deriveRouteBreadcrumbTrail(route: RouteLocationNormalizedLoaded): Bread
   }
 
   const menuTitle = normalizeTitle(route.meta.title);
+  const menuTitleKey = normalizeTitle(route.meta.titleKey);
   const menuItem = menuTitle
     ? {
         label: menuTitle,
+        ...(menuTitleKey ? { titleKey: menuTitleKey } : {}),
         path: menuRootPath(route) || route.path,
       }
     : null;
@@ -180,11 +186,12 @@ function toContextItem(
   route: RouteLocationNormalizedLoaded,
   isCurrent: boolean,
 ): BreadcrumbContextItem | null {
-  const label = normalizeTitle(item.title || item.label);
+  const label = normalizeTitle(item.title || item.label || item.titleKey);
   if (!label) return null;
   const path = item.path ? fillPathParams(item.path, route) : isCurrent ? route.path : undefined;
   return {
     label,
+    ...(item.titleKey ? { titleKey: item.titleKey } : {}),
     ...(path ? { path } : {}),
     query: item.query || (isCurrent ? cleanRouteQuery(route.query) : undefined),
   };
@@ -221,6 +228,7 @@ function compactBreadcrumbItems(items: Array<BreadcrumbContextItem | null>): Bre
 function normalizeContextItem(item: BreadcrumbContextItem): BreadcrumbContextItem {
   return {
     label: item.label.trim(),
+    ...(item.titleKey ? { titleKey: item.titleKey } : {}),
     ...(item.path ? { path: item.path } : {}),
     ...(item.query && Object.keys(item.query).length ? { query: item.query } : {}),
   };
@@ -248,6 +256,7 @@ function decodeBreadcrumbContext(value: unknown): BreadcrumbContextItem[] {
         if (!label) return null;
         return {
           label,
+          ...(typeof candidate.titleKey === 'string' && candidate.titleKey ? { titleKey: candidate.titleKey } : {}),
           ...(typeof candidate.path === 'string' && candidate.path ? { path: candidate.path } : {}),
           ...(candidate.query && typeof candidate.query === 'object' ? { query: stringRecord(candidate.query) } : {}),
         };

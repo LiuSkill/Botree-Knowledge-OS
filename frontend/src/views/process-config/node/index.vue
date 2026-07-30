@@ -2,6 +2,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { AddIcon, BrowseIcon, DeleteIcon, DownloadIcon, EditIcon, RefreshIcon, UploadIcon } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import {
   createProcessNode,
@@ -18,6 +19,7 @@ import type { PageResult } from '@/types/api';
 import { formatDateTime } from '@/utils/format';
 import ProcessConfigImportDialog from '@/views/process-config/components/ProcessConfigImportDialog.vue';
 import type { ProcessLibraryStatus } from '@/views/process-config/types';
+import { processNodeTypeLocaleKey, processStatusLocaleKey } from '@/views/process-config/i18n';
 import { buildProcessConfigExportFileName, triggerBlobDownload } from '@/views/process-config/utils';
 import NodeDetailDrawer from '@/views/process-config/node/components/NodeDetailDrawer.vue';
 import NodeFormDialog from '@/views/process-config/node/components/NodeFormDialog.vue';
@@ -51,6 +53,7 @@ const permissions = {
   export: PERMISSIONS.PROCESS_CONFIG_NODE_EXPORT,
 } as const;
 
+const { t } = useI18n();
 const filters = reactive({
   keyword: '',
   node_type: '' as ProcessNodeType | '',
@@ -96,21 +99,25 @@ const publicServiceOptions = ref<ProcessLibraryOptionItem[]>([]);
 const laborCostOptions = ref<ProcessLibraryOptionItem[]>([]);
 const assetOptions = ref<ProcessLibraryOptionItem[]>([]);
 
-const columns = [
-  { colKey: 'code', title: '节点编码', width: 150, ellipsis: true },
-  { colKey: 'name', title: '节点名称', minWidth: 170, ellipsis: true },
-  { colKey: 'node_type', title: '节点类型', width: 150, ellipsis: true },
-  { colKey: 'status', title: '状态', width: 100, align: 'center' as const },
-  { colKey: 'updated_at', title: '更新时间', width: 170 },
-  { colKey: 'operation', title: '操作', width: 160, fixed: 'right' as const },
-];
+const columns = computed(() => [
+  { colKey: 'code', title: t('process.node.field.nodeCode'), width: 150, ellipsis: true },
+  { colKey: 'name', title: t('process.node.field.nodeName'), minWidth: 170, ellipsis: true },
+  { colKey: 'node_type', title: t('process.node.field.nodeType'), width: 150, ellipsis: true },
+  { colKey: 'status', title: t('common.field.status'), width: 100, align: 'center' as const },
+  { colKey: 'updated_at', title: t('common.field.updatedAt'), width: 170 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 160, fixed: 'right' as const },
+]);
 
 const statCards = computed(() => [
-  { label: '节点总数', value: stats.total, theme: 'primary' },
-  { label: '启用节点数', value: stats.enabled, theme: 'success' },
-  { label: '草稿节点数', value: stats.draft, theme: 'warning' },
-  { label: '停用节点数', value: stats.disabled, theme: 'default' },
+  { label: t('process.node.stat.total'), value: stats.total, theme: 'primary' },
+  { label: t('process.node.stat.enabled'), value: stats.enabled, theme: 'success' },
+  { label: t('process.node.stat.draft'), value: stats.draft, theme: 'warning' },
+  { label: t('process.node.stat.disabled'), value: stats.disabled, theme: 'default' },
 ]);
+
+const nodeTypeOptions = computed(() =>
+  PROCESS_NODE_TYPE_OPTIONS.map((item) => ({ ...item, label: nodeTypeLabel(item.value) })),
+);
 
 onMounted(() => {
   loadOptions();
@@ -250,10 +257,10 @@ async function handleSubmit(payload: ProcessNodePayload): Promise<void> {
   try {
     if (formMode.value === 'create') {
       await createProcessNode(payload);
-      MessagePlugin.success('已新增工艺节点');
+      MessagePlugin.success(t('process.node.message.created'));
     } else if (editingNode.value) {
       await updateProcessNode(editingNode.value.id, payload);
-      MessagePlugin.success('已更新工艺节点');
+      MessagePlugin.success(t('process.node.message.updated'));
     }
     formVisible.value = false;
     await refreshAll();
@@ -266,7 +273,7 @@ async function handleDelete(row: ProcessNodeItem): Promise<void> {
   deletingId.value = row.id;
   try {
     await deleteProcessNode(row.id);
-    MessagePlugin.success('已删除工艺节点');
+    MessagePlugin.success(t('process.node.message.deleted'));
     if (records.items.length === 1 && page.value > 1) {
       page.value -= 1;
     }
@@ -285,7 +292,7 @@ async function handleExport(): Promise<void> {
   try {
     const blob = await exportProcessConfigData('nodes', buildExportParams());
     triggerBlobDownload(blob, buildProcessConfigExportFileName('nodes'));
-    MessagePlugin.success('工艺节点数据导出完成');
+    MessagePlugin.success(t('process.node.message.exported'));
   } finally {
     exporting.value = false;
   }
@@ -297,12 +304,7 @@ async function handleImportSuccess(): Promise<void> {
 }
 
 function statusLabel(status: ProcessLibraryStatus): string {
-  const labels: Record<ProcessLibraryStatus, string> = {
-    enabled: '启用',
-    draft: '草稿',
-    disabled: '停用',
-  };
-  return labels[status] || status;
+  return t(processStatusLocaleKey(status));
 }
 
 function statusTheme(status: ProcessLibraryStatus): TagTheme {
@@ -315,7 +317,8 @@ function statusTheme(status: ProcessLibraryStatus): TagTheme {
 }
 
 function nodeTypeLabel(value: ProcessNodeType): string {
-  return PROCESS_NODE_TYPE_OPTIONS.find((item) => item.value === value)?.label || value;
+  const key = processNodeTypeLocaleKey(value);
+  return key ? t(key) : value;
 }
 </script>
 
@@ -331,50 +334,50 @@ function nodeTypeLabel(value: ProcessNodeType): string {
     </div>
 
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item v-permission="permissions.view" label="关键字">
-        <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="节点编码 / 名称 / 类型" @enter="handleSearch" />
+      <t-form-item v-permission="permissions.view" :label="t('process.field.keyword')">
+        <t-input v-model="filters.keyword" class="filter-input" clearable :placeholder="t('process.node.placeholder.keyword')" @enter="handleSearch" />
       </t-form-item>
-      <t-form-item v-permission="permissions.view" label="节点类型">
-        <t-select v-model="filters.node_type" class="filter-select" clearable placeholder="全部类型" @change="handleSearch">
-          <t-option v-for="item in PROCESS_NODE_TYPE_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+      <t-form-item v-permission="permissions.view" :label="t('process.node.field.nodeType')">
+        <t-select v-model="filters.node_type" class="filter-select" clearable :placeholder="t('process.node.placeholder.allTypes')" @change="handleSearch">
+          <t-option v-for="item in nodeTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
         </t-select>
       </t-form-item>
-      <t-form-item v-permission="permissions.view" label="状态">
-        <t-select v-model="filters.status" class="filter-select" clearable placeholder="全部状态" @change="handleSearch">
-          <t-option label="启用" value="enabled" />
-          <t-option label="草稿" value="draft" />
-          <t-option label="停用" value="disabled" />
+      <t-form-item v-permission="permissions.view" :label="t('common.field.status')">
+        <t-select v-model="filters.status" class="filter-select" clearable :placeholder="t('process.node.placeholder.allStatus')" @change="handleSearch">
+          <t-option :label="t('process.status.enabled')" value="enabled" />
+          <t-option :label="t('process.status.draft')" value="draft" />
+          <t-option :label="t('process.status.disabled')" value="disabled" />
         </t-select>
       </t-form-item>
       <t-form-item>
         <t-space>
-          <t-button v-permission="permissions.view" theme="primary" @click="handleSearch">查询</t-button>
-          <t-button v-permission="permissions.view" @click="clearFilters">重置</t-button>
+          <t-button v-permission="permissions.view" theme="primary" @click="handleSearch">{{ t('common.action.search') }}</t-button>
+          <t-button v-permission="permissions.view" @click="clearFilters">{{ t('common.action.reset') }}</t-button>
         </t-space>
       </t-form-item>
     </t-form>
 
     <div class="system-section-head">
       <div class="system-section-title">
-        <h2>工艺节点列表</h2>
-        <span>共 {{ records.total }} 条数据</span>
+        <h2>{{ t('process.node.section.list') }}</h2>
+        <span>{{ t('process.summary.totalRecords', { count: records.total }) }}</span>
       </div>
       <t-space>
         <t-button v-permission="permissions.view" theme="default" variant="outline" :loading="loading" @click="refreshAll">
           <template #icon><RefreshIcon /></template>
-          刷新
+          {{ t('common.action.refresh') }}
         </t-button>
         <t-button v-permission="permissions.import" theme="default" variant="outline" @click="handleImport">
           <template #icon><UploadIcon /></template>
-          导入
+          {{ t('process.action.import') }}
         </t-button>
         <t-button v-permission="permissions.export" theme="default" variant="outline" :loading="exporting" @click="handleExport">
           <template #icon><DownloadIcon /></template>
-          导出
+          {{ t('process.action.export') }}
         </t-button>
         <t-button v-permission="permissions.create" theme="primary" @click="openCreateDialog">
           <template #icon><AddIcon /></template>
-          新增节点
+          {{ t('process.node.action.create') }}
         </t-button>
       </t-space>
     </div>
@@ -388,7 +391,7 @@ function nodeTypeLabel(value: ProcessNodeType): string {
         :data="records.items"
         :columns="columns"
         :loading="loading"
-        empty="暂无工艺节点数据"
+        :empty="t('process.node.empty.list')"
       >
         <template #node_type="{ row }">
           {{ nodeTypeLabel(row.node_type) }}
@@ -401,14 +404,14 @@ function nodeTypeLabel(value: ProcessNodeType): string {
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <TableActionButton label="查看" :permission="permissions.view" @click="openDetailDrawer(row)">
+            <TableActionButton :label="t('common.action.view')" :permission="permissions.view" @click="openDetailDrawer(row)">
               <BrowseIcon />
             </TableActionButton>
-            <TableActionButton label="编辑" :permission="permissions.update" :loading="editLoadingId === row.id" @click="openEditDialog(row)">
+            <TableActionButton :label="t('common.action.edit')" :permission="permissions.update" :loading="editLoadingId === row.id" @click="openEditDialog(row)">
               <EditIcon />
             </TableActionButton>
-            <t-popconfirm content="确认删除该工艺节点吗？删除前系统会检查工艺路线引用关系。" @confirm="handleDelete(row)">
-              <TableActionButton label="删除" :permission="permissions.delete" :loading="deletingId === row.id" theme="danger">
+            <t-popconfirm :content="t('process.node.message.deleteConfirm')" @confirm="handleDelete(row)">
+              <TableActionButton :label="t('common.action.delete')" :permission="permissions.delete" :loading="deletingId === row.id" theme="danger">
                 <DeleteIcon />
               </TableActionButton>
             </t-popconfirm>
@@ -454,7 +457,7 @@ function nodeTypeLabel(value: ProcessNodeType): string {
       :asset-options="assetOptions"
     />
 
-    <ProcessConfigImportDialog v-model:visible="importVisible" module-key="nodes" module-label="工艺节点" @success="handleImportSuccess" />
+    <ProcessConfigImportDialog v-model:visible="importVisible" module-key="nodes" :module-label="t('process.entity.nodes')" @success="handleImportSuccess" />
   </div>
 </template>
 

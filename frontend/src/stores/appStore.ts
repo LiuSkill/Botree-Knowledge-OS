@@ -8,7 +8,7 @@
  */
 import { create } from 'zustand';
 
-import type { AppLanguage } from '@/i18n/dictionary';
+import type { SupportedLocale } from '@/locales';
 import {
   mockAiSessions,
   mockAuthorizationConfigs,
@@ -34,7 +34,7 @@ interface AppUiState {
   /**
    * 当前界面语言
    */
-  language: AppLanguage;
+  language: SupportedLocale;
 
   /**
    * 侧边区域是否处于收起状态
@@ -83,7 +83,7 @@ interface AppActions {
   /**
    * 设置当前界面语言
    */
-  setLanguage: (language: AppLanguage) => void;
+  setLanguage: (language: SupportedLocale) => void;
 
   /**
    * 在中文与英文之间切换

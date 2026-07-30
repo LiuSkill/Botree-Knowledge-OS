@@ -12,6 +12,7 @@ import {
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { calculateProcessFinancialModel, getProcessCalculatorOptions } from '@/api/process-config';
@@ -46,9 +47,17 @@ const permissions = {
   calculate: PERMISSIONS.PROCESS_CONFIG_CALCULATOR_CALCULATE,
   preview: PERMISSIONS.PROCESS_CONFIG_ROUTE_PREVIEW,
 } as const;
+const SORT_LABEL_KEY_BY_CODE: Record<CalculatorSortCriteria, string> = {
+  npv: 'process.calculator.sort.npv',
+  irr: 'process.calculator.sort.irr',
+  ebitda: 'process.calculator.sort.ebitda',
+  payback_period: 'process.calculator.sort.paybackPeriod',
+  capex: 'process.calculator.sort.capex',
+};
 
 const route = useRoute();
 const router = useRouter();
+const { t, locale } = useI18n();
 const isStandalone = computed(() => route.name === 'process-calculator-standalone');
 const optionsLoading = ref(false);
 const calculating = ref(false);
@@ -78,33 +87,33 @@ const totalProcessing = computed(() => form.materials.reduce((total, item) => to
 
 const regionCurrencyOptions = computed(() =>
   (options.value?.regions || []).map((item) => ({
-    label: `${item.name} · ${item.currency}`,
+    label: `${t(`process.region.${item.code}`)} · ${item.currency}`,
     value: item.code,
   })),
 );
 
 const sortCriteriaLabel = computed(() => {
-  return options.value?.sort_criteria.find((item) => item.code === form.sortCriteria)?.name || '当前排序指标';
+  return sortCriteriaText(form.sortCriteria);
 });
 
 const headlineMetrics = computed<MetricItem[]>(() => {
   if (!result.value) return [];
   return [
-    { label: '营业收入', value: formatMoney(result.value.revenue), tone: 'positive' },
-    { label: '年度 OPEX', value: formatMoney(result.value.opex), tone: 'default' },
+    { label: t('process.calculator.metric.revenue'), value: formatMoney(result.value.revenue), tone: 'positive' },
+    { label: t('process.calculator.metric.annualOpex'), value: formatMoney(result.value.opex), tone: 'default' },
     {
-      label: '年度 EBITDA',
+      label: t('process.calculator.metric.annualEbitda'),
       value: formatMoney(result.value.ebitda),
       tone: numberValue(result.value.ebitda) >= 0 ? 'positive' : 'negative',
     },
-    { label: 'CAPEX', value: formatMoney(result.value.capex), tone: 'default' },
+    { label: t('process.calculator.metric.capex'), value: formatMoney(result.value.capex), tone: 'default' },
     {
-      label: `NPV（${form.periodYears}年）`,
+      label: t('process.calculator.metric.npvYears', { years: form.periodYears }),
       value: formatMoney(result.value.npv),
       tone: numberValue(result.value.npv) >= 0 ? 'primary' : 'negative',
     },
-    { label: 'IRR', value: formatPercent(result.value.irr), tone: 'positive' },
-    { label: '静态回收期', value: formatYears(result.value.payback_period), tone: 'default' },
+    { label: t('process.calculator.metric.irr'), value: formatPercent(result.value.irr), tone: 'positive' },
+    { label: t('process.calculator.metric.payback'), value: formatYears(result.value.payback_period), tone: 'default' },
   ];
 });
 
@@ -114,12 +123,12 @@ const opexBreakdown = computed(() => {
   const metrics = recommendedMetrics.value;
   if (!metrics) return [];
   return [
-    { label: '原料成本', value: metrics.material_cost },
-    { label: '药剂成本', value: metrics.consumable_cost },
-    { label: '公辅成本', value: metrics.public_service_cost },
-    { label: '人员费用', value: metrics.labor_cost },
-    { label: '三废处理', value: metrics.waste_treatment_cost },
-    { label: '其他 OPEX', value: metrics.other_opex },
+    { label: t('process.calculator.metric.materialCost'), value: metrics.material_cost },
+    { label: t('process.calculator.metric.consumableCost'), value: metrics.consumable_cost },
+    { label: t('process.calculator.metric.publicServiceCost'), value: metrics.public_service_cost },
+    { label: t('process.calculator.metric.laborCost'), value: metrics.labor_cost },
+    { label: t('process.calculator.metric.wasteTreatment'), value: metrics.waste_treatment_cost },
+    { label: t('process.calculator.metric.otherOpex'), value: metrics.other_opex },
   ];
 });
 
@@ -128,25 +137,25 @@ const maxOpexComponent = computed(() => Math.max(1, ...opexBreakdown.value.map((
 const warningSummary = computed(() => {
   const warnings = result.value?.warnings || [];
   const visible = warnings.slice(0, 5).join('；');
-  return warnings.length > 5 ? `${visible}；另有 ${warnings.length - 5} 项请完善后台配置` : visible;
+  return warnings.length > 5 ? t('process.calculator.warningMore', { visible, count: warnings.length - 5 }) : visible;
 });
 
-const amountColumns = [
-  { colKey: 'name', title: '项目', minWidth: 180 },
-  { colKey: 'output_type', title: '分类', width: 100 },
-  { colKey: 'amount', title: '年数量', width: 150, align: 'right' as const },
-  { colKey: 'unit_price', title: '区域单价', width: 150, align: 'right' as const },
-  { colKey: 'cost', title: '年度金额', width: 170, align: 'right' as const },
-];
+const amountColumns = computed(() => [
+  { colKey: 'name', title: t('process.calculator.table.item'), minWidth: 180 },
+  { colKey: 'output_type', title: t('process.calculator.table.category'), width: 100 },
+  { colKey: 'amount', title: t('process.calculator.table.annualAmount'), width: 150, align: 'right' as const },
+  { colKey: 'unit_price', title: t('process.calculator.table.regionalPrice'), width: 150, align: 'right' as const },
+  { colKey: 'cost', title: t('process.calculator.table.annualCost'), width: 170, align: 'right' as const },
+]);
 
-const cashFlowColumns = [
-  { colKey: 'year', title: '年度', width: 80, align: 'center' as const },
-  { colKey: 'revenue', title: '收入', width: 160, align: 'right' as const },
+const cashFlowColumns = computed(() => [
+  { colKey: 'year', title: t('process.calculator.table.year'), width: 80, align: 'center' as const },
+  { colKey: 'revenue', title: t('process.calculator.table.income'), width: 160, align: 'right' as const },
   { colKey: 'opex', title: 'OPEX', width: 160, align: 'right' as const },
-  { colKey: 'tax', title: '税额', width: 150, align: 'right' as const },
-  { colKey: 'net_cash_flow', title: '净现金流', width: 170, align: 'right' as const },
-  { colKey: 'discounted_cash_flow', title: '折现现金流', width: 180, align: 'right' as const },
-];
+  { colKey: 'tax', title: t('process.calculator.table.tax'), width: 150, align: 'right' as const },
+  { colKey: 'net_cash_flow', title: t('process.calculator.table.netCashFlow'), width: 170, align: 'right' as const },
+  { colKey: 'discounted_cash_flow', title: t('process.calculator.table.discountedCashFlow'), width: 180, align: 'right' as const },
+]);
 onMounted(loadOptions);
 
 async function loadOptions(): Promise<void> {
@@ -190,15 +199,15 @@ function handleRegionChange(regionCode: ProcessRegionCode): void {
 
 async function handleCalculate(): Promise<void> {
   if (form.materials.some((item) => !item.material_id || item.amount <= 0)) {
-    MessagePlugin.warning('请完整填写原料及处理量');
+    MessagePlugin.warning(t('process.calculator.message.materialRequired'));
     return;
   }
   if (!form.targetProducts.length) {
-    MessagePlugin.warning('请选择至少一个目标产品');
+    MessagePlugin.warning(t('process.calculator.message.productRequired'));
     return;
   }
   if ((form.baseCapacity === undefined) !== (form.scaleParamN === undefined)) {
-    MessagePlugin.warning('基准产能和规模参数 n 必须同时填写');
+    MessagePlugin.warning(t('process.calculator.message.scalePairRequired'));
     return;
   }
   calculating.value = true;
@@ -206,7 +215,7 @@ async function handleCalculate(): Promise<void> {
     result.value = await calculateProcessFinancialModel(buildPayload());
     activeResultTab.value = 'outputs';
     resetExpandedSchemes();
-    MessagePlugin.success(`测算完成，已按${sortCriteriaLabel.value}保留前 ${result.value.matched_routes.length} 条路线`);
+    MessagePlugin.success(t('process.calculator.message.success', { criteria: sortCriteriaLabel.value, count: result.value.matched_routes.length }));
   } finally {
     calculating.value = false;
   }
@@ -288,7 +297,7 @@ function previewScheme(row: CalculatorSchemeSummary): void {
 }
 
 function routeProducts(row: CalculatorSchemeSummary): string {
-  return row.routes.map((route) => route.final_product_name).join('、');
+  return row.routes.map((route) => route.final_product_name).join(t('common.separator.list'));
 }
 
 function routeNames(row: CalculatorSchemeSummary): string {
@@ -301,16 +310,16 @@ function opexBarWidth(value: DecimalValue): string {
 
 function normalizeMaterialUnit(unit: string): string {
   const normalized = unit.trim().toLowerCase();
-  return ['t', 'ton', '吨', 't-bm', 't/bm'].includes(normalized) ? 't' : unit;
+  return ['t', 'ton', '\u5428', 't-bm', 't/bm'].includes(normalized) ? 't' : unit;
 }
 
 function outputTypeLabel(type?: string | null): string {
   return (
     {
-      product: '产品',
-      byproduct: '副产品',
-      solid_waste: '废固',
-      wastewater: '废水',
+      product: t('process.calculator.outputType.product'),
+      byproduct: t('process.calculator.outputType.byproduct'),
+      solid_waste: t('process.calculator.outputType.solidWaste'),
+      wastewater: t('process.calculator.outputType.wastewater'),
     }[type || ''] || '-'
   );
 }
@@ -321,11 +330,11 @@ function numberValue(value?: DecimalValue | null): number {
 }
 
 function formatMoney(value?: DecimalValue | null): string {
-  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(numberValue(value))} ${form.currency}`;
+  return `${new Intl.NumberFormat(locale.value, { maximumFractionDigits: 2 }).format(numberValue(value))} ${form.currency}`;
 }
 
 function formatAmount(value?: DecimalValue | null, unit = ''): string {
-  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 6 }).format(numberValue(value))}${unit ? ` ${processUnitLabel(unit)}` : ''}`;
+  return `${new Intl.NumberFormat(locale.value, { maximumFractionDigits: 6 }).format(numberValue(value))}${unit ? ` ${processUnitLabel(unit)}` : ''}`;
 }
 
 function formatPercent(value?: DecimalValue | null): string {
@@ -333,7 +342,11 @@ function formatPercent(value?: DecimalValue | null): string {
 }
 
 function formatYears(value?: DecimalValue | null): string {
-  return value === null || value === undefined ? '-' : `${numberValue(value).toFixed(2)} 年`;
+  return value === null || value === undefined ? '-' : `${numberValue(value).toFixed(2)} ${t('process.calculator.unit.year')}`;
+}
+
+function sortCriteriaText(code: CalculatorSortCriteria): string {
+  return t(SORT_LABEL_KEY_BY_CODE[code] || 'process.calculator.sortFallback');
 }
 </script>
 
@@ -342,10 +355,10 @@ function formatYears(value?: DecimalValue | null): string {
     <aside class="input-pane">
       <div class="input-pane-header">
         <div>
-          <h2>测算条件</h2>
-          <span>年度口径</span>
+          <h2>{{ t('process.calculator.conditionTitle') }}</h2>
+          <span>{{ t('process.calculator.annualScope') }}</span>
         </div>
-        <t-tooltip content="重置测算条件">
+        <t-tooltip :content="t('process.calculator.resetTooltip')">
           <t-button shape="square" variant="text" theme="default" @click="resetCalculator">
             <RefreshIcon />
           </t-button>
@@ -356,7 +369,7 @@ function formatYears(value?: DecimalValue | null): string {
         <div class="input-scroll">
           <section class="input-group">
             <div class="group-heading">
-              <strong>原料输入</strong>
+              <strong>{{ t('process.calculator.materialInput') }}</strong>
               <span>{{ formatAmount(totalProcessing, 't/a') }}</span>
             </div>
             <div class="material-list">
@@ -364,7 +377,7 @@ function formatYears(value?: DecimalValue | null): string {
                 <t-select
                   v-model="row.material_id"
                   filterable
-                  placeholder="选择原料"
+                  :placeholder="t('process.calculator.chooseMaterial')"
                   @change="handleMaterialChange(row)"
                 >
                   <t-option
@@ -379,7 +392,7 @@ function formatYears(value?: DecimalValue | null): string {
                   shape="square"
                   variant="text"
                   theme="danger"
-                  title="删除原料"
+                  :title="t('process.calculator.deleteMaterial')"
                   :disabled="form.materials.length === 1"
                   @click="removeMaterial(index)"
                 >
@@ -389,13 +402,13 @@ function formatYears(value?: DecimalValue | null): string {
             </div>
             <t-button class="add-material-button" variant="dashed" block :disabled="form.materials.length >= 10" @click="addMaterial">
               <template #icon><AddIcon /></template>
-              新增原料
+              {{ t('process.calculator.addMaterial') }}
             </t-button>
           </section>
 
           <section class="input-group">
-            <div class="group-heading"><strong>目标产品</strong></div>
-            <t-select v-model="form.targetProducts" multiple filterable clearable placeholder="选择一个或多个产品">
+            <div class="group-heading"><strong>{{ t('process.calculator.targetProduct') }}</strong></div>
+            <t-select v-model="form.targetProducts" multiple filterable clearable :placeholder="t('process.calculator.targetProductPlaceholder')">
               <t-option
                 v-for="item in options?.target_products || []"
                 :key="item.id"
@@ -406,7 +419,7 @@ function formatYears(value?: DecimalValue | null): string {
           </section>
 
           <section class="input-group">
-            <div class="group-heading"><strong>地区参数</strong></div>
+            <div class="group-heading"><strong>{{ t('process.calculator.regionParams') }}</strong></div>
             <t-radio-group
               v-model="form.regionCode"
               class="region-segment"
@@ -419,26 +432,26 @@ function formatYears(value?: DecimalValue | null): string {
 
           <section class="input-group advanced-group">
             <button type="button" class="advanced-trigger" @click="advancedVisible = !advancedVisible">
-              <strong>高级参数</strong>
+              <strong>{{ t('process.calculator.advancedParams') }}</strong>
               <ChevronUpSIcon v-if="advancedVisible" />
               <ChevronDownSIcon v-else />
             </button>
             <div v-if="advancedVisible" class="advanced-fields">
-              <label><span>所得税率（%）</span><t-input-number v-model="form.taxRatePercent" :min="0" :max="100" :decimal-places="2" /></label>
-              <label><span>折现率（%）</span><t-input-number v-model="form.discountRatePercent" :min="0" :max="100" :decimal-places="2" /></label>
-              <label><span>测算周期（年）</span><t-input-number v-model="form.periodYears" :min="1" :max="50" /></label>
-              <label><span>基准产能（t）</span><t-input-number v-model="form.baseCapacity" :min="0.000001" /></label>
-              <label><span>规模参数 n</span><t-input-number v-model="form.scaleParamN" :min="0.000001" :max="1" :decimal-places="4" /></label>
-              <label><span>其他年度 OPEX</span><t-input-number v-model="form.otherOpex" :min="0" :decimal-places="2" /></label>
-              <label><span>年增长率（%）</span><t-input-number v-model="form.annualGrowthPercent" :min="-99" :max="100" :decimal-places="2" /></label>
+              <label><span>{{ t('process.calculator.taxRate') }}</span><t-input-number v-model="form.taxRatePercent" :min="0" :max="100" :decimal-places="2" /></label>
+              <label><span>{{ t('process.calculator.discountRate') }}</span><t-input-number v-model="form.discountRatePercent" :min="0" :max="100" :decimal-places="2" /></label>
+              <label><span>{{ t('process.calculator.periodYears') }}</span><t-input-number v-model="form.periodYears" :min="1" :max="50" /></label>
+              <label><span>{{ t('process.calculator.baseCapacity') }}</span><t-input-number v-model="form.baseCapacity" :min="0.000001" /></label>
+              <label><span>{{ t('process.calculator.scaleParamN') }}</span><t-input-number v-model="form.scaleParamN" :min="0.000001" :max="1" :decimal-places="4" /></label>
+              <label><span>{{ t('process.calculator.otherAnnualOpex') }}</span><t-input-number v-model="form.otherOpex" :min="0" :decimal-places="2" /></label>
+              <label><span>{{ t('process.calculator.annualGrowthRate') }}</span><t-input-number v-model="form.annualGrowthPercent" :min="-99" :max="100" :decimal-places="2" /></label>
             </div>
           </section>
 
           <section class="input-group sort-group">
-            <div class="group-heading"><strong>路线排序指标</strong></div>
+            <div class="group-heading"><strong>{{ t('process.calculator.sortCriteria') }}</strong></div>
             <t-radio-group v-model="form.sortCriteria" direction="vertical">
               <t-radio v-for="item in options?.sort_criteria || []" :key="item.code" :value="item.code">
-                {{ item.name }}
+                {{ sortCriteriaText(item.code) }}
               </t-radio>
             </t-radio-group>
           </section>
@@ -455,7 +468,7 @@ function formatYears(value?: DecimalValue | null): string {
           @click="handleCalculate"
         >
           <template #icon><CalculatorIcon /></template>
-          开始计算
+          {{ t('process.calculator.calculate') }}
         </t-button>
       </div>
     </aside>
@@ -463,7 +476,7 @@ function formatYears(value?: DecimalValue | null): string {
     <main class="result-pane">
       <div v-if="!result" class="empty-result">
         <span class="empty-icon"><ChartIcon /></span>
-        <strong>暂无测算结果</strong>
+        <strong>{{ t('process.calculator.emptyResult') }}</strong>
       </div>
 
       <template v-else>
@@ -471,14 +484,14 @@ function formatYears(value?: DecimalValue | null): string {
           <div class="recommendation-copy">
             <div class="recommendation-kicker">
               <MoneyIcon />
-              <span>系统推荐最优路线</span>
+              <span>{{ t('process.calculator.recommendedRoute') }}</span>
               <t-tag theme="primary" variant="light">{{ sortCriteriaLabel }}</t-tag>
             </div>
             <strong>{{ routeProducts(result.recommended_route) }}</strong>
             <p>{{ routeNames(result.recommended_route) }}</p>
           </div>
           <div class="recommendation-value">
-            <span>NPV（{{ form.periodYears }}年）</span>
+            <span>{{ t('process.calculator.recommendationValue', { years: form.periodYears }) }}</span>
             <strong>{{ formatMoney(result.npv) }}</strong>
           </div>
         </section>
@@ -494,7 +507,7 @@ function formatYears(value?: DecimalValue | null): string {
           v-if="result.warnings.length"
           class="configuration-alert"
           theme="warning"
-          :title="`推荐路线有 ${result.warnings.length} 项配置提示`"
+          :title="t('process.calculator.warningTitle', { count: result.warnings.length })"
           :close="false"
         >
           {{ warningSummary }}
@@ -503,10 +516,10 @@ function formatYears(value?: DecimalValue | null): string {
         <section class="route-section">
           <div class="section-heading">
             <div>
-              <h2>工艺路线匹配</h2>
-              <span>按{{ sortCriteriaLabel }}排序，最多展示 3 条</span>
+              <h2>{{ t('process.calculator.routeMatch') }}</h2>
+              <span>{{ t('process.calculator.routeSortHint', { criteria: sortCriteriaLabel }) }}</span>
             </div>
-            <span class="route-count">{{ result.matched_routes.length }} 条路线</span>
+            <span class="route-count">{{ t('process.calculator.routeCount', { count: result.matched_routes.length }) }}</span>
           </div>
 
           <div class="route-grid">
@@ -528,12 +541,12 @@ function formatYears(value?: DecimalValue | null): string {
                 <div class="route-title">
                   <div>
                     <strong>{{ routeProducts(scheme) }}</strong>
-                    <t-tag v-if="index === 0" theme="success" variant="light" size="small">推荐</t-tag>
+                    <t-tag v-if="index === 0" theme="success" variant="light" size="small">{{ t('process.calculator.recommended') }}</t-tag>
                   </div>
                   <span>{{ routeNames(scheme) }}</span>
                 </div>
                 <div class="route-actions">
-                  <t-tooltip content="线路预览">
+                  <t-tooltip :content="t('process.calculator.previewRoute')">
                     <t-button
                       v-permission="permissions.preview"
                       shape="square"
@@ -544,7 +557,7 @@ function formatYears(value?: DecimalValue | null): string {
                       <FileSearchIcon />
                     </t-button>
                   </t-tooltip>
-                  <t-tooltip :content="isSchemeExpanded(scheme, index) ? '收起路线' : '展开路线'">
+                  <t-tooltip :content="isSchemeExpanded(scheme, index) ? t('process.calculator.collapseRoute') : t('process.calculator.expandRoute')">
                     <t-button shape="square" variant="text" size="small" @click.stop="toggleScheme(scheme)">
                       <ChevronUpSIcon v-if="isSchemeExpanded(scheme, index)" />
                       <ChevronDownSIcon v-else />
@@ -562,19 +575,19 @@ function formatYears(value?: DecimalValue | null): string {
                   <div class="primary"><span>NPV</span><strong>{{ formatMoney(scheme.metrics.npv) }}</strong></div>
                   <div><span>IRR</span><strong>{{ formatPercent(scheme.metrics.irr) }}</strong></div>
                   <div><span>EBITDA</span><strong>{{ formatMoney(scheme.metrics.ebitda) }}</strong></div>
-                  <div><span>回收期</span><strong>{{ formatYears(scheme.metrics.payback_period) }}</strong></div>
+                  <div><span>{{ t('process.calculator.metric.payback') }}</span><strong>{{ formatYears(scheme.metrics.payback_period) }}</strong></div>
                 </div>
 
                 <div v-if="index === 0" class="route-detail-section">
                   <div class="section-heading detail-heading">
                     <div>
-                      <h2>推荐路线测算明细</h2>
+                      <h2>{{ t('process.calculator.recommendedDetail') }}</h2>
                       <span>{{ routeProducts(scheme) }}</span>
                     </div>
                   </div>
 
                   <t-tabs v-model="activeResultTab">
-                    <t-tab-panel value="outputs" :label="`产品产出 (${result.product_outputs.length})`">
+                    <t-tab-panel value="outputs" :label="t('process.calculator.tab.outputs', { count: result.product_outputs.length })">
                       <t-table row-key="name" :data="result.product_outputs" :columns="amountColumns" stripe>
                         <template #output_type="{ row }">{{ outputTypeLabel(row.output_type) }}</template>
                         <template #amount="{ row }">{{ formatAmount(row.amount, row.unit) }}</template>
@@ -583,11 +596,11 @@ function formatYears(value?: DecimalValue | null): string {
                       </t-table>
                     </t-tab-panel>
 
-                    <t-tab-panel value="opex" label="OPEX 明细">
+                    <t-tab-panel value="opex" :label="t('process.calculator.tab.opex')">
                       <div class="opex-layout">
                         <div class="opex-summary">
                           <div class="opex-summary-title">
-                            <strong>年度运营成本构成</strong>
+                            <strong>{{ t('process.calculator.metric.opexComposition') }}</strong>
                             <span>{{ formatMoney(result.opex) }}</span>
                           </div>
                           <div v-for="item in opexBreakdown" :key="item.label" class="opex-row">
@@ -597,7 +610,7 @@ function formatYears(value?: DecimalValue | null): string {
                         </div>
                         <div class="cost-tables">
                           <div>
-                            <h3>药剂消耗</h3>
+                            <h3>{{ t('process.calculator.section.consumables') }}</h3>
                             <t-table row-key="name" :data="result.consumable_costs" :columns="amountColumns" size="small" stripe>
                               <template #output_type>-</template>
                               <template #amount="{ row }">{{ formatAmount(row.amount, row.unit) }}</template>
@@ -606,7 +619,7 @@ function formatYears(value?: DecimalValue | null): string {
                             </t-table>
                           </div>
                           <div>
-                            <h3>公共服务</h3>
+                            <h3>{{ t('process.calculator.section.publicServices') }}</h3>
                             <t-table row-key="name" :data="result.public_service_costs" :columns="amountColumns" size="small" stripe>
                               <template #output_type>-</template>
                               <template #amount="{ row }">{{ formatAmount(row.amount, row.unit) }}</template>
@@ -615,7 +628,7 @@ function formatYears(value?: DecimalValue | null): string {
                             </t-table>
                           </div>
                           <div>
-                            <h3>人员费用</h3>
+                            <h3>{{ t('process.calculator.section.laborCost') }}</h3>
                             <t-table row-key="name" :data="result.labor_costs" :columns="amountColumns" size="small" stripe>
                               <template #output_type>-</template>
                               <template #amount="{ row }">{{ formatAmount(row.amount, row.unit) }}</template>
@@ -627,7 +640,7 @@ function formatYears(value?: DecimalValue | null): string {
                       </div>
                     </t-tab-panel>
 
-                    <t-tab-panel value="waste" :label="`三废处理 (${result.waste_outputs.length})`">
+                    <t-tab-panel value="waste" :label="t('process.calculator.tab.waste', { count: result.waste_outputs.length })">
                       <t-table row-key="name" :data="result.waste_outputs" :columns="amountColumns" stripe>
                         <template #output_type="{ row }"><span class="waste-type">{{ outputTypeLabel(row.output_type) }}</span></template>
                         <template #amount="{ row }">{{ formatAmount(row.amount, row.unit) }}</template>
@@ -636,16 +649,16 @@ function formatYears(value?: DecimalValue | null): string {
                       </t-table>
                     </t-tab-panel>
 
-                    <t-tab-panel value="balance" label="物料平衡">
+                    <t-tab-panel value="balance" :label="t('process.calculator.tab.balance')">
                       <div v-if="result.material_balance" class="balance-grid">
-                        <div><span>原料输入</span><strong>{{ formatAmount(result.material_balance.input_mass_t, 't') }}</strong></div>
-                        <div><span>已核算产出</span><strong>{{ formatAmount(result.material_balance.accounted_output_mass_t, 't') }}</strong></div>
-                        <div><span>平衡差额</span><strong>{{ formatAmount(result.material_balance.difference_mass_t, 't') }}</strong></div>
-                        <div><span>平衡率</span><strong>{{ formatPercent(result.material_balance.balance_rate) }}</strong></div>
+                        <div><span>{{ t('process.calculator.section.materialInput') }}</span><strong>{{ formatAmount(result.material_balance.input_mass_t, 't') }}</strong></div>
+                        <div><span>{{ t('process.calculator.section.accountedOutput') }}</span><strong>{{ formatAmount(result.material_balance.accounted_output_mass_t, 't') }}</strong></div>
+                        <div><span>{{ t('process.calculator.section.balanceDifference') }}</span><strong>{{ formatAmount(result.material_balance.difference_mass_t, 't') }}</strong></div>
+                        <div><span>{{ t('process.calculator.section.balanceRate') }}</span><strong>{{ formatPercent(result.material_balance.balance_rate) }}</strong></div>
                       </div>
                     </t-tab-panel>
 
-                    <t-tab-panel value="cashflow" label="年度现金流">
+                    <t-tab-panel value="cashflow" :label="t('process.calculator.tab.cashflow')">
                       <t-table row-key="year" :data="result.cash_flows" :columns="cashFlowColumns" stripe>
                         <template #revenue="{ row }">{{ formatMoney(row.revenue) }}</template>
                         <template #opex="{ row }">{{ formatMoney(row.opex) }}</template>
@@ -659,9 +672,9 @@ function formatYears(value?: DecimalValue | null): string {
               </div>
 
               <footer class="route-card-footer">
-                <span>{{ scheme.node_codes.length }} 个工艺节点</span>
+                <span>{{ t('process.calculator.nodeCount', { count: scheme.node_codes.length }) }}</span>
                 <t-tag :theme="scheme.is_complete ? 'success' : 'warning'" variant="light" size="small">
-                  {{ scheme.is_complete ? '配置完整' : `${scheme.warnings.length} 项提示` }}
+                  {{ scheme.is_complete ? t('process.calculator.complete') : t('process.calculator.warningCount', { count: scheme.warnings.length }) }}
                 </t-tag>
               </footer>
             </article>

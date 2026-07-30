@@ -10,6 +10,7 @@
 import { ChatLoading } from '@tdesign-vue-next/chat';
 import { CheckCircleIcon, ChevronDownSIcon, ChevronUpSIcon, ErrorCircleIcon } from 'tdesign-icons-vue-next';
 import { computed, nextTick, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import type { ChatProgressEvent } from '@/types/api';
 import { buildProgressRows, type ChatProgressRow } from '@/utils/chatProgress';
@@ -24,15 +25,16 @@ const props = withDefaults(
   }>(),
   {
     streaming: false,
-    title: '处理进度',
     collapsible: false,
     defaultCollapsed: false,
   },
 );
 
+const { t } = useI18n();
 const scrollRef = ref<HTMLElement | null>(null);
 const collapsed = ref(props.defaultCollapsed);
 const rows = computed<ChatProgressRow[]>(() => buildProgressRows(props.events, props.streaming));
+const panelTitle = computed(() => props.title || t('ai.progress.title'));
 const updateSignature = computed(() =>
   rows.value.map((row) => `${row.stage}:${row.status}:${row.title}:${row.detail}`).join('|'),
 );
@@ -44,9 +46,9 @@ const thinkingStatus = computed<'pending' | 'complete' | 'error'>(() => {
   return 'complete';
 });
 const thinkingTitle = computed(() => {
-  if (thinkingStatus.value === 'error') return '思考过程出错';
-  if (thinkingStatus.value === 'complete') return '思考完成';
-  return '思考中';
+  if (thinkingStatus.value === 'error') return t('ai.progress.thinkingError');
+  if (thinkingStatus.value === 'complete') return t('ai.progress.thinkingComplete');
+  return t('ai.progress.thinking');
 });
 const canToggle = computed(() => props.collapsible && thinkingStatus.value !== 'pending');
 
@@ -75,16 +77,16 @@ watch(
 </script>
 
 <template>
-  <section class="processing-progress-card" :class="{ collapsible, collapsed }" aria-label="处理进度">
+  <section class="processing-progress-card" :class="{ collapsible, collapsed }" :aria-label="panelTitle">
     <div class="processing-progress-header" :class="{ clickable: canToggle }" @click="toggleCollapsed">
       <div class="processing-progress-heading">
         <span v-if="collapsible" class="processing-progress-thinking" :class="thinkingStatus">
-          <ChatLoading v-if="thinkingStatus === 'pending'" animation="moving" text="思考中..." />
+          <ChatLoading v-if="thinkingStatus === 'pending'" animation="moving" :text="t('ai.progress.thinkingLoading')" />
           <CheckCircleIcon v-else-if="thinkingStatus === 'complete'" />
           <ErrorCircleIcon v-else />
           <span v-if="thinkingStatus !== 'pending'">{{ thinkingTitle }}</span>
         </span>
-        <strong v-else>{{ title }}</strong>
+        <strong v-else>{{ panelTitle }}</strong>
         <button v-if="canToggle" class="processing-progress-toggle" type="button" :aria-expanded="!collapsed" @click.stop="toggleCollapsed">
           <ChevronDownSIcon v-if="collapsed" />
           <ChevronUpSIcon v-else />

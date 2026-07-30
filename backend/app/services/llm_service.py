@@ -666,6 +666,11 @@ class LLMService:
                 f"查询画像：{json.dumps(safe_profile, ensure_ascii=False)}",
                 f"证据使用边界：\n{answer_scope_instruction(safe_profile)}",
                 f"回答结构要求：\n{answer_instruction_for_profile(safe_profile)}",
+                (
+                    "输出语言：English。最终答案必须使用英文；资料中的中文专有名词可在首次出现时保留中文原文。"
+                    if safe_profile.get("response_language") == "en-US"
+                    else "输出语言：简体中文。最终答案必须使用简体中文；英文专有名词可保留原文。"
+                ),
                 "资料：",
                 "\n\n".join(evidence_lines),
                 "请严格基于资料直接回答，并在关键结论后标注来源编号，例如 [1]；资料无法确认的内容不要补写。",
@@ -689,6 +694,7 @@ class LLMService:
             "entities": list(profile.get("entities") or [])[:12],
             "keywords": list(profile.get("keywords") or [])[:16],
             "reason": str(profile.get("reason") or "")[:240],
+            "response_language": "en-US" if profile.get("response_language") == "en-US" else "zh-CN",
         }
 
     def _answer_without_evidence(

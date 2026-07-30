@@ -39,6 +39,7 @@ class AgentExecutor:
         *,
         turn_context: Any | None = None,
         business_id: str | int | None = None,
+        response_language: str = "zh-CN",
     ) -> dict:
         """
         执行知识问答
@@ -62,4 +63,5 @@ class AgentExecutor:
             user,
             turn_context=turn_context,
             business_id=business_id,
+            response_language=response_language,
         )

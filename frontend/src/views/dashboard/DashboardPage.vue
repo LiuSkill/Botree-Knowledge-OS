@@ -18,6 +18,7 @@ import {
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, ref, type Component } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { getDashboardStats } from '@/api/system';
@@ -31,7 +32,7 @@ import type {
   DashboardStats,
 } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
-import { formatDateTime } from '@/utils/format';
+import { formatDateTime, formatNumber } from '@/utils/format';
 
 type ToneName = 'blue' | 'purple' | 'orange' | 'pink' | 'green';
 
@@ -56,6 +57,7 @@ interface QuickAction {
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t, locale } = useI18n();
 const stats = ref<DashboardStats | null>(null);
 const loading = ref(false);
 const loadFailed = ref(false);
@@ -81,7 +83,7 @@ const TREND_PLOT_RIGHT = 14;
 const TREND_PLOT_TOP = 18;
 const TREND_PLOT_BOTTOM = 40;
 
-const userDisplayName = computed(() => authStore.user?.real_name || authStore.user?.username || '未登录用户');
+const userDisplayName = computed(() => authStore.user?.real_name || authStore.user?.username || t('dashboard.user.anonymous'));
 
 const pendingTaskCount = computed(() => stats.value?.pending_review_count ?? 0);
 
@@ -89,47 +91,53 @@ const lastLoginText = computed(() => formatDateTime(stats.value?.last_login_at))
 
 const todayText = computed(() => {
   /**
-   * 构造欢迎区日期文案，保持与原型一致的中文日期格式。
+   * 使用当前界面语言格式化欢迎区日期，不改变业务时间值。
    */
-  return formatChineseDate(new Date());
+  return new Intl.DateTimeFormat(locale.value, {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+  }).format(new Date());
 });
 
 const metricCards = computed<MetricCard[]>(() => [
   {
     key: 'document',
-    title: '知识文档',
+    title: t('dashboard.metric.documents'),
     value: stats.value?.document_count ?? 0,
     icon: FolderIcon,
     tone: 'blue',
   },
   {
     key: 'entry',
-    title: '知识条目数',
+    title: t('dashboard.metric.entries'),
     value: stats.value?.knowledge_entry_count ?? 0,
     icon: CatalogIcon,
     tone: 'purple',
   },
   {
     key: 'project',
-    title: '项目数量',
+    title: t('dashboard.metric.projects'),
     value: stats.value?.project_count ?? 0,
     icon: DataBaseIcon,
     tone: 'orange',
   },
   {
     key: 'answer',
-    title: 'AI 问答次数',
+    title: t('dashboard.metric.answers'),
     value: stats.value?.ai_answer_count ?? 0,
     icon: FlashlightIcon,
     tone: 'pink',
   },
 ]);
 
-const quickActionDefinitions: QuickAction[] = [
+const quickActionDefinitions = computed<QuickAction[]>(() => [
   {
     key: 'upload',
-    title: '上传文档',
-    subtitle: '添加知识资产',
+    title: t('dashboard.quickAction.uploadTitle'),
+    subtitle: t('dashboard.quickAction.uploadSubtitle'),
     route: ROUTE_PATHS.knowledge,
     icon: CloudUploadIcon,
     tone: 'blue',
@@ -137,8 +145,8 @@ const quickActionDefinitions: QuickAction[] = [
   },
   {
     key: 'project',
-    title: '创建项目',
-    subtitle: '启动新项目',
+    title: t('dashboard.quickAction.projectTitle'),
+    subtitle: t('dashboard.quickAction.projectSubtitle'),
     route: ROUTE_PATHS.projects,
     icon: AddIcon,
     tone: 'green',
@@ -146,8 +154,8 @@ const quickActionDefinitions: QuickAction[] = [
   },
   {
     key: 'base-chat',
-    title: '企业知识问答',
-    subtitle: '基于全库智能问答',
+    title: t('dashboard.quickAction.baseChatTitle'),
+    subtitle: t('dashboard.quickAction.baseChatSubtitle'),
     route: ROUTE_PATHS.aiBaseChat,
     icon: ChatBubbleHelpIcon,
     tone: 'purple',
@@ -155,16 +163,16 @@ const quickActionDefinitions: QuickAction[] = [
   },
   {
     key: 'project-chat',
-    title: '项目知识问答',
-    subtitle: '针对项目智能检索',
+    title: t('dashboard.quickAction.projectChatTitle'),
+    subtitle: t('dashboard.quickAction.projectChatSubtitle'),
     route: ROUTE_PATHS.aiProjectChat,
     icon: DataBaseIcon,
     tone: 'orange',
     permission: PERMISSIONS.AI_PROJECT_CHAT_VIEW,
   },
-];
+]);
 
-const visibleQuickActions = computed(() => quickActionDefinitions.filter((action) => authStore.hasActionPermission(action.permission)));
+const visibleQuickActions = computed(() => quickActionDefinitions.value.filter((action) => authStore.hasActionPermission(action.permission)));
 const canViewKnowledgeMenu = computed(() => authStore.hasMenuPermission(PERMISSIONS.KNOWLEDGE));
 const canViewProjectMenu = computed(() => authStore.hasMenuPermission(PERMISSIONS.PROJECT));
 const canViewQaAudit = computed(() => authStore.hasMenuPermission(PERMISSIONS.SYSTEM_QA_AUDIT));
@@ -175,6 +183,12 @@ const canViewReviews = computed(
 const knowledgeAssetDistribution = computed(() => stats.value?.knowledge_asset_distribution);
 const knowledgeAssetItems = computed<DashboardKnowledgeAssetItem[]>(() => knowledgeAssetDistribution.value?.items || []);
 const assetMaxCount = computed(() => Math.max(1, ...knowledgeAssetItems.value.map((item) => item.document_count)));
+
+function knowledgeAssetName(item: DashboardKnowledgeAssetItem): string {
+  if (item.scope_type === 'enterprise') return t('dashboard.chart.enterpriseKnowledge');
+  if (item.scope_type === 'other_projects') return t('dashboard.chart.otherProjects');
+  return item.name;
+}
 
 function assetBarWidth(item: DashboardKnowledgeAssetItem): string {
   return `${(item.document_count / assetMaxCount.value) * 100}%`;
@@ -225,8 +239,11 @@ function formatTrendDate(dateText: string): string {
 }
 
 function formatTrendTooltipDate(dateText: string): string {
-  const [, month, day] = dateText.split('-').map(Number);
-  return `${month}月${day}日`;
+  return new Intl.DateTimeFormat(locale.value, {
+    timeZone: 'Asia/Shanghai',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(`${dateText}T00:00:00+08:00`));
 }
 
 function showTrendTooltip(event: MouseEvent, item: DashboardQaTrendDaily): void {
@@ -269,6 +286,10 @@ const documentTypeStats = computed<DashboardDocumentTypeStat[]>(() => {
   return stats.value?.document_type_distribution || [];
 });
 
+function documentTypeName(item: DashboardDocumentTypeStat): string {
+  return t(`dashboard.documentType.${item.type}`);
+}
+
 const hasDocumentTypeData = computed(() => documentTypeStats.value.some((item) => item.count > 0));
 
 const donutSegments = computed(() => {
@@ -282,6 +303,7 @@ const donutSegments = computed(() => {
     const segmentLength = Math.max(percentRatio * DONUT_CIRCUMFERENCE - DONUT_GAP_LENGTH, 0);
     const segment = {
       key: item.name,
+      type: item.type,
       name: item.name,
       count: item.count,
       percentage: item.percentage,
@@ -304,7 +326,7 @@ async function loadData(): Promise<void> {
     stats.value = await getDashboardStats();
   } catch (error) {
     loadFailed.value = true;
-    MessagePlugin.error(error instanceof Error ? error.message : '工作台数据加载失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('dashboard.state.loadFailed'));
   } finally {
     loading.value = false;
   }
@@ -312,17 +334,9 @@ async function loadData(): Promise<void> {
 
 function formatMetricValue(value: number): string {
   /**
-   * 使用千分位格式化指标数字，匹配原型卡片的展示密度。
+   * 使用当前语言格式化指标数字，匹配原型卡片的展示密度。
    */
-  return new Intl.NumberFormat('en-US').format(value);
-}
-
-function formatChineseDate(date: Date): string {
-  /**
-   * 格式化为“YYYY年M月D日 星期X”的中文日期。
-   */
-  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${weekdays[date.getDay()]}`;
+  return formatNumber(value);
 }
 
 function openPendingReviewTasks(): void {
@@ -330,7 +344,7 @@ function openPendingReviewTasks(): void {
    * 跳转到审核中心的审核任务页签，并默认筛选待审核任务。
    */
   if (!canViewReviews.value) {
-    MessagePlugin.warning('无权限访问审核中心');
+    MessagePlugin.warning(t('dashboard.state.noReviewPermission'));
     return;
   }
   router.push(withBreadcrumbContext(route, { path: ROUTE_PATHS.reviews, query: { tab: 'tasks', status: 'pending' } }));
@@ -350,30 +364,30 @@ onMounted(loadData);
   <section class="dashboard-workbench" :aria-busy="loading">
     <header class="welcome-banner">
       <div class="welcome-main">
-        <h1><span class="wave">👋</span> 欢迎回来，{{ userDisplayName }} <span class="wave small">👋</span></h1>
+        <h1><span class="wave">👋</span> {{ t('dashboard.user.welcome', { name: userDisplayName }) }} <span class="wave small">👋</span></h1>
         <p>
-          今天是 {{ todayText }}，您有
+          {{ t('dashboard.user.todayPending', { date: todayText }) }}
           <button
             v-if="canViewReviews"
             class="pending-task-link"
             type="button"
-            aria-label="查看审核中心待处理任务"
+            :aria-label="t('dashboard.user.viewPendingTasks')"
             @click="openPendingReviewTasks"
           >
             {{ pendingTaskCount }}
           </button>
           <span v-else class="pending-task-count">{{ pendingTaskCount }}</span>
-          个待处理任务
+          {{ t('dashboard.user.pendingTasks') }}
         </p>
       </div>
       <div class="login-meta">
-        <span>上次登录时间</span>
+        <span>{{ t('dashboard.user.lastLogin') }}</span>
         <strong>{{ lastLoginText }}</strong>
       </div>
     </header>
 
     <div class="dashboard-scroll data-scroll">
-      <div class="metric-grid" aria-label="工作台核心指标">
+      <div class="metric-grid" :aria-label="t('dashboard.metric.core')">
         <article v-for="item in metricCards" :key="item.key" class="metric-card">
           <span class="metric-icon" :class="`tone-${item.tone}`">
             <component :is="item.icon" />
@@ -385,7 +399,7 @@ onMounted(loadData);
         </article>
       </div>
 
-      <div class="quick-action-grid" aria-label="常用工作入口">
+      <div class="quick-action-grid" :aria-label="t('dashboard.quickAction.label')">
         <t-button
           v-for="action in visibleQuickActions"
           :key="action.key"
@@ -408,17 +422,17 @@ onMounted(loadData);
       <div class="content-grid">
         <section class="dashboard-panel knowledge-assets-panel">
           <header class="panel-header">
-            <h2>知识资产分布</h2>
-            <t-button v-if="canViewProjectMenu" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.projects)">查看详情</t-button>
+            <h2>{{ t('dashboard.panel.knowledgeAssets') }}</h2>
+            <t-button v-if="canViewProjectMenu" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.projects)">{{ t('dashboard.panel.viewDetail') }}</t-button>
           </header>
-          <div v-if="loading" class="empty-state knowledge-assets-state">知识资产分布加载中</div>
-          <div v-else-if="loadFailed" class="empty-state knowledge-assets-state">知识资产分布加载失败</div>
+          <div v-if="loading" class="empty-state knowledge-assets-state">{{ t('dashboard.state.assetLoading') }}</div>
+          <div v-else-if="loadFailed" class="empty-state knowledge-assets-state">{{ t('dashboard.state.assetFailed') }}</div>
           <div
             v-else-if="knowledgeAssetItems.length"
             ref="assetChartWrap"
             class="knowledge-assets-chart"
             role="img"
-            aria-label="企业公共知识和项目知识文档数量横向条形图"
+            :aria-label="t('dashboard.chart.assetAria')"
             @mouseleave="hideAssetTooltip"
           >
             <div
@@ -428,7 +442,7 @@ onMounted(loadData);
               @mouseenter="showAssetTooltip($event, item)"
               @mousemove="showAssetTooltip($event, item)"
             >
-              <span class="asset-name" :title="item.name">{{ item.name }}</span>
+              <span class="asset-name" :title="knowledgeAssetName(item)">{{ knowledgeAssetName(item) }}</span>
               <div class="asset-bar-track">
                 <span
                   class="asset-bar"
@@ -444,38 +458,38 @@ onMounted(loadData);
               :style="{ left: `${assetTooltipPosition.left}px`, top: `${assetTooltipPosition.top}px` }"
               role="tooltip"
             >
-              <strong>{{ hoveredAssetItem.name }}</strong>
-              <span v-if="hoveredAssetItem.project_count">包含项目：{{ hoveredAssetItem.project_count }} 个</span>
-              <span>知识文档：{{ formatMetricValue(hoveredAssetItem.document_count) }} 份</span>
-              <span>占全部文档：{{ hoveredAssetItem.percentage.toFixed(1) }}%</span>
+              <strong>{{ knowledgeAssetName(hoveredAssetItem) }}</strong>
+              <span v-if="hoveredAssetItem.project_count">{{ t('dashboard.tooltip.projectCount', { count: formatMetricValue(hoveredAssetItem.project_count) }) }}</span>
+              <span>{{ t('dashboard.tooltip.documentCount', { count: formatMetricValue(hoveredAssetItem.document_count) }) }}</span>
+              <span>{{ t('dashboard.tooltip.documentShare', { percentage: hoveredAssetItem.percentage.toFixed(1) }) }}</span>
             </div>
           </div>
-          <div v-else class="empty-state knowledge-assets-state">暂无知识资产数据</div>
+          <div v-else class="empty-state knowledge-assets-state">{{ t('dashboard.state.assetEmpty') }}</div>
         </section>
 
         <section class="dashboard-panel qa-trend-panel">
           <header class="panel-header">
-            <h2>近 7 天 AI 问答趋势</h2>
-            <t-button v-if="canViewQaAudit" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.qaAudit)">查看详情</t-button>
+            <h2>{{ t('dashboard.panel.qaTrend') }}</h2>
+            <t-button v-if="canViewQaAudit" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.qaAudit)">{{ t('dashboard.panel.viewDetail') }}</t-button>
           </header>
-          <div v-if="loading" class="empty-state qa-trend-state">问答趋势加载中</div>
-          <div v-else-if="loadFailed" class="empty-state qa-trend-state">问答趋势加载失败</div>
+          <div v-if="loading" class="empty-state qa-trend-state">{{ t('dashboard.state.trendLoading') }}</div>
+          <div v-else-if="loadFailed" class="empty-state qa-trend-state">{{ t('dashboard.state.trendFailed') }}</div>
           <div v-else-if="qaTrend" class="qa-trend-body">
             <div class="qa-trend-summary">
-              <span><strong>{{ formatMetricValue(qaTrend.total) }}</strong><small>近 7 天问答</small></span>
-              <span><strong>{{ formatMetricValue(qaTrend.enterprise_total) }}</strong><small>企业知识问答</small></span>
-              <span><strong>{{ formatMetricValue(qaTrend.project_total) }}</strong><small>项目知识问答</small></span>
+              <span><strong>{{ formatMetricValue(qaTrend.total) }}</strong><small>{{ t('dashboard.summary.lastSevenDays') }}</small></span>
+              <span><strong>{{ formatMetricValue(qaTrend.enterprise_total) }}</strong><small>{{ t('dashboard.summary.enterpriseQa') }}</small></span>
+              <span><strong>{{ formatMetricValue(qaTrend.project_total) }}</strong><small>{{ t('dashboard.summary.projectQa') }}</small></span>
             </div>
-            <div class="qa-trend-legend" aria-label="问答趋势图例">
-              <span><i class="enterprise"></i>企业知识问答</span>
-              <span><i class="project"></i>项目知识问答</span>
+            <div class="qa-trend-legend" :aria-label="t('dashboard.chart.trendLegend')">
+              <span><i class="enterprise"></i>{{ t('dashboard.summary.enterpriseQa') }}</span>
+              <span><i class="project"></i>{{ t('dashboard.summary.projectQa') }}</span>
             </div>
             <div ref="trendChartWrap" class="qa-trend-chart-wrap" @mouseleave="hideTrendTooltip">
               <svg
                 class="qa-trend-chart"
                 :viewBox="`0 0 ${TREND_CHART_WIDTH} ${TREND_CHART_HEIGHT}`"
                 role="img"
-                aria-label="近 7 天企业知识问答和项目知识问答趋势折线图"
+                :aria-label="t('dashboard.chart.trendAria')"
               >
                 <g v-for="(tick, index) in qaTrendYTicks" :key="tick" class="trend-grid">
                   <line :x1="TREND_PLOT_LEFT" :x2="TREND_CHART_WIDTH - TREND_PLOT_RIGHT" :y1="trendY(tick)" :y2="trendY(tick)" />
@@ -505,24 +519,24 @@ onMounted(loadData);
                 role="tooltip"
               >
                 <strong>{{ formatTrendTooltipDate(hoveredTrendItem.date) }}</strong>
-                <span><i class="enterprise"></i>企业知识问答：{{ hoveredTrendItem.enterprise_count }} 次</span>
-                <span><i class="project"></i>项目知识问答：{{ hoveredTrendItem.project_count }} 次</span>
-                <span class="total">合计：{{ hoveredTrendItem.total_count }} 次</span>
+                <span><i class="enterprise"></i>{{ t('dashboard.tooltip.enterpriseQa', { count: formatMetricValue(hoveredTrendItem.enterprise_count) }) }}</span>
+                <span><i class="project"></i>{{ t('dashboard.tooltip.projectQa', { count: formatMetricValue(hoveredTrendItem.project_count) }) }}</span>
+                <span class="total">{{ t('dashboard.tooltip.totalQa', { count: formatMetricValue(hoveredTrendItem.total_count) }) }}</span>
               </div>
-              <div v-if="!qaTrendHasData" class="qa-trend-empty">近 7 天暂无问答数据</div>
+              <div v-if="!qaTrendHasData" class="qa-trend-empty">{{ t('dashboard.state.trendEmpty') }}</div>
             </div>
           </div>
-          <div v-else class="empty-state qa-trend-state">近 7 天暂无问答数据</div>
+          <div v-else class="empty-state qa-trend-state">{{ t('dashboard.state.trendEmpty') }}</div>
         </section>
 
         <section class="dashboard-panel document-type-panel">
           <header class="panel-header">
-            <h2>文档类型分布</h2>
-            <t-button v-if="canViewKnowledgeMenu" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">查看详情</t-button>
+            <h2>{{ t('dashboard.panel.documentTypes') }}</h2>
+            <t-button v-if="canViewKnowledgeMenu" size="small" variant="text" @click="navigateTo(ROUTE_PATHS.knowledge)">{{ t('dashboard.panel.viewDetail') }}</t-button>
           </header>
           <div v-if="hasDocumentTypeData" class="document-type-body">
             <div ref="donutChartWrap" class="donut-chart-wrap" @mouseleave="hideDocumentTypeTooltip">
-              <svg class="donut-chart" viewBox="0 0 144 144" role="img" aria-label="文档类型分布环图">
+              <svg class="donut-chart" viewBox="0 0 144 144" role="img" :aria-label="t('dashboard.chart.documentTypeAria')">
                 <circle
                   class="donut-track"
                   :cx="DONUT_CENTER"
@@ -549,10 +563,10 @@ onMounted(loadData);
                 v-if="hoveredDocumentType"
                 class="document-type-tooltip"
                 :style="{ left: `${donutTooltipPosition.left}px`, top: `${donutTooltipPosition.top}px` }"
-                role="tooltip"
-              >
-                <strong>{{ hoveredDocumentType.name }}</strong>
-                <span>{{ formatMetricValue(hoveredDocumentType.count) }} 份</span>
+              role="tooltip"
+            >
+              <strong>{{ documentTypeName(hoveredDocumentType) }}</strong>
+                <span>{{ t('dashboard.tooltip.documentCountShort', { count: formatMetricValue(hoveredDocumentType.count) }) }}</span>
                 <span>{{ hoveredDocumentType.percentage.toFixed(1) }}%</span>
               </div>
             </div>
@@ -560,7 +574,7 @@ onMounted(loadData);
               <div v-for="item in documentTypeStats" :key="item.type" class="legend-row">
                 <span class="legend-name">
                   <i :style="{ backgroundColor: item.color }"></i>
-                  {{ item.name }}
+                  {{ documentTypeName(item) }}
                 </span>
                 <span class="legend-values">
                   <strong>{{ formatMetricValue(item.count) }}</strong>
@@ -569,7 +583,7 @@ onMounted(loadData);
               </div>
             </div>
           </div>
-          <div v-else class="empty-state document-type-empty">暂无文档类型数据</div>
+          <div v-else class="empty-state document-type-empty">{{ t('dashboard.state.typeEmpty') }}</div>
         </section>
       </div>
     </div>

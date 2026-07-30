@@ -1,5 +1,7 @@
 import { DialogPlugin, type DialogOptions } from 'tdesign-vue-next';
 
+import { i18n } from '@/locales';
+
 export interface ConfirmDialogOptions {
   header: string;
   body: string;
@@ -26,8 +28,8 @@ export function showConfirmDialog(options: ConfirmDialogOptions): Promise<boolea
     dialog = DialogPlugin.confirm({
       ...options,
       theme: options.theme ?? 'warning',
-      confirmBtn: options.confirmBtn ?? '确认',
-      cancelBtn: options.cancelBtn ?? '取消',
+      confirmBtn: options.confirmBtn ?? i18n.global.t('common.confirm.ok'),
+      cancelBtn: options.cancelBtn ?? i18n.global.t('common.confirm.cancel'),
       closeOnOverlayClick: false,
       onConfirm: () => settle(true),
       onCancel: () => settle(false),

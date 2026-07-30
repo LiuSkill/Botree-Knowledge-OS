@@ -2,6 +2,7 @@
 import { AddIcon, BrowseIcon, DeleteIcon, DownloadIcon, EditIcon, FileSearchIcon, RefreshIcon, TimeIcon, UploadIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 
 import {
@@ -34,6 +35,7 @@ import type {
   RouteNodeOption,
 } from '@/views/process-config/route/types';
 import type { ProcessLibraryStatus } from '@/views/process-config/types';
+import { processStatusLocaleKey } from '@/views/process-config/i18n';
 import { buildProcessConfigExportFileName, triggerBlobDownload } from '@/views/process-config/utils';
 
 type PaginationInfo = {
@@ -61,6 +63,7 @@ const permissions = {
 
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 
 const filters = reactive({
   keyword: '',
@@ -105,23 +108,23 @@ const materialOptions = ref<ProcessLibraryOptionItem[]>([]);
 const productOptions = ref<ProcessLibraryOptionItem[]>([]);
 const nodeOptions = ref<RouteNodeOption[]>([]);
 
-const columns = [
-  { colKey: 'code', title: '路线编码', width: 150, ellipsis: true },
-  { colKey: 'name', title: '路线名称', minWidth: 170, ellipsis: true },
-  { colKey: 'input_material_name', title: '输入原料', width: 150, ellipsis: true },
-  { colKey: 'final_product_name', title: '最终产品', width: 150, ellipsis: true },
-  { colKey: 'version', title: '版本', width: 110 },
-  { colKey: 'node_count', title: '节点数', width: 90, align: 'center' as const },
-  { colKey: 'status', title: '状态', width: 100, align: 'center' as const },
-  { colKey: 'updated_at', title: '更新时间', width: 170 },
-  { colKey: 'operation', title: '操作', width: 272, fixed: 'right' as const },
-];
+const columns = computed(() => [
+  { colKey: 'code', title: t('process.route.field.routeCode'), width: 150, ellipsis: true },
+  { colKey: 'name', title: t('process.route.field.routeName'), minWidth: 170, ellipsis: true },
+  { colKey: 'input_material_name', title: t('process.route.field.inputMaterial'), width: 150, ellipsis: true },
+  { colKey: 'final_product_name', title: t('process.route.field.finalProduct'), width: 150, ellipsis: true },
+  { colKey: 'version', title: t('common.field.version'), width: 110 },
+  { colKey: 'node_count', title: t('process.route.field.nodeCount'), width: 90, align: 'center' as const },
+  { colKey: 'status', title: t('common.field.status'), width: 100, align: 'center' as const },
+  { colKey: 'updated_at', title: t('common.field.updatedAt'), width: 170 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 272, fixed: 'right' as const },
+]);
 
 const statCards = computed(() => [
-  { label: '路线总数', value: stats.total, theme: 'primary' },
-  { label: '启用路线', value: stats.enabled, theme: 'success' },
-  { label: '草稿路线', value: stats.draft, theme: 'warning' },
-  { label: '平均节点数', value: formatAverage(stats.averageNodeCount), theme: 'default' },
+  { label: t('process.route.stat.total'), value: stats.total, theme: 'primary' },
+  { label: t('process.route.stat.enabled'), value: stats.enabled, theme: 'success' },
+  { label: t('process.route.stat.draft'), value: stats.draft, theme: 'warning' },
+  { label: t('process.route.stat.averageNodeCount'), value: formatAverage(stats.averageNodeCount), theme: 'default' },
 ]);
 
 const canManageVersion = computed(() => authStore.hasActionPermission(permissions.version));
@@ -300,11 +303,11 @@ async function handleSubmit(payload: ProcessRoutePayload, calculationOutputs: Pr
     if (formMode.value === 'create') {
       const created = await createProcessRoute(payload);
       await replaceProcessRouteCalculationOutputs(created.route.id, calculationOutputs);
-      MessagePlugin.success('工艺路线已创建');
+      MessagePlugin.success(t('process.route.message.created'));
     } else if (editingRoute.value) {
       await updateProcessRoute(editingRoute.value.route.id, payload);
       await replaceProcessRouteCalculationOutputs(editingRoute.value.route.id, calculationOutputs);
-      MessagePlugin.success('工艺路线已更新');
+      MessagePlugin.success(t('process.route.message.updated'));
     }
     formVisible.value = false;
     await refreshAll();
@@ -317,7 +320,7 @@ async function handleDelete(row: ProcessRouteItem): Promise<void> {
   deletingId.value = row.id;
   try {
     await deleteProcessRoute(row.id);
-    MessagePlugin.success('工艺路线已删除');
+    MessagePlugin.success(t('process.route.message.deleted'));
     if (records.items.length === 1 && page.value > 1) {
       page.value -= 1;
     }
@@ -350,7 +353,7 @@ async function handleExport(): Promise<void> {
   try {
     const blob = await exportProcessConfigData('routes', buildExportParams());
     triggerBlobDownload(blob, buildProcessConfigExportFileName('routes'));
-    MessagePlugin.success('工艺路线数据导出完成');
+    MessagePlugin.success(t('process.route.message.exported'));
   } finally {
     exporting.value = false;
   }
@@ -362,23 +365,16 @@ async function handleImportSuccess(): Promise<void> {
 }
 
 function statusLabel(status: ProcessLibraryStatus): string {
-  return (
-    {
-      enabled: '启用',
-      draft: '草稿',
-      disabled: '停用',
-    }[status] || status
-  );
+  return t(processStatusLocaleKey(status));
 }
 
 function statusTheme(status: ProcessLibraryStatus): TagTheme {
-  return (
-    {
-      enabled: 'success',
-      draft: 'warning',
-      disabled: 'default',
-    }[status] || 'default'
-  );
+  const themes: Record<ProcessLibraryStatus, TagTheme> = {
+    enabled: 'success',
+    draft: 'warning',
+    disabled: 'default',
+  };
+  return themes[status] || 'default';
 }
 
 function formatAverage(value: number): string {
@@ -398,55 +394,55 @@ function formatAverage(value: number): string {
     </div>
 
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item v-permission="permissions.view" label="关键字">
-        <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="路线编码 / 名称" @enter="handleSearch" />
+      <t-form-item v-permission="permissions.view" :label="t('process.field.keyword')">
+        <t-input v-model="filters.keyword" class="filter-input" clearable :placeholder="t('process.route.placeholder.keyword')" @enter="handleSearch" />
       </t-form-item>
-      <t-form-item v-permission="permissions.view" label="输入原料">
-        <t-select v-model="filters.input_material_id" class="filter-select" clearable filterable placeholder="全部原料" @change="handleSearch">
+      <t-form-item v-permission="permissions.view" :label="t('process.route.field.inputMaterial')">
+        <t-select v-model="filters.input_material_id" class="filter-select" clearable filterable :placeholder="t('process.route.placeholder.allMaterials')" @change="handleSearch">
           <t-option v-for="item in materialOptions" :key="item.id" :label="`${item.code} / ${item.name}`" :value="item.id" />
         </t-select>
       </t-form-item>
-      <t-form-item v-permission="permissions.view" label="最终产品">
-        <t-select v-model="filters.final_product_id" class="filter-select" clearable filterable placeholder="全部产品" @change="handleSearch">
+      <t-form-item v-permission="permissions.view" :label="t('process.route.field.finalProduct')">
+        <t-select v-model="filters.final_product_id" class="filter-select" clearable filterable :placeholder="t('process.route.placeholder.allProducts')" @change="handleSearch">
           <t-option v-for="item in productOptions" :key="item.id" :label="`${item.code} / ${item.name}`" :value="item.id" />
         </t-select>
       </t-form-item>
-      <t-form-item v-permission="permissions.view" label="状态">
-        <t-select v-model="filters.status" class="filter-select status-filter" clearable placeholder="全部状态" @change="handleSearch">
-          <t-option label="启用" value="enabled" />
-          <t-option label="草稿" value="draft" />
-          <t-option label="停用" value="disabled" />
+      <t-form-item v-permission="permissions.view" :label="t('common.field.status')">
+        <t-select v-model="filters.status" class="filter-select status-filter" clearable :placeholder="t('process.route.placeholder.allStatus')" @change="handleSearch">
+          <t-option :label="t('process.status.enabled')" value="enabled" />
+          <t-option :label="t('process.status.draft')" value="draft" />
+          <t-option :label="t('process.status.disabled')" value="disabled" />
         </t-select>
       </t-form-item>
       <t-form-item>
         <t-space>
-          <t-button v-permission="permissions.view" theme="primary" @click="handleSearch">查询</t-button>
-          <t-button v-permission="permissions.view" @click="clearFilters">重置</t-button>
+          <t-button v-permission="permissions.view" theme="primary" @click="handleSearch">{{ t('common.action.search') }}</t-button>
+          <t-button v-permission="permissions.view" @click="clearFilters">{{ t('common.action.reset') }}</t-button>
         </t-space>
       </t-form-item>
     </t-form>
 
     <div class="system-section-head">
       <div class="system-section-title">
-        <h2>工艺路线列表</h2>
-        <span>共 {{ records.total }} 条数据</span>
+        <h2>{{ t('process.route.title.list') }}</h2>
+        <span>{{ t('process.summary.totalRecords', { count: records.total }) }}</span>
       </div>
       <t-space>
         <t-button v-permission="permissions.view" theme="default" variant="outline" :loading="loading" @click="refreshAll">
           <template #icon><RefreshIcon /></template>
-          刷新
+          {{ t('common.action.refresh') }}
         </t-button>
         <t-button v-permission="permissions.import" theme="default" variant="outline" @click="handleImport">
           <template #icon><UploadIcon /></template>
-          导入
+          {{ t('process.action.import') }}
         </t-button>
         <t-button v-permission="permissions.export" theme="default" variant="outline" :loading="exporting" @click="handleExport">
           <template #icon><DownloadIcon /></template>
-          导出
+          {{ t('process.action.export') }}
         </t-button>
         <t-button v-permission="permissions.create" theme="primary" @click="openCreateDialog">
           <template #icon><AddIcon /></template>
-          新增路线
+          {{ t('process.route.action.create') }}
         </t-button>
       </t-space>
     </div>
@@ -460,7 +456,7 @@ function formatAverage(value: number): string {
         :data="records.items"
         :columns="columns"
         :loading="loading"
-        empty="暂无工艺路线数据"
+        :empty="t('process.route.empty.list')"
       >
         <template #input_material_name="{ row }">
           {{ row.input_material_name || '-' }}
@@ -476,20 +472,20 @@ function formatAverage(value: number): string {
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <TableActionButton label="查看详情" :permission="permissions.view" @click="openDetailPage(row)">
+            <TableActionButton :label="t('process.route.action.detail')" :permission="permissions.view" @click="openDetailPage(row)">
               <BrowseIcon />
             </TableActionButton>
-            <TableActionButton label="线路预览" :permission="permissions.preview" @click="openPreviewPage(row)">
+            <TableActionButton :label="t('process.route.action.preview')" :permission="permissions.preview" @click="openPreviewPage(row)">
               <FileSearchIcon />
             </TableActionButton>
-            <TableActionButton label="编辑" :permission="permissions.update" :loading="editLoadingId === row.id" @click="openEditDialog(row)">
+            <TableActionButton :label="t('common.action.edit')" :permission="permissions.update" :loading="editLoadingId === row.id" @click="openEditDialog(row)">
               <EditIcon />
             </TableActionButton>
-            <TableActionButton label="版本管理" :permission="permissions.version" @click="openVersionDialog(row)">
+            <TableActionButton :label="t('process.route.action.version')" :permission="permissions.version" @click="openVersionDialog(row)">
               <TimeIcon />
             </TableActionButton>
-            <t-popconfirm content="确认删除该工艺路线吗？系统会保留软删除审计记录。" @confirm="handleDelete(row)">
-              <TableActionButton label="删除" :permission="permissions.delete" :loading="deletingId === row.id" theme="danger">
+            <t-popconfirm :content="t('process.route.message.deleteConfirm')" @confirm="handleDelete(row)">
+              <TableActionButton :label="t('common.action.delete')" :permission="permissions.delete" :loading="deletingId === row.id" theme="danger">
                 <DeleteIcon />
               </TableActionButton>
             </t-popconfirm>
@@ -529,7 +525,7 @@ function formatAverage(value: number): string {
       :can-create="canManageVersion"
     />
 
-    <ProcessConfigImportDialog v-model:visible="importVisible" module-key="routes" module-label="工艺路线" @success="handleImportSuccess" />
+    <ProcessConfigImportDialog v-model:visible="importVisible" module-key="routes" :module-label="t('process.entity.routes')" @success="handleImportSuccess" />
   </div>
 </template>
 

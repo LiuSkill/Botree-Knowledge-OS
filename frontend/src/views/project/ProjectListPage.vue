@@ -5,6 +5,7 @@
 import { AddIcon, ChatBubbleHelpIcon, DeleteIcon, EditIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { createProject, deleteProject, listProjects, updateProject, type ProjectPayload } from '@/api/projects';
@@ -25,16 +26,17 @@ interface PaginationInfo {
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
-const PROJECT_STATUS_OPTIONS: Array<{ label: ProjectStatus; value: ProjectStatus; theme: 'default' | 'primary' | 'success' | 'warning' }> = [
-  { label: '待启动', value: '待启动', theme: 'warning' },
-  { label: '进行中', value: '进行中', theme: 'primary' },
-  { label: '已完成', value: '已完成', theme: 'success' },
-  { label: '已暂停', value: '已暂停', theme: 'default' },
+const PROJECT_STATUS_OPTIONS: Array<{ key: string; value: ProjectStatus; theme: 'default' | 'primary' | 'success' | 'warning' }> = [
+  { key: 'project.status.pending', value: '待启动', theme: 'warning' },
+  { key: 'project.status.active', value: '进行中', theme: 'primary' },
+  { key: 'project.status.completed', value: '已完成', theme: 'success' },
+  { key: 'project.status.paused', value: '已暂停', theme: 'default' },
 ];
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 const projects = ref<ProjectInfo[]>([]);
 const loading = ref(false);
 const saving = ref(false);
@@ -64,16 +66,17 @@ const pagedProjects = computed(() => {
   return projects.value.slice(start, start + pageSize.value);
 });
 
-const projectColumns = [
-  { colKey: 'project_code', title: '项目编号', width: 180, ellipsis: true },
-  { colKey: 'project_name', title: '项目名称', minWidth: 240, ellipsis: true },
-  { colKey: 'customer_name', title: '客户名称', minWidth: 180, ellipsis: true },
-  { colKey: 'owner_name', title: '负责人', width: 110 },
-  { colKey: 'project_status', title: '项目状态', width: 110, align: 'center' },
-  { colKey: 'security_level', title: '项目密级', width: 110, align: 'center' },
-  { colKey: 'document_count', title: '文档数量', width: 110, align: 'center' },
-  { colKey: 'operation', title: '操作', width: 150, align: 'center', fixed: 'right' },
-];
+const projectStatusOptions = computed(() => PROJECT_STATUS_OPTIONS.map((item) => ({ ...item, label: t(item.key) })));
+const projectColumns = computed(() => [
+  { colKey: 'project_code', title: t('project.field.projectCode'), width: 180, ellipsis: true },
+  { colKey: 'project_name', title: t('project.field.projectName'), minWidth: 240, ellipsis: true },
+  { colKey: 'customer_name', title: t('project.field.customerName'), minWidth: 180, ellipsis: true },
+  { colKey: 'owner_name', title: t('project.field.owner'), width: 110 },
+  { colKey: 'project_status', title: t('project.field.status'), width: 110, align: 'center' as const },
+  { colKey: 'security_level', title: t('project.field.securityLevel'), width: 110, align: 'center' as const },
+  { colKey: 'document_count', title: t('project.field.documentCount'), width: 110, align: 'center' as const },
+  { colKey: 'operation', title: t('common.field.operation'), width: 150, align: 'center' as const, fixed: 'right' as const },
+]);
 
 async function loadProjects(): Promise<void> {
   if (!canViewProjects.value) {
@@ -95,7 +98,7 @@ async function loadProjects(): Promise<void> {
 
 function enterProject(project: ProjectInfo): void {
   if (!canOpenProjectDetail.value) {
-    MessagePlugin.warning('无权限访问项目详情');
+    MessagePlugin.warning(t('project.message.noDetailPermission'));
     return;
   }
   router.push(withBreadcrumbContext(route, `/projects/${project.id}`));
@@ -103,7 +106,7 @@ function enterProject(project: ProjectInfo): void {
 
 function openProjectDocuments(project: ProjectInfo): void {
   if (!canOpenProjectDocuments.value) {
-    MessagePlugin.warning('无权限访问项目资料管理');
+    MessagePlugin.warning(t('project.message.noDocumentPermission'));
     return;
   }
   router.push(withBreadcrumbContext(route, `/projects/${project.id}/documents`));
@@ -111,7 +114,7 @@ function openProjectDocuments(project: ProjectInfo): void {
 
 function openProjectChat(project: ProjectInfo): void {
   if (!canAskProjectChat.value) {
-    MessagePlugin.warning('无权限使用项目问答');
+    MessagePlugin.warning(t('project.message.noChatPermission'));
     return;
   }
   router.push(withBreadcrumbContext(route, { path: ROUTE_PATHS.aiProjectChat, query: { projectId: String(project.id) } }));
@@ -125,7 +128,7 @@ function openCreateDialog(): void {
 
 function openEditDialog(project: ProjectInfo): void {
   if (!canEditProject.value) {
-    MessagePlugin.warning('无权限编辑项目');
+    MessagePlugin.warning(t('project.message.noEditPermission'));
     return;
   }
   projectDrawerMode.value = 'edit';
@@ -138,10 +141,10 @@ async function handleSubmit(payload: ProjectPayload): Promise<void> {
   try {
     if (projectDrawerMode.value === 'edit' && editingProject.value) {
       await updateProject(editingProject.value.id, payload);
-      MessagePlugin.success('项目已更新');
+      MessagePlugin.success(t('project.message.updated'));
     } else {
       await createProject(payload);
-      MessagePlugin.success('项目已创建，项目知识库已自动生成');
+      MessagePlugin.success(t('project.message.created'));
     }
     projectDrawerVisible.value = false;
     editingProject.value = null;
@@ -153,7 +156,7 @@ async function handleSubmit(payload: ProjectPayload): Promise<void> {
 
 function openDeleteDialog(project: ProjectInfo): void {
   if (!canDeleteProject.value) {
-    MessagePlugin.warning('无权限删除项目');
+    MessagePlugin.warning(t('project.message.noDeletePermission'));
     return;
   }
   pendingDeleteProject.value = project;
@@ -165,7 +168,7 @@ async function confirmDeleteProject(): Promise<void> {
   deleting.value = true;
   try {
     await deleteProject(pendingDeleteProject.value.id);
-    MessagePlugin.success('项目已删除');
+    MessagePlugin.success(t('project.message.deleted'));
     deleteDialogVisible.value = false;
     pendingDeleteProject.value = null;
     await loadProjects();
@@ -188,6 +191,11 @@ function normalizeProjectStatus(status?: string): ProjectStatus {
 
 function projectStatusTheme(status?: string): 'default' | 'primary' | 'success' | 'warning' {
   return PROJECT_STATUS_OPTIONS.find((item) => item.value === normalizeProjectStatus(status))?.theme || 'default';
+}
+
+function projectStatusLabel(status?: string): string {
+  const option = PROJECT_STATUS_OPTIONS.find((item) => item.value === normalizeProjectStatus(status));
+  return option ? t(option.key) : status || '-';
 }
 
 function projectTitle(project: ProjectInfo): string {
@@ -219,55 +227,55 @@ onMounted(loadProjects);
 </script>
 
 <template>
-  <PageContainer title="项目中心" subtitle="项目目录、项目成员&项目信息的结构网格管理">
+  <PageContainer :title="t('project.title.center')" :subtitle="t('project.subtitle.center')">
     <div v-if="!canViewProjects" class="project-page data-scroll">
-      <t-empty description="无权限访问项目列表" />
+      <t-empty :description="t('project.message.noListPermission')" />
     </div>
 
     <div v-else class="system-card scroll-card">
       <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-        <t-form-item label="关键字">
+        <t-form-item :label="t('project.field.keyword')">
           <t-input
             v-model="filters.keyword"
             class="filter-input project-keyword-input"
             clearable
-            placeholder="搜索项目名称、编号、客户"
+            :placeholder="t('project.placeholder.keyword')"
             @enter="handleSearch"
           >
             <template #prefix-icon><SearchIcon /></template>
           </t-input>
         </t-form-item>
-        <t-form-item label="项目状态">
-          <t-select v-model="filters.project_status" class="filter-select" clearable placeholder="全部状态" @change="handleSearch">
-            <t-option v-for="item in PROJECT_STATUS_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+        <t-form-item :label="t('project.field.status')">
+          <t-select v-model="filters.project_status" class="filter-select" clearable :placeholder="t('project.placeholder.allStatus')" @change="handleSearch">
+            <t-option v-for="item in projectStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
         </t-form-item>
-        <t-form-item label="项目密级">
-          <t-select v-model="filters.security_level" class="filter-select" clearable placeholder="全部密级" @change="handleSearch">
+        <t-form-item :label="t('project.field.securityLevel')">
+          <t-select v-model="filters.security_level" class="filter-select" clearable :placeholder="t('project.placeholder.allSecurityLevel')" @change="handleSearch">
             <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
         </t-form-item>
         <t-form-item>
           <t-space>
-            <t-button theme="primary" :loading="loading" @click="handleSearch">查询</t-button>
-            <t-button @click="resetFilters">重置</t-button>
+            <t-button theme="primary" :loading="loading" @click="handleSearch">{{ t('common.action.search') }}</t-button>
+            <t-button @click="resetFilters">{{ t('common.action.reset') }}</t-button>
           </t-space>
         </t-form-item>
       </t-form>
 
       <div class="system-section-head">
         <div class="system-section-title">
-          <h2>项目列表</h2>
-          <span>共 {{ projects.length }} 条数据</span>
+          <h2>{{ t('project.title.list') }}</h2>
+          <span>{{ t('project.message.count', { count: projects.length }) }}</span>
         </div>
         <t-space>
           <t-button theme="default" variant="outline" :loading="loading" @click="loadProjects">
             <template #icon><RefreshIcon /></template>
-            刷新
+            {{ t('common.action.refresh') }}
           </t-button>
           <t-button v-permission="PERMISSIONS.PROJECT_CREATE" theme="primary" @click="openCreateDialog">
             <template #icon><AddIcon /></template>
-            新建项目
+            {{ t('project.action.create') }}
           </t-button>
         </t-space>
       </div>
@@ -280,7 +288,7 @@ onMounted(loadProjects);
           :data="pagedProjects"
           :columns="projectColumns"
           :loading="loading"
-          empty="暂无可访问项目"
+          :empty="t('project.message.empty')"
         >
           <template #project_code="{ row }">
             <span class="mono">{{ projectCode(row) || '-' }}</span>
@@ -298,7 +306,7 @@ onMounted(loadProjects);
           </template>
           <template #project_status="{ row }">
             <t-tag size="small" variant="light" :theme="projectStatusTheme(row.project_status || row.status)">
-              {{ normalizeProjectStatus(row.project_status || row.status) }}
+              {{ projectStatusLabel(row.project_status || row.status) }}
             </t-tag>
           </template>
           <template #security_level="{ row }">
@@ -313,9 +321,9 @@ onMounted(loadProjects);
           </template>
           <template #operation="{ row }">
             <div v-if="canAskProjectChat || canEditProject || canDeleteProject" class="table-action-group">
-              <t-tooltip v-if="canAskProjectChat" content="项目问答" placement="top">
+              <t-tooltip v-if="canAskProjectChat" :content="t('project.action.projectChat')" placement="top">
                 <t-button
-                  aria-label="项目问答"
+                  :aria-label="t('project.action.projectChat')"
                   class="table-action-button"
                   size="small"
                   variant="text"
@@ -326,9 +334,9 @@ onMounted(loadProjects);
                   <template #icon><ChatBubbleHelpIcon /></template>
                 </t-button>
               </t-tooltip>
-              <t-tooltip v-if="canEditProject" content="编辑" placement="top">
+              <t-tooltip v-if="canEditProject" :content="t('common.action.edit')" placement="top">
                 <t-button
-                  aria-label="编辑"
+                  :aria-label="t('common.action.edit')"
                   class="table-action-button"
                   size="small"
                   variant="text"
@@ -339,9 +347,9 @@ onMounted(loadProjects);
                   <template #icon><EditIcon /></template>
                 </t-button>
               </t-tooltip>
-              <t-tooltip v-if="canDeleteProject" content="删除" placement="top">
+              <t-tooltip v-if="canDeleteProject" :content="t('common.action.delete')" placement="top">
                 <t-button
-                  aria-label="删除"
+                  :aria-label="t('common.action.delete')"
                   class="table-action-button"
                   size="small"
                   variant="text"
@@ -381,21 +389,21 @@ onMounted(loadProjects);
 
     <t-dialog
       v-model:visible="deleteDialogVisible"
-      header="删除确认"
+      :header="t('project.delete.title')"
       width="520px"
       theme="warning"
       :confirm-loading="deleting"
-      confirm-btn="确认删除"
-      cancel-btn="取消"
+      :confirm-btn="t('project.delete.confirm')"
+      :cancel-btn="t('common.action.cancel')"
       @confirm="confirmDeleteProject"
     >
       <div v-if="pendingDeleteProject" class="delete-confirm">
-        <div class="delete-warning">确定要删除项目「{{ projectTitle(pendingDeleteProject) }}」吗？</div>
+        <div class="delete-warning">{{ t('project.delete.warning', { name: projectTitle(pendingDeleteProject) }) }}</div>
         <div class="delete-impact">
-          <div>项目：将从项目中心默认列表移除。</div>
-          <div>资料：项目下资料访问会随项目删除状态受限。</div>
-          <div>RAG 索引：不会修改索引协议，检索侧按项目删除与权限规则过滤。</div>
-          <div>历史版本：不在前端删除历史版本数据，保留后端审计与回溯策略。</div>
+          <div>{{ t('project.delete.project') }}</div>
+          <div>{{ t('project.delete.documents') }}</div>
+          <div>{{ t('project.delete.index') }}</div>
+          <div>{{ t('project.delete.versions') }}</div>
         </div>
       </div>
     </t-dialog>

@@ -155,6 +155,7 @@ class MultiIntentQaService:
             mode,
             user,
             business_id=business_id,
+            response_language=str(options.get("response_language") or "zh-CN"),
         )
 
     def _execute_intent(
@@ -247,6 +248,7 @@ class MultiIntentQaService:
         user: Any,
         *,
         business_id: str | int | None,
+        response_language: str = "zh-CN",
     ) -> dict[str, Any]:
         evidences: list[Evidence] = []
         evidence_keys: set[tuple[Any, ...]] = set()
@@ -312,22 +314,39 @@ class MultiIntentQaService:
                 }
             )
 
+        uses_english = response_language == "en-US"
         if plan.omitted_targets:
-            risk_messages.append(f"另有 {len(plan.omitted_targets)} 个目标因执行预算未处理")
+            risk_messages.append(
+                f"{len(plan.omitted_targets)} additional target(s) were not processed due to the execution budget"
+                if uses_english
+                else f"另有 {len(plan.omitted_targets)} 个目标因执行预算未处理"
+            )
         intent_answers = [
             {"name": execution.intent.name, "answer": execution.answer}
             for execution in executions
         ]
         try:
-            synthesis = self.graph.answer_generator.synthesize_multi_intent(question, intent_answers)
+            synthesis = (
+                self.graph.answer_generator.synthesize_multi_intent(
+                    question,
+                    intent_answers,
+                    {"response_language": response_language},
+                )
+                if uses_english
+                else self.graph.answer_generator.synthesize_multi_intent(question, intent_answers)
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "多意图综合结论生成失败，使用安全降级: business_id=%s status=fallback exception_type=%s",
                 business_id,
                 type(exc).__name__,
             )
-            synthesis = "以上为各项任务基于当前可用资料得到的结果。"
-            risk_messages.append("综合结论使用了降级表达")
+            synthesis = (
+                "The results above are based on the currently available materials."
+                if uses_english
+                else "以上为各项任务基于当前可用资料得到的结果。"
+            )
+            risk_messages.append("The synthesis used a fallback response" if uses_english else "综合结论使用了降级表达")
 
         calculation_hints = ("合计", "汇总", "总计", "平均", "差值", "比例", "换算")
         if risk_messages and any(hint in question for hint in calculation_hints):
@@ -336,9 +355,13 @@ class MultiIntentQaService:
         if plan.understanding:
             answer_parts.append(plan.understanding)
         answer_parts.extend(f"## {execution.intent.name}\n{execution.answer}" for execution in executions)
-        answer_parts.append(f"## 综合结论\n{synthesis}")
+        answer_parts.append(f"## {'Summary' if uses_english else '综合结论'}\n{synthesis}")
         if risk_messages:
-            answer_parts.append(f"说明：{'；'.join(dict.fromkeys(risk_messages))}。以上内容基于当前可用信息回答。")
+            answer_parts.append(
+                f"Note: {'; '.join(dict.fromkeys(risk_messages))}. This answer is based on the currently available information."
+                if uses_english
+                else f"说明：{'；'.join(dict.fromkeys(risk_messages))}。以上内容基于当前可用信息回答。"
+            )
         answer = "\n\n".join(answer_parts)
 
         traces.append(

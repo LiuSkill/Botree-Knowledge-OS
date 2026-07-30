@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AddIcon, DeleteIcon } from 'tdesign-icons-vue-next';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import type { ProcessLibraryOptionItem, ProcessNodeLaborPayload } from '@/views/process-config/node/types';
 
@@ -23,14 +24,15 @@ const emit = defineEmits<{
   'update:modelValue': [value: ProcessNodeLaborPayload[]];
 }>();
 
-const columns = [
-  { colKey: 'labor_cost_id', title: '岗位/人员', minWidth: 180 },
-  { colKey: 'headcount', title: '人数', width: 120 },
-  { colKey: 'load_factor', title: '负荷系数', width: 120 },
-  { colKey: 'include_in_opex', title: '计入OPEX', width: 120 },
-  { colKey: 'remark', title: '备注', minWidth: 160 },
-  { colKey: 'operation', title: '操作', width: 72, align: 'center' as const },
-];
+const { t } = useI18n();
+const columns = computed(() => [
+  { colKey: 'labor_cost_id', title: t('process.node.field.laborPosition'), minWidth: 180 },
+  { colKey: 'headcount', title: t('process.node.field.headcount'), width: 120 },
+  { colKey: 'load_factor', title: t('process.node.field.loadFactor'), width: 120 },
+  { colKey: 'include_in_opex', title: t('process.node.field.includeOpex'), width: 120 },
+  { colKey: 'remark', title: t('process.field.remark'), minWidth: 160 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 72, align: 'center' as const },
+]);
 
 const rows = ref<EditableLaborRow[]>([]);
 let rowSeed = 0;
@@ -85,15 +87,15 @@ function emitRows(): void {
     <div class="labor-editor-toolbar">
       <t-button size="small" variant="outline" :disabled="disabled" @click="addRow">
         <template #icon><AddIcon /></template>
-        新增人员
+        {{ t('process.node.action.addLabor') }}
       </t-button>
     </div>
 
     <div class="labor-editor-table">
-      <t-table row-key="_rowKey" bordered table-layout="fixed" size="small" :columns="columns" :data="rows" empty="暂无人员成本配置">
+      <t-table row-key="_rowKey" bordered table-layout="fixed" size="small" :columns="columns" :data="rows" :empty="t('process.node.empty.labor')">
         <template #labor_cost_id="{ row }">
-          <t-select v-model="row.labor_cost_id" filterable clearable :disabled="disabled" placeholder="选择人员成本" @change="emitRows">
-            <t-option v-for="item in options" :key="item.id" :label="`${item.name}（${item.code}）`" :value="item.id" />
+          <t-select v-model="row.labor_cost_id" filterable clearable :disabled="disabled" :placeholder="t('process.node.placeholder.labor')" @change="emitRows">
+            <t-option v-for="item in options" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" />
           </t-select>
         </template>
         <template #headcount="{ row }">
@@ -106,7 +108,7 @@ function emitRows(): void {
           <t-switch v-model="row.include_in_opex" :disabled="disabled" @change="emitRows" />
         </template>
         <template #remark="{ row }">
-          <t-input v-model="row.remark" clearable :disabled="disabled" placeholder="备注" @update:model-value="emitRows" />
+          <t-input v-model="row.remark" clearable :disabled="disabled" :placeholder="t('process.node.placeholder.remark')" @update:model-value="emitRows" />
         </template>
         <template #operation="{ rowIndex }">
           <t-button shape="square" size="small" theme="danger" variant="text" :disabled="disabled" @click="removeRow(rowIndex)">

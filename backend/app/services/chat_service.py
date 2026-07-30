@@ -345,6 +345,7 @@ class ChatService:
             user,
             turn_context=turn_context,
             business_id=session.id,
+            response_language=getattr(payload, "response_language", "zh-CN"),
         )
         return self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
 
@@ -413,6 +414,7 @@ class ChatService:
                         user,
                         business_id=session.id,
                         turn_context=turn_context,
+                        response_language=getattr(payload, "response_language", "zh-CN"),
                     ):
                         if event_name == "progress":
                             final_progress_by_intent[str(event_payload["intent_id"])] = event_payload
@@ -436,6 +438,7 @@ class ChatService:
                     payload.project_id,
                     user,
                     turn_context=turn_context,
+                    response_language=getattr(payload, "response_language", "zh-CN"),
                 ):
                     if event_name == "trace_delta":
                         progress_event = self._progress_event_from_trace(event_payload)
@@ -548,7 +551,11 @@ class ChatService:
             answer_progress = self._manual_progress_event("answering", "running", sequence=1, compact=True)
             if self._should_emit_progress(answer_progress, emitted_progress):
                 yield self._encode_sse("progress", answer_progress)
-            answer = self._build_confirmed_general_answer(pending_question)
+            answer = (
+                self._build_confirmed_general_answer(pending_question, "en-US")
+                if getattr(payload, "response_language", "zh-CN") == "en-US"
+                else self._build_confirmed_general_answer(pending_question)
+            )
             logger.info(
                 "BaseChat通用回答确认命中: session_id=%s decision=CONFIRM pending_question_exists=%s",
                 getattr(session, "id", None),
@@ -559,7 +566,12 @@ class ChatService:
         else:
             logger.info("BaseChat通用回答确认拒绝: session_id=%s decision=REJECT", getattr(session, "id", None))
             self._clear_general_confirmation(session)
-            agent_result = self._build_general_confirmation_result(payload, "已取消通用知识回答。", answer_type="cancelled", refused=True)
+            cancelled = (
+                "The general-knowledge answer has been cancelled."
+                if getattr(payload, "response_language", "zh-CN") == "en-US"
+                else "已取消通用知识回答。"
+            )
+            agent_result = self._build_general_confirmation_result(payload, cancelled, answer_type="cancelled", refused=True)
 
         result = self._persist_agent_result(payload, user, session, agent_result)
         for progress_event in result.get("progress_events", []):
@@ -772,7 +784,11 @@ class ChatService:
 
         decision_type, pending_question = decision
         if decision_type == "confirm":
-            answer = self._build_confirmed_general_answer(pending_question)
+            answer = (
+                self._build_confirmed_general_answer(pending_question, "en-US")
+                if getattr(payload, "response_language", "zh-CN") == "en-US"
+                else self._build_confirmed_general_answer(pending_question)
+            )
             logger.info(
                 "BaseChat通用回答确认命中: session_id=%s decision=CONFIRM pending_question_exists=%s",
                 getattr(session, "id", None),
@@ -792,7 +808,14 @@ class ChatService:
             payload,
             user,
             session,
-            self._build_general_confirmation_result(payload, "已取消通用知识回答。", answer_type="cancelled", refused=True),
+            self._build_general_confirmation_result(
+                payload,
+                "The general-knowledge answer has been cancelled."
+                if getattr(payload, "response_language", "zh-CN") == "en-US"
+                else "已取消通用知识回答。",
+                answer_type="cancelled",
+                refused=True,
+            ),
         )
 
     def _resolve_general_confirmation_decision(
@@ -840,10 +863,21 @@ class ChatService:
         self._clear_general_confirmation(session)
         return None
 
-    def _build_confirmed_general_answer(self, question: str) -> str:
+    def _build_confirmed_general_answer(self, question: str, response_language: str = "zh-CN") -> str:
         """生成用户确认后的通用知识回答。"""
 
-        return f"{GENERAL_ANSWER_PREFIX}\n{QwenOrchestrationService(self.db).answer_general_question(question)}"
+        prefix = (
+            "The following answer is based on general knowledge and does not cite the current knowledge base:"
+            if response_language == "en-US"
+            else GENERAL_ANSWER_PREFIX
+        )
+        service = QwenOrchestrationService(self.db)
+        answer = (
+            service.answer_general_question(question, response_language)
+            if response_language == "en-US"
+            else service.answer_general_question(question)
+        )
+        return f"{prefix}\n{answer}"
 
     def _clear_general_confirmation(self, session: ChatSession) -> None:
         session.conversation_state = NORMAL_CONVERSATION_STATE

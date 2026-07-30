@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
+
 import type { RouteTreePreviewNode as RouteTreePreviewNodeData } from '@/views/process-config/route/types';
 
 defineOptions({
@@ -9,9 +11,11 @@ defineProps<{
   node: RouteTreePreviewNodeData;
 }>();
 
+const { t } = useI18n();
+
 function nodePrefix(node: RouteTreePreviewNodeData): string {
-  if (node.kind === 'product') return '（产品）';
-  if (node.kind === 'waste') return `（${node.meta || '三废'}）`;
+  if (node.kind === 'product') return t('process.route.preview.productPrefix');
+  if (node.kind === 'waste') return t('process.route.preview.wastePrefix', { name: node.meta || t('process.route.preview.defaultWaste') });
   return '';
 }
 </script>

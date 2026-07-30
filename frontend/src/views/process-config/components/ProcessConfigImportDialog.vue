@@ -3,6 +3,7 @@ import { DownloadIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { UploadFile } from 'tdesign-vue-next';
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import { downloadProcessConfigTemplate, importProcessConfigData } from '@/api/process-config';
 import type {
@@ -28,6 +29,7 @@ const emit = defineEmits<{
 }>();
 
 const importing = ref(false);
+const { t } = useI18n();
 const uploadFiles = ref<UploadFile[]>([]);
 const importErrors = ref<ProcessConfigImportError[]>([]);
 
@@ -43,12 +45,12 @@ const errorTableData = computed<ImportErrorRow[]>(() =>
   })),
 );
 
-const errorColumns = [
+const errorColumns = computed(() => [
   { colKey: 'sheet', title: 'Sheet', width: 180, ellipsis: true },
-  { colKey: 'row', title: '行号', width: 90, align: 'center' as const },
-  { colKey: 'field', title: '字段', width: 160, ellipsis: true },
-  { colKey: 'message', title: '错误原因', minWidth: 260, ellipsis: true },
-];
+  { colKey: 'row', title: t('process.field.rowNumber'), width: 90, align: 'center' as const },
+  { colKey: 'field', title: t('process.field.importField'), width: 160, ellipsis: true },
+  { colKey: 'message', title: t('process.field.importReason'), minWidth: 260, ellipsis: true },
+]);
 
 watch(
   () => props.visible,
@@ -91,13 +93,13 @@ function extractImportErrors(error: unknown): ProcessConfigImportError[] {
 async function handleDownloadTemplate(): Promise<void> {
   const blob = await downloadProcessConfigTemplate(props.moduleKey);
   triggerBlobDownload(blob, buildProcessConfigTemplateFileName(props.moduleKey));
-  MessagePlugin.success(`${props.moduleLabel}模板已下载`);
+  MessagePlugin.success(t('process.message.templateDownloaded', { module: props.moduleLabel }));
 }
 
 async function handleConfirm(): Promise<void> {
   const file = currentFile();
   if (!file) {
-    MessagePlugin.warning('请先选择需要导入的 Excel 文件');
+    MessagePlugin.warning(t('process.message.importFileRequired'));
     return;
   }
 
@@ -105,7 +107,7 @@ async function handleConfirm(): Promise<void> {
   importErrors.value = [];
   try {
     const result = await importProcessConfigData(props.moduleKey, file);
-    MessagePlugin.success(`已导入 ${result.imported_count} 条${props.moduleLabel}数据`);
+    MessagePlugin.success(t('process.message.importDone', { count: result.imported_count, module: props.moduleLabel }));
     emit('success', result);
     dialogVisible.value = false;
   } catch (error) {
@@ -119,7 +121,7 @@ async function handleConfirm(): Promise<void> {
 <template>
   <t-dialog
     v-model:visible="dialogVisible"
-    :header="`${moduleLabel}导入`"
+    :header="t('process.import.title', { module: moduleLabel })"
     width="860px"
     :confirm-loading="importing"
     @confirm="handleConfirm"
@@ -127,12 +129,12 @@ async function handleConfirm(): Promise<void> {
     <div class="import-dialog-content">
       <div class="import-toolbar">
         <div class="import-toolbar-text">
-          <strong>导入说明</strong>
-          <span>请先下载模板，按模板字段填写后再上传，系统会先校验再整批入库。</span>
+          <strong>{{ t('process.import.guideTitle') }}</strong>
+          <span>{{ t('process.import.guideText') }}</span>
         </div>
         <t-button theme="default" variant="outline" @click="handleDownloadTemplate">
           <template #icon><DownloadIcon /></template>
-          下载模板
+          {{ t('process.action.downloadTemplate') }}
         </t-button>
       </div>
 
@@ -142,10 +144,10 @@ async function handleConfirm(): Promise<void> {
         :auto-upload="false"
         :max="1"
         theme="file"
-        tips="仅支持 .xlsx 文件。导入时如果存在编码重复、引用不存在或字段格式错误，系统会整批拒绝。"
+        :tips="t('process.import.tips')"
       />
 
-      <t-alert v-if="importErrors.length" theme="error" message="导入校验未通过，请根据下方错误信息修正 Excel 后重新导入。" />
+      <t-alert v-if="importErrors.length" theme="error" :message="t('process.import.invalidAlert')" />
 
       <div v-if="importErrors.length" class="error-table-wrap">
         <t-table
@@ -156,7 +158,7 @@ async function handleConfirm(): Promise<void> {
           :data="errorTableData"
           :columns="errorColumns"
           :max-height="320"
-          empty="当前没有导入错误"
+          :empty="t('process.empty.importErrors')"
         />
       </div>
     </div>

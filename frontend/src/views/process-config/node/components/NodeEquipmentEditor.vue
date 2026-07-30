@@ -1,6 +1,7 @@
 ﻿<script setup lang="ts">
 import { AddIcon, DeleteIcon } from 'tdesign-icons-vue-next';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import type { ProcessLibraryOptionItem, ProcessNodeEquipmentPayload } from '@/views/process-config/node/types';
 
@@ -24,13 +25,14 @@ const emit = defineEmits<{
   'update:modelValue': [value: ProcessNodeEquipmentPayload[]];
 }>();
 
-const columns = [
-  { colKey: 'asset_id', title: '资产', minWidth: 180 },
-  { colKey: 'quantity', title: '数量', width: 120 },
-  { colKey: 'installation_factor', title: '安装系数', width: 120 },
-  { colKey: 'remark', title: '备注', minWidth: 160 },
-  { colKey: 'operation', title: '操作', width: 72, align: 'center' },
-];
+const { t } = useI18n();
+const columns = computed(() => [
+  { colKey: 'asset_id', title: t('process.node.field.asset'), minWidth: 180 },
+  { colKey: 'quantity', title: t('process.node.field.quantity'), width: 120 },
+  { colKey: 'installation_factor', title: t('process.node.field.installationFactor'), width: 120 },
+  { colKey: 'remark', title: t('process.field.remark'), minWidth: 160 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 72, align: 'center' as const },
+]);
 
 const rows = ref<EditableEquipmentRow[]>([]);
 let rowSeed = 0;
@@ -99,14 +101,14 @@ function handleAssetChange(row: EditableEquipmentRow): void {
     <div class="equipment-editor-toolbar">
       <t-button size="small" variant="outline" :disabled="disabled" @click="addRow">
         <template #icon><AddIcon /></template>
-        新增设备
+        {{ t('process.node.action.addEquipment') }}
       </t-button>
     </div>
 
     <div class="equipment-editor-table">
-      <t-table row-key="_rowKey" bordered table-layout="fixed" size="small" :columns="columns" :data="rows" empty="暂无设备/投资配置">
+      <t-table row-key="_rowKey" bordered table-layout="fixed" size="small" :columns="columns" :data="rows" :empty="t('process.node.empty.equipmentConfig')">
         <template #asset_id="{ row }">
-          <t-select v-model="row.asset_id" filterable clearable :disabled="disabled" placeholder="选择设备/设施" @change="() => handleAssetChange(row)">
+          <t-select v-model="row.asset_id" filterable clearable :disabled="disabled" :placeholder="t('process.node.placeholder.asset')" @change="() => handleAssetChange(row)">
             <t-option v-for="asset in assetOptions" :key="asset.id" :label="`${asset.code} ${asset.name}`" :value="asset.id" />
           </t-select>
         </template>
@@ -117,7 +119,7 @@ function handleAssetChange(row: EditableEquipmentRow): void {
           <t-input-number v-model="row.installation_factor" :disabled="disabled" :min="0" :step="0.1" :decimal-places="4" theme="normal" @update:model-value="emitRows" />
         </template>
         <template #remark="{ row }">
-          <t-input v-model="row.remark" clearable :disabled="disabled" placeholder="备注" @update:model-value="emitRows" />
+          <t-input v-model="row.remark" clearable :disabled="disabled" :placeholder="t('process.node.placeholder.remark')" @update:model-value="emitRows" />
         </template>
         <template #operation="{ rowIndex }">
           <t-button shape="square" size="small" theme="danger" variant="text" :disabled="disabled" @click="removeRow(rowIndex)">

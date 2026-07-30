@@ -7,6 +7,7 @@
 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import loginHeroImage from '@/assets/login-hero-reference.png';
 
@@ -14,6 +15,7 @@ const DESIGN_WIDTH = 3028;
 const DESIGN_HEIGHT = 2832;
 
 const containerRef = ref<HTMLElement | null>(null);
+const { t } = useI18n();
 const scale = ref(1);
 const offsetX = ref(0);
 const offsetY = ref(0);
@@ -53,7 +55,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section ref="containerRef" class="login-hero-panel" aria-label="Botree Knowledge OS 企业知识管理与智能体平台">
+  <section ref="containerRef" class="login-hero-panel" :aria-label="t('common.hero.loginAria')">
     <div class="hero-stage" :style="stageStyle">
       <img class="hero-image" :src="loginHeroImage" alt="" />
     </div>

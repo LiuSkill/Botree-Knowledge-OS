@@ -22,6 +22,7 @@ import {
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { createDocumentIndexBuildTask, submitDocumentReview } from '@/api/documents';
@@ -40,7 +41,12 @@ import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeCategory, PageResult, ProjectInfo, SecurityLevel } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions, findCategory } from '@/utils/categories';
-import { INDEX_STATUS_TEXT, PARSE_STATUS_TEXT } from '@/utils/constants';
+import {
+  indexStatusOptions as buildIndexStatusOptions,
+  indexStatusText as resolveIndexStatusText,
+  parseStatusOptions as buildParseStatusOptions,
+  parseStatusText as resolveParseStatusText,
+} from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
 import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
@@ -65,13 +71,10 @@ type CategoryDialogMode = 'create' | 'edit';
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const ALL_DIRECTORY_KEY = 'all';
 const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
-const DOCUMENT_STATUS_OPTIONS = [
-  { label: '已发布', value: 'published' },
-  { label: '待审核', value: 'pending_review' },
-];
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 
 const categories = ref<KnowledgeCategory[]>([]);
 const documents = ref<DocumentInfo[]>([]);
@@ -122,10 +125,14 @@ const categoryForm = reactive({
 });
 
 const projectId = computed(() => Number(route.params.id));
-const projectTitle = computed(() => project.value?.project_name || project.value?.name || `项目 #${projectId.value}`);
+const projectTitle = computed(() => project.value?.project_name || project.value?.name || t('document.detail.projectFallback', { id: projectId.value }));
 const categoryOptions = computed(() => buildCategoryOptions(categories.value));
-const parseStatusOptions = computed(() => Object.entries(PARSE_STATUS_TEXT).map(([value, label]) => ({ value, label })));
-const indexStatusOptions = computed(() => Object.entries(INDEX_STATUS_TEXT).map(([value, label]) => ({ value, label })));
+const parseStatusOptions = computed(() => buildParseStatusOptions());
+const indexStatusOptions = computed(() => buildIndexStatusOptions());
+const documentStatusOptions = computed(() => [
+  { label: t('project.detail.document.statusPublished'), value: 'published' },
+  { label: t('project.detail.document.statusPendingReview'), value: 'pending_review' },
+]);
 const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
 const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_UPLOAD));
 const canCreateDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_CREATE));
@@ -134,26 +141,26 @@ const canDeleteDirectories = computed(() => authStore.hasActionPermission(PERMIS
 const canSubmitDocumentReview = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_SUBMIT_REVIEW));
 const canBuildDocumentIndex = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DOCUMENT_RETRY_INDEX));
 
-const documentColumns = [
-  { colKey: 'document_name', title: '文件名称', width: 280, ellipsis: true, fixed: 'left' },
-  { colKey: 'directory', title: '所属目录', width: 140, ellipsis: true },
-  { colKey: 'security_level', title: '密级', width: 90, align: 'center' },
-  { colKey: 'version', title: '版本', width: 80, align: 'center' },
-  { colKey: 'file_size', title: '大小', width: 100, align: 'center' },
-  { colKey: 'review_status', title: '审核状态', width: 110, align: 'center' },
-  { colKey: 'parse_status', title: '解析状态', width: 110, align: 'center' },
-  { colKey: 'index_status', title: '索引构建状态', width: 130, align: 'center' },
-  { colKey: 'uploader', title: '上传人', width: 110, ellipsis: true },
-  { colKey: 'created_at', title: '上传时间', width: 170, ellipsis: true },
-  { colKey: 'operation', title: '操作', width: 172, align: 'center', fixed: 'right' },
-];
+const documentColumns = computed(() => [
+  { colKey: 'document_name', title: t('document.detail.field.fileName'), width: 280, ellipsis: true, fixed: 'left' },
+  { colKey: 'directory', title: t('document.detail.field.directory'), width: 140, ellipsis: true },
+  { colKey: 'security_level', title: t('document.detail.field.securityLevel'), width: 90, align: 'center' },
+  { colKey: 'version', title: t('document.detail.field.version'), width: 80, align: 'center' },
+  { colKey: 'file_size', title: t('document.detail.field.fileSize'), width: 100, align: 'center' },
+  { colKey: 'review_status', title: t('document.detail.field.reviewStatus'), width: 110, align: 'center' },
+  { colKey: 'parse_status', title: t('document.detail.field.parseStatus'), width: 110, align: 'center' },
+  { colKey: 'index_status', title: t('document.detail.field.indexStatus'), width: 130, align: 'center' },
+  { colKey: 'uploader', title: t('document.detail.field.uploader'), width: 110, ellipsis: true },
+  { colKey: 'created_at', title: t('document.detail.field.uploadedAt'), width: 170, ellipsis: true },
+  { colKey: 'operation', title: t('document.detail.field.operation'), width: 172, align: 'center', fixed: 'right' },
+]);
 
 const directoryRows = computed<DirectoryRow[]>(() => {
   const rows: DirectoryRow[] = [
     {
       id: null,
       key: ALL_DIRECTORY_KEY,
-      name: '全部资料',
+      name: t('project.detail.management.allDocuments'),
       count: directoryDocumentTotal.value,
       level: 0,
       enabled: true,
@@ -214,14 +221,14 @@ async function loadData(): Promise<void> {
       project.value = projectResult.value;
     } else {
       project.value = null;
-      MessagePlugin.warning(projectResult.reason instanceof Error ? projectResult.reason.message : '项目信息加载失败');
+      MessagePlugin.warning(projectResult.reason instanceof Error ? projectResult.reason.message : t('project.detail.message.loadFailed'));
     }
 
     if (directoryResult.status === 'fulfilled') {
       applyDirectoryTree(directoryResult.value);
     } else {
       categories.value = [];
-      MessagePlugin.warning(directoryResult.reason instanceof Error ? directoryResult.reason.message : '项目目录加载失败');
+      MessagePlugin.warning(directoryResult.reason instanceof Error ? directoryResult.reason.message : t('project.detail.message.directoryLoadFailed'));
     }
 
     if (documentResult.status === 'fulfilled') {
@@ -229,10 +236,10 @@ async function loadData(): Promise<void> {
     } else {
       documents.value = [];
       documentTotal.value = 0;
-      MessagePlugin.error(documentResult.reason instanceof Error ? documentResult.reason.message : '项目资料加载失败');
+      MessagePlugin.error(documentResult.reason instanceof Error ? documentResult.reason.message : t('project.detail.message.documentsLoadFailed'));
     }
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '项目资料加载失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('project.detail.message.documentsLoadFailed'));
   } finally {
     loading.value = false;
   }
@@ -361,34 +368,35 @@ function documentUploader(document: DocumentInfo): string {
   if (document.uploader_name) return document.uploader_name;
   if (document.uploader_username) return document.uploader_username;
   const uploader = document.upload_user_id || document.created_by;
-  return uploader ? `用户 #${uploader}` : '-';
+  return uploader ? t('project.detail.userFallback', { id: uploader }) : '-';
 }
 
 function documentStatusLabel(document: DocumentInfo): string {
   const status = document.status || document.document_status || document.review_status;
   const map: Record<string, string> = {
-    active: '已发布',
-    approved: '已发布',
-    published: '已发布',
-    reviewed: '已发布',
-    pending: '待审核',
-    pending_review: '待审核',
-    draft: '待审核',
-    submitted: '待审核',
+    active: 'project.detail.document.statusPublished',
+    approved: 'project.detail.document.statusPublished',
+    published: 'project.detail.document.statusPublished',
+    reviewed: 'project.detail.document.statusPublished',
+    pending: 'project.detail.document.statusPendingReview',
+    pending_review: 'project.detail.document.statusPendingReview',
+    draft: 'project.detail.document.statusPendingReview',
+    submitted: 'project.detail.document.statusPendingReview',
   };
-  return map[status || ''] || status || '-';
+  const key = map[status || ''];
+  return key ? t(key) : status || '-';
 }
 
 function documentStatusTheme(document: DocumentInfo): 'success' | 'warning' | 'default' {
-  const label = documentStatusLabel(document);
-  if (label === '已发布') return 'success';
-  if (label === '待审核') return 'warning';
+  const status = document.status || document.document_status || document.review_status;
+  if (['active', 'approved', 'published', 'reviewed'].includes(status || '')) return 'success';
+  if (['pending', 'pending_review', 'draft', 'submitted'].includes(status || '')) return 'warning';
   return 'default';
 }
 
 function parseStatusLabel(document: DocumentInfo): string {
   const status = document.parse_status || 'unparsed';
-  return PARSE_STATUS_TEXT[status] || status || '-';
+  return resolveParseStatusText(status) || '-';
 }
 
 function parseStatusTheme(document: DocumentInfo): 'success' | 'warning' | 'danger' | 'default' {
@@ -419,7 +427,7 @@ function normalizedIndexStatus(document: DocumentInfo): string {
 
 function indexStatusLabel(document: DocumentInfo): string {
   const status = normalizedIndexStatus(document);
-  return INDEX_STATUS_TEXT[status] || status || '-';
+  return resolveIndexStatusText(status) || '-';
 }
 
 function taskStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'default' {
@@ -452,7 +460,7 @@ function handlePaginationChange(pageInfo: PaginationInfo): void {
 
 function openUploadDialog(): void {
   if (!canUploadDocuments.value) {
-    MessagePlugin.warning('无权限上传资料');
+    MessagePlugin.warning(t('project.detail.message.noUploadPermission'));
     return;
   }
   const fallbackDirectory = categoryOptions.value.find((item) => !item.disabled)?.value || null;
@@ -479,11 +487,11 @@ function removeUploadFile(index: number): void {
 
 async function confirmUpload(): Promise<void> {
   if (!uploadForm.directory_id) {
-    MessagePlugin.warning('请选择所属目录');
+    MessagePlugin.warning(t('project.detail.message.selectParentDirectory'));
     return;
   }
   if (!selectedUploadFiles.value.length) {
-    MessagePlugin.warning('请选择需要上传的文件');
+    MessagePlugin.warning(t('project.detail.message.selectUploadFiles'));
     return;
   }
 
@@ -492,12 +500,12 @@ async function confirmUpload(): Promise<void> {
     for (const file of selectedUploadFiles.value) {
       await uploadProjectDocument(projectId.value, file, uploadForm.directory_id, uploadForm.security_level);
     }
-    MessagePlugin.success(`已上传 ${selectedUploadFiles.value.length} 个文件`);
+    MessagePlugin.success(t('project.detail.message.uploadSuccess', { count: selectedUploadFiles.value.length }));
     uploadDialogVisible.value = false;
     currentPage.value = 1;
     await loadData();
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '资料上传失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('project.detail.message.uploadFailed'));
   } finally {
     uploading.value = false;
   }
@@ -505,7 +513,7 @@ async function confirmUpload(): Promise<void> {
 
 function openCreateDirectoryDialog(): void {
   if (!canCreateDirectories.value) {
-    MessagePlugin.warning('无权限新建目录');
+    MessagePlugin.warning(t('project.detail.message.noCreateDirectoryPermission'));
     return;
   }
   const activeCategory = activeDirectoryId.value ? findCategory(categories.value, activeDirectoryId.value) : undefined;
@@ -523,12 +531,12 @@ function openCreateDirectoryDialog(): void {
 
 function openEditActiveDirectoryDialog(): void {
   if (!canEditDirectories.value) {
-    MessagePlugin.warning('无权限编辑目录');
+    MessagePlugin.warning(t('project.detail.message.noEditDirectoryPermission'));
     return;
   }
   const category = activeDirectory.value;
   if (!category) {
-    MessagePlugin.warning('请先选择需要编辑的目录');
+    MessagePlugin.warning(t('project.detail.message.selectEditDirectory'));
     return;
   }
   categoryDialogMode.value = 'edit';
@@ -545,12 +553,12 @@ function openEditActiveDirectoryDialog(): void {
 
 function openDeleteActiveDirectoryDialog(): void {
   if (!canDeleteDirectories.value) {
-    MessagePlugin.warning('无权限删除目录');
+    MessagePlugin.warning(t('project.detail.message.noDeleteDirectoryPermission'));
     return;
   }
   const category = activeDirectory.value;
   if (!category) {
-    MessagePlugin.warning('请先选择需要删除的目录');
+    MessagePlugin.warning(t('project.detail.message.selectDirectoryFirst'));
     return;
   }
   pendingDeleteDirectory.value = category;
@@ -559,15 +567,15 @@ function openDeleteActiveDirectoryDialog(): void {
 
 async function confirmCategoryDialog(): Promise<void> {
   if (categoryDialogMode.value === 'create' && !canCreateDirectories.value) {
-    MessagePlugin.warning('无权限新建目录');
+    MessagePlugin.warning(t('project.detail.message.noCreateDirectoryPermission'));
     return;
   }
   if (categoryDialogMode.value === 'edit' && !canEditDirectories.value) {
-    MessagePlugin.warning('无权限编辑目录');
+    MessagePlugin.warning(t('project.detail.message.noEditDirectoryPermission'));
     return;
   }
   if (!categoryForm.name.trim()) {
-    MessagePlugin.warning('请输入目录名称');
+    MessagePlugin.warning(t('project.detail.message.enterDirectoryName'));
     return;
   }
 
@@ -590,20 +598,20 @@ async function confirmCategoryDialog(): Promise<void> {
   if (result?.tree) {
     applyDirectoryTree(await listProjectDirectories(projectId.value, directoryFilterParams()));
   }
-  MessagePlugin.success('目录配置已保存');
+  MessagePlugin.success(t('project.detail.message.directorySaved'));
   categoryDialogVisible.value = false;
 }
 
 async function confirmDeleteDirectory(): Promise<void> {
   if (!pendingDeleteDirectory.value) return;
   if (!canDeleteDirectories.value) {
-    MessagePlugin.warning('无权限删除目录');
+    MessagePlugin.warning(t('project.detail.message.noDeleteDirectoryPermission'));
     return;
   }
   deletingDirectory.value = true;
   try {
     await deleteProjectDirectory(projectId.value, pendingDeleteDirectory.value.id);
-    MessagePlugin.success('目录已删除');
+    MessagePlugin.success(t('project.detail.message.directoryDeleted'));
     if (activeDirectoryId.value === pendingDeleteDirectory.value.id) {
       activeDirectoryId.value = null;
       currentPage.value = 1;
@@ -612,7 +620,7 @@ async function confirmDeleteDirectory(): Promise<void> {
     deleteDirectoryDialogVisible.value = false;
     applyDirectoryTree(await listProjectDirectories(projectId.value, directoryFilterParams()));
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '目录删除失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('project.detail.message.directoryDeleteFailed'));
   } finally {
     deletingDirectory.value = false;
   }
@@ -620,7 +628,7 @@ async function confirmDeleteDirectory(): Promise<void> {
 
 function viewDocument(document: DocumentInfo): void {
   if (!canViewDocuments.value) {
-    MessagePlugin.warning('无权限查看项目资料');
+    MessagePlugin.warning(t('project.detail.message.noViewDocumentPermission'));
     return;
   }
   router.push(withBreadcrumbContext(route, `/documents/${document.id}`));
@@ -637,16 +645,16 @@ function canBuildIndex(document: DocumentInfo): boolean {
 
 async function submitReview(document: DocumentInfo): Promise<void> {
   if (!canSubmitDocumentReview.value) {
-    MessagePlugin.warning('无权限提交审核');
+    MessagePlugin.warning(t('document.detail.message.noSubmitPermission'));
     return;
   }
   reviewSubmittingId.value = document.id;
   try {
     await submitDocumentReview(document.id);
-    MessagePlugin.success('已提交审核');
+    MessagePlugin.success(t('document.detail.message.submitted'));
     await loadDocumentsAndDirectories();
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '提交审核失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('document.detail.message.submitFailed'));
   } finally {
     reviewSubmittingId.value = null;
   }
@@ -654,7 +662,7 @@ async function submitReview(document: DocumentInfo): Promise<void> {
 
 async function createIndexBuild(document: DocumentInfo): Promise<void> {
   if (!canBuildDocumentIndex.value) {
-    MessagePlugin.warning('无权限构建索引');
+    MessagePlugin.warning(t('document.detail.message.noBuildPermission'));
     return;
   }
   if (isIndexedIndexStatus(normalizedIndexStatus(document))) {
@@ -664,10 +672,10 @@ async function createIndexBuild(document: DocumentInfo): Promise<void> {
   indexBuildingId.value = document.id;
   try {
     await createDocumentIndexBuildTask(document.id, document.version_no);
-    MessagePlugin.success('索引构建任务已创建');
+    MessagePlugin.success(t('document.detail.message.indexTaskCreated'));
     await loadDocumentsAndDirectories();
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '索引任务创建失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('document.detail.message.indexTaskCreateFailed'));
   } finally {
     indexBuildingId.value = null;
   }
@@ -680,9 +688,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <PageContainer class="project-document-page" title="">
+  <PageContainer class="project-document-page" :title="t('project.detail.management.title')" :subtitle="t('project.detail.management.subtitle')">
     <div v-if="!canViewDocuments" class="document-state">
-      <t-empty description="无权限访问项目资料" />
+      <t-empty :description="t('project.detail.management.noAccess')" />
     </div>
 
     <div v-else class="project-document-manager">
@@ -737,7 +745,7 @@ onMounted(async () => {
             @click="openEditActiveDirectoryDialog"
           >
             <template #icon><EditIcon /></template>
-            编辑
+            {{ t('project.detail.management.editDirectory') }}
           </t-button>
           <t-button
             v-if="canDeleteDirectories"
@@ -749,66 +757,66 @@ onMounted(async () => {
             @click="openDeleteActiveDirectoryDialog"
           >
             <template #icon><DeleteIcon /></template>
-            删除
+            {{ t('project.detail.management.deleteDirectory') }}
           </t-button>
         </div>
       </aside>
 
       <main class="document-panel">
         <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-          <t-form-item label="关键字">
+          <t-form-item :label="t('project.field.keyword')">
             <t-input
               v-model="filters.keyword"
               class="filter-input document-keyword-input"
               clearable
-              placeholder="搜索文件名称"
+              :placeholder="t('review.placeholder.searchDocument')"
               @enter="handleSearch"
             >
               <template #prefix-icon><SearchIcon /></template>
             </t-input>
           </t-form-item>
-          <t-form-item label="文件状态">
-            <t-select v-model="filters.document_status" class="filter-select" clearable placeholder="全部状态" @change="handleSearch">
-              <t-option v-for="item in DOCUMENT_STATUS_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+          <t-form-item :label="t('document.detail.field.status')">
+            <t-select v-model="filters.document_status" class="filter-select" clearable :placeholder="t('review.placeholder.allStatus')" @change="handleSearch">
+              <t-option v-for="item in documentStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
-          <t-form-item label="解析状态">
-            <t-select v-model="filters.parse_status" class="filter-select" clearable placeholder="全部解析状态" @change="handleSearch">
+          <t-form-item :label="t('document.detail.field.parseStatus')">
+            <t-select v-model="filters.parse_status" class="filter-select" clearable :placeholder="t('review.placeholder.allStatus')" @change="handleSearch">
               <t-option v-for="item in parseStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
-          <t-form-item label="索引构建状态">
-            <t-select v-model="filters.index_status" class="filter-select" clearable placeholder="全部索引状态" @change="handleSearch">
+          <t-form-item :label="t('document.detail.field.indexStatus')">
+            <t-select v-model="filters.index_status" class="filter-select" clearable :placeholder="t('review.placeholder.allStatus')" @change="handleSearch">
               <t-option v-for="item in indexStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
-          <t-form-item label="密级">
-            <t-select v-model="filters.security_level" class="filter-select" clearable placeholder="全部密级" @change="handleSearch">
-              <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
+          <t-form-item :label="t('document.detail.field.securityLevel')">
+            <t-select v-model="filters.security_level" class="filter-select" clearable :placeholder="t('project.placeholder.allSecurityLevel')" @change="handleSearch">
+              <t-option v-for="item in securityLevelOptions(authStore.maxSecurityLevel)" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
           <t-form-item>
             <t-space>
-              <t-button theme="primary" :loading="loading" @click="handleSearch">查询</t-button>
-              <t-button @click="resetFilters">重置</t-button>
+              <t-button theme="primary" :loading="loading" @click="handleSearch">{{ t('common.action.search') }}</t-button>
+              <t-button @click="resetFilters">{{ t('common.action.reset') }}</t-button>
             </t-space>
           </t-form-item>
         </t-form>
 
         <div class="system-section-head">
           <div class="system-section-title">
-            <h2>资料列表</h2>
-            <span>共 {{ documentTotal }} 条数据</span>
+            <h2>{{ t('project.detail.management.documentList') }}</h2>
+            <span>{{ t('project.detail.management.count', { count: documentTotal }) }}</span>
           </div>
           <t-space>
-            <t-button variant="outline" @click="router.push(`/projects/${projectId}`)">返回概览</t-button>
+            <t-button variant="outline" @click="router.push(`/projects/${projectId}`)">{{ t('project.detail.management.backOverview') }}</t-button>
             <t-button theme="default" variant="outline" :loading="loading" @click="loadData">
               <template #icon><RefreshIcon /></template>
-              刷新
+              {{ t('common.action.refresh') }}
             </t-button>
             <t-button theme="primary" :disabled="!canUploadDocuments" @click="openUploadDialog">
               <template #icon><CloudUploadIcon /></template>
-              上传资料
+              {{ t('project.detail.upload.title') }}
             </t-button>
           </t-space>
         </div>
@@ -821,7 +829,7 @@ onMounted(async () => {
             :data="documents"
             :columns="documentColumns"
             :loading="loading"
-            empty="暂无项目资料"
+            :empty="t('project.detail.management.empty')"
           >
             <template #document_name="{ row }">
               <t-link class="document-name-link" theme="primary" @click="viewDocument(row)">
@@ -862,8 +870,8 @@ onMounted(async () => {
             <template #operation="{ row }">
               <div class="document-operation-actions">
                 <t-button
-                  aria-label="查看"
-                  title="查看"
+                  :aria-label="t('common.action.view')"
+                  :title="t('common.action.view')"
                   shape="square"
                   size="small"
                   variant="text"
@@ -873,8 +881,8 @@ onMounted(async () => {
                 </t-button>
                 <t-button
                   v-if="canSubmitDocumentReview"
-                  aria-label="提交审核"
-                  title="提交审核"
+                  :aria-label="t('document.detail.action.submitReview')"
+                  :title="t('document.detail.action.submitReview')"
                   shape="square"
                   size="small"
                   theme="primary"
@@ -887,8 +895,8 @@ onMounted(async () => {
                 </t-button>
                 <t-button
                   v-if="canBuildDocumentIndex"
-                  aria-label="索引构建"
-                  title="索引构建"
+                  :aria-label="t('review.tab.approved')"
+                  :title="t('review.tab.approved')"
                   shape="square"
                   size="small"
                   theme="primary"
@@ -919,38 +927,38 @@ onMounted(async () => {
 
     <t-dialog
       v-model:visible="uploadDialogVisible"
-      header="上传项目资料"
+      :header="t('project.detail.upload.title')"
       width="620px"
-      :confirm-btn="{ content: '上传', loading: uploading }"
+      :confirm-btn="{ content: t('common.action.upload'), loading: uploading }"
       @confirm="confirmUpload"
     >
       <div class="upload-dialog-body">
         <div class="upload-form-grid">
-          <t-form-item label="所属目录" required-mark>
-            <t-select v-model="uploadForm.directory_id" placeholder="请选择目录">
+          <t-form-item :label="t('document.detail.field.directory')" required-mark>
+            <t-select v-model="uploadForm.directory_id" :placeholder="t('project.detail.message.selectDirectory')">
               <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
             </t-select>
           </t-form-item>
-          <t-form-item label="资料密级" required-mark>
+          <t-form-item :label="t('project.detail.upload.security')" required-mark>
             <t-select v-model="uploadForm.security_level">
-              <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
+              <t-option v-for="item in securityLevelOptions(authStore.maxSecurityLevel)" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
         </div>
 
-        <t-form-item label="资料文件" required-mark>
+        <t-form-item :label="t('project.detail.upload.file')" required-mark>
           <input ref="uploadInputRef" class="hidden-file-input" type="file" multiple @change="handleFileChange" />
           <button type="button" class="upload-dropzone" @click="browseUploadFiles">
             <CloudUploadIcon />
-            <strong>点击选择文件</strong>
-            <span>支持批量上传，文件将进入待审核流程</span>
+            <strong>{{ t('project.detail.management.clickChooseFile') }}</strong>
+            <span>{{ t('project.detail.management.uploadHint') }}</span>
           </button>
 
           <div v-if="selectedUploadFiles.length" class="upload-file-list">
             <div v-for="(file, index) in selectedUploadFiles" :key="`${file.name}-${file.size}-${index}`">
               <span>{{ file.name }}</span>
               <small>{{ formatFileSize(file.size) }}</small>
-              <t-button size="small" variant="text" theme="danger" @click="removeUploadFile(index)">移除</t-button>
+              <t-button size="small" variant="text" theme="danger" @click="removeUploadFile(index)">{{ t('project.detail.upload.remove') }}</t-button>
             </div>
           </div>
         </t-form-item>
@@ -959,21 +967,21 @@ onMounted(async () => {
 
     <t-dialog
       v-model:visible="categoryDialogVisible"
-      :header="categoryDialogMode === 'create' ? '新建项目资料目录' : '编辑项目资料目录'"
+      :header="categoryDialogMode === 'create' ? t('project.detail.directory.createTitle') : t('project.detail.directory.editTitle')"
       width="560px"
       @confirm="confirmCategoryDialog"
     >
       <t-form :data="categoryForm" label-align="top">
-        <t-form-item label="父目录">
-          <t-select v-model="categoryForm.parent_id" clearable placeholder="根目录">
+        <t-form-item :label="t('project.detail.directory.parent')">
+          <t-select v-model="categoryForm.parent_id" clearable :placeholder="t('project.detail.directory.root')">
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.value === editingCategoryId" />
           </t-select>
         </t-form-item>
-        <t-form-item label="目录名称" required-mark><t-input v-model="categoryForm.name" /></t-form-item>
-        <t-form-item label="目录编码"><t-input v-model="categoryForm.code" placeholder="为空时自动生成" /></t-form-item>
+        <t-form-item :label="t('project.detail.directory.name')" required-mark><t-input v-model="categoryForm.name" /></t-form-item>
+        <t-form-item :label="t('project.detail.directory.code')"><t-input v-model="categoryForm.code" :placeholder="t('project.detail.directory.autoCode')" /></t-form-item>
         <div class="upload-form-grid">
-          <t-form-item label="排序"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
-          <t-form-item label="默认密级">
+          <t-form-item :label="t('project.detail.directory.sort')"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
+          <t-form-item :label="t('project.detail.directory.defaultSecurity')">
             <t-select v-model="categoryForm.default_security_level">
               <t-option
                 v-for="item in securityLevelOptions(authStore.maxSecurityLevel, categoryForm.default_security_level)"
@@ -985,23 +993,23 @@ onMounted(async () => {
             </t-select>
           </t-form-item>
         </div>
-        <t-form-item label="说明"><t-textarea v-model="categoryForm.description" /></t-form-item>
+        <t-form-item :label="t('project.detail.directory.description')"><t-textarea v-model="categoryForm.description" /></t-form-item>
         <div class="directory-switch-row">
-          <t-checkbox v-model="categoryForm.enabled">启用目录</t-checkbox>
+          <t-checkbox v-model="categoryForm.enabled">{{ t('project.detail.directory.enabled') }}</t-checkbox>
         </div>
       </t-form>
     </t-dialog>
 
     <t-dialog
       v-model:visible="deleteDirectoryDialogVisible"
-      header="删除目录"
+      :header="t('project.detail.management.deleteDirectoryTitle')"
       theme="warning"
       width="480px"
-      :confirm-btn="{ content: '确认删除', theme: 'danger', loading: deletingDirectory }"
+      :confirm-btn="{ content: t('project.detail.deleteFile.confirm'), theme: 'danger', loading: deletingDirectory }"
       @confirm="confirmDeleteDirectory"
     >
       <div class="delete-directory-confirm">
-        确认删除目录「{{ pendingDeleteDirectory?.name }}」吗？仅无子目录且未被资料引用的目录可以删除。
+        {{ t('project.detail.management.deleteDirectoryBody', { name: pendingDeleteDirectory?.name || '-' }) }}
       </div>
     </t-dialog>
   </PageContainer>

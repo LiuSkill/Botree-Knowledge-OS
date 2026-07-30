@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, reactive, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import NodeConsumableEditor from '@/views/process-config/node/components/NodeConsumableEditor.vue';
 import NodeEquipmentEditor from '@/views/process-config/node/components/NodeEquipmentEditor.vue';
@@ -9,6 +10,7 @@ import NodeMaterialInputEditor from '@/views/process-config/node/components/Node
 import NodeOutputEditor from '@/views/process-config/node/components/NodeOutputEditor.vue';
 import NodePublicServiceEditor from '@/views/process-config/node/components/NodePublicServiceEditor.vue';
 import type { ProcessLibraryStatus } from '@/views/process-config/types';
+import { processNodeTypeLocaleKey, processStatusLocaleKey } from '@/views/process-config/i18n';
 import type {
   ProcessLibraryOptionItem,
   ProcessNodeConsumablePayload,
@@ -51,6 +53,7 @@ const emit = defineEmits<{
   submit: [payload: ProcessNodePayload];
 }>();
 
+const { t } = useI18n();
 const form = reactive<ProcessNodePayload>({
   code: '',
   name: '',
@@ -75,8 +78,14 @@ const visibleProxy = computed({
   set: (value: boolean) => emit('update:visible', value),
 });
 
-const drawerTitle = computed(() => (props.mode === 'create' ? '新增工艺节点' : '编辑工艺节点'));
-const submitText = computed(() => (props.mode === 'create' ? '创建节点' : '保存修改'));
+const drawerTitle = computed(() => (props.mode === 'create' ? t('process.node.title.create') : t('process.node.title.edit')));
+const submitText = computed(() => (props.mode === 'create' ? t('process.node.action.createSubmit') : t('process.node.action.updateSubmit')));
+const nodeTypeOptions = computed(() =>
+  PROCESS_NODE_TYPE_OPTIONS.map((item) => ({
+    ...item,
+    label: translateNodeType(item.value),
+  })),
+);
 
 watch(
   () => [props.visible, props.mode, props.node] as const,
@@ -203,59 +212,59 @@ function validateDecimal(value: string | number | null | undefined, message: str
 
 function validateMaterialInputs(rows: ProcessNodeMaterialInputPayload[]): boolean {
   return rows.every((row, index) => {
-    const label = `第 ${index + 1} 行输入原料`;
-    if (!row.material_id) return warnInvalid(`${label}请选择原料`);
-    if (!validateDecimal(row.amount_per_ton_bm, `${label}BM吨耗必须为非负数`)) return false;
-    if (!row.unit.trim()) return warnInvalid(`${label}请输入单位`);
+    const label = t('process.node.field.inputMaterial');
+    if (!row.material_id) return warnInvalid(t('process.node.message.rowSelect', { row: index + 1, label, target: t('process.node.field.material') }));
+    if (!validateDecimal(row.amount_per_ton, t('process.node.message.rowNonNegative', { row: index + 1, label, field: t('process.node.field.amountPerTon') }))) return false;
+    if (!row.unit.trim()) return warnInvalid(t('process.node.message.rowUnit', { row: index + 1, label }));
     return true;
   });
 }
 
 function validateConsumables(rows: ProcessNodeConsumablePayload[]): boolean {
   return rows.every((row, index) => {
-    const label = `第 ${index + 1} 行消耗品`;
-    if (!row.consumable_id) return warnInvalid(`${label}请选择消耗品`);
-    if (!validateDecimal(row.amount_per_ton_bm, `${label}BM吨耗必须为非负数`)) return false;
-    if (!row.unit.trim()) return warnInvalid(`${label}请输入单位`);
+    const label = t('process.node.field.consumable');
+    if (!row.consumable_id) return warnInvalid(t('process.node.message.rowSelect', { row: index + 1, label, target: t('process.node.field.consumable') }));
+    if (!validateDecimal(row.amount_per_ton_bm, t('process.node.message.rowNonNegative', { row: index + 1, label, field: t('process.node.field.bmAmountFactor') }))) return false;
+    if (!row.unit.trim()) return warnInvalid(t('process.node.message.rowUnit', { row: index + 1, label }));
     return true;
   });
 }
 
 function validatePublicServices(rows: ProcessNodePublicServicePayload[]): boolean {
   return rows.every((row, index) => {
-    const label = `第 ${index + 1} 行公共服务`;
-    if (!row.public_service_id) return warnInvalid(`${label}请选择公共服务`);
-    if (!validateDecimal(row.amount_per_ton, `${label}吨耗必须为非负数`)) return false;
-    if (!row.unit.trim()) return warnInvalid(`${label}请输入单位`);
+    const label = t('process.node.field.publicService');
+    if (!row.public_service_id) return warnInvalid(t('process.node.message.rowSelect', { row: index + 1, label, target: t('process.node.field.publicService') }));
+    if (!validateDecimal(row.amount_per_ton, t('process.node.message.rowNonNegative', { row: index + 1, label, field: t('process.node.field.amountPerTon') }))) return false;
+    if (!row.unit.trim()) return warnInvalid(t('process.node.message.rowUnit', { row: index + 1, label }));
     return true;
   });
 }
 
 function validateEquipment(rows: ProcessNodeEquipmentPayload[]): boolean {
   return rows.every((row, index) => {
-    const label = `第 ${index + 1} 行设备`;
-    if (!row.asset_id) return warnInvalid(`${label}请选择资产`);
-    if (!validateDecimal(row.quantity, `${label}数量必须为非负数`)) return false;
-    if (!validateDecimal(row.installation_factor ?? 1, `${label}安装系数必须为非负数`)) return false;
+    const label = t('process.node.section.equipment');
+    if (!row.asset_id) return warnInvalid(t('process.node.message.rowSelect', { row: index + 1, label, target: t('process.node.field.asset') }));
+    if (!validateDecimal(row.quantity, t('process.node.message.rowNonNegative', { row: index + 1, label, field: t('process.node.field.quantity') }))) return false;
+    if (!validateDecimal(row.installation_factor ?? 1, t('process.node.message.rowNonNegative', { row: index + 1, label, field: t('process.node.field.installationFactor') }))) return false;
     return true;
   });
 }
 function validateLabor(rows: ProcessNodeLaborPayload[]): boolean {
   return rows.every((row, index) => {
-    const label = `第 ${index + 1} 行人员`;
-    if (!row.labor_cost_id) return warnInvalid(`${label}请选择人员成本`);
-    if (!validateDecimal(row.headcount, `${label}人数必须为非负数`)) return false;
-    if (!validateDecimal(row.load_factor, `${label}负荷系数必须为非负数`)) return false;
+    const label = t('process.node.section.labor');
+    if (!row.labor_cost_id) return warnInvalid(t('process.node.message.rowSelect', { row: index + 1, label, target: t('process.node.section.labor') }));
+    if (!validateDecimal(row.headcount, t('process.node.message.rowNonNegative', { row: index + 1, label, field: t('process.node.field.headcount') }))) return false;
+    if (!validateDecimal(row.load_factor, t('process.node.message.rowNonNegative', { row: index + 1, label, field: t('process.node.field.loadFactor') }))) return false;
     return true;
   });
 }
 
 function validateOutputs(rows: ProcessNodeOutputPayload[]): boolean {
   return rows.every((row, index) => {
-    const label = `第 ${index + 1} 行输出产品`;
-    if (!row.product_id) return warnInvalid(`${label}请选择产品`);
-    if (!validateDecimal(row.output_per_ton, `${label}产出量必须为非负数`)) return false;
-    if (!row.unit.trim()) return warnInvalid(`${label}请输入单位`);
+    const label = t('process.node.field.outputProduct');
+    if (!row.product_id) return warnInvalid(t('process.node.message.rowSelect', { row: index + 1, label, target: t('process.node.field.product') }));
+    if (!validateDecimal(row.output_per_ton, t('process.node.message.rowNonNegative', { row: index + 1, label, field: t('process.node.field.outputAmount') }))) return false;
+    if (!row.unit.trim()) return warnInvalid(t('process.node.message.rowUnit', { row: index + 1, label }));
     return true;
   });
 }
@@ -280,10 +289,6 @@ function buildPayload(): ProcessNodePayload {
     material_inputs: form.material_inputs.map((row, index) => ({
       material_id: Number(row.material_id),
       amount_per_ton: normalizeDecimal(row.amount_per_ton),
-      amount_per_ton_bm: normalizeDecimal(row.amount_per_ton_bm),
-      formula_type: row.formula_type,
-      expression: normalizeOptionalText(row.expression),
-      balance_weight: normalizeDecimal(row.balance_weight),
       unit: row.unit.trim(),
       sort_order: Number(row.sort_order ?? index + 1),
       remark: normalizeOptionalText(row.remark),
@@ -302,6 +307,10 @@ function buildPayload(): ProcessNodePayload {
     public_services: form.public_services.map((row, index) => ({
       public_service_id: Number(row.public_service_id),
       amount_per_ton: normalizeDecimal(row.amount_per_ton),
+      amount_per_ton_bm: normalizeDecimal(row.amount_per_ton_bm),
+      formula_type: row.formula_type,
+      expression: normalizeOptionalText(row.expression),
+      balance_weight: normalizeDecimal(row.balance_weight),
       unit: row.unit.trim(),
       sort_order: Number(row.sort_order ?? index + 1),
       remark: normalizeOptionalText(row.remark),
@@ -344,11 +353,11 @@ function buildPayload(): ProcessNodePayload {
 }
 
 function handleSubmit(): void {
-  if (!validateRequired(form.code, '请输入节点编码')) return;
-  if (!validateRequired(form.name, '请输入节点名称')) return;
-  if (!validateRequired(form.version, '请输入版本号')) return;
+  if (!validateRequired(form.code, t('process.node.message.codeRequired'))) return;
+  if (!validateRequired(form.name, t('process.node.message.nameRequired'))) return;
+  if (!validateRequired(form.version, t('process.node.message.versionRequired'))) return;
   if (form.status === 'enabled' && form.outputs.length === 0) {
-    MessagePlugin.warning('启用节点至少需要配置一个输出产品');
+    MessagePlugin.warning(t('process.node.message.outputRequired'));
     return;
   }
   if (!validateMaterialInputs(form.material_inputs)) return;
@@ -359,6 +368,11 @@ function handleSubmit(): void {
   if (!validateOutputs(form.outputs)) return;
 
   emit('submit', buildPayload());
+}
+
+function translateNodeType(value: ProcessNodeType): string {
+  const key = processNodeTypeLocaleKey(value);
+  return key ? t(key) : value;
 }
 </script>
 
@@ -376,68 +390,68 @@ function handleSubmit(): void {
     <t-loading :loading="optionsLoading">
       <t-form :data="form" label-align="top" class="node-form">
         <section class="node-form-section">
-          <div class="node-form-section-title">基础信息</div>
+          <div class="node-form-section-title">{{ t('process.node.section.baseInfo') }}</div>
           <div class="node-form-grid">
-            <t-form-item label="节点编码" required-mark>
-              <t-input v-model="form.code" clearable maxlength="80" placeholder="请输入唯一节点编码" />
+            <t-form-item :label="t('process.node.field.nodeCode')" required-mark>
+              <t-input v-model="form.code" clearable maxlength="80" :placeholder="t('process.node.placeholder.code')" />
             </t-form-item>
-            <t-form-item label="节点名称" required-mark>
-              <t-input v-model="form.name" clearable maxlength="200" placeholder="请输入节点名称" />
+            <t-form-item :label="t('process.node.field.nodeName')" required-mark>
+              <t-input v-model="form.name" clearable maxlength="200" :placeholder="t('process.node.placeholder.name')" />
             </t-form-item>
-            <t-form-item label="节点类型" required-mark>
-              <t-select v-model="form.node_type" placeholder="请选择节点类型">
-                <t-option v-for="item in PROCESS_NODE_TYPE_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+            <t-form-item :label="t('process.node.field.nodeType')" required-mark>
+              <t-select v-model="form.node_type" :placeholder="t('process.node.placeholder.nodeType')">
+                <t-option v-for="item in nodeTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
               </t-select>
             </t-form-item>
-            <t-form-item label="版本号" required-mark>
-              <t-input v-model="form.version" clearable maxlength="50" placeholder="例如 V1" />
+            <t-form-item :label="t('process.node.field.version')" required-mark>
+              <t-input v-model="form.version" clearable maxlength="50" :placeholder="t('process.node.placeholder.version')" />
             </t-form-item>
-            <t-form-item label="状态" required-mark>
+            <t-form-item :label="t('common.field.status')" required-mark>
               <t-radio-group v-model="form.status">
-                <t-radio-button value="enabled">启用</t-radio-button>
-                <t-radio-button value="draft">草稿</t-radio-button>
-                <t-radio-button value="disabled">停用</t-radio-button>
+                <t-radio-button value="enabled">{{ t(processStatusLocaleKey('enabled')) }}</t-radio-button>
+                <t-radio-button value="draft">{{ t(processStatusLocaleKey('draft')) }}</t-radio-button>
+                <t-radio-button value="disabled">{{ t(processStatusLocaleKey('disabled')) }}</t-radio-button>
               </t-radio-group>
             </t-form-item>
-            <t-form-item label="排序" required-mark>
+            <t-form-item :label="t('process.field.sort')" required-mark>
               <t-input-number v-model="form.sort_order" :min="0" :max="999999" :step="1" theme="normal" />
             </t-form-item>
           </div>
-          <t-form-item label="描述">
-            <t-textarea v-model="form.description" maxlength="1000" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="请输入节点描述" />
+          <t-form-item :label="t('process.field.description')">
+            <t-textarea v-model="form.description" maxlength="1000" :autosize="{ minRows: 2, maxRows: 4 }" :placeholder="t('process.node.placeholder.description')" />
           </t-form-item>
-          <t-form-item label="备注">
-            <t-textarea v-model="form.remark" maxlength="500" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="请输入备注" />
+          <t-form-item :label="t('process.field.remark')">
+            <t-textarea v-model="form.remark" maxlength="500" :autosize="{ minRows: 2, maxRows: 4 }" :placeholder="t('process.placeholder.remark')" />
           </t-form-item>
         </section>
 
         <section class="node-form-section">
-          <div class="node-form-section-title">输入原料</div>
+          <div class="node-form-section-title">{{ t('process.node.section.inputMaterials') }}</div>
           <NodeMaterialInputEditor v-model="form.material_inputs" :options="materialOptions" :disabled="saving" />
         </section>
 
         <section class="node-form-section">
-          <div class="node-form-section-title">消耗品</div>
+          <div class="node-form-section-title">{{ t('process.node.section.consumables') }}</div>
           <NodeConsumableEditor v-model="form.consumables" :options="consumableOptions" :disabled="saving" />
         </section>
 
         <section class="node-form-section">
-          <div class="node-form-section-title">公共服务</div>
+          <div class="node-form-section-title">{{ t('process.node.section.publicServices') }}</div>
           <NodePublicServiceEditor v-model="form.public_services" :options="publicServiceOptions" :disabled="saving" />
         </section>
 
         <section class="node-form-section">
-          <div class="node-form-section-title">设备/投资</div>
+          <div class="node-form-section-title">{{ t('process.node.section.equipment') }}</div>
           <NodeEquipmentEditor v-model="form.equipment" :asset-options="assetOptions" :disabled="saving" />
         </section>
 
         <section class="node-form-section">
-          <div class="node-form-section-title">人员成本</div>
+          <div class="node-form-section-title">{{ t('process.node.section.labor') }}</div>
           <NodeLaborEditor v-model="form.labor" :options="laborCostOptions" :disabled="saving" />
         </section>
 
         <section class="node-form-section">
-          <div class="node-form-section-title">输出产品</div>
+          <div class="node-form-section-title">{{ t('process.node.section.outputs') }}</div>
           <NodeOutputEditor v-model="form.outputs" :options="productOptions" :disabled="saving" />
         </section>
       </t-form>
@@ -445,7 +459,7 @@ function handleSubmit(): void {
 
     <template #footer>
       <div class="node-form-footer">
-        <t-button variant="outline" :disabled="saving" @click="closeDrawer">取消</t-button>
+        <t-button variant="outline" :disabled="saving" @click="closeDrawer">{{ t('common.action.cancel') }}</t-button>
         <t-button theme="primary" :loading="saving" @click="handleSubmit">{{ submitText }}</t-button>
       </div>
     </template>

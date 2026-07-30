@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import type { ProcessRegionPrice } from '@/views/process-config/types';
 import { normalizeRegionPrices, PROCESS_UNIT_OPTIONS } from '@/views/process-config/types';
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: ProcessRegionPrice[]];
 }>();
 
+const { t } = useI18n();
 const rows = ref<ProcessRegionPrice[]>(normalizeRegionPrices(props.modelValue, props.unit));
 
 watch(
@@ -40,20 +42,24 @@ function emitRows(): void {
     })),
   );
 }
+
+function regionLabel(row: ProcessRegionPrice): string {
+  return t(`process.region.${row.region_code}`);
+}
 </script>
 
 <template>
   <div class="region-price-editor">
     <div class="region-price-row region-price-head">
-      <span>区域</span>
-      <span>币种</span>
-      <span>单价</span>
-      <span>单位</span>
-      <span>状态</span>
+      <span>{{ t('process.field.region') }}</span>
+      <span>{{ t('process.field.currency') }}</span>
+      <span>{{ t('process.field.price') }}</span>
+      <span>{{ t('process.field.unit') }}</span>
+      <span>{{ t('common.field.status') }}</span>
     </div>
     <div v-for="row in rows" :key="row.region_code" class="region-price-row">
       <div class="region-cell">
-        <strong>{{ row.region_name }}</strong>
+        <strong>{{ regionLabel(row) }}</strong>
         <small>{{ row.region_code }}</small>
       </div>
       <t-tag size="small" variant="light">{{ row.currency }}</t-tag>
@@ -66,13 +72,13 @@ function emitRows(): void {
         @change="emitRows"
         @blur="emitRows"
       />
-      <t-select v-model="row.unit" :disabled="disabled" filterable creatable clearable placeholder="计价单位" @change="emitRows">
+      <t-select v-model="row.unit" :disabled="disabled" filterable creatable clearable :placeholder="t('process.placeholder.pricingUnit')" @change="emitRows">
         <t-option v-for="option in PROCESS_UNIT_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
       </t-select>
       <t-select v-model="row.status" :disabled="disabled" @change="emitRows">
-        <t-option label="启用" value="enabled" />
-        <t-option label="草稿" value="draft" />
-        <t-option label="停用" value="disabled" />
+        <t-option :label="t('process.status.enabled')" value="enabled" />
+        <t-option :label="t('process.status.draft')" value="draft" />
+        <t-option :label="t('process.status.disabled')" value="disabled" />
       </t-select>
     </div>
   </div>

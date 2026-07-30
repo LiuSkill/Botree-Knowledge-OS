@@ -10,6 +10,7 @@
 import { AddIcon, AssignmentCheckedIcon, ChevronDownSIcon, ChevronRightSIcon, DeleteIcon, EditIcon, SearchIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { submitDocumentReview } from '@/api/documents';
@@ -45,6 +46,7 @@ const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 const loading = ref(false);
 const uploading = ref(false);
 const searchKeyword = ref('');
@@ -76,12 +78,12 @@ const categoryForm = reactive({
   enabled: true,
 });
 
-const fileTypeFilters: Array<{ label: string; value: FileTypeFilter }> = [
-  { label: '全部', value: 'all' },
+const fileTypeFilters = computed<Array<{ label: string; value: FileTypeFilter }>>(() => [
+  { label: t('knowledge.filter.allFileTypes'), value: 'all' },
   { label: 'PDF', value: 'pdf' },
   { label: 'Word', value: 'word' },
   { label: 'Excel', value: 'excel' },
-];
+]);
 
 const uploadTargetBase = computed(() => enterpriseBases.value[0] || null);
 const canCreateCategories = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_CREATE));
@@ -114,8 +116,8 @@ const activeCategoryName = computed(() => {
   /**
    * 获取当前筛选分类名称。
    */
-  if (!activeCategoryId.value) return '全部知识';
-  return findCategory(categories.value, activeCategoryId.value)?.name || '全部知识';
+  if (!activeCategoryId.value) return t('knowledge.category.all');
+  return findCategory(categories.value, activeCategoryId.value)?.name || t('knowledge.category.all');
 });
 
 const documentsMatchingQuery = computed(() => {
@@ -188,7 +190,7 @@ async function loadEnterpriseKnowledge(): Promise<void> {
       .filter((document) => document.knowledge_type === 'base')
       .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '知识文档加载失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('knowledge.message.loadFailed'));
   } finally {
     loading.value = false;
   }
@@ -250,7 +252,7 @@ function getFileTypeLabel(document: DocumentInfo): string {
   if (type === 'pdf') return 'PDF';
   if (type === 'word') return 'Word';
   if (type === 'excel') return 'Excel';
-  return document.file_type?.toUpperCase() || '未知';
+  return document.file_type?.toUpperCase() || t('knowledge.value.unknown');
 }
 
 function openUploadDialog(): void {
@@ -258,15 +260,15 @@ function openUploadDialog(): void {
    * 打开上传弹窗。
    */
   if (!canUploadDocuments.value) {
-    MessagePlugin.warning('无权限上传知识文档');
+    MessagePlugin.warning(t('knowledge.message.uploadForbidden'));
     return;
   }
   if (!uploadTargetBase.value) {
-    MessagePlugin.warning('未找到企业基础知识库，请先完成基础知识库初始化');
+    MessagePlugin.warning(t('knowledge.message.baseNotFound'));
     return;
   }
   if (!categoryOptions.value.length) {
-    MessagePlugin.warning('请先配置企业知识分类');
+    MessagePlugin.warning(t('knowledge.message.categoryRequiredBeforeUpload'));
     return;
   }
   uploadForm.category_id = activeCategoryId.value || categoryOptions.value.find((item) => !item.disabled)?.value || null;
@@ -288,26 +290,26 @@ async function confirmUpload(): Promise<void> {
    * 上传新的企业知识文档，后端会写入草稿状态并创建首个版本 v1。
    */
   if (!canUploadDocuments.value) {
-    MessagePlugin.warning('无权限上传知识文档');
+    MessagePlugin.warning(t('knowledge.message.uploadForbidden'));
     return;
   }
   if (!selectedUploadFile.value) {
-    MessagePlugin.warning('请选择需要上传的文档');
+    MessagePlugin.warning(t('knowledge.message.fileRequired'));
     return;
   }
   if (!uploadForm.category_id || !uploadTargetBase.value) {
-    MessagePlugin.warning('请选择知识分类');
+    MessagePlugin.warning(t('knowledge.message.categoryRequired'));
     return;
   }
 
   uploading.value = true;
   try {
     await uploadKnowledgeDocument(uploadTargetBase.value.id, selectedUploadFile.value, uploadForm.category_id, uploadForm.security_level);
-    MessagePlugin.success('上传成功，文档已进入草稿状态');
+    MessagePlugin.success(t('knowledge.message.uploadDraftSuccess'));
     uploadDialogVisible.value = false;
     await loadEnterpriseKnowledge();
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '上传失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('knowledge.message.uploadFailed'));
   } finally {
     uploading.value = false;
   }
@@ -318,11 +320,11 @@ async function submitReview(document: DocumentInfo): Promise<void> {
    * 提交文档审核。
    */
   if (!canSubmitDocumentReview.value) {
-    MessagePlugin.warning('无权限提交审核');
+    MessagePlugin.warning(t('knowledge.message.submitForbidden'));
     return;
   }
   await submitDocumentReview(document.id);
-  MessagePlugin.success('已提交审核');
+  MessagePlugin.success(t('knowledge.message.submitted'));
   await loadEnterpriseKnowledge();
 }
 
@@ -331,7 +333,7 @@ function viewDocument(document: DocumentInfo): void {
    * 查看知识资料详情，入口权限与后端详情接口保持一致。
    */
   if (!canViewDocuments.value) {
-    MessagePlugin.warning('无权限查看知识资料');
+    MessagePlugin.warning(t('knowledge.message.viewForbidden'));
     return;
   }
   router.push(withBreadcrumbContext(route, `/documents/${document.id}`));
@@ -349,7 +351,7 @@ function openCreateCategoryDialog(): void {
    * 打开新增分类弹窗。
    */
   if (!canCreateCategories.value) {
-    MessagePlugin.warning('无权限新增知识分类');
+    MessagePlugin.warning(t('knowledge.message.createCategoryForbidden'));
     return;
   }
   categoryDialogMode.value = 'create';
@@ -368,12 +370,12 @@ function openEditCategoryDialog(): void {
    * 打开编辑分类弹窗。
    */
   if (!canEditCategories.value) {
-    MessagePlugin.warning('无权限编辑知识分类');
+    MessagePlugin.warning(t('knowledge.message.editCategoryForbidden'));
     return;
   }
   const category = findCategory(categories.value, activeCategoryId.value);
   if (!category) {
-    MessagePlugin.warning('请先选择需要编辑的分类');
+    MessagePlugin.warning(t('knowledge.message.selectCategoryToEdit'));
     return;
   }
   categoryDialogMode.value = 'edit';
@@ -392,15 +394,15 @@ async function confirmCategoryDialog(): Promise<void> {
    * 保存分类配置。
    */
   if (categoryDialogMode.value === 'create' && !canCreateCategories.value) {
-    MessagePlugin.warning('无权限新增知识分类');
+    MessagePlugin.warning(t('knowledge.message.createCategoryForbidden'));
     return;
   }
   if (categoryDialogMode.value === 'edit' && !canEditCategories.value) {
-    MessagePlugin.warning('无权限编辑知识分类');
+    MessagePlugin.warning(t('knowledge.message.editCategoryForbidden'));
     return;
   }
   if (!categoryForm.name.trim()) {
-    MessagePlugin.warning('请输入分类名称');
+    MessagePlugin.warning(t('knowledge.message.categoryNameRequired'));
     return;
   }
   const code = categoryForm.code.trim() || `base-${Date.now()}`;
@@ -425,7 +427,7 @@ async function confirmCategoryDialog(): Promise<void> {
       enabled: categoryForm.enabled,
     });
   }
-  MessagePlugin.success('分类配置已保存');
+  MessagePlugin.success(t('knowledge.message.categorySaved'));
   categoryDialogVisible.value = false;
   await loadEnterpriseKnowledge();
 }
@@ -435,15 +437,15 @@ async function removeActiveCategory(): Promise<void> {
    * 删除当前选中的分类。
    */
   if (!canDeleteCategories.value) {
-    MessagePlugin.warning('无权限删除知识分类');
+    MessagePlugin.warning(t('knowledge.message.deleteCategoryForbidden'));
     return;
   }
   if (!activeCategoryId.value) {
-    MessagePlugin.warning('请先选择分类');
+    MessagePlugin.warning(t('knowledge.message.selectCategoryFirst'));
     return;
   }
   await deleteKnowledgeCategory(activeCategoryId.value);
-  MessagePlugin.success('分类已删除');
+  MessagePlugin.success(t('knowledge.message.categoryDeleted'));
   activeCategoryId.value = null;
   await loadEnterpriseKnowledge();
 }
@@ -461,15 +463,15 @@ onMounted(loadEnterpriseKnowledge);
     <div class="knowledge-center-shell">
     <aside class="knowledge-category-panel">
       <div class="category-title">
-        <span>知识分类</span>
+        <span>{{ t('knowledge.category.title') }}</span>
         <t-button v-permission="PERMISSIONS.KNOWLEDGE_CREATE" class="category-create-button" size="small" variant="text" @click="openCreateCategoryDialog">
           <template #icon><AddIcon /></template>
-          新增
+          {{ t('knowledge.category.create') }}
         </t-button>
       </div>
       <div class="category-list">
         <t-button class="category-row" :class="{ active: activeCategoryId === null }" block variant="text" @click="selectCategory(null)">
-          <span>全部知识</span>
+          <span>{{ t('knowledge.category.all') }}</span>
           <span class="category-count">{{ documentsMatchingQuery.length }}</span>
         </t-button>
 
@@ -509,7 +511,7 @@ onMounted(loadEnterpriseKnowledge);
           @click="openEditCategoryDialog"
         >
           <template #icon><EditIcon /></template>
-          编辑
+          {{ t('knowledge.category.edit') }}
         </t-button>
         <t-button
           v-permission="PERMISSIONS.KNOWLEDGE_DELETE"
@@ -521,19 +523,19 @@ onMounted(loadEnterpriseKnowledge);
           @click="removeActiveCategory"
         >
           <template #icon><DeleteIcon /></template>
-          删除
+          {{ t('knowledge.category.delete') }}
         </t-button>
       </div>
     </aside>
 
     <section class="knowledge-document-panel">
       <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-        <t-form-item label="关键词">
-          <t-input v-model="searchKeyword" class="filter-input" clearable placeholder="搜索文档名称">
+        <t-form-item :label="t('knowledge.filter.keyword')">
+          <t-input v-model="searchKeyword" class="filter-input" clearable :placeholder="t('knowledge.filter.keywordPlaceholder')">
             <template #prefix-icon><SearchIcon /></template>
           </t-input>
         </t-form-item>
-        <t-form-item label="文件类型">
+        <t-form-item :label="t('knowledge.filter.fileType')">
           <t-select v-model="activeFileType" class="filter-select">
             <t-option v-for="item in fileTypeFilters" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
@@ -542,33 +544,33 @@ onMounted(loadEnterpriseKnowledge);
 
       <div class="system-section-head">
         <div class="system-section-title">
-          <h2>知识文档</h2>
-          <span>共 {{ filteredDocuments.length }} 条数据 · {{ activeCategoryName }}</span>
+          <h2>{{ t('knowledge.section.documents') }}</h2>
+          <span>{{ t('knowledge.summary.totalWithCategory', { count: filteredDocuments.length, category: activeCategoryName }) }}</span>
         </div>
         <t-button v-permission="PERMISSIONS.KNOWLEDGE_UPLOAD" class="upload-button" theme="primary" :loading="uploading" @click="openUploadDialog">
           <template #icon><AddIcon /></template>
-          上传文档
+          {{ t('knowledge.action.uploadDocument') }}
         </t-button>
       </div>
 
       <main class="document-body">
-        <div v-if="loading" class="empty-document-card">正在加载知识文档...</div>
-        <div v-else-if="!pagedDocuments.length" class="empty-document-card">没有找到匹配文档</div>
+        <div v-if="loading" class="empty-document-card">{{ t('knowledge.empty.loadingDocuments') }}</div>
+        <div v-else-if="!pagedDocuments.length" class="empty-document-card">{{ t('knowledge.empty.noMatchedDocuments') }}</div>
         <div v-else class="document-table-card">
           <div class="table-scroll">
             <table class="plain-table enterprise-document-table">
             <thead>
               <tr>
-                <th>文档名称</th>
-                <th>分类</th>
-                <th>密级</th>
-                <th>版本</th>
-                <th>类型</th>
-                <th>大小</th>
-                <th>审核状态</th>
-                <th>构建状态</th>
-                <th>更新时间</th>
-                <th>操作</th>
+                <th>{{ t('knowledge.field.documentName') }}</th>
+                <th>{{ t('knowledge.field.category') }}</th>
+                <th>{{ t('knowledge.field.securityLevel') }}</th>
+                <th>{{ t('knowledge.field.version') }}</th>
+                <th>{{ t('knowledge.field.type') }}</th>
+                <th>{{ t('knowledge.field.size') }}</th>
+                <th>{{ t('knowledge.field.reviewStatus') }}</th>
+                <th>{{ t('knowledge.field.indexStatus') }}</th>
+                <th>{{ t('knowledge.field.updatedAt') }}</th>
+                <th>{{ t('common.field.operation') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -590,7 +592,7 @@ onMounted(loadEnterpriseKnowledge);
                 <td>{{ formatDateTime(document.updated_at || document.created_at) }}</td>
                 <td>
                   <TableActionButton
-                    label="提交审核"
+                    :label="t('knowledge.action.submitReview')"
                     :permission="PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW"
                     :disabled="!canSubmitReview(document)"
                     @click="submitReview(document)"
@@ -617,22 +619,22 @@ onMounted(loadEnterpriseKnowledge);
       </main>
     </section>
 
-    <t-dialog v-model:visible="uploadDialogVisible" header="上传企业知识文档" width="560px" :confirm-loading="uploading" @confirm="confirmUpload">
+    <t-dialog v-model:visible="uploadDialogVisible" :header="t('knowledge.upload.enterpriseDocumentTitle')" width="560px" :confirm-loading="uploading" @confirm="confirmUpload">
       <t-form label-align="top">
-        <t-form-item label="首次版本">
-          <div class="version-rule">新资料首次上传为 v1；同一资料的新版本请在文档详情中上传，系统自动递增。</div>
+        <t-form-item :label="t('knowledge.field.firstVersion')">
+          <div class="version-rule">{{ t('knowledge.upload.firstVersionRule') }}</div>
         </t-form-item>
-        <t-form-item label="知识分类" required-mark>
-          <t-select v-model="uploadForm.category_id" placeholder="请选择知识分类">
+        <t-form-item :label="t('knowledge.category.title')" required-mark>
+          <t-select v-model="uploadForm.category_id" :placeholder="t('knowledge.upload.categoryPlaceholder')">
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
           </t-select>
         </t-form-item>
-        <t-form-item label="文档密级" required-mark>
+        <t-form-item :label="t('knowledge.field.documentSecurityLevel')" required-mark>
           <t-select v-model="uploadForm.security_level">
             <t-option v-for="item in authStore.allowedSecurityLevelOptions" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
         </t-form-item>
-        <t-form-item label="文档文件" required-mark>
+        <t-form-item :label="t('knowledge.field.documentFile')" required-mark>
           <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
           <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
         </t-form-item>
@@ -641,21 +643,21 @@ onMounted(loadEnterpriseKnowledge);
 
     <t-dialog
       v-model:visible="categoryDialogVisible"
-      :header="categoryDialogMode === 'create' ? '新增知识分类' : '编辑知识分类'"
+      :header="categoryDialogMode === 'create' ? t('knowledge.category.createTitle') : t('knowledge.category.editTitle')"
       width="560px"
       @confirm="confirmCategoryDialog"
     >
       <t-form :data="categoryForm" label-align="top">
-        <t-form-item label="父分类">
-          <t-select v-model="categoryForm.parent_id" clearable placeholder="根分类">
+        <t-form-item :label="t('knowledge.category.parent')">
+          <t-select v-model="categoryForm.parent_id" clearable :placeholder="t('knowledge.category.root')">
             <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.value === editingCategoryId" />
           </t-select>
         </t-form-item>
-        <t-form-item label="分类名称" required-mark><t-input v-model="categoryForm.name" /></t-form-item>
-        <t-form-item label="分类编码"><t-input v-model="categoryForm.code" placeholder="为空时自动生成" /></t-form-item>
-        <t-form-item label="排序"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
-        <t-form-item label="说明"><t-textarea v-model="categoryForm.description" /></t-form-item>
-        <t-form-item label="启用"><t-switch v-model="categoryForm.enabled" /></t-form-item>
+        <t-form-item :label="t('knowledge.category.name')" required-mark><t-input v-model="categoryForm.name" /></t-form-item>
+        <t-form-item :label="t('knowledge.category.code')"><t-input v-model="categoryForm.code" :placeholder="t('knowledge.category.codePlaceholder')" /></t-form-item>
+        <t-form-item :label="t('knowledge.category.sort')"><t-input v-model="categoryForm.sort_order" type="number" /></t-form-item>
+        <t-form-item :label="t('knowledge.category.description')"><t-textarea v-model="categoryForm.description" /></t-form-item>
+        <t-form-item :label="t('knowledge.category.enabled')"><t-switch v-model="categoryForm.enabled" /></t-form-item>
       </t-form>
     </t-dialog>
     </div>

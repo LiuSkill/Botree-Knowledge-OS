@@ -8,6 +8,7 @@
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, reactive, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import type { ProjectPayload } from '@/api/projects';
 import { useAuthStore } from '@/stores/auth';
@@ -37,7 +38,12 @@ interface ProjectFormState {
   progress: number;
 }
 
-const PROJECT_STATUS_OPTIONS: ProjectStatus[] = ['待启动', '进行中', '已完成', '已暂停'];
+const PROJECT_STATUS_OPTIONS: Array<{ key: string; value: ProjectStatus }> = [
+  { key: 'project.status.pending', value: '待启动' },
+  { key: 'project.status.active', value: '进行中' },
+  { key: 'project.status.completed', value: '已完成' },
+  { key: 'project.status.paused', value: '已暂停' },
+];
 
 const props = withDefaults(
   defineProps<{
@@ -60,14 +66,16 @@ const emit = defineEmits<{
 }>();
 
 const authStore = useAuthStore();
+const { t } = useI18n();
 
 const drawerVisible = computed({
   get: () => props.visible,
   set: (visible: boolean) => emit('update:visible', visible),
 });
 
-const drawerTitle = computed(() => (props.mode === 'create' ? '新建项目' : '编辑项目'));
-const submitText = computed(() => (props.mode === 'create' ? '创建项目' : '保存修改'));
+const drawerTitle = computed(() => (props.mode === 'create' ? t('project.title.create') : t('project.title.edit')));
+const submitText = computed(() => (props.mode === 'create' ? t('project.action.createSubmit') : t('project.action.saveSubmit')));
+const projectStatusOptions = computed(() => PROJECT_STATUS_OPTIONS.map((item) => ({ ...item, label: t(item.key) })));
 
 const form = reactive<ProjectFormState>({
   project_name: '',
@@ -160,17 +168,17 @@ function buildProjectPayload(): ProjectPayload {
 function validateProjectPayload(payload: ProjectPayload): boolean {
   // 必填项与后端项目基本信息规则保持一致，避免列表页和详情页校验分叉。
   const missing = [
-    ['项目名称', payload.project_name],
-    ['项目编号', payload.project_code],
-    ['项目简称', payload.project_short_name],
-    ['客户名称', payload.customer_name],
-    ['项目负责人', payload.owner_name],
-    ['项目状态', payload.project_status],
-    ['项目密级', payload.security_level],
-    ['项目简介', payload.description],
+    [t('project.field.projectName'), payload.project_name],
+    [t('project.field.projectCode'), payload.project_code],
+    [t('project.field.shortName'), payload.project_short_name],
+    [t('project.field.customerName'), payload.customer_name],
+    [t('project.field.ownerName'), payload.owner_name],
+    [t('project.field.status'), payload.project_status],
+    [t('project.field.securityLevel'), payload.security_level],
+    [t('project.field.description'), payload.description],
   ].filter(([, value]) => !String(value || '').trim());
   if (missing.length) {
-    MessagePlugin.warning(`请补充：${missing.map(([label]) => label).join('、')}`);
+    MessagePlugin.warning(`${t('project.message.requiredPrefix')}${missing.map(([label]) => label).join(t('common.separator.list'))}`);
     return false;
   }
   return true;
@@ -201,26 +209,26 @@ function submitForm(): void {
   >
     <t-form :data="form" label-align="top" class="project-form">
       <section class="project-form-section">
-        <div class="project-form-section-title">基础信息</div>
+        <div class="project-form-section-title">{{ t('project.section.basic') }}</div>
         <div class="project-form-grid">
-          <t-form-item label="项目名称" required-mark><t-input v-model="form.project_name" /></t-form-item>
-          <t-form-item label="项目编号" required-mark><t-input v-model="form.project_code" /></t-form-item>
-          <t-form-item label="项目简称" required-mark><t-input v-model="form.project_short_name" /></t-form-item>
-          <t-form-item label="英文名称"><t-input v-model="form.project_english_name" /></t-form-item>
+          <t-form-item :label="t('project.field.projectName')" required-mark><t-input v-model="form.project_name" /></t-form-item>
+          <t-form-item :label="t('project.field.projectCode')" required-mark><t-input v-model="form.project_code" /></t-form-item>
+          <t-form-item :label="t('project.field.shortName')" required-mark><t-input v-model="form.project_short_name" /></t-form-item>
+          <t-form-item :label="t('project.field.englishName')"><t-input v-model="form.project_english_name" /></t-form-item>
         </div>
       </section>
 
       <section class="project-form-section">
-        <div class="project-form-section-title">客户与状态</div>
+        <div class="project-form-section-title">{{ t('project.section.customerStatus') }}</div>
         <div class="project-form-grid">
-          <t-form-item label="客户名称" required-mark><t-input v-model="form.customer_name" /></t-form-item>
-          <t-form-item label="项目负责人" required-mark><t-input v-model="form.owner_name" /></t-form-item>
-          <t-form-item label="项目状态" required-mark>
+          <t-form-item :label="t('project.field.customerName')" required-mark><t-input v-model="form.customer_name" /></t-form-item>
+          <t-form-item :label="t('project.field.ownerName')" required-mark><t-input v-model="form.owner_name" /></t-form-item>
+          <t-form-item :label="t('project.field.status')" required-mark>
             <t-select v-model="form.project_status">
-              <t-option v-for="item in PROJECT_STATUS_OPTIONS" :key="item" :value="item" :label="item" />
+              <t-option v-for="item in projectStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
-          <t-form-item label="项目密级" required-mark>
+          <t-form-item :label="t('project.field.securityLevel')" required-mark>
             <t-select v-model="form.security_level">
               <t-option
                 v-for="item in securityLevelOptions(authStore.maxSecurityLevel, form.security_level)"
@@ -231,35 +239,35 @@ function submitForm(): void {
               />
             </t-select>
           </t-form-item>
-          <t-form-item v-if="props.showProgress && props.mode === 'edit'" label="项目进度">
+          <t-form-item v-if="props.showProgress && props.mode === 'edit'" :label="t('project.field.progress')">
             <t-input-number v-model="form.progress" class="progress-input" :min="0" :max="100" :step="1" suffix="%" theme="normal" />
           </t-form-item>
         </div>
       </section>
 
       <section class="project-form-section">
-        <div class="project-form-section-title">项目分类</div>
+        <div class="project-form-section-title">{{ t('project.section.category') }}</div>
         <div class="project-form-grid">
-          <t-form-item label="项目类型"><t-input v-model="form.project_type" /></t-form-item>
-          <t-form-item label="项目阶段"><t-input v-model="form.project_stage" /></t-form-item>
-          <t-form-item label="原料类型"><t-input v-model="form.raw_material_type" /></t-form-item>
-          <t-form-item label="处理能力"><t-input v-model="form.capacity" /></t-form-item>
+          <t-form-item :label="t('project.field.projectType')"><t-input v-model="form.project_type" /></t-form-item>
+          <t-form-item :label="t('project.field.projectStage')"><t-input v-model="form.project_stage" /></t-form-item>
+          <t-form-item :label="t('project.field.rawMaterialType')"><t-input v-model="form.raw_material_type" /></t-form-item>
+          <t-form-item :label="t('project.field.capacity')"><t-input v-model="form.capacity" /></t-form-item>
         </div>
       </section>
 
       <section class="project-form-section">
-        <div class="project-form-section-title">工艺与交付</div>
-        <t-form-item label="项目简介" required-mark><t-textarea v-model="form.description" :autosize="{ minRows: 3, maxRows: 5 }" /></t-form-item>
-        <t-form-item label="工艺路线"><t-textarea v-model="form.process_route" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
-        <t-form-item label="主要产品"><t-textarea v-model="form.main_products" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
-        <t-form-item label="项目范围"><t-textarea v-model="form.scope_description" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
-        <t-form-item label="交付成果"><t-textarea v-model="form.deliverables" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
+        <div class="project-form-section-title">{{ t('project.section.processDelivery') }}</div>
+        <t-form-item :label="t('project.field.description')" required-mark><t-textarea v-model="form.description" :autosize="{ minRows: 3, maxRows: 5 }" /></t-form-item>
+        <t-form-item :label="t('project.field.processRoute')"><t-textarea v-model="form.process_route" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
+        <t-form-item :label="t('project.field.mainProducts')"><t-textarea v-model="form.main_products" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
+        <t-form-item :label="t('project.field.scope')"><t-textarea v-model="form.scope_description" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
+        <t-form-item :label="t('project.field.deliverables')"><t-textarea v-model="form.deliverables" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
       </section>
     </t-form>
 
     <template #footer>
       <div class="project-form-drawer-footer">
-        <t-button variant="outline" :disabled="props.saving" @click="closeDrawer">取消</t-button>
+        <t-button variant="outline" :disabled="props.saving" @click="closeDrawer">{{ t('common.action.cancel') }}</t-button>
         <t-button theme="primary" :loading="props.saving" @click="submitForm">{{ submitText }}</t-button>
       </div>
     </template>

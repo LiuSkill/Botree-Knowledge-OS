@@ -11,14 +11,17 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { LockOnIcon, UserIcon } from 'tdesign-icons-vue-next';
 import { reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 
 import botreeLogo from '@/assets/botree-logo.png';
+import LanguageSwitcher from '@/components/LanguageSwitcher/index.vue';
 import LoginHeroPanel from '@/components/LoginHeroPanel.vue';
 import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const { t } = useI18n();
 const loading = ref(false);
 const form = reactive({
   username: '',
@@ -32,7 +35,7 @@ async function submit(): Promise<void> {
   loading.value = true;
   try {
     await authStore.login(form.username, form.password);
-    MessagePlugin.success('登录成功');
+    MessagePlugin.success(t('auth.loginSuccess'));
     await router.push((route.query.redirect as string) || authStore.firstAccessiblePath || '/');
   } finally {
     loading.value = false;
@@ -42,6 +45,9 @@ async function submit(): Promise<void> {
 
 <template>
   <div class="login-page">
+    <div class="login-language-switcher">
+      <LanguageSwitcher />
+    </div>
     <LoginHeroPanel class="hero-panel" />
 
     <section class="form-panel">
@@ -50,22 +56,22 @@ async function submit(): Promise<void> {
           <img class="brand-logo" :src="botreeLogo" alt="Botree Knowledge OS" />
           <div class="brand-copy">
             <h1>Botree Knowledge OS</h1>
-            <p>博萃循环知识管理与智能体应用平台</p>
+            <p>{{ t('common.productSubtitle') }}</p>
           </div>
         </div>
 
         <t-form class="login-form" :data="form" label-align="top" @submit.prevent="submit">
-          <t-form-item label="用户名">
-            <t-input v-model="form.username" placeholder="请输入用户名" size="large">
+          <t-form-item :label="t('auth.username')">
+            <t-input v-model="form.username" :placeholder="t('auth.usernamePlaceholder')" size="large">
               <template #prefixIcon><UserIcon /></template>
             </t-input>
           </t-form-item>
-          <t-form-item label="密码">
-            <t-input v-model="form.password" type="password" placeholder="请输入密码" size="large">
+          <t-form-item :label="t('auth.password')">
+            <t-input v-model="form.password" type="password" :placeholder="t('auth.passwordPlaceholder')" size="large">
               <template #prefixIcon><LockOnIcon /></template>
             </t-input>
           </t-form-item>
-          <t-button class="login-button" block theme="primary" size="large" :loading="loading" @click="submit">登录系统</t-button>
+          <t-button class="login-button" block theme="primary" size="large" :loading="loading" @click="submit">{{ t('auth.login') }}</t-button>
         </t-form>
 
         <div class="copyright">© 2026 Botree. Internal use only.</div>
@@ -76,12 +82,20 @@ async function submit(): Promise<void> {
 
 <style scoped>
 .login-page {
+  position: relative;
   display: flex;
   width: 100%;
   height: 100vh;
   min-height: 0;
   overflow: hidden;
   background: #f7fbff;
+}
+
+.login-language-switcher {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  z-index: 10;
 }
 
 .hero-panel {

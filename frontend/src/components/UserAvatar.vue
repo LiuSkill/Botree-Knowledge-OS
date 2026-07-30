@@ -8,6 +8,7 @@
 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import { downloadUserAvatar } from '@/api/users';
 
@@ -31,6 +32,7 @@ const props = withDefaults(
 );
 
 const objectUrl = ref<string | null>(null);
+const { t } = useI18n();
 let loadVersion = 0;
 
 const fallbackText = computed(() => (props.name || 'User').trim().slice(0, 1).toUpperCase() || 'U');
@@ -79,7 +81,7 @@ onBeforeUnmount(() => {
     :image="objectUrl || undefined"
     :shape="shape"
     :size="size"
-    :alt="name || '用户头像'"
+    :alt="name || t('common.avatar.alt')"
     @error="handleImageError"
   >
     {{ fallbackText }}

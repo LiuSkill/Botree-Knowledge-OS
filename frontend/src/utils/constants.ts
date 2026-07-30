@@ -1,19 +1,12 @@
-/**
- * Frontend Constants
- *
- * 负责：
- * 1. 维护状态文案
- * 2. 避免页面中出现魔法字符串
- * 3. 与后端枚举字段保持一致
- */
+import { i18n } from '@/locales';
 
-export const REVIEW_STATUS_TEXT: Record<string, string> = {
-  draft: '草稿',
-  submitted: '已提交',
-  reviewing: '审核中',
-  approved: '已通过',
-  rejected: '已驳回',
-  archived: '已归档',
+const REVIEW_STATUS_KEY: Record<string, string> = {
+  draft: 'status.review.draft',
+  submitted: 'status.review.submitted',
+  reviewing: 'status.review.reviewing',
+  approved: 'status.review.approved',
+  rejected: 'status.review.rejected',
+  archived: 'status.review.archived',
 };
 
 export const REVIEW_TASK_STATUS = {
@@ -29,44 +22,71 @@ export function isReviewTaskPending(status: string | null | undefined): boolean 
   return status === REVIEW_TASK_STATUS.reviewing;
 }
 
-export const INDEX_STATUS_TEXT: Record<string, string> = {
-  not_indexed: '未索引',
-  parsing: '解析中',
-  parsed_pending_review: '待质检',
-  parsed: '已解析',
-  indexing: '索引构建中',
-  indexed: '已索引',
-  failed: '失败',
+const INDEX_STATUS_KEY: Record<string, string> = {
+  not_indexed: 'status.notIndexed',
+  parsing: 'status.parsing',
+  parsed_pending_review: 'status.parsedPendingReview',
+  parsed: 'status.parsed',
+  indexing: 'status.indexing',
+  indexed: 'status.indexed',
+  failed: 'status.failed',
 };
 
-export const PARSE_STATUS_TEXT: Record<string, string> = {
-  unparsed: '未解析',
-  parsing: '解析中',
-  success: '已解析',
-  failed: '解析失败',
+const PARSE_STATUS_KEY: Record<string, string> = {
+  unparsed: 'status.unparsed',
+  parsing: 'status.parsing',
+  success: 'status.parseSuccess',
+  failed: 'status.parseFailed',
 };
 
-export const INDEX_TASK_STATUS_TEXT: Record<string, string> = {
-  pending: '排队中',
-  running: '执行中',
-  success: '已完成',
-  failed: '失败',
-  canceled: '已取消',
+const INDEX_TASK_STATUS_KEY: Record<string, string> = {
+  pending: 'status.queued',
+  running: 'status.running',
+  success: 'status.completed',
+  failed: 'status.failed',
+  canceled: 'status.canceled',
 };
 
-export const INDEX_TASK_TYPE_TEXT: Record<string, string> = {
-  mineru_parse: '文档解析',
-  pageindex_build: '页面索引构建',
-  milvus_build: '向量索引构建',
-  ripgrep_build: '全文检索索引构建',
-  graphrag_build: '知识图谱索引构建',
-  index_publish: '索引发布',
-  full_build: '解析并构建索引',
+const INDEX_TASK_TYPE_KEY: Record<string, string> = {
+  mineru_parse: 'status.indexTaskType.mineruParse',
+  pageindex_build: 'status.indexTaskType.pageIndexBuild',
+  milvus_build: 'status.indexTaskType.milvusBuild',
+  ripgrep_build: 'status.indexTaskType.ripgrepBuild',
+  graphrag_build: 'status.indexTaskType.graphRagBuild',
+  index_publish: 'status.indexTaskType.indexPublish',
+  full_build: 'status.indexTaskType.fullBuild',
 };
 
-export const MODE_OPTIONS = [
-  { label: '自动判断', value: 'auto' },
-  { label: '仅基础知识', value: 'base_only' },
-  { label: '仅项目知识', value: 'project_only' },
-  { label: '联合分析', value: 'hybrid' },
-];
+function translateByKeyMap(map: Record<string, string>, value: string | null | undefined): string {
+  const normalized = value || '';
+  const key = map[normalized];
+  return key ? i18n.global.t(key) : normalized;
+}
+
+export function reviewStatusText(status: string | null | undefined): string {
+  return translateByKeyMap(REVIEW_STATUS_KEY, status);
+}
+
+export function indexStatusText(status: string | null | undefined): string {
+  return translateByKeyMap(INDEX_STATUS_KEY, status);
+}
+
+export function parseStatusText(status: string | null | undefined): string {
+  return translateByKeyMap(PARSE_STATUS_KEY, status);
+}
+
+export function indexTaskStatusText(status: string | null | undefined): string {
+  return translateByKeyMap(INDEX_TASK_STATUS_KEY, status);
+}
+
+export function indexTaskTypeText(taskType: string | null | undefined): string {
+  return translateByKeyMap(INDEX_TASK_TYPE_KEY, taskType);
+}
+
+export function indexStatusOptions(): Array<{ value: string; label: string }> {
+  return Object.keys(INDEX_STATUS_KEY).map((value) => ({ value, label: indexStatusText(value) }));
+}
+
+export function parseStatusOptions(): Array<{ value: string; label: string }> {
+  return Object.keys(PARSE_STATUS_KEY).map((value) => ({ value, label: parseStatusText(value) }));
+}

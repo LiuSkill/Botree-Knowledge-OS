@@ -191,6 +191,7 @@ class RetrievalGraph:
         require_real_reranker: bool = True,
         allow_reranker_fallback: bool = True,
         reranker_score_order: str = "desc",
+        response_language: str = "zh-CN",
     ) -> RetrievalGraphState:
         """
         先执行到证据判断阶段，为流式回答准备可复用的检索上下文。
@@ -215,6 +216,7 @@ class RetrievalGraph:
             require_real_reranker=require_real_reranker,
             allow_reranker_fallback=allow_reranker_fallback,
             reranker_score_order=reranker_score_order,
+            response_language=response_language,
         )
         logger.info(
             "LangGraph预处理开始: run_id=%s user_id=%s chat_type=%s mode=%s project_id=%s question_meta=%s",
@@ -254,6 +256,7 @@ class RetrievalGraph:
         require_real_reranker: bool = True,
         allow_reranker_fallback: bool = True,
         reranker_score_order: str = "desc",
+        response_language: str = "zh-CN",
     ) -> Iterator[tuple[str, Any]]:
         """
         流式执行检索准备阶段，按 LangGraph 节点产出前端 Thinking 所需的 trace_delta。
@@ -278,6 +281,7 @@ class RetrievalGraph:
             require_real_reranker=require_real_reranker,
             allow_reranker_fallback=allow_reranker_fallback,
             reranker_score_order=reranker_score_order,
+            response_language=response_language,
         )
         logger.info(
             "LangGraph预处理流开始: run_id=%s user_id=%s chat_type=%s mode=%s project_id=%s question_meta=%s",
@@ -394,6 +398,7 @@ class RetrievalGraph:
         reranker_score_order: str = "desc",
         intent_plan: QuestionIntentPlan | None = None,
         business_id: str | int | None = None,
+        response_language: str = "zh-CN",
     ) -> dict[str, Any]:
         """
         执行在线问答图。
@@ -439,6 +444,7 @@ class RetrievalGraph:
                 require_real_reranker=require_real_reranker,
                 allow_reranker_fallback=allow_reranker_fallback,
                 reranker_score_order=reranker_score_order,
+                response_language=response_language,
             )
         return self.run_single_intent(
             question,
@@ -458,6 +464,7 @@ class RetrievalGraph:
             require_real_reranker=require_real_reranker,
             allow_reranker_fallback=allow_reranker_fallback,
             reranker_score_order=reranker_score_order,
+            response_language=response_language,
         )
 
     def run_single_intent(
@@ -524,6 +531,7 @@ class RetrievalGraph:
         require_real_reranker: bool = False,
         allow_reranker_fallback: bool = True,
         reranker_score_order: str = "desc",
+        response_language: str = "zh-CN",
     ) -> RetrievalGraphState:
         """构建问答图初始状态。"""
 
@@ -575,6 +583,7 @@ class RetrievalGraph:
                 "require_real_reranker": bool(require_real_reranker),
                 "allow_reranker_fallback": bool(allow_reranker_fallback),
                 "reranker_score_order": str(reranker_score_order or "desc"),
+                "response_language": "en-US" if response_language == "en-US" else "zh-CN",
                 "retrieval_total_budget_ms": int(self._settings().retrieval_total_budget_ms),
                 "retrieval_retry_budget_ms": int(self._settings().retrieval_retry_budget_ms),
                 "retrieval_min_stage_budget_ms": int(self._settings().retrieval_min_stage_budget_ms),
@@ -2153,6 +2162,7 @@ class RetrievalGraph:
             route_scope = (state.get("route_decision") or {}).get("knowledge_scope")
             if route_scope:
                 profile["knowledge_scope"] = route_scope
+            profile["response_language"] = str(state.get("raw", {}).get("response_language") or "zh-CN")
             if bool(state.get("raw", {}).get("eval_mode")) and state.get("chat_type") == "project_chat":
                 original_profile = dict(profile)
                 profile.update(

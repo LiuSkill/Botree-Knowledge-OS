@@ -2,6 +2,7 @@
 import { ArrowLeftIcon, BrowseIcon, EditIcon, RefreshIcon, SaveIcon, TimeIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { getProcessNode, getProcessRoute, listProcessLibraryOptions, listProcessNodes, updateProcessRoute } from '@/api/process-config';
@@ -15,7 +16,7 @@ import RouteFormDialog from '@/views/process-config/route/components/RouteFormDi
 import RouteNodeDetailPanel from '@/views/process-config/route/components/RouteNodeDetailPanel.vue';
 import RouteVersionDialog from '@/views/process-config/route/components/RouteVersionDialog.vue';
 import type { ProcessRouteDetail, ProcessRouteNodeDetail, ProcessRoutePayload, RouteEditableNode, RouteFlowNode, RouteNodeOption } from '@/views/process-config/route/types';
-import { PROCESS_NODE_TYPE_OPTIONS } from '@/views/process-config/node/types';
+import { processNodeTypeLocaleKey, processStatusLocaleKey } from '@/views/process-config/i18n';
 
 type NodeLibraryRecord = ProcessNodeItem;
 
@@ -31,6 +32,7 @@ const STATS_FETCH_PAGE_SIZE = 100;
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 
 const pageLoading = ref(false);
 const saving = ref(false);
@@ -87,7 +89,7 @@ const flowNodes = computed<RouteFlowNode[]>(() =>
       const node = nodeDetailCache[item.node_id || 0];
       const nodeOption = nodeOptions.value.find((option) => option.id === item.node_id);
       const nodeCode = node?.code || nodeOption?.code || `#${item.node_id || '-'}`;
-      const nodeName = node?.name || nodeOption?.name || '未命名节点';
+      const nodeName = node?.name || nodeOption?.name || t('process.route.preview.unnamedNode');
       const nodeType = node?.node_type || nodeOption?.node_type || 'pretreatment';
       const version = node?.version || nodeOption?.version || '-';
       const status = node?.status || nodeOption?.status || 'draft';
@@ -112,14 +114,14 @@ const routeSummaryItems = computed(() => {
   const current = detail.value?.route;
   if (!current) return [];
   return [
-    { label: '路线编码', value: current.code },
-    { label: '路线名称', value: current.name },
-    { label: '输入原料', value: detail.value?.input_material?.name || current.input_material_name || '-' },
-    { label: '最终产品', value: detail.value?.final_product?.name || current.final_product_name || '-' },
-    { label: '版本号', value: current.version },
-    { label: '状态', value: statusLabel(current.status) },
-    { label: '节点数量', value: String(editableNodes.value.length) },
-    { label: '更新时间', value: formatDateTime(current.updated_at) },
+    { label: t('process.route.field.routeCode'), value: current.code },
+    { label: t('process.route.field.routeName'), value: current.name },
+    { label: t('process.route.field.inputMaterial'), value: detail.value?.input_material?.name || current.input_material_name || '-' },
+    { label: t('process.route.field.finalProduct'), value: detail.value?.final_product?.name || current.final_product_name || '-' },
+    { label: t('process.route.field.version'), value: current.version },
+    { label: t('common.field.status'), value: statusLabel(current.status) },
+    { label: t('process.route.field.nodeQuantity'), value: String(editableNodes.value.length) },
+    { label: t('common.field.updatedAt'), value: formatDateTime(current.updated_at) },
   ];
 });
 
@@ -312,7 +314,7 @@ function reindexEditableNodes(items: RouteEditableNode[]): RouteEditableNode[] {
 async function handleSaveRoute(): Promise<void> {
   if (!detail.value) return;
   if (detail.value.route.status === 'enabled' && !editableNodes.value.length) {
-    MessagePlugin.warning('启用路线至少需要配置一个节点');
+    MessagePlugin.warning(t('process.route.message.nodeRequired'));
     return;
   }
 
@@ -320,7 +322,7 @@ async function handleSaveRoute(): Promise<void> {
   try {
     const payload = buildRoutePayload(detail.value);
     const result = await updateProcessRoute(detail.value.route.id, payload);
-    MessagePlugin.success('工艺路线已保存');
+    MessagePlugin.success(t('process.route.message.saved'));
     syncDetail(result);
   } finally {
     saving.value = false;
@@ -332,7 +334,7 @@ async function handleFormSubmit(payload: ProcessRoutePayload): Promise<void> {
   formSaving.value = true;
   try {
     const result = await updateProcessRoute(detail.value.route.id, payload);
-    MessagePlugin.success('工艺路线已更新');
+    MessagePlugin.success(t('process.route.message.updated'));
     formVisible.value = false;
     syncDetail(result);
   } finally {
@@ -371,27 +373,21 @@ function handleBack(): void {
 }
 
 function statusLabel(status: string): string {
-  return (
-    {
-      enabled: '启用',
-      draft: '草稿',
-      disabled: '停用',
-    }[status] || status
-  );
+  return status === 'enabled' || status === 'draft' || status === 'disabled' ? t(processStatusLocaleKey(status)) : status;
 }
 
 function statusTheme(status: string): 'success' | 'warning' | 'default' {
-  return (
-    {
-      enabled: 'success',
-      draft: 'warning',
-      disabled: 'default',
-    }[status] || 'default'
-  );
+  const themes: Record<string, 'success' | 'warning' | 'default'> = {
+    enabled: 'success',
+    draft: 'warning',
+    disabled: 'default',
+  };
+  return themes[status] || 'default';
 }
 
 function nodeTypeLabel(value: string): string {
-  return PROCESS_NODE_TYPE_OPTIONS.find((item) => item.value === value)?.label || value;
+  const key = processNodeTypeLocaleKey(value);
+  return key ? t(key) : value;
 }
 </script>
 
@@ -399,33 +395,33 @@ function nodeTypeLabel(value: string): string {
   <div class="system-card scroll-card route-detail-card">
     <div class="system-section-head">
       <div class="system-section-title">
-        <h2>路线详情</h2>
+        <h2>{{ t('process.route.title.detail') }}</h2>
         <span v-if="detail">{{ detail.route.code }} / {{ detail.route.version }}</span>
       </div>
       <t-space>
         <t-button variant="outline" @click="handleBack">
           <template #icon><ArrowLeftIcon /></template>
-          返回
+          {{ t('process.route.action.back') }}
         </t-button>
         <t-button v-permission="permissions.view" variant="outline" :loading="pageLoading" @click="loadPage">
           <template #icon><RefreshIcon /></template>
-          刷新
+          {{ t('common.action.refresh') }}
         </t-button>
         <t-button v-permission="permissions.update" theme="default" variant="outline" @click="openEditDialog">
           <template #icon><EditIcon /></template>
-          编辑路线
+          {{ t('process.route.action.editRoute') }}
         </t-button>
         <t-button v-permission="permissions.preview" theme="default" variant="outline" :disabled="!detail" @click="openPreviewPage">
           <template #icon><BrowseIcon /></template>
-          线路预览
+          {{ t('process.route.action.preview') }}
         </t-button>
         <t-button v-permission="permissions.version" theme="default" variant="outline" @click="versionDialogVisible = true">
           <template #icon><TimeIcon /></template>
-          版本管理
+          {{ t('process.route.action.version') }}
         </t-button>
         <t-button v-permission="permissions.update" theme="primary" :disabled="!hasUnsavedNodeChanges" :loading="saving" @click="handleSaveRoute">
           <template #icon><SaveIcon /></template>
-          保存路线
+          {{ t('process.route.action.saveRoute') }}
         </t-button>
       </t-space>
     </div>
@@ -449,11 +445,11 @@ function nodeTypeLabel(value: string): string {
             </div>
             <div v-if="detail.route.description || detail.route.remark" class="route-summary-extra">
               <div>
-                <span>描述</span>
+                <span>{{ t('process.field.description') }}</span>
                 <strong>{{ detail.route.description || '-' }}</strong>
               </div>
               <div>
-                <span>备注</span>
+                <span>{{ t('process.field.remark') }}</span>
                 <strong>{{ detail.route.remark || '-' }}</strong>
               </div>
             </div>
@@ -462,13 +458,13 @@ function nodeTypeLabel(value: string): string {
           <div class="route-workspace">
             <section class="route-library-panel">
               <div class="route-panel-header">
-                <div class="route-panel-title">节点库</div>
-                <span class="route-panel-count">共 {{ filteredNodeLibrary.length }} 个</span>
+                <div class="route-panel-title">{{ t('process.route.section.nodeLibrary') }}</div>
+                <span class="route-panel-count">{{ t('process.summary.totalItems', { count: filteredNodeLibrary.length }) }}</span>
               </div>
-              <t-input v-model="nodeLibraryKeyword" clearable placeholder="搜索节点编码 / 名称 / 类型" />
+              <t-input v-model="nodeLibraryKeyword" clearable :placeholder="t('process.route.placeholder.searchNode')" />
               <div class="route-library-panel__list">
                 <t-loading :loading="nodeLibraryLoading">
-                  <t-empty v-if="!filteredNodeLibrary.length" description="暂无可用节点" />
+                  <t-empty v-if="!filteredNodeLibrary.length" :description="t('process.route.empty.nodeLibrary')" />
                   <button
                     v-for="item in filteredNodeLibrary"
                     :key="item.id"
@@ -487,7 +483,7 @@ function nodeTypeLabel(value: string): string {
                       <span>{{ item.version }}</span>
                     </div>
                     <div class="library-node-card__action" :class="{ 'library-node-card__action--disabled': !canUpdate }">
-                      {{ canUpdate ? '点击加入路线' : '无编辑权限' }}
+                      {{ canUpdate ? t('process.route.action.addToRoute') : t('process.route.action.noEditPermission') }}
                     </div>
                   </button>
                 </t-loading>
@@ -496,8 +492,8 @@ function nodeTypeLabel(value: string): string {
 
             <section class="route-chain-panel">
               <div class="route-panel-header">
-                <div class="route-panel-title">路线链路图</div>
-                <span class="route-panel-count">已配置 {{ editableNodes.length }} 个节点</span>
+                <div class="route-panel-title">{{ t('process.route.section.routeFlow') }}</div>
+                <span class="route-panel-count">{{ t('process.summary.configuredNodes', { count: editableNodes.length }) }}</span>
               </div>
               <RouteFlowViewer
                 :nodes="flowNodes"
@@ -513,8 +509,8 @@ function nodeTypeLabel(value: string): string {
 
             <section class="route-node-panel">
               <div class="route-panel-header">
-                <div class="route-panel-title">节点配置详情</div>
-                <span class="route-panel-count">{{ selectedFlowNode?.node_name || '未选择节点' }}</span>
+                <div class="route-panel-title">{{ t('process.route.section.nodeConfigDetail') }}</div>
+                <span class="route-panel-count">{{ selectedFlowNode?.node_name || t('process.route.empty.selectedNode') }}</span>
               </div>
               <RouteNodeDetailPanel
                 :node="selectedNodeDetail"

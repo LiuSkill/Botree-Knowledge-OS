@@ -8,12 +8,14 @@
 -->
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 const emit = defineEmits<{
   upload: [file: File];
 }>();
 
 const selectedFile = ref<File | null>(null);
+const { t } = useI18n();
 
 function handleFileChange(event: Event): void {
   /**
@@ -36,8 +38,8 @@ function submit(): void {
 <template>
   <div class="upload-box">
     <input type="file" @change="handleFileChange" />
-    <span class="muted">{{ selectedFile?.name || '选择 txt / md / pdf / docx 文件' }}</span>
-    <t-button theme="primary" :disabled="!selectedFile" @click="submit">上传</t-button>
+    <span class="muted">{{ selectedFile?.name || t('common.uploadBox.placeholder') }}</span>
+    <t-button theme="primary" :disabled="!selectedFile" @click="submit">{{ t('common.uploadBox.upload') }}</t-button>
   </div>
 </template>
 

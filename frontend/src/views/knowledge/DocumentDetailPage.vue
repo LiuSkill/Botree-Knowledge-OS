@@ -11,6 +11,7 @@ import MarkdownIt from 'markdown-it';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { AssignmentCheckedIcon, DownloadIcon, FileSearchIcon, FullscreenIcon, PlayCircleIcon, RefreshIcon, UploadIcon } from 'tdesign-icons-vue-next';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import type { Directive } from 'vue';
 
@@ -47,11 +48,7 @@ import type {
   IndexTaskInfo,
   SecurityLevel,
 } from '@/types/api';
-import {
-  INDEX_TASK_STATUS_TEXT,
-  INDEX_TASK_TYPE_TEXT,
-  PARSE_STATUS_TEXT,
-} from '@/utils/constants';
+import { indexTaskStatusText, indexTaskTypeText, parseStatusText as resolveParseStatusText } from '@/utils/constants';
 import { previousBreadcrumbTarget } from '@/utils/breadcrumbContext';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
@@ -179,6 +176,7 @@ const SUPERSCRIPT_DIGITS: Record<string, string> = {
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t, locale } = useI18n();
 
 const activeTab = ref<DetailTab>('preview');
 const loading = ref(false);
@@ -190,7 +188,7 @@ const deleting = ref(false);
 const pdfPreviewVisible = ref(false);
 const pdfPreviewLoading = ref(false);
 const pdfPreviewUrl = ref('');
-const pdfPreviewTitle = ref('PDF 预览');
+const pdfPreviewTitle = ref('');
 const pdfPreviewError = ref('');
 const zoomPreviewVisible = ref(false);
 const securityDialogVisible = ref(false);
@@ -210,13 +208,13 @@ const versionForm = reactive({
 });
 
 const VERSION_STATUS_TEXT: Record<string, string> = {
-  draft: '草稿',
-  current: '当前版本',
-  historical: '历史版本',
-  pending_review: '待审核',
-  approved: '已通过',
-  rejected: '已驳回',
-  inactive: '已停用',
+  draft: 'document.detail.versionStatus.draft',
+  current: 'document.detail.versionStatus.current',
+  historical: 'document.detail.versionStatus.historical',
+  pending_review: 'document.detail.versionStatus.pendingReview',
+  approved: 'document.detail.versionStatus.approved',
+  rejected: 'document.detail.versionStatus.rejected',
+  inactive: 'document.detail.versionStatus.inactive',
 };
 
 const securityForm = reactive({
@@ -294,14 +292,17 @@ const viewedFileName = computed(() => viewedVersion.value?.file_name || document
 const viewedFileType = computed(() => viewedVersion.value?.file_type || documentInfo.value?.file_type || '');
 const viewedFileSize = computed(() => viewedVersion.value?.file_size ?? documentInfo.value?.file_size ?? 0);
 const isViewedPdfFile = computed(() => isPdfFile(viewedFileName.value, viewedFileType.value));
-const pdfPreviewButtonLabel = computed(() => (isViewedPdfFile.value ? '预览原始 PDF' : '预览转换 PDF'));
+const pdfPreviewButtonLabel = computed(() => (isViewedPdfFile.value ? t('document.detail.originalPdf') : t('document.detail.convertedPdf')));
 const viewedReviewStatus = computed(() => viewedVersion.value?.review_status || documentInfo.value?.review_status || 'draft');
 const viewedReviewComment = computed(() => (viewedVersion.value?.review_comment || documentInfo.value?.review_comment || '').trim());
 const showRejectReason = computed(() => viewedReviewStatus.value === 'rejected' && viewedReviewComment.value.length > 0);
 const viewedParseStatus = computed(() => viewedVersion.value?.parse_status || documentInfo.value?.parse_status || 'unparsed');
 const viewedIndexStatus = computed(() => viewedVersion.value?.index_status || documentInfo.value?.index_status || 'not_indexed');
 const documentSecurityLevel = computed<SecurityLevel>(() => (documentInfo.value?.security_level || 'internal') as SecurityLevel);
-const documentProjectName = computed(() => documentInfo.value?.project_name || (documentInfo.value?.project_id ? `项目 #${documentInfo.value.project_id}` : '企业知识'));
+const documentProjectName = computed(() =>
+  documentInfo.value?.project_name ||
+  (documentInfo.value?.project_id ? t('document.detail.projectFallback', { id: documentInfo.value.project_id }) : t('document.detail.enterpriseKnowledge')),
+);
 const canSubmitReview = computed(() => {
   return SUBMITTABLE_REVIEW_STATUSES.has(viewedReviewStatus.value);
 });
@@ -445,7 +446,7 @@ async function loadAssetImageElement(element: HTMLImageElement, asset: DocumentA
       element.classList.remove('asset-image-loading');
     }
   } catch (error) {
-    MessagePlugin.warning(error instanceof Error ? error.message : `资产 #${asset.id} 预览加载失败`);
+    MessagePlugin.warning(error instanceof Error ? error.message : t('document.detail.assetPreviewFailed', { id: asset.id }));
   } finally {
     if (element.dataset.documentAssetLoading === String(asset.id)) {
       delete element.dataset.documentAssetLoading;
@@ -947,14 +948,14 @@ async function openDocumentPdfPreview(version?: DocumentVersionInfo): Promise<vo
    */
   if (!documentInfo.value || pdfPreviewLoading.value) return;
   if (!canPreviewDocument.value) {
-    MessagePlugin.warning('无权限预览文档');
+    MessagePlugin.warning(t('document.detail.message.noPreviewPermission'));
     return;
   }
 
   const versionNo = version?.version_no ?? viewedVersionNo.value;
   const fileName = version?.file_name || viewedFileName.value;
   const fileType = version?.file_type || viewedFileType.value;
-  const sourceText = isPdfFile(fileName, fileType) ? '原始 PDF' : '转换 PDF';
+  const sourceText = isPdfFile(fileName, fileType) ? t('document.detail.pdfOriginal') : t('document.detail.pdfConverted');
 
   revokePdfPreviewUrl();
   pdfPreviewError.value = '';
@@ -972,7 +973,7 @@ async function openDocumentPdfPreview(version?: DocumentVersionInfo): Promise<vo
     }
   } catch (error) {
     if (pdfPreviewVisible.value) {
-      pdfPreviewError.value = error instanceof Error ? error.message : 'PDF 预览加载失败';
+      pdfPreviewError.value = error instanceof Error ? error.message : t('document.detail.pdfPreviewLoadFailed');
     }
   } finally {
     pdfPreviewLoading.value = false;
@@ -1056,7 +1057,7 @@ async function loadData(force = false): Promise<void> {
       await loadChunks();
     }
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '文档详情加载失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('document.detail.loadFailed'));
   } finally {
     loading.value = false;
   }
@@ -1104,11 +1105,11 @@ async function submitReview(versionNo: number | null = viewedVersionNo.value): P
    */
   if (!documentInfo.value) return;
   if (!authStore.hasActionPermission(submitReviewPermission.value)) {
-    MessagePlugin.warning('无权限提交审核');
+    MessagePlugin.warning(t('document.detail.message.noSubmitPermission'));
     return;
   }
-  await submitDocumentReview(documentInfo.value.id, '提交审核', versionNo);
-  MessagePlugin.success('已提交审核');
+  await submitDocumentReview(documentInfo.value.id, t('document.detail.action.submitReview'), versionNo);
+  MessagePlugin.success(t('document.detail.message.submitted'));
   await loadData(true);
 }
 
@@ -1118,17 +1119,17 @@ async function runParse(versionNo: number | null = viewedVersionNo.value): Promi
    */
   if (!documentInfo.value || parsing.value) return;
   if (!canParseDocument.value) {
-    MessagePlugin.warning('无权限执行解析');
+    MessagePlugin.warning(t('document.detail.message.noParsePermission'));
     return;
   }
   parsing.value = true;
   try {
     await parseDocument(documentInfo.value.id, versionNo);
-    MessagePlugin.success('解析完成');
+    MessagePlugin.success(t('document.detail.message.parseComplete'));
     activeTab.value = 'preview';
     await loadData(true);
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '解析失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('document.detail.message.parseFailed'));
   } finally {
     parsing.value = false;
   }
@@ -1140,7 +1141,7 @@ async function createIndexBuild(versionNo: number | null = viewedVersionNo.value
    */
   if (!documentInfo.value || buildingIndex.value) return;
   if (!canBuildDocumentIndex.value) {
-    MessagePlugin.warning('无权限构建索引');
+    MessagePlugin.warning(t('document.detail.message.noBuildPermission'));
     return;
   }
   if (isIndexedIndexStatus(viewedIndexStatus.value)) {
@@ -1151,10 +1152,10 @@ async function createIndexBuild(versionNo: number | null = viewedVersionNo.value
   try {
     const task = await createDocumentIndexBuildTask(documentInfo.value.id, versionNo);
     indexTasks.value = [task, ...indexTasks.value.filter((item) => item.id !== task.id)];
-    MessagePlugin.success('解析与索引构建任务已创建');
+    MessagePlugin.success(t('document.detail.message.indexTaskCreated'));
     await loadData(true);
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '索引任务创建失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('document.detail.message.indexTaskCreateFailed'));
   } finally {
     buildingIndex.value = false;
   }
@@ -1166,11 +1167,11 @@ async function uploadNewVersion(): Promise<void> {
    */
   if (!documentInfo.value) return;
   if (!canUploadVersion.value) {
-    MessagePlugin.warning('无权限上传新版本');
+    MessagePlugin.warning(t('document.detail.message.noVersionPermission'));
     return;
   }
   if (!selectedVersionFile.value) {
-    MessagePlugin.warning('请先选择新版本文件');
+    MessagePlugin.warning(t('document.detail.message.selectVersionFile'));
     return;
   }
 
@@ -1179,7 +1180,7 @@ async function uploadNewVersion(): Promise<void> {
     const version = await createDocumentVersion(documentInfo.value.id, selectedVersionFile.value, {
       change_summary: versionForm.change_summary.trim() || undefined,
     });
-    MessagePlugin.success('新版本上传成功');
+    MessagePlugin.success(t('document.detail.message.versionUploaded'));
     selectedVersionNo.value = version.version_no;
     activeTab.value = 'preview';
     selectedVersionFile.value = null;
@@ -1187,7 +1188,7 @@ async function uploadNewVersion(): Promise<void> {
     versionDialogVisible.value = false;
     await loadData(true);
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '新版本上传失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('document.detail.message.versionUploadFailed'));
   } finally {
     versionUploading.value = false;
   }
@@ -1208,7 +1209,7 @@ async function downloadVersion(version: DocumentVersionInfo): Promise<void> {
    * 下载指定版本的原始文件，便于与解析预览结果进行对照。
    */
   if (!canDownloadDocument.value) {
-    MessagePlugin.warning('无权限下载文档');
+    MessagePlugin.warning(t('document.detail.message.noDownloadPermission'));
     return;
   }
   const blob = await downloadDocumentVersion(version.document_id, version.version_no);
@@ -1217,7 +1218,7 @@ async function downloadVersion(version: DocumentVersionInfo): Promise<void> {
 
 async function viewVersion(version: DocumentVersionInfo): Promise<void> {
   if (!authStore.hasActionPermission(viewDocumentPermission.value)) {
-    MessagePlugin.warning('无权限查看文档版本');
+    MessagePlugin.warning(t('document.detail.message.noVersionViewPermission'));
     return;
   }
   selectedVersionNo.value = version.version_no;
@@ -1237,7 +1238,7 @@ function openSecurityDialog(): void {
    */
   if (!documentInfo.value) return;
   if (!canEditDocumentSecurity.value) {
-    MessagePlugin.warning('无权限修改文档密级');
+    MessagePlugin.warning(t('document.detail.message.noSecurityPermission'));
     return;
   }
   securityForm.security_level = documentInfo.value.security_level;
@@ -1247,17 +1248,17 @@ function openSecurityDialog(): void {
 async function confirmSecurityDialog(): Promise<void> {
   if (!documentInfo.value || securitySaving.value) return;
   if (!canEditDocumentSecurity.value) {
-    MessagePlugin.warning('无权限修改文档密级');
+    MessagePlugin.warning(t('document.detail.message.noSecurityPermission'));
     return;
   }
   securitySaving.value = true;
   try {
     await updateDocumentSecurityLevel(documentInfo.value.id, securityForm.security_level);
-    MessagePlugin.success('文档密级已更新，相关索引状态已同步');
+    MessagePlugin.success(t('document.detail.message.securityUpdated'));
     securityDialogVisible.value = false;
     await loadData(true);
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '文档密级更新失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('document.detail.message.securityUpdateFailed'));
   } finally {
     securitySaving.value = false;
   }
@@ -1268,18 +1269,18 @@ function taskStatusText(task: IndexTaskInfo | null): string {
    * 将索引任务状态统一映射成前端显示文案。
    */
   if (!task) return '-';
-  return INDEX_TASK_STATUS_TEXT[task.status] || task.status;
+  return indexTaskStatusText(task.status);
 }
 
 function taskTypeText(taskType: string): string {
   /**
    * 将后端任务类型转换为业务人员可理解的中文描述。
    */
-  return INDEX_TASK_TYPE_TEXT[taskType] || taskType;
+  return indexTaskTypeText(taskType);
 }
 
 function parseStatusText(status: string): string {
-  return PARSE_STATUS_TEXT[status] || status;
+  return resolveParseStatusText(status);
 }
 
 function parseStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'default' {
@@ -1291,13 +1292,14 @@ function parseStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'd
 
 function versionStatusText(version: DocumentVersionInfo): string {
   const rawStatus = version.version_status || (version.is_current ? 'current' : '');
-  return VERSION_STATUS_TEXT[rawStatus] || rawStatus || '-';
+  const key = VERSION_STATUS_TEXT[rawStatus];
+  return key ? t(key) : rawStatus || '-';
 }
 
 function openVersionDialog(): void {
   if (!documentInfo.value) return;
   if (!canUploadVersion.value) {
-    MessagePlugin.warning('无权限上传新版本');
+    MessagePlugin.warning(t('document.detail.message.noVersionPermission'));
     return;
   }
   versionForm.change_summary = '';
@@ -1310,19 +1312,23 @@ function buildDeleteMessage(result: DocumentDeleteResult): string {
    * 组织删除完成反馈，让用户知道哪些检索数据已经被清理。
    */
   const messages = [
-    '文档已删除',
-    `Chunk ${result.document_chunks} 条`,
-    `页 ${result.document_pages} 条`,
-    `图谱 ${result.graph_entities} 条`,
-    `引用 ${result.chat_citations} 条`,
-    `检索审计 ${result.retrieval_traces} 条`,
+    t('document.detail.delete.success'),
+    t('document.detail.delete.chunkCount', { count: result.document_chunks }),
+    t('document.detail.delete.pageCount', { count: result.document_pages }),
+    t('document.detail.delete.graphCount', { count: result.graph_entities }),
+    t('document.detail.delete.citationCount', { count: result.chat_citations }),
+    t('document.detail.delete.traceCount', { count: result.retrieval_traces }),
   ];
   if (result.external_cleanup_queued) {
     messages.push(
-      `外部资源后台清理中：向量 ${result.pending_vector_count || 0} 条、文件 ${result.pending_file_count || 0} 个、对象 ${result.pending_asset_object_count || 0} 个`,
+      t('document.detail.delete.externalCleanup', {
+        vectors: result.pending_vector_count || 0,
+        files: result.pending_file_count || 0,
+        objects: result.pending_asset_object_count || 0,
+      }),
     );
   }
-  return messages.join('，');
+  return messages.join(t('common.separator.list'));
 }
 
 async function removeDocument(): Promise<void> {
@@ -1331,10 +1337,10 @@ async function removeDocument(): Promise<void> {
    */
   if (!documentInfo.value || deleting.value) return;
   const confirmed = await showConfirmDialog({
-    header: '确认删除文档',
-    body: `确认删除文档“${documentInfo.value.file_name}”吗？删除后将立即清理数据库检索数据，外部文件和向量会在后台回收。`,
+    header: t('document.detail.delete.title'),
+    body: t('document.detail.delete.body', { name: documentInfo.value.file_name }),
     theme: 'danger',
-    confirmBtn: '删除',
+    confirmBtn: t('document.detail.delete.confirm'),
   });
   if (!confirmed) return;
 
@@ -1344,7 +1350,7 @@ async function removeDocument(): Promise<void> {
     MessagePlugin.success(buildDeleteMessage(result));
     await router.replace(backPath.value);
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '文档删除失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('document.detail.message.deleteFailed'));
   } finally {
     deleting.value = false;
   }
@@ -1355,10 +1361,10 @@ watch(activeTab, () => {
 });
 
 const admissionLabel = (status: string) => ({
-  text_indexed: '文本+视觉可检索',
-  visual_indexed: '仅视觉可检索',
-  metadata_only: '仅元数据可发现',
-  waiting_correction: '等待人工修正',
+  text_indexed: t('document.detail.indexAdmission.textIndexed'),
+  visual_indexed: t('document.detail.indexAdmission.visualIndexed'),
+  metadata_only: t('document.detail.indexAdmission.metadataOnly'),
+  waiting_correction: t('document.detail.indexAdmission.waitingCorrection'),
 }[status] || status);
 
 watch(pdfPreviewVisible, (visible) => {
@@ -1379,7 +1385,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PageContainer :title="documentInfo?.file_name || '文档详情'" subtitle="查看当前版本原始解析内容、知识分块、版本历史和索引状态">
+  <PageContainer :title="documentInfo?.file_name || t('document.title.detail')" :subtitle="t('document.detail.subtitle')">
     <template #actions>
       <div class="detail-action-group">
         <t-button
@@ -1387,7 +1393,7 @@ onBeforeUnmount(() => {
           :disabled="!documentInfo"
           @click="router.push(backPath)"
         >
-          返回
+          {{ t('document.detail.action.back') }}
         </t-button>
         <t-button
           v-permission="editSecurityPermission"
@@ -1396,9 +1402,9 @@ onBeforeUnmount(() => {
           :disabled="!documentInfo"
           @click="openSecurityDialog"
         >
-          修改密级
+          {{ t('document.detail.action.changeSecurity') }}
         </t-button>
-        <t-button v-permission="submitReviewPermission" v-if="canSubmitReview" theme="primary" @click="submitReview()">提交审核</t-button>
+        <t-button v-permission="submitReviewPermission" v-if="canSubmitReview" theme="primary" @click="submitReview()">{{ t('document.detail.action.submitReview') }}</t-button>
         <t-button
           v-permission="parseDocumentPermission"
           theme="primary"
@@ -1408,7 +1414,7 @@ onBeforeUnmount(() => {
           @click="runParse()"
         >
           <template #icon><FileSearchIcon /></template>
-          {{ viewedParseStatus === 'success' ? '重新解析' : '执行解析' }}
+          {{ viewedParseStatus === 'success' ? t('document.detail.action.reparse') : t('document.detail.action.parse') }}
         </t-button>
         <t-button
           v-permission="buildIndexPermission"
@@ -1419,7 +1425,7 @@ onBeforeUnmount(() => {
           @click="createIndexBuild()"
         >
           <template #icon><PlayCircleIcon /></template>
-          解析并构建索引
+          {{ t('document.detail.action.buildIndex') }}
         </t-button>
         <t-button
           v-permission="uploadVersionPermission"
@@ -1428,9 +1434,9 @@ onBeforeUnmount(() => {
           @click="openVersionDialog"
         >
           <template #icon><UploadIcon /></template>
-          版本更新
+          {{ t('document.detail.action.uploadVersion') }}
         </t-button>
-        <t-button v-permission="deleteDocumentPermission" v-if="canDeleteDocument" theme="danger" variant="outline" :loading="deleting" @click="removeDocument">删除文档</t-button>
+        <t-button v-permission="deleteDocumentPermission" v-if="canDeleteDocument" theme="danger" variant="outline" :loading="deleting" @click="removeDocument">{{ t('document.detail.action.delete') }}</t-button>
       </div>
     </template>
 
@@ -1438,33 +1444,33 @@ onBeforeUnmount(() => {
       <section class="summary-band">
         <div class="summary-grid">
           <div class="summary-item">
-            <div class="summary-label">文件名</div>
+            <div class="summary-label">{{ t('document.detail.field.fileName') }}</div>
             <div class="summary-value file-name-value">
               <t-link theme="primary" :disabled="!documentInfo || !canPreviewDocument" @click="openDocumentPdfPreview()">{{ viewedFileName }}</t-link>
             </div>
           </div>
           <div class="summary-item">
-            <div class="summary-label">查看版本</div>
+            <div class="summary-label">{{ t('document.detail.field.viewedVersion') }}</div>
             <div class="summary-value">{{ viewedVersionLabel }}</div>
           </div>
           <div class="summary-item">
-            <div class="summary-label">文件大小</div>
+            <div class="summary-label">{{ t('document.detail.field.fileSize') }}</div>
             <div class="summary-value">{{ formatFileSize(viewedFileSize) }}</div>
           </div>
           <div class="summary-item">
-            <div class="summary-label">审核状态</div>
+            <div class="summary-label">{{ t('document.detail.field.reviewStatus') }}</div>
             <div class="summary-value"><StatusTag type="review" :value="viewedReviewStatus" /></div>
           </div>
           <div class="summary-item">
-            <div class="summary-label">解析状态</div>
+            <div class="summary-label">{{ t('document.detail.field.parseStatus') }}</div>
             <div class="summary-value"><t-tag size="small" variant="light" :theme="parseStatusTheme(viewedParseStatus)">{{ parseStatusText(viewedParseStatus) }}</t-tag></div>
           </div>
           <div class="summary-item">
-            <div class="summary-label">索引状态</div>
+            <div class="summary-label">{{ t('document.detail.field.indexStatus') }}</div>
             <div class="summary-value"><StatusTag type="index" :value="viewedIndexStatus" /></div>
           </div>
           <div class="summary-item">
-            <div class="summary-label">文档密级</div>
+            <div class="summary-label">{{ t('document.detail.field.securityLevel') }}</div>
             <div class="summary-value">
               <t-tag size="small" variant="light" :theme="securityLevelTheme(documentSecurityLevel)">
                 {{ securityLevelLabel(documentSecurityLevel) }}
@@ -1472,36 +1478,36 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="summary-item">
-            <div class="summary-label">上传人</div>
+            <div class="summary-label">{{ t('document.detail.field.uploader') }}</div>
             <div class="summary-value">{{ documentInfo?.uploader_name || documentInfo?.uploader_username || documentInfo?.upload_user_id || '-' }}</div>
           </div>
         </div>
 
         <div class="summary-aside">
-          <div class="summary-line">知识范围：{{ documentProjectName }}</div>
-          <div class="summary-line">分类：{{ documentInfo?.category_path || documentInfo?.category_name || '-' }}</div>
-          <div class="summary-line">最新任务：{{ taskStatusText(latestIndexTask) }}</div>
-          <div class="summary-line">更新时间：{{ formatDateTime(documentInfo?.updated_at) }}</div>
+          <div class="summary-line">{{ t('document.detail.field.knowledgeScope') }}: {{ documentProjectName }}</div>
+          <div class="summary-line">{{ t('document.detail.field.category') }}: {{ documentInfo?.category_path || documentInfo?.category_name || '-' }}</div>
+          <div class="summary-line">{{ t('document.detail.field.latestTask') }}: {{ taskStatusText(latestIndexTask) }}</div>
+          <div class="summary-line">{{ t('document.detail.field.updatedAt') }}: {{ formatDateTime(documentInfo?.updated_at) }}</div>
           <div v-if="showRejectReason" class="reject-reason-panel">
-            <div class="reject-reason-title">驳回原因</div>
+            <div class="reject-reason-title">{{ t('document.detail.field.rejectReason') }}</div>
             <div class="reject-reason-content">{{ viewedReviewComment }}</div>
           </div>
-          <div v-if="documentInfo?.build_error" class="error-text">构建错误：{{ documentInfo.build_error }}</div>
+          <div v-if="documentInfo?.build_error" class="error-text">{{ t('document.detail.field.buildError') }}: {{ documentInfo.build_error }}</div>
         </div>
       </section>
 
       <section class="workspace-grid">
         <div class="main-panel">
           <t-tabs :value="activeTab" @change="handleTabChange">
-            <t-tab-panel value="preview" label="原始内容预览" />
-            <t-tab-panel value="cleaning" label="解析清洗" />
-            <t-tab-panel value="chunks" label="知识分块" />
-            <t-tab-panel value="versions" label="版本历史" />
+            <t-tab-panel value="preview" :label="t('document.detail.tab.preview')" />
+            <t-tab-panel value="cleaning" :label="t('document.detail.tab.cleaning')" />
+            <t-tab-panel value="chunks" :label="t('document.detail.tab.chunks')" />
+            <t-tab-panel value="versions" :label="t('document.detail.tab.versions')" />
           </t-tabs>
 
           <section v-if="activeTab === 'preview'" class="tab-panel">
             <div class="preview-toolbar preview-toolbar-main">
-              <span class="muted-text">查看版本 {{ viewedVersionLabel }}</span>
+              <span class="muted-text">{{ t('document.detail.field.viewedVersion') }} {{ viewedVersionLabel }}</span>
               <div class="preview-toolbar-actions">
                 <t-button
                   v-if="selectedVersionNo"
@@ -1510,7 +1516,7 @@ onBeforeUnmount(() => {
                   class="preview-toolbar-link"
                   @click="viewCurrentVersion"
                 >
-                  回到当前版本
+                  {{ t('document.detail.action.currentVersion') }}
                 </t-button>
                 <t-button
                   size="small"
@@ -1520,7 +1526,7 @@ onBeforeUnmount(() => {
                   @click="zoomPreviewVisible = true"
                 >
                   <template #icon><FullscreenIcon /></template>
-                  放大预览
+                  {{ t('document.detail.action.zoomPreview') }}
                 </t-button>
                 <t-button
                   v-if="documentInfo && canPreviewDocument"
@@ -1532,12 +1538,12 @@ onBeforeUnmount(() => {
                 >
                   {{ pdfPreviewButtonLabel }}
                 </t-button>
-                <span class="muted-text">页数 {{ previewData?.page_count || 0 }}</span>
+                <span class="muted-text">{{ t('document.detail.field.pageCount') }} {{ previewData?.page_count || 0 }}</span>
               </div>
             </div>
 
-            <div v-if="previewLoading" class="empty-panel">正在加载原始内容预览...</div>
-            <div v-else-if="!markdownContent" class="empty-panel">当前版本还没有可展示的解析结果。</div>
+            <div v-if="previewLoading" class="empty-panel">{{ t('document.detail.empty.loadingPreview') }}</div>
+            <div v-else-if="!markdownContent" class="empty-panel">{{ t('document.detail.empty.noPreview') }}</div>
             <template v-else>
               <article class="markdown-preview" v-html="renderedMarkdownHtml" />
               <div v-if="structuredPreviewPages.length" class="structured-preview">
@@ -1571,40 +1577,40 @@ onBeforeUnmount(() => {
 
           <section v-else-if="activeTab === 'cleaning'" class="tab-panel">
             <div class="preview-toolbar">
-              <span class="muted-text">查看版本 {{ viewedVersionLabel }}</span>
-              <span class="muted-text">页数 {{ previewData?.page_count || 0 }}</span>
-              <t-button v-if="selectedVersionNo" size="small" variant="text" class="preview-toolbar-link" @click="viewCurrentVersion">回到当前版本</t-button>
+              <span class="muted-text">{{ t('document.detail.field.viewedVersion') }} {{ viewedVersionLabel }}</span>
+              <span class="muted-text">{{ t('document.detail.field.pageCount') }} {{ previewData?.page_count || 0 }}</span>
+              <t-button v-if="selectedVersionNo" size="small" variant="text" class="preview-toolbar-link" @click="viewCurrentVersion">{{ t('document.detail.action.currentVersion') }}</t-button>
             </div>
 
-            <div v-if="previewLoading" class="empty-panel">正在加载解析清洗结果...</div>
-            <div v-else-if="!previewData?.pages.length" class="empty-panel">当前版本还没有解析清洗结果。</div>
+            <div v-if="previewLoading" class="empty-panel">{{ t('document.detail.empty.loadingCleaning') }}</div>
+            <div v-else-if="!previewData?.pages.length" class="empty-panel">{{ t('document.detail.empty.noCleaning') }}</div>
             <div v-else class="cleaning-page-list">
               <article v-for="page in previewData.pages" :key="`clean-${page.id}`" class="cleaning-page">
                 <div class="cleaning-page-header">
                   <span>Page {{ page.page_no }}</span>
                   <span v-if="page.page_title" class="muted-text">{{ page.page_title }}</span>
                   <t-tag size="small" variant="light">{{ admissionLabel(page.index_admission_status) }}</t-tag>
-                  <span class="muted-text">文本质量 {{ page.text_quality_score }}%</span>
+                  <span class="muted-text">{{ t('document.detail.field.textQuality') }} {{ page.text_quality_score }}%</span>
                 </div>
                 <div v-if="page.index_admission_reason_json" class="muted-text">
-                  准入说明：{{ page.index_admission_reason_json }}
+                  {{ t('document.detail.field.admissionReason') }}: {{ page.index_admission_reason_json }}
                 </div>
                 <div class="cleaning-columns">
                   <section class="cleaning-column">
-                    <div class="cleaning-column-title">原始解析内容</div>
+                    <div class="cleaning-column-title">{{ t('document.detail.cleaning.raw') }}</div>
                     <pre>{{ page.page_text || '-' }}</pre>
                   </section>
                   <section class="cleaning-column">
-                    <div class="cleaning-column-title">清洗后内容</div>
+                    <div class="cleaning-column-title">{{ t('document.detail.cleaning.cleaned') }}</div>
                     <pre>{{ page.clean_content || '-' }}</pre>
                   </section>
                   <section class="cleaning-column">
-                    <div class="cleaning-column-title">被过滤内容</div>
+                    <div class="cleaning-column-title">{{ t('document.detail.cleaning.filtered') }}</div>
                     <pre>{{ page.filtered_content || '-' }}</pre>
                   </section>
                 </div>
                 <details v-if="page.blocks.some((block) => block.filter_status === 'filtered')" class="filtered-blocks">
-                  <summary>被过滤块 {{ page.blocks.filter((block) => block.filter_status === 'filtered').length }}</summary>
+                  <summary>{{ t('document.detail.cleaning.filteredBlocks', { count: page.blocks.filter((block) => block.filter_status === 'filtered').length }) }}</summary>
                   <pre
                     v-for="block in page.blocks.filter((item) => item.filter_status === 'filtered')"
                     :key="block.id"
@@ -1616,19 +1622,19 @@ onBeforeUnmount(() => {
 
           <section v-else-if="activeTab === 'chunks'" class="tab-panel">
             <div class="preview-toolbar">
-              <span class="muted-text">查看版本 {{ viewedVersionLabel }}</span>
-              <t-button v-if="selectedVersionNo" size="small" variant="text" class="preview-toolbar-link" @click="viewCurrentVersion">回到当前版本</t-button>
+              <span class="muted-text">{{ t('document.detail.field.viewedVersion') }} {{ viewedVersionLabel }}</span>
+              <t-button v-if="selectedVersionNo" size="small" variant="text" class="preview-toolbar-link" @click="viewCurrentVersion">{{ t('document.detail.action.currentVersion') }}</t-button>
             </div>
-            <div v-if="!chunks.length" class="empty-panel">当前版本还没有知识分块。</div>
+            <div v-if="!chunks.length" class="empty-panel">{{ t('document.detail.empty.noChunks') }}</div>
             <div v-else class="table-scroll">
               <table class="plain-table chunk-table">
                 <thead>
                   <tr>
-                    <th>序号</th>
-                    <th>页码</th>
-                    <th>密级</th>
-                    <th>章节</th>
-                    <th>内容</th>
+                    <th>{{ t('document.detail.field.sequence') }}</th>
+                    <th>{{ t('document.detail.field.pageNo') }}</th>
+                    <th>{{ t('document.detail.field.securityLevel') }}</th>
+                    <th>{{ t('document.detail.field.section') }}</th>
+                    <th>{{ t('document.detail.field.content') }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1651,20 +1657,20 @@ onBeforeUnmount(() => {
           </section>
 
           <section v-else class="tab-panel">
-            <div v-if="!versions.length" class="empty-panel">当前文档还没有版本记录。</div>
+            <div v-if="!versions.length" class="empty-panel">{{ t('document.detail.empty.noVersions') }}</div>
             <div v-else class="table-scroll">
               <table class="plain-table version-table">
                 <thead>
                   <tr>
-                    <th>版本</th>
-                    <th>文件名</th>
-                    <th>密级</th>
-                    <th>版本状态</th>
-                    <th>解析状态</th>
-                    <th>状态</th>
-                    <th>变更说明</th>
-                    <th>创建时间</th>
-                    <th>操作</th>
+                    <th>{{ t('document.detail.field.version') }}</th>
+                    <th>{{ t('document.detail.field.fileName') }}</th>
+                    <th>{{ t('document.detail.field.securityLevel') }}</th>
+                    <th>{{ t('document.detail.field.versionStatus') }}</th>
+                    <th>{{ t('document.detail.field.parseStatus') }}</th>
+                    <th>{{ t('document.detail.field.status') }}</th>
+                    <th>{{ t('document.detail.field.changeSummary') }}</th>
+                    <th>{{ t('document.detail.field.createdAt') }}</th>
+                    <th>{{ t('document.detail.field.operation') }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1690,17 +1696,17 @@ onBeforeUnmount(() => {
                       <div class="row-actions">
                         <TableActionButton
                           v-if="canSubmitVersion(version)"
-                          label="提交审核"
+                          :label="t('document.detail.action.submitReview')"
                           :permission="submitReviewPermission"
                           theme="primary"
                           @click="submitReview(version.version_no)"
                         >
                           <AssignmentCheckedIcon />
                         </TableActionButton>
-                        <TableActionButton label="查看" :permission="viewDocumentPermission" @click="viewVersion(version)">
+                        <TableActionButton :label="t('common.action.view')" :permission="viewDocumentPermission" @click="viewVersion(version)">
                           <FileSearchIcon />
                         </TableActionButton>
-                        <TableActionButton label="下载" :permission="downloadDocumentPermission" @click="downloadVersion(version)">
+                        <TableActionButton :label="t('common.action.download')" :permission="downloadDocumentPermission" @click="downloadVersion(version)">
                           <DownloadIcon />
                         </TableActionButton>
                       </div>
@@ -1715,12 +1721,12 @@ onBeforeUnmount(() => {
         <aside class="side-panel">
           <section class="tool-panel">
             <div class="tool-header">
-              <div class="tool-title">索引任务</div>
+              <div class="tool-title">{{ t('document.detail.task.title') }}</div>
               <t-button class="task-refresh-button" variant="text" size="small" @click="loadData(true)">
                 <template #icon><RefreshIcon /></template>
               </t-button>
             </div>
-            <div v-if="!indexTasks.length" class="muted-text">暂无索引任务</div>
+            <div v-if="!indexTasks.length" class="muted-text">{{ t('document.detail.task.empty') }}</div>
             <div v-else class="task-list">
               <article v-for="task in indexTasks.slice(0, 5)" :key="task.id" class="task-item">
                 <div class="task-header">
@@ -1730,8 +1736,8 @@ onBeforeUnmount(() => {
                   <span class="task-status">{{ taskStatusText(task) }}</span>
                 </div>
                 <div class="task-meta">
-                  <span>进度 {{ task.progress }}%</span>
-                  <span>更新时间 {{ formatDateTime(task.updated_at) }}</span>
+                  <span>{{ t('document.detail.field.progress') }} {{ task.progress }}%</span>
+                  <span>{{ t('document.detail.field.updatedAt') }} {{ formatDateTime(task.updated_at) }}</span>
                 </div>
                 <div v-if="task.error_message" class="error-text">{{ task.error_message }}</div>
               </article>
@@ -1742,7 +1748,7 @@ onBeforeUnmount(() => {
 
       <t-dialog
         v-model:visible="versionDialogVisible"
-        header="版本更新"
+        :header="t('document.detail.dialog.versionTitle')"
         width="620px"
         :confirm-loading="versionUploading"
         destroy-on-close
@@ -1750,7 +1756,7 @@ onBeforeUnmount(() => {
         @close="closeVersionDialog"
       >
         <t-form label-align="top">
-          <t-form-item label="新版本文件" required-mark>
+          <t-form-item :label="t('document.detail.field.newVersionFile')" required-mark>
             <div class="file-picker-row">
               <input
                 :id="VERSION_UPLOAD_INPUT_ID"
@@ -1761,27 +1767,27 @@ onBeforeUnmount(() => {
               />
               <label class="file-select-button" :for="VERSION_UPLOAD_INPUT_ID">
                 <UploadIcon />
-                <span>选择文件</span>
+                <span>{{ t('document.detail.action.chooseFile') }}</span>
               </label>
-              <span class="file-name" :class="{ empty: !selectedVersionFile }">{{ selectedVersionFile?.name || '未选择文件' }}</span>
+              <span class="file-name" :class="{ empty: !selectedVersionFile }">{{ selectedVersionFile?.name || t('document.detail.empty.noFileSelected') }}</span>
             </div>
           </t-form-item>
-          <t-form-item label="变更说明">
+          <t-form-item :label="t('document.detail.field.changeSummary')">
             <t-textarea v-model="versionForm.change_summary" :autosize="{ minRows: 3, maxRows: 5 }" />
           </t-form-item>
-          <div class="dialog-hint">上传后会生成新版本，并保持当前版本历史可回溯。</div>
+          <div class="dialog-hint">{{ t('document.detail.dialog.versionHint') }}</div>
         </t-form>
       </t-dialog>
 
       <t-dialog
         v-model:visible="securityDialogVisible"
-        header="修改文档密级"
+        :header="t('document.detail.dialog.securityTitle')"
         width="480px"
         :confirm-loading="securitySaving"
         @confirm="confirmSecurityDialog"
       >
         <t-form :data="securityForm" label-align="top">
-          <t-form-item label="文档密级">
+          <t-form-item :label="t('document.detail.field.securityLevel')">
             <t-select v-model="securityForm.security_level">
               <t-option
                 v-for="item in securityLevelOptions(authStore.maxSecurityLevel, securityForm.security_level)"
@@ -1792,7 +1798,7 @@ onBeforeUnmount(() => {
               />
             </t-select>
           </t-form-item>
-          <div class="dialog-hint">修改后会同步当前文档的版本、分块和页索引；已发布索引需要重新构建后生效。</div>
+          <div class="dialog-hint">{{ t('document.detail.dialog.securityHint') }}</div>
         </t-form>
       </t-dialog>
 
@@ -1805,7 +1811,7 @@ onBeforeUnmount(() => {
         @close="closePdfPreview"
       >
         <div class="pdf-preview-dialog-body">
-          <div v-if="pdfPreviewLoading" class="empty-panel">正在加载 PDF 预览...</div>
+          <div v-if="pdfPreviewLoading" class="empty-panel">{{ t('document.detail.empty.loadingPdf') }}</div>
           <div v-else-if="pdfPreviewError" class="empty-panel pdf-preview-error">{{ pdfPreviewError }}</div>
           <iframe
             v-else-if="pdfPreviewUrl"
@@ -1813,7 +1819,7 @@ onBeforeUnmount(() => {
             :src="pdfPreviewUrl"
             :title="pdfPreviewTitle"
           />
-          <div v-else class="empty-panel">暂无可预览 PDF。</div>
+          <div v-else class="empty-panel">{{ t('document.detail.empty.noPdf') }}</div>
         </div>
       </t-dialog>
 

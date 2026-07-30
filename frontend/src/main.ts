@@ -15,7 +15,14 @@ import { createPinia } from 'pinia';
 
 import App from '@/App.vue';
 import { permissionDirective } from '@/directives/permission';
+import { i18n } from '@/locales';
 import router from '@/router';
+import { useLocaleStore } from '@/stores/locale';
 import '@/styles/global.css';
 
-createApp(App).use(createPinia()).use(router).use(TDesign).use(TDesignChat).directive('permission', permissionDirective).mount('#app');
+const app = createApp(App);
+const pinia = createPinia();
+
+app.use(pinia).use(i18n).use(router).use(TDesign).use(TDesignChat).directive('permission', permissionDirective);
+useLocaleStore(pinia).initialize();
+app.mount('#app');

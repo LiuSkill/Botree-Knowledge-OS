@@ -9,6 +9,7 @@
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, onBeforeUnmount, reactive, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import { downloadDocumentAsset } from '@/api/documents';
 import ChatRichContent from '@/components/ChatRichContent.vue';
@@ -19,6 +20,7 @@ const props = defineProps<{
   chatType?: 'project_chat' | 'base_chat';
 }>();
 
+const { t } = useI18n();
 const assetUrlMap = reactive<Record<number, string>>({});
 const loadingAssetIds = reactive<Record<number, boolean>>({});
 const CITATION_ASSET_METADATA_KEYS = [
@@ -45,10 +47,10 @@ function sourceLabel(sourceType: Citation['source_type'], chatType?: 'project_ch
    * 根据问答入口转换引用来源展示文案。
    */
   if (chatType === 'project_chat') {
-    return sourceType === 'project' ? '项目资料' : '基础知识';
+    return sourceType === 'project' ? t('ai.citation.projectMaterial') : t('ai.citation.baseKnowledge');
   }
-  if (sourceType === 'project') return '项目知识';
-  return '基础知识';
+  if (sourceType === 'project') return t('ai.citation.projectKnowledge');
+  return t('ai.citation.baseKnowledge');
 }
 
 function resetAssetUrls(): void {
@@ -73,7 +75,7 @@ async function ensureAssetUrl(asset: CitationAsset): Promise<void> {
     const blob = await downloadDocumentAsset(asset.asset_id);
     assetUrlMap[asset.asset_id] = URL.createObjectURL(blob);
   } catch (error) {
-    MessagePlugin.warning(error instanceof Error ? error.message : `图片 #${asset.asset_id} 加载失败`);
+    MessagePlugin.warning(error instanceof Error ? error.message : t('ai.citation.assetLoadFailed', { id: asset.asset_id }));
   } finally {
     delete loadingAssetIds[asset.asset_id];
   }
@@ -164,15 +166,15 @@ onBeforeUnmount(resetAssetUrls);
 
 <template>
   <div class="citation-list">
-    <t-empty v-if="!citations.length" size="small" description="暂无引用来源" />
+    <t-empty v-if="!citations.length" size="small" :description="t('ai.citation.empty')" />
     <div v-for="item in citations" :key="`${item.document_id}-${item.chunk_id}`" class="citation-item">
       <div class="citation-title">
         <span>{{ item.file_name }}</span>
         <t-tag size="small" variant="light">{{ sourceLabel(item.source_type, chatType) }}</t-tag>
       </div>
       <p v-if="item.drawing_no || item.page_number" class="citation-meta">
-        <span v-if="item.drawing_no">图号：{{ item.drawing_no }}</span>
-        <span v-if="item.page_number">第 {{ item.page_number }} 页</span>
+        <span v-if="item.drawing_no">{{ t('ai.citation.drawingNo', { drawingNo: item.drawing_no }) }}</span>
+        <span v-if="item.page_number">{{ t('ai.citation.pageNumber', { page: item.page_number }) }}</span>
       </p>
       <div v-if="item.assets?.length" class="citation-assets">
         <t-button
@@ -190,8 +192,8 @@ onBeforeUnmount(resetAssetUrls);
             loading="lazy"
             decoding="async"
           />
-          <span v-if="assetBbox(asset)" class="region-badge">局部区域</span>
-          <span v-else class="asset-loading">加载中</span>
+          <span v-if="assetBbox(asset)" class="region-badge">{{ t('ai.citation.region') }}</span>
+          <span v-else class="asset-loading">{{ t('ai.citation.loading') }}</span>
         </t-button>
       </div>
       <ChatRichContent

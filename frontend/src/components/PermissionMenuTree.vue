@@ -45,7 +45,7 @@ function isIndeterminate(node: SystemMenuNode): boolean {
         :model-value="isChecked(node)"
         :indeterminate="isIndeterminate(node)"
         :disabled="props.disabled"
-        @change="(checked) => emit('toggleNode', node, Boolean(checked))"
+        @change="(checked: boolean) => emit('toggleNode', node, Boolean(checked))"
       >
         <span class="node-label">{{ node.name }}</span>
       </t-checkbox>

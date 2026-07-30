@@ -11,6 +11,7 @@ import type { Router, RouteRecordRaw } from 'vue-router';
 
 import type { SystemMenuNode } from '@/types/api';
 import { firstMenuPath } from '@/utils/rbacMenus';
+import { menuTitleKey } from '@/utils/localizedNavigation';
 
 export const ROOT_ROUTE_NAME = 'authorized-root';
 export const NOT_FOUND_ROUTE_NAME = 'authorized-not-found';
@@ -25,7 +26,8 @@ type ExtraRouteConfig = {
   component: RouteComponent;
 };
 type BreadcrumbConfigItem = {
-  title: string;
+  title?: string;
+  titleKey?: string;
   path?: string;
   query?: Record<string, string>;
 };
@@ -70,20 +72,20 @@ const pageComponents: Record<string, RouteComponent> = {
 
 const breadcrumbByMenuPath: Record<string, MenuRouteBreadcrumbConfig> = {
   '/knowledge': {
-    items: [{ title: '知识文档' }],
+    items: [{ titleKey: 'route.knowledgeDocuments' }],
   },
   '/projects': {
-    items: [{ title: '项目列表' }],
+    items: [{ titleKey: 'route.projectList' }],
   },
   '/authorization': {
-    items: [{ title: '授权概览' }],
+    items: [{ titleKey: 'route.authorizationOverview' }],
   },
   '/reviews': {
-    items: [{ title: '审核任务' }],
+    items: [{ titleKey: 'route.reviewTasks' }],
     queryItems: {
       tab: {
-        tasks: [{ title: '审核任务' }],
-        approved: [{ title: '索引构建' }],
+        tasks: [{ titleKey: 'route.reviewTasks' }],
+        approved: [{ titleKey: 'route.indexBuild' }],
       },
     },
   },
@@ -95,8 +97,8 @@ const extraRoutesByMenuId: Record<string, ExtraRouteConfig[]> = {
       path: '/knowledge/bases/:id',
       name: 'knowledge-base-detail',
       breadcrumbItems: [
-        { title: '知识文档', path: '/knowledge' },
-        { title: '知识库详情' },
+        { titleKey: 'route.knowledgeDocuments', path: '/knowledge' },
+        { titleKey: 'route.knowledgeBaseDetail' },
       ],
       component: () => import('@/views/knowledge/KnowledgeCollectionPage.vue'),
     },
@@ -104,27 +106,27 @@ const extraRoutesByMenuId: Record<string, ExtraRouteConfig[]> = {
       path: '/documents/:id',
       name: 'knowledge-document-detail',
       breadcrumbItems: [
-        { title: '知识文档', path: '/knowledge' },
-        { title: '文档详情' },
+        { titleKey: 'route.knowledgeDocuments', path: '/knowledge' },
+        { titleKey: 'route.documentDetail' },
       ],
       breadcrumbQueryItems: {
         from: {
           project: {
             replaceBase: true,
             items: [
-              { title: '项目中心', path: '/projects' },
-              { title: '项目详情', path: '/projects/:projectId' },
-              { title: '项目文档管理', path: '/projects/:projectId/documents' },
-              { title: '文档详情' },
+              { titleKey: 'menu.project', path: '/projects' },
+              { titleKey: 'route.projectDetail', path: '/projects/:projectId' },
+              { titleKey: 'route.projectDocuments', path: '/projects/:projectId/documents' },
+              { titleKey: 'route.documentDetail' },
             ],
           },
           reviewDetail: {
             replaceBase: true,
             items: [
-              { title: '审核中心', path: '/reviews', query: { tab: 'tasks' } },
-              { title: '审核任务', path: '/reviews', query: { tab: 'tasks' } },
-              { title: '审核详情', path: '/reviews/:reviewId' },
-              { title: '文档详情' },
+              { titleKey: 'route.reviewCenter', path: '/reviews', query: { tab: 'tasks' } },
+              { titleKey: 'route.reviewTasks', path: '/reviews', query: { tab: 'tasks' } },
+              { titleKey: 'route.reviewDetail', path: '/reviews/:reviewId' },
+              { titleKey: 'route.documentDetail' },
             ],
           },
         },
@@ -136,15 +138,15 @@ const extraRoutesByMenuId: Record<string, ExtraRouteConfig[]> = {
     {
       path: '/projects/:id',
       name: 'project-detail',
-      breadcrumbItems: [{ title: '项目详情' }],
+      breadcrumbItems: [{ titleKey: 'route.projectDetail' }],
       component: () => import('@/views/project/ProjectDetailPage.vue'),
     },
     {
       path: '/projects/:id/documents',
       name: 'project-document-manage',
       breadcrumbItems: [
-        { title: '项目详情', path: '/projects/:id' },
-        { title: '项目文档管理' },
+        { titleKey: 'route.projectDetail', path: '/projects/:id' },
+        { titleKey: 'route.projectDocuments' },
       ],
       component: () => import('@/views/project/ProjectDocumentManagePage.vue'),
     },
@@ -154,8 +156,8 @@ const extraRoutesByMenuId: Record<string, ExtraRouteConfig[]> = {
       path: '/reviews/:id',
       name: 'review-detail',
       breadcrumbItems: [
-        { title: '审核任务', path: '/reviews', query: { tab: 'tasks' } },
-        { title: '审核详情' },
+        { titleKey: 'route.reviewTasks', path: '/reviews', query: { tab: 'tasks' } },
+        { titleKey: 'route.reviewDetail' },
       ],
       component: () => import('@/views/review/ReviewDetailPage.vue'),
     },
@@ -164,7 +166,7 @@ const extraRoutesByMenuId: Record<string, ExtraRouteConfig[]> = {
     {
       path: '/process-config/routes/:id',
       name: 'detail',
-      breadcrumbItems: [{ title: '路线详情' }],
+      breadcrumbItems: [{ titleKey: 'route.processRouteDetail' }],
       component: () => import('@/views/process-config/route/detail.vue'),
     },
   ],
@@ -218,7 +220,7 @@ function createSystemRoute(node: SystemMenuNode): RouteRecordRaw {
     name: routeName(node.id),
     component: () => import('@/views/system/SystemLayoutPage.vue'),
     redirect: firstMenuPath(node.children) || undefined,
-    meta: { menuId: node.id, title: node.name },
+    meta: { menuId: node.id, title: node.name, titleKey: menuTitleKey(node.id) },
     children: node.children.map((child) => createMenuRoute(child, node.path || '/system')).filter(isRoute),
   };
 }
@@ -229,7 +231,7 @@ function createProcessConfigRoute(node: SystemMenuNode): RouteRecordRaw {
     name: routeName(node.id),
     component: () => import('@/views/process-config/ProcessConfigLayoutPage.vue'),
     redirect: firstMenuPath(node.children) || undefined,
-    meta: { menuId: node.id, title: node.name },
+    meta: { menuId: node.id, title: node.name, titleKey: menuTitleKey(node.id) },
     children: node.children
       .flatMap((child) => [
         createMenuRoute(child, PROCESS_CONFIG_PARENT_PATH),
@@ -258,6 +260,7 @@ function createMenuRoute(node: SystemMenuNode, parentPath = ''): RouteRecordRaw 
       permission: node.id,
       menuId: node.id,
       title: node.name,
+      titleKey: menuTitleKey(node.id),
       ...(breadcrumb?.items ? { breadcrumbItems: breadcrumb.items } : {}),
       ...(breadcrumb?.queryItems ? { breadcrumbQueryItems: breadcrumb.queryItems } : {}),
     },
@@ -273,6 +276,7 @@ function createExtraRoute(node: SystemMenuNode, item: ExtraRouteConfig, parentPa
       permission: node.id,
       menuId: node.id,
       title: node.name,
+      titleKey: menuTitleKey(node.id),
       breadcrumbItems: item.breadcrumbItems,
       ...(item.breadcrumbQueryItems ? { breadcrumbQueryItems: item.breadcrumbQueryItems } : {}),
     },

@@ -8,6 +8,7 @@
 -->
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import type { AgentTraceStep } from '@/types/api';
 import { visibleTraceSteps } from '@/utils/agentTrace';
@@ -15,6 +16,8 @@ import { visibleTraceSteps } from '@/utils/agentTrace';
 const props = defineProps<{
   steps: AgentTraceStep[];
 }>();
+
+const { t, locale } = useI18n();
 
 interface TraceRouteItem {
   label: string;
@@ -51,220 +54,239 @@ interface TraceViewItem {
 }
 
 const TASK_LABELS: Record<string, string> = {
-  answer: '回答生成',
-  answer_llm: '回答模型',
-  answer_generator: '回答生成',
-  answer_policy_gate: '答案门控',
-  answer_policy_router: '答案策略',
-  chat_policy: '问答策略',
-  confirm_state: '确认状态',
-  direct_answer: '直接回答',
-  evidence_judge: '证据判断',
-  evidence_judge_fast: '快速证据判断',
-  evidence_decision: '证据状态判断',
-  intent: '用户意图识别',
-  llm: '通用文本模型',
-  policy_resolution: '策略解析',
-  planner: '检索规划',
-  pre_intent_gate: '快速意图门控',
-  query_decompose: '任务拆解',
-  query_profile: '查询画像',
-  question_understanding: '问题理解',
-  retrieval: '资料检索',
-  retry_retrieval: '补充检索',
-  router: '检索路由',
-  reranker: '证据重排',
-  visual_evidence: '图纸证据',
-  visual_reading: '图像资料理解',
-  vision_llm: '视觉模型',
+  answer: 'ai.trace.task.answer',
+  answer_llm: 'ai.trace.task.answerLlm',
+  answer_generator: 'ai.trace.task.answerGenerator',
+  answer_policy_gate: 'ai.trace.task.answerPolicyGate',
+  answer_policy_router: 'ai.trace.task.answerPolicyRouter',
+  chat_policy: 'ai.trace.task.chatPolicy',
+  confirm_state: 'ai.trace.task.confirmState',
+  direct_answer: 'ai.trace.task.directAnswer',
+  evidence_judge: 'ai.trace.task.evidenceJudge',
+  evidence_judge_fast: 'ai.trace.task.evidenceJudgeFast',
+  evidence_decision: 'ai.trace.task.evidenceDecision',
+  intent: 'ai.trace.task.intent',
+  llm: 'ai.trace.task.llm',
+  policy_resolution: 'ai.trace.task.policyResolution',
+  planner: 'ai.trace.task.planner',
+  pre_intent_gate: 'ai.trace.task.preIntentGate',
+  query_decompose: 'ai.trace.task.queryDecompose',
+  query_profile: 'ai.trace.task.queryProfile',
+  question_understanding: 'ai.trace.task.questionUnderstanding',
+  retrieval: 'ai.trace.task.retrieval',
+  retry_retrieval: 'ai.trace.task.retryRetrieval',
+  router: 'ai.trace.task.router',
+  reranker: 'ai.trace.task.reranker',
+  visual_evidence: 'ai.trace.task.visualEvidence',
+  visual_reading: 'ai.trace.task.visualReading',
+  vision_llm: 'ai.trace.task.visionLlm',
 };
 
 const SOURCE_LABELS: Record<string, string> = {
-  database: '数据库配置',
-  env_fallback: '环境变量兜底',
-  explicit: '指定配置',
-  not_called: '未调用模型',
-  policy_matrix: '检索策略矩阵',
-  retrieval_policy_matrix: '检索策略矩阵',
-  rules: '规则判断',
-  rules_fast_path: '规则快速路径',
-  rules_fallback: '规则回退',
-  unknown: '未知来源',
+  database: 'ai.trace.source.database',
+  env_fallback: 'ai.trace.source.envFallback',
+  explicit: 'ai.trace.source.explicit',
+  not_called: 'ai.trace.source.notCalled',
+  policy_matrix: 'ai.trace.source.policyMatrix',
+  retrieval_policy_matrix: 'ai.trace.source.retrievalPolicyMatrix',
+  rules: 'ai.trace.source.rules',
+  rules_fast_path: 'ai.trace.source.rulesFastPath',
+  rules_fallback: 'ai.trace.source.rulesFallback',
+  unknown: 'ai.trace.source.unknown',
 };
 
 const RETRIEVER_LABELS: Record<string, string> = {
-  graph: '图谱检索',
-  graphrag: '图谱检索',
-  keyword: '关键词检索',
-  keyword_retrieval: '关键词检索',
-  milvus: '语义检索',
-  page_index: '页级检索',
-  page_level_retrieval: '页级检索',
-  project_metadata: '项目元数据',
-  ripgrep: '精确检索',
-  semantic_retrieval: '语义检索',
+  graph: 'ai.trace.retriever.graph',
+  graphrag: 'ai.trace.retriever.graphrag',
+  keyword: 'ai.trace.retriever.keyword',
+  keyword_retrieval: 'ai.trace.retriever.keywordRetrieval',
+  milvus: 'ai.trace.retriever.milvus',
+  page_index: 'ai.trace.retriever.pageIndex',
+  page_level_retrieval: 'ai.trace.retriever.pageLevelRetrieval',
+  project_metadata: 'ai.trace.retriever.projectMetadata',
+  ripgrep: 'ai.trace.retriever.ripgrep',
+  semantic_retrieval: 'ai.trace.retriever.semanticRetrieval',
 };
 
 const PROFILE_LABELS: Record<string, string> = {
-  base: '基础知识库',
-  base_chat: '基础问答',
-  bot_identity: '助手身份',
-  calculation: '计算类问题',
-  casual: '闲聊',
-  comparison: '对比问答',
-  comparison_table: '对比表格',
-  concept: '概念',
-  document: '文档',
-  document_location: '文档定位问答',
-  direct_answer: '直接回答',
-  direct_value: '精确答案',
-  equipment: '设备',
-  equipment_lookup: '设备查询',
-  exact_lookup: '精确定位问答',
-  flow_description: '流程描述',
-  general: '常规回答',
-  general_qa: '通用问答',
-  graph_reasoning: '图谱推理问答',
-  help: '帮助说明',
-  identity: '身份问题',
-  industry: '行业知识库',
-  industry_explanation: '行业知识回答',
-  industry_knowledge_qa: '行业基础知识问答',
-  knowledge_qa: '知识问答',
-  limited_answer: '有限回答',
-  material_flow: '物料流程',
-  normal_answer: '正常回答',
-  page_location: '页级定位问答',
-  parameter: '参数',
-  parameter_lookup: '参数查询',
-  parameter_table: '参数表格',
-  partial_answer: '部分回答',
-  partial_answer_with_llm: '受限模型补充回答',
-  process: '流程',
-  process_flow: '流程问答',
-  process_steps: '流程步骤',
-  project: '项目资料',
-  project_chat: '项目问答',
-  project_overview: '项目概览问答',
-  project_qa: '项目资料问答',
-  project_summary: '项目概览',
-  project_with_industry: '项目资料和行业知识',
-  pure_general_qa: '纯通用问答',
-  refusal: '拒答',
-  source_location: '来源定位',
-  summary: '总结归纳',
-  troubleshooting: '故障排查',
-  unknown: '未知类型',
+  base: 'ai.trace.profile.base',
+  base_chat: 'ai.trace.profile.baseChat',
+  bot_identity: 'ai.trace.profile.botIdentity',
+  calculation: 'ai.trace.profile.calculation',
+  casual: 'ai.trace.profile.casual',
+  comparison: 'ai.trace.profile.comparison',
+  comparison_table: 'ai.trace.profile.comparisonTable',
+  concept: 'ai.trace.profile.concept',
+  document: 'ai.trace.profile.document',
+  document_location: 'ai.trace.profile.documentLocation',
+  direct_answer: 'ai.trace.profile.directAnswer',
+  direct_value: 'ai.trace.profile.directValue',
+  equipment: 'ai.trace.profile.equipment',
+  equipment_lookup: 'ai.trace.profile.equipmentLookup',
+  exact_lookup: 'ai.trace.profile.exactLookup',
+  flow_description: 'ai.trace.profile.flowDescription',
+  general: 'ai.trace.profile.general',
+  general_qa: 'ai.trace.profile.generalQa',
+  graph_reasoning: 'ai.trace.profile.graphReasoning',
+  help: 'ai.trace.profile.help',
+  identity: 'ai.trace.profile.identity',
+  industry: 'ai.trace.profile.industry',
+  industry_explanation: 'ai.trace.profile.industryExplanation',
+  industry_knowledge_qa: 'ai.trace.profile.industryKnowledgeQa',
+  knowledge_qa: 'ai.trace.profile.knowledgeQa',
+  limited_answer: 'ai.trace.profile.limitedAnswer',
+  material_flow: 'ai.trace.profile.materialFlow',
+  normal_answer: 'ai.trace.profile.normalAnswer',
+  page_location: 'ai.trace.profile.pageLocation',
+  parameter: 'ai.trace.profile.parameter',
+  parameter_lookup: 'ai.trace.profile.parameterLookup',
+  parameter_table: 'ai.trace.profile.parameterTable',
+  partial_answer: 'ai.trace.profile.partialAnswer',
+  partial_answer_with_llm: 'ai.trace.profile.partialAnswerWithLlm',
+  process: 'ai.trace.profile.process',
+  process_flow: 'ai.trace.profile.processFlow',
+  process_steps: 'ai.trace.profile.processSteps',
+  project: 'ai.trace.profile.project',
+  project_chat: 'ai.trace.profile.projectChat',
+  project_overview: 'ai.trace.profile.projectOverview',
+  project_qa: 'ai.trace.profile.projectQa',
+  project_summary: 'ai.trace.profile.projectSummary',
+  project_with_industry: 'ai.trace.profile.projectWithIndustry',
+  pure_general_qa: 'ai.trace.profile.pureGeneralQa',
+  refusal: 'ai.trace.profile.refusal',
+  source_location: 'ai.trace.profile.sourceLocation',
+  summary: 'ai.trace.profile.summary',
+  troubleshooting: 'ai.trace.profile.troubleshooting',
+  unknown: 'ai.trace.profile.unknown',
 };
 
 const POLICY_LABELS: Record<string, string> = {
-  ASK_GENERAL_CONFIRM: '先询问是否使用通用知识',
-  CLARIFY: '需要补充问题信息',
-  EMPTY: '未检索到有效证据',
-  ENOUGH: '证据充足',
-  CONFLICTED: '证据存在冲突',
-  GENERAL_ALLOWED: '允许通用回答',
-  INVALID_QUERY: '问题无效',
-  KB_FIRST: '知识库优先',
-  PARTIAL: '证据部分可用',
-  PRESET_REPLY: '预设回复',
-  STRICT_KB: '严格依据知识库',
-  WEAK_ONLY: '仅有弱证据',
+  ASK_GENERAL_CONFIRM: 'ai.trace.policy.askGeneralConfirm',
+  CLARIFY: 'ai.trace.policy.clarify',
+  EMPTY: 'ai.trace.policy.empty',
+  ENOUGH: 'ai.trace.policy.enough',
+  CONFLICTED: 'ai.trace.policy.conflicted',
+  GENERAL_ALLOWED: 'ai.trace.policy.generalAllowed',
+  INVALID_QUERY: 'ai.trace.policy.invalidQuery',
+  KB_FIRST: 'ai.trace.policy.kbFirst',
+  PARTIAL: 'ai.trace.policy.partial',
+  PRESET_REPLY: 'ai.trace.policy.presetReply',
+  STRICT_KB: 'ai.trace.policy.strictKb',
+  WEAK_ONLY: 'ai.trace.policy.weakOnly',
 };
 
 const FIELD_LABELS: Record<string, string> = {
-  action: '处理动作',
-  answer_policy: '回答策略',
-  answer_policy_action: '回答动作',
-  answer_shape: '回答形式',
-  chat_type: '问答类型',
-  confidence: '置信度',
-  conflict_detected: '是否存在冲突',
-  direct_llm_used: '是否直接使用模型',
-  document_id: '文档 ID',
-  drawing_no: '图号',
-  evidence_status: '证据状态',
-  exact_text_search: '精确原文搜索',
-  executed_retrievers: '已执行检索方式',
-  fallback_ladder: '兜底检索顺序',
-  fallback_retrievers: '兜底检索方式',
-  fallback_used: '是否使用兜底检索',
-  graph_retrieval: '图谱检索',
-  has_doc_code: '是否包含文档编号',
-  has_exact_token: '是否包含精确词',
-  has_graph_relation: '是否需要关系推理',
-  has_page_hint: '是否包含页码线索',
-  has_section_hint: '是否包含章节线索',
-  has_table_hint: '是否包含表格线索',
-  has_value_hint: '是否包含数值线索',
-  images: '图片数',
-  implementation: '执行方式',
-  intent: '意图',
-  intent_type: '意图类型',
-  kb_grounded: '是否基于知识库',
-  keyword_retrieval: '关键词检索',
-  knowledge_scope: '知识范围',
-  mode: '模式',
-  model_route: '模型路由',
-  need_general_confirm: '是否需要用户确认',
-  need_graph_reasoning: '是否需要图谱推理',
-  need_page_location: '是否需要页级定位',
-  object_type: '对象类型',
-  page_level_retrieval: '页级检索',
-  page_no: '页码',
-  planned_retrievers: '计划检索方式',
-  policy_matrix_used: '是否使用检索策略矩阵',
-  project_id: '项目 ID',
-  qwen_used: '是否调用通义千问',
-  query_features: '问题特征',
-  query_profile: '查询画像',
-  query_rewrite: '检索改写',
-  query_rewrites: '检索改写',
-  reason: '原因',
-  resolved_answer_policy: '解析后的回答策略',
-  resolved_answer_shape: '解析后的回答形式',
-  resolved_knowledge_scope: '解析后的知识范围',
-  resolved_task_type: '解析后的问题类型',
-  retrieval_needs: '检索需求',
-  rule_id: '规则',
-  semantic_retrieval: '语义检索',
-  selected_retrievers: '选用检索方式',
-  skip_reasons: '跳过原因',
-  skipped_retrievers: '跳过的检索方式',
-  source: '来源',
-  strategy: '策略',
-  task: '任务',
-  task_type: '问题类型',
-  user_id: '用户 ID',
-  visual_evidence: '图纸/图片依据',
+  action: 'ai.trace.field.action',
+  answer_policy: 'ai.trace.field.answerPolicy',
+  answer_policy_action: 'ai.trace.field.answerPolicyAction',
+  answer_shape: 'ai.trace.field.answerShape',
+  chat_type: 'ai.trace.field.chatType',
+  confidence: 'ai.trace.field.confidence',
+  conflict_detected: 'ai.trace.field.conflictDetected',
+  direct_llm_used: 'ai.trace.field.directLlmUsed',
+  document_id: 'ai.trace.field.documentId',
+  drawing_no: 'ai.trace.field.drawingNo',
+  evidence_status: 'ai.trace.field.evidenceStatus',
+  exact_text_search: 'ai.trace.field.exactTextSearch',
+  executed_retrievers: 'ai.trace.field.executedRetrievers',
+  fallback_ladder: 'ai.trace.field.fallbackLadder',
+  fallback_retrievers: 'ai.trace.field.fallbackRetrievers',
+  fallback_used: 'ai.trace.field.fallbackUsed',
+  graph_retrieval: 'ai.trace.field.graphRetrieval',
+  has_doc_code: 'ai.trace.field.hasDocCode',
+  has_exact_token: 'ai.trace.field.hasExactToken',
+  has_graph_relation: 'ai.trace.field.hasGraphRelation',
+  has_page_hint: 'ai.trace.field.hasPageHint',
+  has_section_hint: 'ai.trace.field.hasSectionHint',
+  has_table_hint: 'ai.trace.field.hasTableHint',
+  has_value_hint: 'ai.trace.field.hasValueHint',
+  images: 'ai.trace.field.images',
+  implementation: 'ai.trace.field.implementation',
+  intent: 'ai.trace.field.intent',
+  intent_type: 'ai.trace.field.intentType',
+  kb_grounded: 'ai.trace.field.kbGrounded',
+  keyword_retrieval: 'ai.trace.field.keywordRetrieval',
+  knowledge_scope: 'ai.trace.field.knowledgeScope',
+  mode: 'ai.trace.field.mode',
+  model_route: 'ai.trace.field.modelRoute',
+  need_general_confirm: 'ai.trace.field.needGeneralConfirm',
+  need_graph_reasoning: 'ai.trace.field.needGraphReasoning',
+  need_page_location: 'ai.trace.field.needPageLocation',
+  object_type: 'ai.trace.field.objectType',
+  page_level_retrieval: 'ai.trace.field.pageLevelRetrieval',
+  page_no: 'ai.trace.field.pageNo',
+  planned_retrievers: 'ai.trace.field.plannedRetrievers',
+  policy_matrix_used: 'ai.trace.field.policyMatrixUsed',
+  project_id: 'ai.trace.field.projectId',
+  qwen_used: 'ai.trace.field.qwenUsed',
+  query_features: 'ai.trace.field.queryFeatures',
+  query_profile: 'ai.trace.field.queryProfile',
+  query_rewrite: 'ai.trace.field.queryRewrite',
+  query_rewrites: 'ai.trace.field.queryRewrites',
+  reason: 'ai.trace.field.reason',
+  resolved_answer_policy: 'ai.trace.field.resolvedAnswerPolicy',
+  resolved_answer_shape: 'ai.trace.field.resolvedAnswerShape',
+  resolved_knowledge_scope: 'ai.trace.field.resolvedKnowledgeScope',
+  resolved_task_type: 'ai.trace.field.resolvedTaskType',
+  retrieval_needs: 'ai.trace.field.retrievalNeeds',
+  rule_id: 'ai.trace.field.ruleId',
+  semantic_retrieval: 'ai.trace.field.semanticRetrieval',
+  selected_retrievers: 'ai.trace.field.selectedRetrievers',
+  skip_reasons: 'ai.trace.field.skipReasons',
+  skipped_retrievers: 'ai.trace.field.skippedRetrievers',
+  source: 'ai.trace.field.source',
+  strategy: 'ai.trace.field.strategy',
+  task: 'ai.trace.field.task',
+  task_type: 'ai.trace.field.taskType',
+  user_id: 'ai.trace.field.userId',
+  visual_evidence: 'ai.trace.field.visualEvidence',
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
-  dashscope: '阿里云百炼',
-  env_fallback: '环境变量兜底',
-  local: '本地模型',
+  dashscope: 'ai.trace.provider.dashscope',
+  env_fallback: 'ai.trace.provider.envFallback',
+  local: 'ai.trace.provider.local',
   openai: 'OpenAI',
-  openai_compatible: '兼容 OpenAI 接口',
-  qwen: '通义千问',
-  qwen_api: '通义千问接口',
+  openai_compatible: 'ai.trace.provider.openaiCompatible',
+  qwen: 'ai.trace.provider.qwen',
+  qwen_api: 'ai.trace.provider.qwenApi',
 };
 
 const QWEN_MODEL_TOKEN_LABELS: Record<string, string> = {
-  chat: '对话模型',
-  coder: '代码模型',
-  embedding: '向量模型',
-  flash: '极速版',
-  instruct: '指令模型',
-  max: '旗舰版',
-  plus: '增强版',
-  turbo: '高速版',
-  vl: '视觉版',
+  chat: 'ai.trace.modelToken.chat',
+  coder: 'ai.trace.modelToken.coder',
+  embedding: 'ai.trace.modelToken.embedding',
+  flash: 'ai.trace.modelToken.flash',
+  instruct: 'ai.trace.modelToken.instruct',
+  max: 'ai.trace.modelToken.max',
+  plus: 'ai.trace.modelToken.plus',
+  turbo: 'ai.trace.modelToken.turbo',
+  vl: 'ai.trace.modelToken.vl',
 };
 
-const PAIR_LABELS = new Set(['选择', '跳过', '补充', '关联', '依据', '改写', '冲突']);
+const PAIR_LABELS: Record<string, string> = {
+  选择: 'ai.trace.pair.select',
+  跳过: 'ai.trace.pair.skip',
+  补充: 'ai.trace.pair.supplement',
+  关联: 'ai.trace.pair.relation',
+  依据: 'ai.trace.pair.evidence',
+  改写: 'ai.trace.pair.rewrite',
+  冲突: 'ai.trace.pair.conflict',
+};
 
-const traceItems = computed<TraceViewItem[]>(() =>
-  visibleTraceSteps(props.steps).map((step, index) => ({
+const TRACE_STEP_LABELS: Record<string, string> = {
+  会话短期记忆上下文化: 'ai.trace.task.sessionMemory',
+  问题理解生成: 'ai.trace.task.questionUnderstanding',
+  策略解析: 'ai.trace.task.policyResolution',
+  数据检索规划: 'ai.trace.task.planner',
+  检索召回执行: 'ai.trace.task.retrieval',
+  证据评估: 'ai.trace.task.evidenceJudge',
+  回答生成: 'ai.trace.task.answerGenerator',
+};
+
+const traceItems = computed<TraceViewItem[]>(() => {
+  locale.value;
+  return visibleTraceSteps(props.steps).map((step, index) => ({
     key: traceStepKey(step, index),
     index,
     step,
@@ -272,8 +294,12 @@ const traceItems = computed<TraceViewItem[]>(() =>
     routeItems: modelRouteItems(step),
     routeReason: modelRouteReason(step),
     summary: buildSummaryView(step),
-  })),
-);
+  }));
+});
+
+function translatedValue(value: string): string {
+  return value.startsWith('ai.') ? t(value) : value;
+}
 
 function stepSummary(step: AgentTraceStep): string {
   if (step.display_text) return step.display_text;
@@ -287,7 +313,7 @@ function stepSummary(step: AgentTraceStep): string {
       return readableRecordLines(visibleDetails).join('\n');
     }
   }
-  return '已执行';
+  return t('ai.trace.executed');
 }
 
 function traceStepKey(step: AgentTraceStep, index: number): string {
@@ -295,7 +321,8 @@ function traceStepKey(step: AgentTraceStep, index: number): string {
 }
 
 function traceStepTitle(step: AgentTraceStep): string {
-  return localizeKnownCodes(step.step || step.implementation || '生成步骤');
+  const rawTitle = step.step || step.implementation || t('ai.trace.generatedStep');
+  return translatedValue(TRACE_STEP_LABELS[rawTitle] || localizeKnownCodes(rawTitle));
 }
 
 function tagTheme(status?: string): 'primary' | 'success' | 'danger' {
@@ -311,9 +338,9 @@ function statusClass(status?: string): string {
 }
 
 function statusText(status?: string): string {
-  if (status === 'running') return '进行中';
-  if (status === 'failed') return '失败';
-  return '完成';
+  if (status === 'running') return t('ai.trace.status.running');
+  if (status === 'failed') return t('ai.trace.status.failed');
+  return t('ai.trace.status.success');
 }
 
 function elapsedText(step: AgentTraceStep): string {
@@ -329,15 +356,15 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function rawTextValue(value: unknown): string {
   if (value === undefined || value === null) return '';
-  if (Array.isArray(value)) return value.map((item) => rawTextValue(item)).filter(Boolean).join('、');
+  if (Array.isArray(value)) return value.map((item) => rawTextValue(item)).filter(Boolean).join(t('common.separator.list'));
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value).trim();
 }
 
 function textValue(value: unknown): string {
   if (value === undefined || value === null) return '';
-  if (typeof value === 'boolean') return value ? '是' : '否';
-  if (Array.isArray(value)) return value.map((item) => textValue(item)).filter(Boolean).join('、');
+  if (typeof value === 'boolean') return value ? t('ai.trace.phrase.true') : t('ai.trace.phrase.false');
+  if (Array.isArray(value)) return value.map((item) => textValue(item)).filter(Boolean).join(t('common.separator.list'));
   if (typeof value === 'object') return readableValue(value);
   return localizeKnownCodes(String(value).trim());
 }
@@ -357,24 +384,40 @@ function localizeKnownCodes(text: string): string {
     ...PROVIDER_LABELS,
   };
   const phraseReplacements: Array<[RegExp, string]> = [
-    [/\bPolicyResolver\b/g, '策略解析器'],
-    [/\bQuestionUnderstanding\b/g, '问题理解'],
-    [/\bretrieval_needs\b/g, '检索需求'],
-    [/\bresolved_task_type\b/g, '解析后的问题类型'],
-    [/\banswer_policy\b/g, '回答策略'],
-    [/\bknowledge_scope\b/g, '知识范围'],
-    [/\bpolicy_matrix\b/g, '检索策略矩阵'],
-    [/\boptional graph retrieval\b/gi, '可选图谱检索'],
-    [/\bexact_text_search\b/g, '精确原文搜索'],
-    [/\btrue\b/g, '是'],
-    [/\bfalse\b/g, '否'],
+    [/已完成会话上下文化/g, t('ai.trace.phrase.sessionContextCompleted')],
+    [/已生成问题理解/g, t('ai.trace.phrase.questionUnderstandingGenerated')],
+    [/已解析最终策略/g, t('ai.trace.phrase.finalPolicyResolved')],
+    [/已生成数据检索规划/g, t('ai.trace.phrase.retrievalPlanGenerated')],
+    [/会话短期记忆/g, t('ai.trace.phrase.sessionMemory')],
+    [/问题理解/g, t('ai.trace.phrase.questionUnderstanding')],
+    [/策略解析/g, t('ai.trace.phrase.policyResolution')],
+    [/数据检索规划/g, t('ai.trace.phrase.retrievalPlanning')],
+    [/语义检索/g, t('ai.trace.retriever.milvus')],
+    [/关键词检索/g, t('ai.trace.retriever.keyword')],
+    [/页级检索/g, t('ai.trace.retriever.pageIndex')],
+    [/精确检索/g, t('ai.trace.phrase.exactTextSearch')],
+    [/图谱检索/g, t('ai.trace.retriever.graph')],
+    [/冲突\s*否/g, `${t('ai.trace.pair.conflict')} ${t('ai.trace.phrase.false')}`],
+    [/冲突\s*是/g, `${t('ai.trace.pair.conflict')} ${t('ai.trace.phrase.true')}`],
+    [/冲突/g, t('ai.trace.pair.conflict')],
+    [/\bPolicyResolver\b/g, t('ai.trace.phrase.policyResolver')],
+    [/\bQuestionUnderstanding\b/g, t('ai.trace.phrase.questionUnderstanding')],
+    [/\bretrieval_needs\b/g, t('ai.trace.phrase.retrievalNeeds')],
+    [/\bresolved_task_type\b/g, t('ai.trace.phrase.resolvedTaskType')],
+    [/\banswer_policy\b/g, t('ai.trace.phrase.answerPolicy')],
+    [/\bknowledge_scope\b/g, t('ai.trace.phrase.knowledgeScope')],
+    [/\bpolicy_matrix\b/g, t('ai.trace.phrase.policyMatrix')],
+    [/\boptional graph retrieval\b/gi, t('ai.trace.phrase.optionalGraphRetrieval')],
+    [/\bexact_text_search\b/g, t('ai.trace.phrase.exactTextSearch')],
+    [/\btrue\b/g, t('ai.trace.phrase.true')],
+    [/\bfalse\b/g, t('ai.trace.phrase.false')],
   ];
   const replacedText = phraseReplacements.reduce((result, [pattern, replacement]) => result.replace(pattern, replacement), text);
   return Object.entries(labels)
     .sort(([left], [right]) => right.length - left.length)
     .reduce((result, [code, label]) => {
       const pattern = new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(code)}(?=$|[^A-Za-z0-9_])`, 'g');
-      return result.replace(pattern, `$1${label}`);
+      return result.replace(pattern, `$1${translatedValue(label)}`);
     }, replacedText);
 }
 
@@ -384,18 +427,18 @@ function readableLabel(key: string): string {
 
 function readableValue(value: unknown): string {
   if (value === undefined || value === null || value === '') return '';
-  if (typeof value === 'boolean') return value ? '是' : '否';
-  if (Array.isArray(value)) return value.map((item) => readableValue(item)).filter(Boolean).join('、');
+  if (typeof value === 'boolean') return value ? t('ai.trace.phrase.true') : t('ai.trace.phrase.false');
+  if (Array.isArray(value)) return value.map((item) => readableValue(item)).filter(Boolean).join(t('common.separator.list'));
   if (typeof value === 'object') {
     const record = asRecord(value);
     if (!record) return '';
     return Object.entries(record)
       .map(([key, item]) => {
         const text = readableValue(item);
-        return text ? `${readableLabel(key)}：${text}` : '';
+        return text ? `${readableLabel(key)}: ${text}` : '';
       })
       .filter(Boolean)
-      .join('；');
+      .join('; ');
   }
   return localizeKnownCodes(String(value).trim());
 }
@@ -404,14 +447,14 @@ function readableRecordLines(record: Record<string, unknown>): string[] {
   return Object.entries(record)
     .map(([key, value]) => {
       const text = readableValue(value);
-      return text ? `${readableLabel(key)}：${text}` : '';
+      return text ? `${readableLabel(key)}: ${text}` : '';
     })
     .filter(Boolean);
 }
 
 function providerText(value: unknown): string {
   const text = rawTextValue(value);
-  return PROVIDER_LABELS[text.toLowerCase()] || localizeKnownCodes(text);
+  return translatedValue(PROVIDER_LABELS[text.toLowerCase()] || localizeKnownCodes(text));
 }
 
 function modelNameText(value: unknown): string {
@@ -424,10 +467,10 @@ function modelNameText(value: unknown): string {
     .split('-')
     .map((item) => item.trim())
     .filter(Boolean);
-  if (!tokens.length) return '通义千问';
+  if (!tokens.length) return t('ai.trace.phrase.qwen');
 
-  const suffix = tokens.map((token) => QWEN_MODEL_TOKEN_LABELS[token] || token.toUpperCase()).join(' ');
-  return `通义千问 ${suffix}`;
+  const suffix = tokens.map((token) => translatedValue(QWEN_MODEL_TOKEN_LABELS[token] || token.toUpperCase())).join(' ');
+  return `${t('ai.trace.phrase.qwen')} ${suffix}`;
 }
 
 function modelRoute(step: AgentTraceStep): Record<string, unknown> | null {
@@ -445,7 +488,7 @@ function modelRoute(step: AgentTraceStep): Record<string, unknown> | null {
 
 function translateCode(value: unknown, labels: Record<string, string>): string {
   const text = rawTextValue(value);
-  return labels[text] || labels[text.toLowerCase()] || localizeKnownCodes(text);
+  return translatedValue(labels[text] || labels[text.toLowerCase()] || localizeKnownCodes(text));
 }
 
 function modelRouteItems(step: AgentTraceStep): TraceRouteItem[] {
@@ -455,19 +498,19 @@ function modelRouteItems(step: AgentTraceStep): TraceRouteItem[] {
   const source = rawTextValue(route.source);
   const sourceIsInternalRule = ['rules', 'rules_fast_path', 'not_called'].includes(source);
   if (source && source !== 'unknown' && !sourceIsInternalRule) {
-    items.push({ label: '方式', value: translateCode(source, SOURCE_LABELS) });
+    items.push({ label: t('ai.trace.route.method'), value: translateCode(source, SOURCE_LABELS) });
   }
   if (route.model_type) {
-    items.push({ label: '类型', value: translateCode(route.model_type, TASK_LABELS) });
+    items.push({ label: t('ai.trace.route.type'), value: translateCode(route.model_type, TASK_LABELS) });
   }
   if (route.provider) {
-    items.push({ label: '服务', value: providerText(route.provider) });
+    items.push({ label: t('ai.trace.route.service'), value: providerText(route.provider) });
   }
   if (route.model_name) {
-    items.push({ label: '模型', value: modelNameText(route.model_name) });
+    items.push({ label: t('ai.trace.route.model'), value: modelNameText(route.model_name) });
   }
   if (!items.length && route.task) {
-    items.push({ label: '任务', value: translateCode(route.task, TASK_LABELS) });
+    items.push({ label: t('ai.trace.route.task'), value: translateCode(route.task, TASK_LABELS) });
   }
   return items;
 }
@@ -490,7 +533,7 @@ function splitSummaryLines(text: string): string[] {
 
 function retrieverLabel(name: string): string {
   const normalized = name.trim();
-  return RETRIEVER_LABELS[normalized] || RETRIEVER_LABELS[normalized.toLowerCase()] || localizeKnownCodes(normalized);
+  return translatedValue(RETRIEVER_LABELS[normalized] || RETRIEVER_LABELS[normalized.toLowerCase()] || localizeKnownCodes(normalized));
 }
 
 function parseHitLine(line: string): TraceMetric | null {
@@ -499,7 +542,7 @@ function parseHitLine(line: string): TraceMetric | null {
   return {
     label: retrieverLabel(match[1]),
     value: match[2],
-    suffix: '条',
+    suffix: t('ai.trace.unit.items'),
   };
 }
 
@@ -530,7 +573,7 @@ function metricsFromDetails(step: AgentTraceStep): TraceMetric[] {
       return {
         label: retrieverLabel(name),
         value: String(hitCount),
-        suffix: '条',
+        suffix: t('ai.trace.unit.items'),
       };
     })
     .filter((item): item is TraceMetric => Boolean(item));
@@ -540,9 +583,10 @@ function parseDisplayPair(line: string): TracePair | null {
   const match = line.match(/^([^：:]{1,8})[：:]\s*(.+)$/);
   if (!match) return null;
   const label = match[1].trim();
-  if (!PAIR_LABELS.has(label)) return null;
+  const labelKey = PAIR_LABELS[label];
+  if (!labelKey) return null;
   return {
-    label,
+    label: t(labelKey),
     value: localizeKnownCodes(match[2].trim()),
   };
 }
@@ -552,7 +596,7 @@ function querySummaryView(text: string): TraceSummaryView | null {
   if (!match) return null;
   const queries = match[2].split(/[；;]\s*/).map((item) => item.trim()).filter(Boolean);
   return {
-    lead: `生成 ${match[1]} 个检索问题`,
+    lead: t('ai.trace.summary.generatedQueries', { count: match[1] }),
     lines: [],
     metrics: [],
     pairs: [],
@@ -561,10 +605,10 @@ function querySummaryView(text: string): TraceSummaryView | null {
 }
 
 function fallbackLead(step: AgentTraceStep, metrics: TraceMetric[], pairs: TracePair[]): string {
-  if (metrics.length) return '检索命中统计';
-  if (pairs.some((item) => item.label === '选择')) return '检索方式已确定';
-  if (step.status === 'running') return '正在执行';
-  return '已执行';
+  if (metrics.length) return t('ai.trace.summary.retrievalStats');
+  if (pairs.some((item) => item.label === t('ai.trace.pair.select'))) return t('ai.trace.summary.retrieversSelected');
+  if (step.status === 'running') return t('ai.trace.summary.running');
+  return t('ai.trace.executed');
 }
 
 function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
@@ -610,7 +654,7 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 </script>
 
 <template>
-  <t-empty v-if="!traceItems.length" size="small" description="暂无生成过程" />
+  <t-empty v-if="!traceItems.length" size="small" :description="t('ai.trace.empty')" />
   <div v-else class="trace-list">
     <article v-for="item in traceItems" :key="item.key" class="trace-card" :class="statusClass(item.step.status)">
       <div class="trace-header">
@@ -658,7 +702,7 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
             {{ routeItem.value }}
           </span>
         </div>
-        <p v-if="item.routeReason" class="route-reason">依据：{{ item.routeReason }}</p>
+        <p v-if="item.routeReason" class="route-reason">{{ t('ai.trace.route.reason', { reason: item.routeReason }) }}</p>
       </div>
     </article>
   </div>

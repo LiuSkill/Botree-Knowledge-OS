@@ -1,0 +1,46 @@
+export default {
+  productSubtitle: 'Botree Circular Knowledge Management and Agent Platform',
+  language: { label: 'Language', zhCN: '简体中文', enUS: 'English' },
+  action: {
+    save: 'Save', cancel: 'Cancel', reset: 'Reset', refresh: 'Refresh', delete: 'Delete', edit: 'Edit', create: 'Create',
+    upload: 'Upload', download: 'Download', preview: 'Preview', view: 'View', confirm: 'Confirm', close: 'Close',
+    search: 'Search', clear: 'Clear', enable: 'Enable', disable: 'Disable', logout: 'Sign Out',
+  },
+  field: {
+    name: 'Name', status: 'Status', type: 'Type', operation: 'Actions', createdAt: 'Created At',
+    updatedAt: 'Updated At', user: 'User', project: 'Project', role: 'Role', department: 'Department',
+    email: 'Email', phone: 'Phone', version: 'Version', description: 'Description', result: 'Result',
+  },
+  message: {
+    saveSuccess: 'Saved successfully', deleteSuccess: 'Deleted successfully', operationSuccess: 'Operation completed',
+    systemError: 'A system error occurred. Please try again later.', requestFailed: 'Request failed', networkFailed: 'Network request failed', noData: 'No data', loading: 'Loading',
+  },
+  confirm: { ok: 'Confirm', cancel: 'Cancel' },
+  separator: { list: ', ' },
+  date: { rangeSeparator: 'to', startDate: 'Start Date', endDate: 'End Date' },
+  entity: { currentDocument: 'Current Document' },
+  index: {
+    rebuildHeader: 'Confirm Index Rebuild',
+    rebuildBody: 'Document "{fileName}" has already been indexed. Rebuilding will overwrite the current index result. Continue?',
+    continueBuild: 'Continue',
+  },
+  profile: {
+    title: 'Profile', avatar: 'Avatar', imageFile: 'Image File', chooseImage: 'Choose Image', uploadAvatar: 'Upload Avatar',
+    removeAvatar: 'Remove', changePassword: 'Change Password', currentPassword: 'Current Password', newPassword: 'New Password',
+    confirmPassword: 'Confirm New Password', currentPasswordPlaceholder: 'Enter current password', newPasswordPlaceholder: 'At least 8 characters',
+    confirmPasswordPlaceholder: 'Enter the new password again', savePassword: 'Save Password', highestSecurityLevel: 'Highest Classification',
+    selectAvatarFirst: 'Choose an avatar image first', avatarUpdated: 'Avatar updated', avatarRemoved: 'Avatar removed',
+    passwordsRequired: 'Enter the current and new passwords', passwordMinLength: 'The new password must contain at least 8 characters',
+    passwordMismatch: 'The new passwords do not match', passwordChanged: 'Password changed',
+  },
+  navigation: { breadcrumb: 'Breadcrumb navigation' },
+  uploadBox: { placeholder: 'Choose a txt / md / pdf / docx file', upload: 'Upload' },
+  avatar: { alt: 'User avatar' },
+  preview: {
+    toolbar: 'Preview zoom toolbar',
+    zoomOut: 'Zoom out preview',
+    zoomIn: 'Zoom in preview',
+    reset: 'Reset',
+  },
+  hero: { loginAria: 'Botree Knowledge OS enterprise knowledge management and agent platform' },
+} as const;

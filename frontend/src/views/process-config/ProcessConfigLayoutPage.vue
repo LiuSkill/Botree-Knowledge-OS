@@ -1,25 +1,31 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 
 import { MENU_PERMISSIONS } from '@/constants/permissions';
 
 const route = useRoute();
+const { t } = useI18n();
 
 const descriptionByMenuId: Record<string, string> = {
-  [MENU_PERMISSIONS.PROCESS_CONFIG_MATERIAL]: '维护原料编码、分类、单位、区域单价和启停状态。',
-  [MENU_PERMISSIONS.PROCESS_CONFIG_PRODUCT]: '维护产品编码、分类、单位、区域单价和状态配置。',
-  [MENU_PERMISSIONS.PROCESS_CONFIG_CONSUMABLE]: '维护消耗品基础信息、区域单价及业务状态。',
-  [MENU_PERMISSIONS.PROCESS_CONFIG_PUBLIC_SERVICE]: '维护公共服务项、计量单位、区域价格与使用状态。',
-  [MENU_PERMISSIONS.PROCESS_CONFIG_NODE]: '维护工艺节点、物料关系、设备投资和输出产品配置。',
-  [MENU_PERMISSIONS.PROCESS_CONFIG_ROUTE]: '维护工艺路线、节点链路、版本快照和路线详情。',
-  [MENU_PERMISSIONS.PROCESS_CONFIG_CALCULATOR]: '按原料、目标产品和区域价格匹配路线并完成快速财务测算。',
+  [MENU_PERMISSIONS.PROCESS_CONFIG_MATERIAL]: 'process.layout.description.materials',
+  [MENU_PERMISSIONS.PROCESS_CONFIG_PRODUCT]: 'process.layout.description.products',
+  [MENU_PERMISSIONS.PROCESS_CONFIG_CONSUMABLE]: 'process.layout.description.consumables',
+  [MENU_PERMISSIONS.PROCESS_CONFIG_PUBLIC_SERVICE]: 'process.layout.description.publicServices',
+  [MENU_PERMISSIONS.PROCESS_CONFIG_NODE]: 'process.layout.description.nodes',
+  [MENU_PERMISSIONS.PROCESS_CONFIG_ROUTE]: 'process.layout.description.routes',
+  [MENU_PERMISSIONS.PROCESS_CONFIG_CALCULATOR]: 'process.layout.description.calculator',
 };
 
-const pageTitle = computed(() => (route.meta.title as string | undefined) || '工艺配置');
+const pageTitle = computed(() => {
+  const titleKey = route.meta.titleKey as string | undefined;
+  return titleKey ? t(titleKey) : t('process.module.config');
+});
 const pageDescription = computed(() => {
   const menuId = route.meta.menuId as string | undefined;
-  return (menuId && descriptionByMenuId[menuId]) || '维护基础库、工艺节点和工艺路线等工艺配置数据。';
+  const descriptionKey = menuId && descriptionByMenuId[menuId];
+  return descriptionKey ? t(descriptionKey) : t('process.layout.fallbackDescription');
 });
 </script>
 

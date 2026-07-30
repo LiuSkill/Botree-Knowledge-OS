@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ArrowDownIcon, ArrowUpIcon, DeleteIcon, AddIcon } from 'tdesign-icons-vue-next';
+import { useI18n } from 'vue-i18n';
 
 import type { RouteFlowNode } from '@/views/process-config/route/types';
 import type { ProcessLibraryStatus } from '@/views/process-config/types';
-import { PROCESS_NODE_TYPE_OPTIONS } from '@/views/process-config/node/types';
+import { processNodeTypeLocaleKey, processStatusLocaleKey } from '@/views/process-config/i18n';
 
 const props = withDefaults(
   defineProps<{
@@ -26,34 +27,30 @@ const emit = defineEmits<{
   remove: [localKey: string];
 }>();
 
+const { t } = useI18n();
+
 function statusLabel(status: ProcessLibraryStatus): string {
-  return (
-    {
-      enabled: '启用',
-      draft: '草稿',
-      disabled: '停用',
-    }[status] || status
-  );
+  return t(processStatusLocaleKey(status));
 }
 
 function statusTheme(status: ProcessLibraryStatus): 'success' | 'warning' | 'default' {
-  return (
-    {
-      enabled: 'success',
-      draft: 'warning',
-      disabled: 'default',
-    }[status] || 'default'
-  );
+  const themes: Record<ProcessLibraryStatus, 'success' | 'warning' | 'default'> = {
+    enabled: 'success',
+    draft: 'warning',
+    disabled: 'default',
+  };
+  return themes[status] || 'default';
 }
 
 function nodeTypeLabel(value: string): string {
-  return PROCESS_NODE_TYPE_OPTIONS.find((item) => item.value === value)?.label || value;
+  const key = processNodeTypeLocaleKey(value);
+  return key ? t(key) : value;
 }
 </script>
 
 <template>
   <div class="route-flow-viewer">
-    <t-empty v-if="!nodes.length" description="当前路线还没有配置节点">
+    <t-empty v-if="!nodes.length" :description="t('process.route.empty.flow')">
       <template #image>
         <AddIcon />
       </template>

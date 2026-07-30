@@ -10,6 +10,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { AssignmentCheckedIcon, FullscreenIcon } from 'tdesign-icons-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import {
@@ -28,7 +29,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentAssetInfo, DocumentInfo, DocumentPreview, DocumentVersionInfo, ReviewTask } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
-import { INDEX_STATUS_TEXT, PARSE_STATUS_TEXT, isReviewTaskPending } from '@/utils/constants';
+import { indexStatusText as resolveIndexStatusText, parseStatusText as resolveParseStatusText, isReviewTaskPending } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { securityLevelLabel } from '@/utils/securityLevels';
 
@@ -52,13 +53,14 @@ const IMAGE_PLACEHOLDER_SRC = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yw
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 
 const loading = ref(false);
 const previewLoading = ref(false);
 const pdfPreviewVisible = ref(false);
 const pdfPreviewLoading = ref(false);
 const pdfPreviewUrl = ref('');
-const pdfPreviewTitle = ref('PDF 预览');
+const pdfPreviewTitle = ref('');
 const pdfPreviewError = ref('');
 const zoomPreviewVisible = ref(false);
 
@@ -89,13 +91,13 @@ const structuredPreviewPages = computed(() => {
 });
 
 const admissionLabel = (status: string) => ({
-  text_indexed: '文本+视觉可检索',
-  visual_indexed: '仅视觉可检索',
-  metadata_only: '仅元数据可发现',
-  waiting_correction: '等待人工修正',
+  text_indexed: t('document.detail.indexAdmission.textIndexed'),
+  visual_indexed: t('document.detail.indexAdmission.visualIndexed'),
+  metadata_only: t('document.detail.indexAdmission.metadataOnly'),
+  waiting_correction: t('document.detail.indexAdmission.waitingCorrection'),
 }[status] || status);
-const documentFileName = computed(() => reviewedVersion.value?.file_name || task.value?.document_file_name || documentInfo.value?.file_name || `文档 #${task.value?.document_id || '-'}`);
-const documentProjectName = computed(() => documentInfo.value?.project_name || (documentInfo.value?.project_id ? `项目 #${documentInfo.value.project_id}` : '企业知识'));
+const documentFileName = computed(() => reviewedVersion.value?.file_name || task.value?.document_file_name || documentInfo.value?.file_name || t('review.scope.documentFallback', { id: task.value?.document_id || '-' }));
+const documentProjectName = computed(() => documentInfo.value?.project_name || (documentInfo.value?.project_id ? t('review.scope.projectFallback', { id: documentInfo.value.project_id }) : t('review.scope.base')));
 const viewedFileSize = computed(() => reviewedVersion.value?.file_size ?? documentInfo.value?.file_size ?? 0);
 const viewedFileType = computed(() => reviewedVersion.value?.file_type || documentInfo.value?.file_type || '');
 const viewedSecurityLevel = computed(() => reviewedVersion.value?.security_level || documentInfo.value?.security_level || 'internal');
@@ -105,8 +107,8 @@ const uploaderLabel = computed(() => {
     documentInfo.value?.uploader_username ||
     task.value?.uploader_name ||
     task.value?.uploader_username ||
-    (documentInfo.value?.upload_user_id ? `用户 #${documentInfo.value.upload_user_id}` : '') ||
-    (task.value?.uploader_id ? `用户 #${task.value.uploader_id}` : '-')
+    (documentInfo.value?.upload_user_id ? t('review.scope.userFallback', { id: documentInfo.value.upload_user_id }) : '') ||
+    (task.value?.uploader_id ? t('review.scope.userFallback', { id: task.value.uploader_id }) : '-')
   );
 });
 const parseStatusValue = computed(() => reviewedVersion.value?.parse_status || documentInfo.value?.parse_status || 'unparsed');
@@ -121,7 +123,7 @@ const canPreviewDocument = computed(() => {
   return authStore.hasActionPermission(permission);
 });
 const showBuildIndexAction = computed(() => task.value?.review_status === 'approved' && canBuildIndex.value);
-const pdfPreviewButtonLabel = computed(() => (isPdfFile(documentFileName.value, viewedFileType.value) ? '预览原始 PDF' : '预览转换 PDF'));
+const pdfPreviewButtonLabel = computed(() => (isPdfFile(documentFileName.value, viewedFileType.value) ? t('document.detail.originalPdf') : t('document.detail.convertedPdf')));
 
 async function loadTask(): Promise<void> {
   task.value = await getReviewTask(taskId.value);
@@ -163,7 +165,7 @@ async function loadData(): Promise<void> {
     await Promise.all([loadDocument(), loadVersions()]);
     await loadPreview();
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '审核详情加载失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('review.message.detailLoadFailed'));
   } finally {
     loading.value = false;
   }
@@ -172,11 +174,11 @@ async function loadData(): Promise<void> {
 async function decide(action: 'approve' | 'reject'): Promise<void> {
   if (!task.value) return;
   if (action === 'approve' && !canApproveTask.value) {
-    MessagePlugin.warning('当前账号没有审核通过权限');
+    MessagePlugin.warning(t('review.message.noApprovePermission'));
     return;
   }
   if (action === 'reject' && !canRejectTask.value) {
-    MessagePlugin.warning('当前账号没有审核驳回权限');
+    MessagePlugin.warning(t('review.message.noRejectPermission'));
     return;
   }
   if (action === 'reject') {
@@ -185,7 +187,7 @@ async function decide(action: 'approve' | 'reject'): Promise<void> {
   }
   task.value = await approveReviewTask(task.value.id);
   await Promise.all([loadDocument(), loadVersions()]);
-  MessagePlugin.success('审核已处理');
+  MessagePlugin.success(t('review.message.reviewDone'));
 }
 
 function openRejectDialog(): void {
@@ -203,7 +205,7 @@ async function confirmRejectTask(): Promise<void> {
   if (!task.value) return;
   const comment = rejectForm.comment.trim();
   if (!comment) {
-    MessagePlugin.warning('请填写驳回原因');
+    MessagePlugin.warning(t('review.message.rejectReasonRequired'));
     return;
   }
 
@@ -211,7 +213,7 @@ async function confirmRejectTask(): Promise<void> {
   try {
     task.value = await rejectReviewTask(task.value.id, comment);
     await Promise.all([loadDocument(), loadVersions()]);
-    MessagePlugin.success('已驳回该资料');
+    MessagePlugin.success(t('review.message.rejected'));
     rejectDialogVisible.value = false;
     rejectForm.comment = '';
   } finally {
@@ -224,7 +226,7 @@ function goBuildIndex(): void {
 }
 
 function taskLabel(): string {
-  return '资料审核任务';
+  return t('review.tab.tasks');
 }
 
 function taskFileLinkText(): string {
@@ -237,7 +239,7 @@ function openReviewedDocument(): void {
 }
 
 function parseStatusText(status: string): string {
-  return PARSE_STATUS_TEXT[status] || status || '-';
+  return resolveParseStatusText(status) || '-';
 }
 
 function parseStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'default' {
@@ -248,7 +250,7 @@ function parseStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'd
 }
 
 function indexStatusText(status: string): string {
-  return INDEX_STATUS_TEXT[status] || status || '-';
+  return resolveIndexStatusText(status) || '-';
 }
 
 function indexStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'default' {
@@ -385,11 +387,11 @@ function isPdfFile(fileName: string, fileType?: string | null): boolean {
 async function openDocumentPdfPreview(): Promise<void> {
   if (!task.value || !documentInfo.value || pdfPreviewLoading.value) return;
   if (!canPreviewDocument.value) {
-    MessagePlugin.warning('无权限预览文档');
+    MessagePlugin.warning(t('document.detail.message.noPreviewPermission'));
     return;
   }
 
-  const sourceText = isPdfFile(documentFileName.value, viewedFileType.value) ? '原始 PDF' : '转换 PDF';
+  const sourceText = isPdfFile(documentFileName.value, viewedFileType.value) ? t('document.detail.pdfOriginal') : t('document.detail.pdfConverted');
   revokePdfPreviewUrl();
   pdfPreviewError.value = '';
   pdfPreviewTitle.value = `${documentFileName.value} · ${sourceText}`;
@@ -406,7 +408,7 @@ async function openDocumentPdfPreview(): Promise<void> {
     }
   } catch (error) {
     if (pdfPreviewVisible.value) {
-      pdfPreviewError.value = error instanceof Error ? error.message : 'PDF 预览加载失败';
+      pdfPreviewError.value = error instanceof Error ? error.message : t('document.detail.pdfPreviewLoadFailed');
     }
   } finally {
     pdfPreviewLoading.value = false;
@@ -428,10 +430,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PageContainer title="审核详情" subtitle="查看资料审核状态和处理结果">
+  <PageContainer :title="t('review.title.detail')" :subtitle="t('review.subtitle.detail')">
     <template #actions>
       <div class="detail-action-group">
-        <t-button variant="outline" @click="router.push('/reviews')">返回审核中心</t-button>
+        <t-button variant="outline" @click="router.push('/reviews')">{{ t('review.action.backToCenter') }}</t-button>
         <t-button
           v-if="showBuildIndexAction"
           v-permission="PERMISSIONS.REVIEW_BUILD_INDEX"
@@ -439,7 +441,7 @@ onBeforeUnmount(() => {
           @click="goBuildIndex"
         >
           <template #icon><AssignmentCheckedIcon /></template>
-          去构建索引
+          {{ t('review.action.goBuildIndex') }}
         </t-button>
         <t-button
           v-permission="PERMISSIONS.REVIEW_APPROVE"
@@ -447,7 +449,7 @@ onBeforeUnmount(() => {
           :disabled="!canApproveTask || !isReviewTaskPending(task?.review_status)"
           @click="decide('approve')"
         >
-          审核通过
+          {{ t('review.action.approve') }}
         </t-button>
         <t-button
           v-permission="PERMISSIONS.REVIEW_REJECT"
@@ -455,7 +457,7 @@ onBeforeUnmount(() => {
           :disabled="!canRejectTask || !isReviewTaskPending(task?.review_status)"
           @click="decide('reject')"
         >
-          审核驳回
+          {{ t('review.action.reject') }}
         </t-button>
       </div>
     </template>
@@ -465,31 +467,31 @@ onBeforeUnmount(() => {
         <section class="summary-band">
           <div class="summary-grid">
             <div class="summary-item">
-              <div class="summary-label">审核任务</div>
+              <div class="summary-label">{{ t('review.tab.tasks') }}</div>
               <div class="summary-value">{{ taskLabel() }}</div>
             </div>
             <div class="summary-item">
-              <div class="summary-label">关联文档</div>
+              <div class="summary-label">{{ t('review.field.document') }}</div>
               <div class="summary-value file-name-value">
                 <t-link theme="primary" @click="openReviewedDocument">{{ taskFileLinkText() }}</t-link>
               </div>
             </div>
             <div class="summary-item">
-              <div class="summary-label">审核状态</div>
+              <div class="summary-label">{{ t('review.field.reviewStatus') }}</div>
               <div class="summary-value">
                 <StatusTag type="review" :value="task.review_status" />
               </div>
             </div>
             <div class="summary-item">
-              <div class="summary-label">查看版本</div>
+              <div class="summary-label">{{ t('document.detail.field.viewedVersion') }}</div>
               <div class="summary-value">{{ viewedVersionNo ? `v${viewedVersionNo}` : '-' }}</div>
             </div>
             <div class="summary-item">
-              <div class="summary-label">文件大小</div>
+              <div class="summary-label">{{ t('document.detail.field.fileSize') }}</div>
               <div class="summary-value">{{ formatFileSize(viewedFileSize) }}</div>
             </div>
             <div class="summary-item">
-              <div class="summary-label">解析状态</div>
+              <div class="summary-label">{{ t('document.detail.field.parseStatus') }}</div>
               <div class="summary-value">
                 <t-tag size="small" variant="light" :theme="parseStatusTheme(parseStatusValue)">
                   {{ parseStatusText(parseStatusValue) }}
@@ -497,7 +499,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="summary-item">
-              <div class="summary-label">索引构建状态</div>
+              <div class="summary-label">{{ t('review.field.buildStatus') }}</div>
               <div class="summary-value">
                 <t-tag size="small" variant="light" :theme="indexStatusTheme(indexStatusValue)">
                   {{ indexStatusText(indexStatusValue) }}
@@ -505,28 +507,28 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="summary-item">
-              <div class="summary-label">上传人员</div>
+              <div class="summary-label">{{ t('review.field.uploader') }}</div>
               <div class="summary-value">{{ uploaderLabel }}</div>
             </div>
           </div>
 
           <div class="summary-aside">
-            <div class="summary-line">知识范围：{{ documentProjectName }}</div>
-            <div class="summary-line">分类：{{ task.document_category_path || task.document_category_name || documentInfo.category_path || documentInfo.category_name || '-' }}</div>
-            <div class="summary-line">文档密级：{{ securityLevelLabel(viewedSecurityLevel) }}</div>
-            <div class="summary-line">创建时间：{{ formatDateTime(task.created_at) }}</div>
-            <div class="summary-line">审核意见：{{ task.review_comment || '暂无意见' }}</div>
+            <div class="summary-line">{{ t('document.detail.field.knowledgeScope') }}: {{ documentProjectName }}</div>
+            <div class="summary-line">{{ t('review.field.category') }}: {{ task.document_category_path || task.document_category_name || documentInfo.category_path || documentInfo.category_name || '-' }}</div>
+            <div class="summary-line">{{ t('document.detail.field.securityLevel') }}: {{ securityLevelLabel(viewedSecurityLevel) }}</div>
+            <div class="summary-line">{{ t('document.detail.field.createdAt') }}: {{ formatDateTime(task.created_at) }}</div>
+            <div class="summary-line">{{ t('review.field.comment') }}: {{ task.review_comment || t('review.detail.noComment') }}</div>
           </div>
         </section>
 
         <section class="main-panel">
           <div class="preview-tabs">
-            <div class="preview-tab active">原始内容预览</div>
+            <div class="preview-tab active">{{ t('document.detail.tab.preview') }}</div>
           </div>
 
           <section class="tab-panel">
             <div class="preview-toolbar preview-toolbar-main">
-              <span class="muted-text">查看版本 {{ viewedVersionNo ? `v${viewedVersionNo}` : '-' }}</span>
+              <span class="muted-text">{{ t('document.detail.field.viewedVersion') }} {{ viewedVersionNo ? `v${viewedVersionNo}` : '-' }}</span>
               <div class="preview-toolbar-actions">
                 <t-button
                   size="small"
@@ -536,7 +538,7 @@ onBeforeUnmount(() => {
                   @click="zoomPreviewVisible = true"
                 >
                   <template #icon><FullscreenIcon /></template>
-                  放大预览
+                  {{ t('document.detail.action.zoomPreview') }}
                 </t-button>
                 <t-button
                   v-if="documentInfo && canPreviewDocument"
@@ -548,13 +550,13 @@ onBeforeUnmount(() => {
                 >
                   {{ pdfPreviewButtonLabel }}
                 </t-button>
-                <span class="muted-text">页数 {{ previewData?.page_count || 0 }}</span>
+                <span class="muted-text">{{ t('document.detail.field.pageCount') }} {{ previewData?.page_count || 0 }}</span>
               </div>
             </div>
 
             <div class="preview-content-scroll">
-              <div v-if="previewLoading" class="empty-panel">正在加载原始内容预览...</div>
-              <div v-else-if="!markdownContent" class="empty-panel">当前审核版本还没有可展示的解析结果。</div>
+              <div v-if="previewLoading" class="empty-panel">{{ t('document.detail.empty.loadingPreview') }}</div>
+              <div v-else-if="!markdownContent" class="empty-panel">{{ t('review.detail.noPreview') }}</div>
               <template v-else>
                 <ChatRichContent class="review-rich-content" :content="markdownContent" :image-source-resolver="resolvePreviewImageSource" />
                 <div v-if="structuredPreviewPages.length" class="structured-preview">
@@ -593,22 +595,22 @@ onBeforeUnmount(() => {
 
     <t-dialog
       v-model:visible="rejectDialogVisible"
-      header="填写驳回原因"
+      :header="t('review.rejectDialog.singleTitle')"
       width="520px"
-      :confirm-btn="{ content: '确认驳回', theme: 'danger', loading: rejectSubmitting }"
-      :cancel-btn="{ content: '取消', disabled: rejectSubmitting }"
+      :confirm-btn="{ content: t('review.rejectDialog.confirm'), theme: 'danger', loading: rejectSubmitting }"
+      :cancel-btn="{ content: t('common.action.cancel'), disabled: rejectSubmitting }"
       :close-on-overlay-click="!rejectSubmitting"
       @confirm="confirmRejectTask"
       @close="closeRejectDialog"
     >
       <t-form label-align="top">
-        <t-form-item label="被驳回资料">
+        <t-form-item :label="t('review.field.rejectTarget')">
           <span class="reject-document-name">{{ documentFileName }}</span>
         </t-form-item>
-        <t-form-item label="驳回原因">
+        <t-form-item :label="t('review.field.rejectReason')">
           <t-textarea
             v-model="rejectForm.comment"
-            placeholder="请输入驳回原因，提交后会展示在资料详情中"
+            :placeholder="t('review.placeholder.rejectReason')"
             :autosize="{ minRows: 4, maxRows: 6 }"
             :maxlength="500"
             show-limit-number
@@ -626,7 +628,7 @@ onBeforeUnmount(() => {
       @close="closePdfPreview"
     >
       <div class="pdf-preview-dialog-body">
-        <div v-if="pdfPreviewLoading" class="empty-panel">正在加载 PDF 预览...</div>
+        <div v-if="pdfPreviewLoading" class="empty-panel">{{ t('document.detail.empty.loadingPdf') }}</div>
         <div v-else-if="pdfPreviewError" class="empty-panel pdf-preview-error">{{ pdfPreviewError }}</div>
         <iframe
           v-else-if="pdfPreviewUrl"
@@ -634,7 +636,7 @@ onBeforeUnmount(() => {
           :src="pdfPreviewUrl"
           :title="pdfPreviewTitle"
         />
-        <div v-else class="empty-panel">暂无可预览 PDF。</div>
+        <div v-else class="empty-panel">{{ t('document.detail.empty.noPdf') }}</div>
       </div>
     </t-dialog>
 

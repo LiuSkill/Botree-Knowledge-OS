@@ -10,6 +10,7 @@
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { CheckCircleIcon, CloseCircleIcon, FileSearchIcon, PlayCircleIcon, RefreshIcon } from 'tdesign-icons-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
 import { createDocumentIndexBuildTask, createDocumentIndexBuildTasksBatch, listDocumentIndexTasks } from '@/api/documents';
@@ -31,7 +32,7 @@ import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, IndexTaskInfo, KnowledgeCategory, ProjectInfo, ReviewTask } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions } from '@/utils/categories';
-import { INDEX_STATUS_TEXT, INDEX_TASK_STATUS_TEXT, REVIEW_TASK_STATUS, isReviewTaskPending } from '@/utils/constants';
+import { REVIEW_TASK_STATUS, indexStatusOptions, indexTaskStatusText, isReviewTaskPending } from '@/utils/constants';
 import { formatDateTime } from '@/utils/format';
 import { showConfirmDialog } from '@/utils/confirmDialog';
 import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
@@ -59,6 +60,7 @@ const ROUTE_REVIEW_STATUS_MAP: Record<string, string> = {
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { t } = useI18n();
 const activeTab = ref<ReviewTab>('tasks');
 const taskStatus = ref('');
 const taskProjectId = ref<number | null>(null);
@@ -100,7 +102,7 @@ const buildStatusOptions = computed(() => {
   /**
    * 构建进度筛选项统一来自状态常量，避免页面散落魔法字符串。
    */
-  return Object.entries(INDEX_STATUS_TEXT).map(([value, label]) => ({ value, label }));
+  return indexStatusOptions();
 });
 const rejectDialogVisible = ref(false);
 const rejectSubmitting = ref(false);
@@ -110,11 +112,11 @@ const rejectForm = reactive({
   comment: '',
 });
 const pendingRejectTaskName = computed(() => {
-  if (batchRejectMode.value) return `已选择 ${selectedTaskIds.value.length} 条审核任务`;
+  if (batchRejectMode.value) return t('review.message.selectedTasks', { count: selectedTaskIds.value.length });
   return pendingRejectTask.value ? taskFileName(pendingRejectTask.value) : '';
 });
 
-const taskColumns = [
+const taskColumns = computed(() => [
   {
     colKey: 'row-select',
     type: 'multiple',
@@ -123,33 +125,33 @@ const taskColumns = [
       disabled: batchSubmitting.value || !isReviewTaskPending(row.review_status) || (!canApproveTask.value && !canRejectTask.value),
     }),
   },
-  { colKey: 'file_name', title: '文件名', minWidth: 240, ellipsis: true },
-  { colKey: 'category', title: '文件分类', width: 180, ellipsis: true },
-  { colKey: 'uploader', title: '上传人员', width: 120, ellipsis: true },
-  { colKey: 'created_at', title: '提交时间', width: 170, ellipsis: true },
-  { colKey: 'version', title: '版本', width: 80, align: 'center' },
-  { colKey: 'review_status', title: '状态', width: 110, align: 'center' },
-  { colKey: 'review_comment', title: '审核意见', minWidth: 180, ellipsis: true },
-  { colKey: 'operation', title: '操作', width: 160, align: 'center', fixed: 'right' },
-];
+  { colKey: 'file_name', title: t('review.field.fileName'), minWidth: 240, ellipsis: true },
+  { colKey: 'category', title: t('review.field.fileCategory'), width: 180, ellipsis: true },
+  { colKey: 'uploader', title: t('review.field.uploader'), width: 120, ellipsis: true },
+  { colKey: 'created_at', title: t('review.field.submittedAt'), width: 170, ellipsis: true },
+  { colKey: 'version', title: t('review.field.version'), width: 80, align: 'center' },
+  { colKey: 'review_status', title: t('review.field.status'), width: 110, align: 'center' },
+  { colKey: 'review_comment', title: t('review.field.comment'), minWidth: 180, ellipsis: true },
+  { colKey: 'operation', title: t('review.field.operation'), width: 160, align: 'center', fixed: 'right' },
+]);
 
-const approvedColumns = [
+const approvedColumns = computed(() => [
   {
     colKey: 'row-select',
     type: 'multiple',
     width: 48,
     checkProps: ({ row }: { row: DocumentInfo }) => ({ disabled: batchSubmitting.value || !canRunBuild(row) }),
   },
-  { colKey: 'document', title: '文档', minWidth: 260, ellipsis: true },
-  { colKey: 'scope', title: '范围', width: 160, ellipsis: true },
-  { colKey: 'category', title: '分类', width: 180, ellipsis: true },
-  { colKey: 'version', title: '版本', width: 80, align: 'center' },
-  { colKey: 'index_status', title: '构建状态', width: 140, align: 'center' },
-  { colKey: 'build_started_at', title: '开始时间', width: 170, ellipsis: true },
-  { colKey: 'build_finished_at', title: '完成时间', width: 170, ellipsis: true },
-  { colKey: 'build_error', title: '错误', minWidth: 220, ellipsis: true },
-  { colKey: 'operation', title: '操作', width: 120, align: 'center', fixed: 'right' },
-];
+  { colKey: 'document', title: t('review.field.document'), minWidth: 260, ellipsis: true },
+  { colKey: 'scope', title: t('review.field.scope'), width: 160, ellipsis: true },
+  { colKey: 'category', title: t('review.field.category'), width: 180, ellipsis: true },
+  { colKey: 'version', title: t('review.field.version'), width: 80, align: 'center' },
+  { colKey: 'index_status', title: t('review.field.buildStatus'), width: 140, align: 'center' },
+  { colKey: 'build_started_at', title: t('review.field.startedAt'), width: 170, ellipsis: true },
+  { colKey: 'build_finished_at', title: t('review.field.finishedAt'), width: 170, ellipsis: true },
+  { colKey: 'build_error', title: t('review.field.error'), minWidth: 220, ellipsis: true },
+  { colKey: 'operation', title: t('review.field.operation'), width: 120, align: 'center', fixed: 'right' },
+]);
 
 function isBuildTaskTerminal(status: string | null | undefined): boolean {
   /**
@@ -192,7 +194,7 @@ function getTaskStatusText(documentId: number): string {
    */
   const task = getLatestBuildTask(documentId);
   if (!task) return '';
-  return INDEX_TASK_STATUS_TEXT[task.status] || task.status;
+  return indexTaskStatusText(task.status);
 }
 
 function updateLatestBuildTask(task: IndexTaskInfo): void {
@@ -336,11 +338,11 @@ async function decide(action: 'approve' | 'reject', task: ReviewTask): Promise<v
    * 执行审核动作并刷新审核任务列表。
    */
   if (action === 'approve' && !canApproveTask.value) {
-    MessagePlugin.warning('当前账号没有审核通过权限');
+    MessagePlugin.warning(t('review.message.noApprovePermission'));
     return;
   }
   if (action === 'reject' && !canRejectTask.value) {
-    MessagePlugin.warning('当前账号没有审核驳回权限');
+    MessagePlugin.warning(t('review.message.noRejectPermission'));
     return;
   }
   if (action === 'reject') {
@@ -348,7 +350,7 @@ async function decide(action: 'approve' | 'reject', task: ReviewTask): Promise<v
     return;
   }
   await approveReviewTask(task.id);
-  MessagePlugin.success('审核操作已完成');
+  MessagePlugin.success(t('review.message.reviewDone'));
   await loadTasks();
 }
 
@@ -370,7 +372,7 @@ function closeRejectDialog(): void {
 async function confirmRejectTask(): Promise<void> {
   const comment = rejectForm.comment.trim();
   if (!comment) {
-    MessagePlugin.warning('请填写驳回原因');
+    MessagePlugin.warning(t('review.message.rejectReasonRequired'));
     return;
   }
   if (!batchRejectMode.value && !pendingRejectTask.value) return;
@@ -379,11 +381,11 @@ async function confirmRejectTask(): Promise<void> {
   try {
     if (batchRejectMode.value) {
       const result = await rejectReviewTasksBatch(selectedTaskIds.value, comment);
-      showBatchResult('批量驳回', result.results.map((item) => ({ id: item.task_id, success: item.success, message: item.message })));
+      showBatchResult(t('review.batch.rejectTitle'), result.results.map((item) => ({ id: item.task_id, success: item.success, message: item.message })));
       selectedTaskIds.value = [];
     } else if (pendingRejectTask.value) {
       await rejectReviewTask(pendingRejectTask.value.id, comment);
-      MessagePlugin.success('已驳回该资料');
+      MessagePlugin.success(t('review.message.rejected'));
     }
     rejectDialogVisible.value = false;
     pendingRejectTask.value = null;
@@ -399,29 +401,32 @@ function showBatchResult(title: string, results: Array<{ id?: number; success: b
   const failed = results.filter((item) => !item.success);
   const successCount = results.length - failed.length;
   if (!failed.length) {
-    MessagePlugin.success(`${title}完成，共成功 ${successCount} 条`);
+    MessagePlugin.success(t('review.batch.successSummary', { title, count: successCount }));
     return;
   }
   DialogPlugin.alert({
-    header: `${title}完成`,
-    body: [`成功 ${successCount} 条，失败 ${failed.length} 条：`, ...failed.map((item) => `#${item.id ?? '-'}：${item.message}`)].join('\n'),
+    header: t('review.batch.complete', { title }),
+    body: [
+      t('review.batch.failedSummary', { success: successCount, failed: failed.length }),
+      ...failed.map((item) => t('review.batch.failedItem', { id: item.id ?? '-', message: item.message })),
+    ].join('\n'),
     theme: successCount ? 'warning' : 'danger',
-    confirmBtn: '知道了',
+    confirmBtn: t('review.action.acknowledge'),
   });
 }
 
 async function runBatchApprove(): Promise<void> {
   if (!selectedTaskIds.value.length || batchSubmitting.value) return;
   const confirmed = await showConfirmDialog({
-    header: '确认批量通过',
-    body: `确认通过选中的 ${selectedTaskIds.value.length} 条审核任务吗？`,
-    confirmBtn: '确认通过',
+    header: t('review.batch.approveConfirmTitle'),
+    body: t('review.batch.approveConfirmBody', { count: selectedTaskIds.value.length }),
+    confirmBtn: t('review.batch.approveConfirm'),
   });
   if (!confirmed) return;
   batchSubmitting.value = true;
   try {
     const result = await approveReviewTasksBatch(selectedTaskIds.value);
-    showBatchResult('批量通过', result.results.map((item) => ({ id: item.task_id, success: item.success, message: item.message })));
+    showBatchResult(t('review.batch.approveTitle'), result.results.map((item) => ({ id: item.task_id, success: item.success, message: item.message })));
     selectedTaskIds.value = [];
     await loadTasks();
   } finally {
@@ -441,11 +446,11 @@ async function runBatchBuild(): Promise<void> {
   if (!selectedDocumentIds.value.length || batchSubmitting.value) return;
   const selectedDocuments = approvedDocuments.value.filter((item) => selectedDocumentIds.value.includes(item.id));
   const rebuildCount = selectedDocuments.filter((item) => isIndexedIndexStatus(item.index_status)).length;
-  const rebuildNotice = rebuildCount ? `，其中 ${rebuildCount} 条将重新构建并覆盖现有索引` : '';
+  const rebuildNotice = rebuildCount ? t('review.batch.rebuildNotice', { count: rebuildCount }) : '';
   const confirmed = await showConfirmDialog({
-    header: '确认批量构建索引',
-    body: `确认创建 ${selectedDocumentIds.value.length} 条索引构建任务吗${rebuildNotice}？`,
-    confirmBtn: '开始构建',
+    header: t('review.batch.buildConfirmTitle'),
+    body: t('review.batch.buildConfirmBody', { count: selectedDocumentIds.value.length, notice: rebuildNotice }),
+    confirmBtn: t('review.action.startBuild'),
   });
   if (!confirmed) return;
 
@@ -460,7 +465,7 @@ async function runBatchBuild(): Promise<void> {
     }
     ensureBuildPolling();
     showBatchResult(
-      '批量构建',
+      t('review.batch.buildTitle'),
       result.results.map((item) => ({ id: item.document_id, success: item.success, message: item.message })),
     );
     selectedDocumentIds.value = [];
@@ -496,9 +501,9 @@ async function syncBuildTask(documentId: number): Promise<boolean> {
     if (!notifiedTaskIds.has(latestTask.id)) {
       notifiedTaskIds.add(latestTask.id);
       if (latestTask.status === 'success') {
-        MessagePlugin.success(`文档 #${documentId} 解析与索引已完成`);
+        MessagePlugin.success(t('review.message.buildComplete', { id: documentId }));
       } else {
-        MessagePlugin.error(latestTask.error_message || `文档 #${documentId} 构建失败`);
+        MessagePlugin.error(latestTask.error_message || t('review.message.buildFailed', { id: documentId }));
       }
     }
     return true;
@@ -527,7 +532,7 @@ async function pollBuildTasks(): Promise<void> {
           }
         } catch (error) {
           setPendingBuild(documentId, false);
-          MessagePlugin.error(error instanceof Error ? error.message : `文档 #${documentId} 构建状态获取失败`);
+          MessagePlugin.error(error instanceof Error ? error.message : t('review.message.buildStatusLoadFailed', { id: documentId }));
         }
       }),
     );
@@ -556,11 +561,11 @@ async function runBuild(document: DocumentInfo): Promise<void> {
     updateLatestBuildTask(task);
     setPendingBuild(document.id, true);
     ensureBuildPolling();
-    MessagePlugin.success('构建任务已创建，后台开始解析与索引');
+    MessagePlugin.success(t('review.message.buildTaskCreated'));
     await loadApprovedDocuments();
     void pollBuildTasks();
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '构建任务创建失败');
+    MessagePlugin.error(error instanceof Error ? error.message : t('review.message.buildTaskCreateFailed'));
     await loadApprovedDocuments();
   }
 }
@@ -573,7 +578,7 @@ function canRunBuild(document: DocumentInfo): boolean {
 }
 
 function projectOptionLabel(project: ProjectInfo): string {
-  return project.project_name || project.name || `项目 #${project.id}`;
+  return project.project_name || project.name || t('review.scope.projectFallback', { id: project.id });
 }
 
 function routeQueryText(value: unknown): string {
@@ -612,7 +617,7 @@ function taskFileName(task: ReviewTask): string {
   /**
    * 审核任务兼容历史数据，文档展示字段缺失时回退到文档ID。
    */
-  return task.document_file_name || `文档 #${task.document_id}`;
+  return task.document_file_name || t('review.scope.documentFallback', { id: task.document_id });
 }
 
 function taskCategoryLabel(task: ReviewTask): string {
@@ -620,7 +625,7 @@ function taskCategoryLabel(task: ReviewTask): string {
 }
 
 function taskUploaderLabel(task: ReviewTask): string {
-  return task.uploader_name || task.uploader_username || (task.uploader_id ? `用户 #${task.uploader_id}` : '-');
+  return task.uploader_name || task.uploader_username || (task.uploader_id ? t('review.scope.userFallback', { id: task.uploader_id }) : '-');
 }
 
 function taskVersionLabel(task: ReviewTask): string {
@@ -642,13 +647,13 @@ function openApprovedDocument(document: DocumentInfo): void {
 
 function approvedScopeLabel(document: DocumentInfo): string {
   if (document.knowledge_type !== 'project') {
-    return '企业知识';
+    return t('review.scope.base');
   }
   const project = projects.value.find((item) => item.id === document.project_id);
   if (project) {
     return projectOptionLabel(project);
   }
-  return document.project_id ? `项目 #${document.project_id}` : '项目资料';
+  return document.project_id ? t('review.scope.projectFallback', { id: document.project_id }) : t('review.scope.project');
 }
 
 function approvedVersionLabel(document: DocumentInfo): string {
@@ -657,9 +662,9 @@ function approvedVersionLabel(document: DocumentInfo): string {
 
 function buildActionLabel(document: DocumentInfo): string {
   if (isBuilding(document.id) || document.index_status === 'indexing') {
-    return '索引构建中';
+    return t('review.action.building');
   }
-  return isIndexedIndexStatus(document.index_status) ? '重新构建' : '解析并构建索引';
+  return isIndexedIndexStatus(document.index_status) ? t('review.action.rebuild') : t('review.action.buildIndex');
 }
 
 function handleTaskSearch(): void {
@@ -779,39 +784,39 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PageContainer title="审核中心" subtitle="审核通过后，资料进入索引构建页，由审核人员统一发起异步解析与索引构建任务">
+  <PageContainer :title="t('review.title.center')" :subtitle="t('review.subtitle.center')">
     <div class="system-card scroll-card review-card">
       <t-tabs class="review-tabs" :value="activeTab" @change="handleTabChange">
-        <t-tab-panel value="tasks" label="审核任务" />
-        <t-tab-panel value="approved" label="索引构建" />
+        <t-tab-panel value="tasks" :label="t('review.tab.tasks')" />
+        <t-tab-panel value="approved" :label="t('review.tab.approved')" />
       </t-tabs>
 
       <template v-if="activeTab === 'tasks'">
         <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-          <t-form-item label="项目">
-            <t-select v-model="taskProjectId" class="review-project-select" clearable placeholder="全部项目" @change="handleTaskSearch">
+          <t-form-item :label="t('review.field.project')">
+            <t-select v-model="taskProjectId" class="review-project-select" clearable :placeholder="t('review.placeholder.allProjects')" @change="handleTaskSearch">
               <t-option v-for="project in projects" :key="project.id" :value="project.id" :label="projectOptionLabel(project)" />
             </t-select>
           </t-form-item>
-          <t-form-item label="审核状态">
-            <t-select v-model="taskStatus" class="filter-select" clearable placeholder="全部状态" @change="handleTaskSearch">
-              <t-option :value="REVIEW_TASK_STATUS.reviewing" label="待审核" />
-              <t-option :value="REVIEW_TASK_STATUS.approved" label="已通过" />
-              <t-option :value="REVIEW_TASK_STATUS.rejected" label="已驳回" />
+          <t-form-item :label="t('review.field.reviewStatus')">
+            <t-select v-model="taskStatus" class="filter-select" clearable :placeholder="t('review.placeholder.allStatus')" @change="handleTaskSearch">
+              <t-option :value="REVIEW_TASK_STATUS.reviewing" :label="t('status.review.reviewing')" />
+              <t-option :value="REVIEW_TASK_STATUS.approved" :label="t('status.review.approved')" />
+              <t-option :value="REVIEW_TASK_STATUS.rejected" :label="t('status.review.rejected')" />
             </t-select>
           </t-form-item>
           <t-form-item>
             <t-space>
-              <t-button theme="primary" :loading="tasksLoading" @click="handleTaskSearch">查询</t-button>
-              <t-button @click="resetTaskFilters">重置</t-button>
+              <t-button theme="primary" :loading="tasksLoading" @click="handleTaskSearch">{{ t('common.action.search') }}</t-button>
+              <t-button @click="resetTaskFilters">{{ t('common.action.reset') }}</t-button>
             </t-space>
           </t-form-item>
         </t-form>
 
         <div class="system-section-head">
           <div class="system-section-title">
-            <h2>审核任务</h2>
-            <span>共 {{ taskTotal }} 条数据</span>
+            <h2>{{ t('review.tab.tasks') }}</h2>
+            <span>{{ t('review.table.taskCount', { count: taskTotal }) }}</span>
           </div>
           <t-space>
             <t-button
@@ -820,18 +825,18 @@ onBeforeUnmount(() => {
               :loading="batchSubmitting"
               @click="runBatchApprove"
             >
-              批量通过（{{ selectedTaskIds.length }}）
+              {{ t('review.action.batchApprove', { count: selectedTaskIds.length }) }}
             </t-button>
             <t-button
               theme="danger"
               :disabled="!selectedTaskIds.length || !canRejectTask || batchSubmitting"
               @click="openBatchRejectDialog"
             >
-              批量驳回
+              {{ t('review.action.batchReject') }}
             </t-button>
             <t-button theme="default" variant="outline" :loading="tasksLoading" @click="refreshTasks">
               <template #icon><RefreshIcon /></template>
-              刷新
+              {{ t('common.action.refresh') }}
             </t-button>
           </t-space>
         </div>
@@ -846,7 +851,7 @@ onBeforeUnmount(() => {
             :columns="taskColumns"
             :loading="tasksLoading"
             :selected-row-keys="selectedTaskIds"
-            empty="暂无审核任务"
+            :empty="t('review.table.emptyTasks')"
             @select-change="handleTaskSelectChange"
           >
             <template #file_name="{ row }">
@@ -874,11 +879,11 @@ onBeforeUnmount(() => {
             </template>
             <template #operation="{ row }">
               <div class="row-actions">
-                <TableActionButton label="详情" @click="openReviewDetail(row)">
+                <TableActionButton :label="t('review.action.detail')" @click="openReviewDetail(row)">
                   <FileSearchIcon />
                 </TableActionButton>
                 <TableActionButton
-                  label="通过"
+                  :label="t('review.action.approve')"
                   :permission="PERMISSIONS.REVIEW_APPROVE"
                   theme="success"
                   :disabled="!canApproveTask || !isReviewTaskPending(row.review_status)"
@@ -887,7 +892,7 @@ onBeforeUnmount(() => {
                   <CheckCircleIcon />
                 </TableActionButton>
                 <TableActionButton
-                  label="驳回"
+                  :label="t('review.action.reject')"
                   :permission="PERMISSIONS.REVIEW_REJECT"
                   theme="danger"
                   :disabled="!canRejectTask || !isReviewTaskPending(row.review_status)"
@@ -913,55 +918,55 @@ onBeforeUnmount(() => {
 
       <template v-else>
         <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-          <t-form-item label="资料范围">
-            <t-select v-model="approvedFilters.scope_type" class="filter-select" clearable placeholder="全部范围" @change="handleApprovedSearch">
-              <t-option value="base" label="企业知识" />
-              <t-option value="project" label="项目资料" />
+          <t-form-item :label="t('review.field.scope')">
+            <t-select v-model="approvedFilters.scope_type" class="filter-select" clearable :placeholder="t('review.placeholder.allScope')" @change="handleApprovedSearch">
+              <t-option value="base" :label="t('review.scope.base')" />
+              <t-option value="project" :label="t('review.scope.project')" />
             </t-select>
           </t-form-item>
-          <t-form-item v-if="approvedFilters.scope_type === 'project'" label="项目">
+          <t-form-item v-if="approvedFilters.scope_type === 'project'" :label="t('review.field.project')">
             <t-select
               v-model="approvedFilters.project_id"
               class="review-project-select"
               clearable
-              placeholder="全部项目"
+              :placeholder="t('review.placeholder.allProjects')"
               @change="handleApprovedSearch"
             >
               <t-option v-for="project in projects" :key="project.id" :value="project.id" :label="projectOptionLabel(project)" />
             </t-select>
           </t-form-item>
-          <t-form-item label="分类">
+          <t-form-item :label="t('review.field.category')">
             <t-select
               v-model="approvedFilters.category_id"
               class="review-category-select"
               clearable
               :disabled="!approvedFilters.scope_type || (approvedFilters.scope_type === 'project' && !approvedFilters.project_id)"
-              placeholder="全部分类"
+              :placeholder="t('review.placeholder.allCategories')"
               @change="handleApprovedSearch"
             >
               <t-option v-for="item in categoryOptions" :key="item.value" :value="item.value" :label="item.label" :disabled="item.disabled" />
             </t-select>
           </t-form-item>
-          <t-form-item label="构建状态">
-            <t-select v-model="approvedFilters.index_status" class="filter-select" clearable placeholder="全部状态" @change="handleApprovedSearch">
+          <t-form-item :label="t('review.field.buildStatus')">
+            <t-select v-model="approvedFilters.index_status" class="filter-select" clearable :placeholder="t('review.placeholder.allStatus')" @change="handleApprovedSearch">
               <t-option v-for="item in buildStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
-          <t-form-item label="关键字">
-            <t-input v-model="approvedFilters.keyword" class="review-keyword-input" clearable placeholder="搜索文档" @enter="handleApprovedSearch" />
+          <t-form-item :label="t('review.field.keyword')">
+            <t-input v-model="approvedFilters.keyword" class="review-keyword-input" clearable :placeholder="t('review.placeholder.searchDocument')" @enter="handleApprovedSearch" />
           </t-form-item>
           <t-form-item>
             <t-space>
-              <t-button theme="primary" :loading="approvedLoading" @click="handleApprovedSearch">查询</t-button>
-              <t-button @click="resetApprovedFilters">重置</t-button>
+              <t-button theme="primary" :loading="approvedLoading" @click="handleApprovedSearch">{{ t('common.action.search') }}</t-button>
+              <t-button @click="resetApprovedFilters">{{ t('common.action.reset') }}</t-button>
             </t-space>
           </t-form-item>
         </t-form>
 
         <div class="system-section-head">
           <div class="system-section-title">
-            <h2>索引构建</h2>
-            <span>共 {{ approvedTotal }} 条数据</span>
+            <h2>{{ t('review.tab.approved') }}</h2>
+            <span>{{ t('review.table.approvedCount', { count: approvedTotal }) }}</span>
           </div>
           <t-space>
             <t-button
@@ -970,11 +975,11 @@ onBeforeUnmount(() => {
               :loading="batchSubmitting"
               @click="runBatchBuild"
             >
-              批量构建（{{ selectedDocumentIds.length }}）
+              {{ t('review.action.batchBuild', { count: selectedDocumentIds.length }) }}
             </t-button>
             <t-button theme="default" variant="outline" :loading="approvedLoading" @click="refreshApprovedDocuments">
               <template #icon><RefreshIcon /></template>
-              刷新
+              {{ t('common.action.refresh') }}
             </t-button>
           </t-space>
         </div>
@@ -989,7 +994,7 @@ onBeforeUnmount(() => {
             :columns="approvedColumns"
             :loading="approvedLoading"
             :selected-row-keys="selectedDocumentIds"
-            empty="暂无审核通过资料"
+            :empty="t('review.table.emptyApproved')"
             @select-change="handleDocumentSelectChange"
           >
             <template #document="{ row }">
@@ -1009,7 +1014,7 @@ onBeforeUnmount(() => {
             <template #index_status="{ row }">
               <div class="status-stack">
                 <StatusTag type="index" :value="row.index_status" />
-                <span v-if="getLatestBuildTask(row.id)" class="task-status-text">任务：{{ getTaskStatusText(row.id) }}</span>
+                <span v-if="getLatestBuildTask(row.id)" class="task-status-text">{{ t('review.table.latestTask', { status: getTaskStatusText(row.id) }) }}</span>
               </div>
             </template>
             <template #build_started_at="{ row }">
@@ -1052,22 +1057,22 @@ onBeforeUnmount(() => {
 
     <t-dialog
       v-model:visible="rejectDialogVisible"
-      :header="batchRejectMode ? '批量填写驳回原因' : '填写驳回原因'"
+      :header="batchRejectMode ? t('review.rejectDialog.batchTitle') : t('review.rejectDialog.singleTitle')"
       width="520px"
-      :confirm-btn="{ content: '确认驳回', theme: 'danger', loading: rejectSubmitting }"
-      :cancel-btn="{ content: '取消', disabled: rejectSubmitting }"
+      :confirm-btn="{ content: t('review.rejectDialog.confirm'), theme: 'danger', loading: rejectSubmitting }"
+      :cancel-btn="{ content: t('common.action.cancel'), disabled: rejectSubmitting }"
       :close-on-overlay-click="!rejectSubmitting"
       @confirm="confirmRejectTask"
       @close="closeRejectDialog"
     >
       <t-form label-align="top">
-        <t-form-item label="被驳回资料">
+        <t-form-item :label="t('review.field.rejectTarget')">
           <span class="reject-document-name">{{ pendingRejectTaskName || '-' }}</span>
         </t-form-item>
-        <t-form-item label="驳回原因">
+        <t-form-item :label="t('review.field.rejectReason')">
           <t-textarea
             v-model="rejectForm.comment"
-            placeholder="请输入驳回原因，提交后会展示在资料详情中"
+            :placeholder="t('review.placeholder.rejectReason')"
             :autosize="{ minRows: 4, maxRows: 6 }"
             :maxlength="500"
             show-limit-number

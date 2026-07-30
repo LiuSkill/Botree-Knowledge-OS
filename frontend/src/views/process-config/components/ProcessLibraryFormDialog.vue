@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { AddIcon, DeleteIcon } from 'tdesign-icons-vue-next';
 
 import RegionPriceEditor from '@/views/process-config/components/RegionPriceEditor.vue';
@@ -41,6 +42,7 @@ const emit = defineEmits<{
   submit: [payload: ProcessLibraryPayload, compositions: ProcessMaterialCompositionPayload[]];
 }>();
 
+const { t } = useI18n();
 const form = reactive<ProcessLibraryPayload>({
   code: '',
   name: '',
@@ -59,20 +61,20 @@ const compositionRows = ref<Array<ProcessMaterialCompositionPayload & { percenta
 const isMaterial = computed(() => props.moduleKey === 'materials');
 const isLaborCost = computed(() => props.moduleKey === 'labor-costs');
 const isAsset = computed(() => props.moduleKey === 'equipment-assets' || props.moduleKey === 'infrastructure-assets');
-const compositionColumns = [
-  { colKey: 'element_code', title: '元素', width: 130 },
-  { colKey: 'element_name', title: '名称', minWidth: 150 },
-  { colKey: 'percentage', title: '含量（%）', width: 160 },
-  { colKey: 'remark', title: '备注', minWidth: 160 },
-  { colKey: 'operation', title: '操作', width: 70, align: 'center' as const },
-];
+const compositionColumns = computed(() => [
+  { colKey: 'element_code', title: t('process.field.element'), width: 130 },
+  { colKey: 'element_name', title: t('process.field.name'), minWidth: 150 },
+  { colKey: 'percentage', title: t('process.field.contentPercent'), width: 160 },
+  { colKey: 'remark', title: t('process.field.remark'), minWidth: 160 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 70, align: 'center' as const },
+]);
 
 const visibleProxy = computed({
   get: () => props.visible,
   set: (value: boolean) => emit('update:visible', value),
 });
 
-const dialogTitle = computed(() => (props.mode === 'create' ? `新增${props.entityName}` : `编辑${props.entityName}`));
+const dialogTitle = computed(() => (props.mode === 'create' ? t('process.title.create', { entity: props.entityName }) : t('process.title.edit', { entity: props.entityName })));
 const hasTypeOptions = computed(() => props.typeOptions.length > 0);
 
 watch(
@@ -128,16 +130,16 @@ function validatePrices(regionPrices: ProcessRegionPrice[]): boolean {
   return regionPrices.every((price) => {
     const value = String(price.unit_price ?? '').trim();
     if (!value) {
-      MessagePlugin.warning(`请输入${price.region_name}区域单价`);
+      MessagePlugin.warning(t('process.message.regionPriceRequired', { region: price.region_name }));
       return false;
     }
     const numberValue = Number(value);
     if (!Number.isFinite(numberValue) || numberValue < 0) {
-      MessagePlugin.warning(`${price.region_name}区域单价必须为非负数字`);
+      MessagePlugin.warning(t('process.message.regionPriceInvalid', { region: price.region_name }));
       return false;
     }
     if (!price.unit.trim()) {
-      MessagePlugin.warning(`请输入${price.region_name}计价单位`);
+      MessagePlugin.warning(t('process.message.regionUnitRequired', { region: price.region_name }));
       return false;
     }
     return true;
@@ -175,10 +177,10 @@ function buildPayload(): ProcessLibraryPayload {
 }
 
 function handleConfirm(): void {
-  if (!validateRequired(form.code, `请输入${props.entityName}编码`)) return;
-  if (!validateRequired(form.name, `请输入${props.entityName}名称`)) return;
-  if (!validateRequired(form.type, `请输入${props.entityName}类型`)) return;
-  if (!validateRequired(form.unit, `请输入${props.entityName}单位`)) return;
+  if (!validateRequired(form.code, t('process.message.codeRequired', { entity: props.entityName }))) return;
+  if (!validateRequired(form.name, t('process.message.nameRequired', { entity: props.entityName }))) return;
+  if (!validateRequired(form.type, t('process.message.typeRequired', { entity: props.entityName }))) return;
+  if (!validateRequired(form.unit, t('process.message.unitRequired', { entity: props.entityName }))) return;
 
   const payload = buildPayload();
   if (!validatePrices(payload.region_prices)) return;
@@ -192,11 +194,11 @@ function handleConfirm(): void {
   }));
   if (isMaterial.value) {
     if (compositions.some((row) => !row.element_code || !Number.isFinite(Number(row.content_ratio)) || Number(row.content_ratio) < 0)) {
-      MessagePlugin.warning('请完整填写元素及非负含量');
+      MessagePlugin.warning(t('process.message.compositionRequired'));
       return;
     }
     if (new Set(compositions.map((row) => row.element_code.toLowerCase())).size !== compositions.length) {
-      MessagePlugin.warning('元素不能重复');
+      MessagePlugin.warning(t('process.message.compositionDuplicate'));
       return;
     }
   }
@@ -208,89 +210,89 @@ function handleConfirm(): void {
   <t-dialog v-model:visible="visibleProxy" :header="dialogTitle" width="760px" :confirm-loading="loading" @confirm="handleConfirm">
     <t-form :data="form" label-align="top">
       <div class="form-grid">
-        <t-form-item label="编码" required-mark>
-          <t-input v-model="form.code" clearable maxlength="80" placeholder="请输入唯一编码" />
+        <t-form-item :label="t('process.field.code')" required-mark>
+          <t-input v-model="form.code" clearable maxlength="80" :placeholder="t('process.placeholder.code')" />
         </t-form-item>
-        <t-form-item label="名称" required-mark>
-          <t-input v-model="form.name" clearable maxlength="200" placeholder="请输入名称" />
+        <t-form-item :label="t('process.field.name')" required-mark>
+          <t-input v-model="form.name" clearable maxlength="200" :placeholder="t('process.placeholder.name')" />
         </t-form-item>
-        <t-form-item label="类型" required-mark>
-          <t-select v-if="hasTypeOptions" v-model="form.type" clearable placeholder="请选择类型">
+        <t-form-item :label="t('process.field.type')" required-mark>
+          <t-select v-if="hasTypeOptions" v-model="form.type" clearable :placeholder="t('process.placeholder.type')">
             <t-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
           </t-select>
-          <t-input v-else v-model="form.type" clearable maxlength="100" placeholder="请输入类型" />
+          <t-input v-else v-model="form.type" clearable maxlength="100" :placeholder="t('process.placeholder.typeInput')" />
         </t-form-item>
-        <t-form-item label="单位" required-mark>
-          <t-select v-model="form.unit" filterable creatable clearable placeholder="请选择或输入主单位">
+        <t-form-item :label="t('process.field.unit')" required-mark>
+          <t-select v-model="form.unit" filterable creatable clearable :placeholder="t('process.placeholder.unit')">
             <t-option v-for="option in PROCESS_UNIT_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
           </t-select>
         </t-form-item>
-        <t-form-item label="状态" required-mark>
+        <t-form-item :label="t('common.field.status')" required-mark>
           <t-radio-group v-model="form.status">
-            <t-radio-button value="enabled">启用</t-radio-button>
-            <t-radio-button value="draft">草稿</t-radio-button>
-            <t-radio-button value="disabled">停用</t-radio-button>
+            <t-radio-button value="enabled">{{ t('process.status.enabled') }}</t-radio-button>
+            <t-radio-button value="draft">{{ t('process.status.draft') }}</t-radio-button>
+            <t-radio-button value="disabled">{{ t('process.status.disabled') }}</t-radio-button>
           </t-radio-group>
         </t-form-item>
-        <t-form-item label="排序" required-mark>
+        <t-form-item :label="t('process.field.sort')" required-mark>
           <t-input-number v-model="form.sort_order" :min="0" :max="999999" :step="1" />
         </t-form-item>
       </div>
 
-      <t-form-item label="描述">
-        <t-textarea v-model="form.description" maxlength="1000" autosize placeholder="请输入描述" />
+      <t-form-item :label="t('process.field.description')">
+        <t-textarea v-model="form.description" maxlength="1000" autosize :placeholder="t('process.placeholder.description')" />
       </t-form-item>
 
       <section v-if="isLaborCost" class="composition-section">
-        <div class="composition-header"><strong>人员成本参数</strong></div>
+        <div class="composition-header"><strong>{{ t('process.field.salaryParams') }}</strong></div>
         <div class="form-grid">
-          <t-form-item label="薪酬周期" required-mark>
+          <t-form-item :label="t('process.field.salaryPeriod')" required-mark>
             <t-radio-group v-model="form.salary_period">
-              <t-radio-button value="year">年薪</t-radio-button>
-              <t-radio-button value="month">月薪</t-radio-button>
+              <t-radio-button value="year">{{ t('process.salaryPeriod.year') }}</t-radio-button>
+              <t-radio-button value="month">{{ t('process.salaryPeriod.month') }}</t-radio-button>
             </t-radio-group>
           </t-form-item>
-          <t-form-item label="福利系数" required-mark>
+          <t-form-item :label="t('process.field.welfareFactor')" required-mark>
             <t-input-number v-model="form.welfare_factor" :min="0" :step="0.1" :decimal-places="4" theme="normal" />
           </t-form-item>
         </div>
-        <t-form-item label="区域单人薪酬">
+        <t-form-item :label="t('process.field.regionalSalary')">
           <RegionPriceEditor v-model="form.region_prices" :unit="form.unit" />
         </t-form-item>
       </section>
 
       <section v-else-if="isAsset" class="composition-section">
-        <div class="composition-header"><strong>资产投资参数</strong></div>
+        <div class="composition-header"><strong>{{ t('process.field.assetParams') }}</strong></div>
         <div class="form-grid">
-          <t-form-item label="资产类别" required-mark>
+          <t-form-item :label="t('process.field.assetClass')" required-mark>
             <t-radio-group v-model="form.asset_class" disabled>
-              <t-radio-button value="equipment">设备</t-radio-button>
-              <t-radio-button value="infrastructure">基础设施</t-radio-button>
+              <t-radio-button value="equipment">{{ t('process.assetClass.equipment') }}</t-radio-button>
+              <t-radio-button value="infrastructure">{{ t('process.assetClass.infrastructure') }}</t-radio-button>
             </t-radio-group>
           </t-form-item>
         </div>
-        <t-form-item label="区域单台/单套投资">
+        <t-form-item :label="t('process.field.regionalAssetPrice')">
           <RegionPriceEditor v-model="form.region_prices" :unit="form.unit" />
         </t-form-item>
       </section>
 
-      <t-form-item v-else label="区域单价">
+      <t-form-item v-else :label="t('process.field.regionPrice')">
         <RegionPriceEditor v-model="form.region_prices" :unit="form.unit" />
       </t-form-item>
 
       <section v-if="isMaterial" class="composition-section">
-        <div class="composition-header"><strong>原料组成</strong><t-button size="small" variant="outline" @click="addComposition"><template #icon><AddIcon /></template>新增元素</t-button></div>
-        <div class="composition-table"><t-table row-key="element_code" bordered size="small" :columns="compositionColumns" :data="compositionRows" empty="暂无元素组成">
-          <template #element_code="{ row }"><t-input v-model="row.element_code" placeholder="如 Li" /></template>
-          <template #element_name="{ row }"><t-input v-model="row.element_name" placeholder="如 锂" /></template>
+        <div class="composition-header"><strong>{{ t('process.field.materialComposition') }}</strong><t-button size="small" variant="outline" @click="addComposition"><template #icon><AddIcon /></template>{{ t('process.action.addElement') }}</t-button></div>
+        <div class="composition-table"><t-table row-key="element_code" bordered size="small" :columns="compositionColumns" :data="compositionRows" :empty="t('process.empty.composition')">
+          <template #element_code="{ row }"><t-input v-model="row.element_code" :placeholder="t('process.placeholder.elementCode')" /></template>
+          <template #element_name="{ row }"><t-input v-model="row.element_name" :placeholder="t('process.placeholder.elementName')" /></template>
           <template #percentage="{ row }"><t-input-number v-model="row.percentage" :min="0" :max="100" :decimal-places="4" theme="normal" suffix="%" /></template>
-          <template #remark="{ row }"><t-input v-model="row.remark" placeholder="可选" /></template>
+          <template #remark="{ row }"><t-input v-model="row.remark" :placeholder="t('process.placeholder.optional')" /></template>
           <template #operation="{ rowIndex }"><t-button shape="square" theme="danger" variant="text" @click="removeComposition(rowIndex)"><DeleteIcon /></t-button></template>
         </t-table></div>
       </section>
 
-      <t-form-item label="备注">
-        <t-textarea v-model="form.remark" maxlength="500" autosize placeholder="请输入备注" />
+      <t-form-item :label="t('process.field.remark')">
+        <t-textarea v-model="form.remark" maxlength="500" autosize :placeholder="t('process.placeholder.remark')" />
       </t-form-item>
     </t-form>
   </t-dialog>

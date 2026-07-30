@@ -12,6 +12,7 @@ import {
   UploadIcon,
 } from 'tdesign-icons-vue-next';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 import {
   createProcessLibrary,
@@ -55,7 +56,62 @@ const props = defineProps<{
 
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+const MODULE_LOCALE_KEY_BY_MODULE = {
+  materials: 'materials',
+  products: 'products',
+  consumables: 'consumables',
+  'public-services': 'publicServices',
+  'labor-costs': 'laborCosts',
+  'equipment-assets': 'equipmentAssets',
+  'infrastructure-assets': 'infrastructureAssets',
+  nodes: 'nodes',
+  routes: 'routes',
+} as const;
+const PROCESS_TYPE_KEY_BY_VALUE: Record<string, string> = {
+  battery_black_mass: 'batteryBlackMass',
+  raw_material: 'rawMaterial',
+  product: 'product',
+  byproduct: 'byproduct',
+  solid_waste: 'solidWaste',
+  wastewater: 'wastewater',
+  chemical: 'chemical',
+  reagent: 'reagent',
+  utility: 'utility',
+  public_service: 'publicService',
+  production: 'production',
+  production_management: 'productionManagement',
+  management: 'management',
+  engineering: 'engineering',
+  maintenance: 'maintenance',
+  laboratory: 'laboratory',
+  hse: 'hse',
+  reactor: 'reactor',
+  reactor_tank: 'reactorTank',
+  pump_valve_pipe: 'pumpValvePipe',
+  separation_filter: 'separationFilter',
+  solid_liquid_separation: 'solidLiquidSeparation',
+  solvent_extraction: 'solventExtraction',
+  crystallizer: 'crystallizer',
+  kiln: 'kiln',
+  dryer: 'dryer',
+  evaporator: 'evaporator',
+  off_gas_treatment: 'offGasTreatment',
+  drying_thermal: 'dryingThermal',
+  building: 'building',
+  warehouse: 'warehouse',
+  office_laboratory: 'officeLaboratory',
+  tank_farm: 'tankFarm',
+  cooling_water: 'coolingWater',
+  compressed_air_nitrogen: 'compressedAirNitrogen',
+  power_distribution: 'powerDistribution',
+  wastewater_treatment: 'wastewaterTreatment',
+  civil: 'civil',
+  installation: 'installation',
+  warehouse_logistics: 'warehouseLogistics',
+  ehs: 'ehs',
+};
 
+const { t } = useI18n();
 const filters = reactive({
   keyword: '',
   type: '',
@@ -83,19 +139,24 @@ const records = reactive<PageResult<ProcessLibraryItem>>({
   page_size: DEFAULT_PAGE_SIZE,
 });
 
-const columns = [
-  { colKey: 'code', title: '编码', width: 150, ellipsis: true },
-  { colKey: 'name', title: '名称', minWidth: 170, ellipsis: true },
-  { colKey: 'type', title: '类型', width: 140, ellipsis: true },
-  { colKey: 'unit', title: '单位', width: 90, ellipsis: true },
-  { colKey: 'region_prices', title: '区域单价', minWidth: 280 },
-  { colKey: 'status', title: '状态', width: 100, align: 'center' as const },
-  { colKey: 'updated_at', title: '更新时间', width: 170 },
-  { colKey: 'operation', title: '操作', width: 210, fixed: 'right' as const },
-];
+const columns = computed(() => [
+  { colKey: 'code', title: t('process.field.code'), width: 150, ellipsis: true },
+  { colKey: 'name', title: t('process.field.name'), minWidth: 170, ellipsis: true },
+  { colKey: 'type', title: t('process.field.type'), width: 140, ellipsis: true },
+  { colKey: 'unit', title: t('process.field.unit'), width: 90, ellipsis: true },
+  { colKey: 'region_prices', title: t('process.field.regionPrice'), minWidth: 280 },
+  { colKey: 'status', title: t('common.field.status'), width: 100, align: 'center' as const },
+  { colKey: 'updated_at', title: t('common.field.updatedAt'), width: 170 },
+  { colKey: 'operation', title: t('common.field.operation'), width: 210, fixed: 'right' as const },
+]);
 
-const listTitle = computed(() => `${props.config.title}列表`);
-const typeOptions = computed(() => props.config.typeOptions || []);
+const moduleLocaleKey = computed(() => MODULE_LOCALE_KEY_BY_MODULE[props.config.moduleKey]);
+const moduleTitle = computed(() => t(`process.module.${moduleLocaleKey.value}`));
+const entityName = computed(() => t(`process.entity.${moduleLocaleKey.value}`));
+const listTitle = computed(() => t('process.title.list', { title: moduleTitle.value }));
+const typeOptions = computed(() =>
+  (props.config.typeOptions || []).map((item) => ({ ...item, label: translateProcessType(item.value, item.label) })),
+);
 
 onMounted(() => {
   loadItems();
@@ -202,11 +263,11 @@ async function handleSubmit(payload: ProcessLibraryPayload, compositions: Proces
     if (formMode.value === 'create') {
       const created = await createProcessLibrary(props.config.apiBasePath, finalPayload);
       if (props.config.moduleKey === 'materials') await replaceProcessMaterialCompositions(created.id, compositions);
-      MessagePlugin.success(`已新增${props.config.entityName}`);
+      MessagePlugin.success(t('process.message.created', { entity: entityName.value }));
     } else if (editingItem.value) {
       await updateProcessLibrary(props.config.apiBasePath, editingItem.value.id, finalPayload);
       if (props.config.moduleKey === 'materials') await replaceProcessMaterialCompositions(editingItem.value.id, compositions);
-      MessagePlugin.success(`已更新${props.config.entityName}`);
+      MessagePlugin.success(t('process.message.updated', { entity: entityName.value }));
     }
     formVisible.value = false;
     await loadItems();
@@ -219,7 +280,7 @@ async function handleDelete(row: ProcessLibraryItem): Promise<void> {
   deletingId.value = row.id;
   try {
     await deleteProcessLibrary(props.config.apiBasePath, row.id);
-    MessagePlugin.success(`已删除${props.config.entityName}`);
+    MessagePlugin.success(t('process.message.deleted', { entity: entityName.value }));
     if (records.items.length === 1 && page.value > 1) {
       page.value -= 1;
     }
@@ -234,7 +295,7 @@ async function handleToggleStatus(row: ProcessLibraryItem): Promise<void> {
   statusUpdatingId.value = row.id;
   try {
     await updateProcessLibraryStatus(props.config.apiBasePath, row.id, nextStatus);
-    MessagePlugin.success(`${props.config.entityName}已${nextStatus === 'enabled' ? '启用' : '停用'}`);
+    MessagePlugin.success(t('process.message.statusChanged', { entity: entityName.value, status: statusLabel(nextStatus) }));
     await loadItems();
   } finally {
     statusUpdatingId.value = null;
@@ -250,7 +311,7 @@ async function handleExport(): Promise<void> {
   try {
     const blob = await exportProcessConfigData(props.config.moduleKey, buildExportParams());
     triggerBlobDownload(blob, buildProcessConfigExportFileName(props.config.moduleKey));
-    MessagePlugin.success(`${props.config.entityName}数据导出完成`);
+    MessagePlugin.success(t('process.message.exportDone', { entity: entityName.value }));
   } finally {
     exporting.value = false;
   }
@@ -263,9 +324,9 @@ async function handleImportSuccess(): Promise<void> {
 
 function statusLabel(status: ProcessLibraryStatus): string {
   const labels: Record<ProcessLibraryStatus, string> = {
-    enabled: '启用',
-    draft: '草稿',
-    disabled: '停用',
+    enabled: t('process.status.enabled'),
+    draft: t('process.status.draft'),
+    disabled: t('process.status.disabled'),
   };
   return labels[status] || status;
 }
@@ -280,15 +341,15 @@ function statusTheme(status: ProcessLibraryStatus): TagTheme {
 }
 
 function statusActionLabel(row: ProcessLibraryItem): string {
-  return row.status === 'enabled' ? '停用' : '启用';
+  return row.status === 'enabled' ? t('system.action.disable') : t('system.action.enable');
 }
 
 function statusConfirmText(row: ProcessLibraryItem): string {
-  return `确认${statusActionLabel(row)}该${props.config.entityName}吗？`;
+  return t('process.confirm.toggleStatus', { action: statusActionLabel(row), entity: entityName.value });
 }
 
 function typeLabel(type: string): string {
-  return processLibraryTypeLabel(props.config.moduleKey, type);
+  return translateProcessType(type, processLibraryTypeLabel(props.config.moduleKey, type));
 }
 
 function unitLabel(unit?: string | null): string {
@@ -299,6 +360,15 @@ function displayRegionPrices(row: ProcessLibraryItem): ProcessRegionPrice[] {
   return normalizeRegionPrices(row.region_prices, row.unit);
 }
 
+function translateProcessType(value: string, fallback: string): string {
+  const key = PROCESS_TYPE_KEY_BY_VALUE[value];
+  return key ? t(`process.type.${key}`) : fallback;
+}
+
+function regionLabel(price: ProcessRegionPrice): string {
+  return t(`process.region.${price.region_code}`);
+}
+
 function formatPrice(price: ProcessRegionPrice): string {
   return `${price.currency} ${price.unit_price}/${unitLabel(price.unit)}`;
 }
@@ -307,25 +377,25 @@ function formatPrice(price: ProcessRegionPrice): string {
 <template>
   <div class="system-card scroll-card">
     <t-form class="system-filter-form" layout="inline" label-align="left" label-width="auto">
-      <t-form-item v-permission="config.permissions.view" label="关键字">
-        <t-input v-model="filters.keyword" class="filter-input" clearable placeholder="编码 / 名称 / 类型 / 描述" @enter="handleSearch" />
+      <t-form-item v-permission="config.permissions.view" :label="t('process.field.keyword')">
+        <t-input v-model="filters.keyword" class="filter-input" clearable :placeholder="t('process.placeholder.keyword')" @enter="handleSearch" />
       </t-form-item>
-      <t-form-item v-if="typeOptions.length" v-permission="config.permissions.view" label="类型">
-        <t-select v-model="filters.type" class="filter-select" clearable placeholder="全部类型" @change="handleSearch">
+      <t-form-item v-if="typeOptions.length" v-permission="config.permissions.view" :label="t('process.field.type')">
+        <t-select v-model="filters.type" class="filter-select" clearable :placeholder="t('process.placeholder.allTypes')" @change="handleSearch">
           <t-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
         </t-select>
       </t-form-item>
-      <t-form-item v-permission="config.permissions.view" label="状态">
-        <t-select v-model="filters.status" class="filter-select" clearable placeholder="全部状态" @change="handleSearch">
-          <t-option label="启用" value="enabled" />
-          <t-option label="草稿" value="draft" />
-          <t-option label="停用" value="disabled" />
+      <t-form-item v-permission="config.permissions.view" :label="t('common.field.status')">
+        <t-select v-model="filters.status" class="filter-select" clearable :placeholder="t('system.status.all')" @change="handleSearch">
+          <t-option :label="t('process.status.enabled')" value="enabled" />
+          <t-option :label="t('process.status.draft')" value="draft" />
+          <t-option :label="t('process.status.disabled')" value="disabled" />
         </t-select>
       </t-form-item>
       <t-form-item>
         <t-space>
-          <t-button v-permission="config.permissions.view" theme="primary" @click="handleSearch">查询</t-button>
-          <t-button v-permission="config.permissions.view" @click="clearFilters()">重置</t-button>
+          <t-button v-permission="config.permissions.view" theme="primary" @click="handleSearch">{{ t('system.action.query') }}</t-button>
+          <t-button v-permission="config.permissions.view" @click="clearFilters()">{{ t('system.action.reset') }}</t-button>
         </t-space>
       </t-form-item>
     </t-form>
@@ -333,24 +403,24 @@ function formatPrice(price: ProcessRegionPrice): string {
     <div class="system-section-head">
       <div class="system-section-title">
         <h2>{{ listTitle }}</h2>
-        <span>共 {{ records.total }} 条数据</span>
+        <span>{{ t('system.summary.totalRecords', { count: records.total }) }}</span>
       </div>
       <t-space>
         <t-button v-permission="config.permissions.view" theme="default" variant="outline" :loading="loading" @click="loadItems">
           <template #icon><RefreshIcon /></template>
-          刷新
+          {{ t('system.action.refresh') }}
         </t-button>
         <t-button v-if="config.enableImportExport !== false" v-permission="config.permissions.import" theme="default" variant="outline" @click="handleImport">
           <template #icon><UploadIcon /></template>
-          导入
+          {{ t('process.action.import') }}
         </t-button>
         <t-button v-if="config.enableImportExport !== false" v-permission="config.permissions.export" theme="default" variant="outline" :loading="exporting" @click="handleExport">
           <template #icon><DownloadIcon /></template>
-          导出
+          {{ t('process.action.export') }}
         </t-button>
         <t-button v-permission="config.permissions.create" theme="primary" @click="openCreateDialog">
           <template #icon><AddIcon /></template>
-          新增{{ config.entityName }}
+          {{ t('process.action.createEntity', { entity: entityName }) }}
         </t-button>
       </t-space>
     </div>
@@ -364,12 +434,12 @@ function formatPrice(price: ProcessRegionPrice): string {
         :data="records.items"
         :columns="columns"
         :loading="loading"
-        :empty="`暂无${config.entityName}数据`"
+        :empty="t('process.empty.list', { entity: entityName })"
       >
         <template #region_prices="{ row }">
           <div class="price-list">
             <t-tag v-for="price in displayRegionPrices(row)" :key="price.region_code" size="small" variant="light">
-              {{ price.region_name }} {{ formatPrice(price) }}
+              {{ regionLabel(price) }} {{ formatPrice(price) }}
             </t-tag>
           </div>
         </template>
@@ -385,10 +455,10 @@ function formatPrice(price: ProcessRegionPrice): string {
         </template>
         <template #operation="{ row }">
           <t-space size="small">
-            <TableActionButton label="查看" :permission="config.permissions.view" @click="openDetailDialog(row)">
+            <TableActionButton :label="t('system.action.view')" :permission="config.permissions.view" @click="openDetailDialog(row)">
               <BrowseIcon />
             </TableActionButton>
-            <TableActionButton label="编辑" :permission="config.permissions.update" @click="openEditDialog(row)">
+            <TableActionButton :label="t('system.action.edit')" :permission="config.permissions.update" @click="openEditDialog(row)">
               <EditIcon />
             </TableActionButton>
             <t-popconfirm :content="statusConfirmText(row)" @confirm="handleToggleStatus(row)">
@@ -397,8 +467,8 @@ function formatPrice(price: ProcessRegionPrice): string {
                 <CloseCircleIcon v-else />
               </TableActionButton>
             </t-popconfirm>
-            <t-popconfirm :content="`确认删除该${config.entityName}吗？删除前系统会检查引用关系。`" @confirm="handleDelete(row)">
-              <TableActionButton label="删除" :permission="config.permissions.delete" :loading="deletingId === row.id" theme="danger">
+            <t-popconfirm :content="t('process.confirm.delete', { entity: entityName })" @confirm="handleDelete(row)">
+              <TableActionButton :label="t('system.action.delete')" :permission="config.permissions.delete" :loading="deletingId === row.id" theme="danger">
                 <DeleteIcon />
               </TableActionButton>
             </t-popconfirm>
@@ -421,7 +491,7 @@ function formatPrice(price: ProcessRegionPrice): string {
     <ProcessLibraryFormDialog
       v-model:visible="formVisible"
       :mode="formMode"
-      :entity-name="config.entityName"
+      :entity-name="entityName"
       :data="editingItem"
       :loading="submitting"
       :type-options="typeOptions"
@@ -433,42 +503,42 @@ function formatPrice(price: ProcessRegionPrice): string {
     <ProcessConfigImportDialog
       v-model:visible="importVisible"
       :module-key="config.moduleKey"
-      :module-label="config.entityName"
+      :module-label="entityName"
       @success="handleImportSuccess"
     />
 
-    <t-dialog v-model:visible="detailVisible" :header="`${config.entityName}详情`" width="760px" :footer="false">
+    <t-dialog v-model:visible="detailVisible" :header="t('process.title.detail', { entity: entityName })" width="760px" :footer="false">
       <t-loading :loading="detailLoading">
         <div v-if="selectedItem" class="detail-content">
           <t-descriptions bordered :column="2" size="small">
-            <t-descriptions-item label="编码">{{ selectedItem.code }}</t-descriptions-item>
-            <t-descriptions-item label="名称">{{ selectedItem.name }}</t-descriptions-item>
-            <t-descriptions-item label="类型">{{ typeLabel(selectedItem.type) }}</t-descriptions-item>
-            <t-descriptions-item label="单位">{{ unitLabel(selectedItem.unit) }}</t-descriptions-item>
-            <t-descriptions-item label="状态">
+            <t-descriptions-item :label="t('process.field.code')">{{ selectedItem.code }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.field.name')">{{ selectedItem.name }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.field.type')">{{ typeLabel(selectedItem.type) }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.field.unit')">{{ unitLabel(selectedItem.unit) }}</t-descriptions-item>
+            <t-descriptions-item :label="t('common.field.status')">
               <t-tag size="small" variant="light" :theme="statusTheme(selectedItem.status)">{{ statusLabel(selectedItem.status) }}</t-tag>
             </t-descriptions-item>
-            <t-descriptions-item label="排序">{{ selectedItem.sort_order }}</t-descriptions-item>
-            <t-descriptions-item label="创建时间">{{ formatDateTime(selectedItem.created_at) }}</t-descriptions-item>
-            <t-descriptions-item label="更新时间">{{ formatDateTime(selectedItem.updated_at) }}</t-descriptions-item>
-            <t-descriptions-item label="描述">{{ selectedItem.description || '-' }}</t-descriptions-item>
-            <t-descriptions-item label="备注">{{ selectedItem.remark || '-' }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.field.sort')">{{ selectedItem.sort_order }}</t-descriptions-item>
+            <t-descriptions-item :label="t('common.field.createdAt')">{{ formatDateTime(selectedItem.created_at) }}</t-descriptions-item>
+            <t-descriptions-item :label="t('common.field.updatedAt')">{{ formatDateTime(selectedItem.updated_at) }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.field.description')">{{ selectedItem.description || '-' }}</t-descriptions-item>
+            <t-descriptions-item :label="t('process.field.remark')">{{ selectedItem.remark || '-' }}</t-descriptions-item>
           </t-descriptions>
 
-          <div class="detail-section-title">区域单价</div>
+          <div class="detail-section-title">{{ t('process.field.regionPrice') }}</div>
           <div class="detail-price-list">
             <div v-for="price in displayRegionPrices(selectedItem)" :key="price.region_code" class="detail-price-row">
-              <span>{{ price.region_name }}</span>
+              <span>{{ regionLabel(price) }}</span>
               <strong>{{ formatPrice(price) }}</strong>
               <t-tag size="small" variant="light" :theme="statusTheme(price.status)">{{ statusLabel(price.status) }}</t-tag>
             </div>
           </div>
           <template v-if="config.moduleKey === 'materials'">
-            <div class="detail-section-title">原料组成</div>
+            <div class="detail-section-title">{{ t('process.field.materialComposition') }}</div>
             <t-table row-key="element_code" bordered size="small" :data="materialCompositions" :columns="[
-              { colKey: 'element_code', title: '元素' },
-              { colKey: 'element_name', title: '名称' },
-              { colKey: 'content_ratio', title: '含量', align: 'right' },
+              { colKey: 'element_code', title: t('process.field.element') },
+              { colKey: 'element_name', title: t('process.field.name') },
+              { colKey: 'content_ratio', title: t('process.field.content'), align: 'right' },
             ]">
               <template #content_ratio="{ row }">{{ (Number(row.content_ratio) * 100).toFixed(2) }}%</template>
             </t-table>

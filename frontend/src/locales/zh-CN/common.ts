@@ -1,0 +1,46 @@
+export default {
+  productSubtitle: '博萃循环知识管理与智能体应用平台',
+  language: { label: '语言', zhCN: '简体中文', enUS: 'English' },
+  action: {
+    save: '保存', cancel: '取消', reset: '重置', refresh: '刷新', delete: '删除', edit: '编辑', create: '新建',
+    upload: '上传', download: '下载', preview: '预览', view: '查看', confirm: '确认', close: '关闭',
+    search: '查询', clear: '清空', enable: '启用', disable: '禁用', logout: '退出',
+  },
+  field: {
+    name: '名称', status: '状态', type: '类型', operation: '操作', createdAt: '创建时间',
+    updatedAt: '更新时间', user: '用户', project: '项目', role: '角色', department: '部门',
+    email: '邮箱', phone: '手机', version: '版本', description: '说明', result: '结果',
+  },
+  message: {
+    saveSuccess: '保存成功', deleteSuccess: '删除成功', operationSuccess: '操作成功',
+    systemError: '系统异常，请稍后重试', requestFailed: '请求失败', networkFailed: '网络请求失败', noData: '暂无数据', loading: '加载中',
+  },
+  confirm: { ok: '确认', cancel: '取消' },
+  separator: { list: '、' },
+  date: { rangeSeparator: '至', startDate: '开始日期', endDate: '结束日期' },
+  entity: { currentDocument: '当前文档' },
+  index: {
+    rebuildHeader: '确认重新构建索引',
+    rebuildBody: '文档“{fileName}”已完成索引。重新构建会覆盖当前索引结果，是否继续？',
+    continueBuild: '继续构建',
+  },
+  profile: {
+    title: '个人中心', avatar: '头像', imageFile: '图片文件', chooseImage: '选择图片', uploadAvatar: '上传头像',
+    removeAvatar: '移除', changePassword: '修改密码', currentPassword: '当前密码', newPassword: '新密码',
+    confirmPassword: '确认新密码', currentPasswordPlaceholder: '请输入当前密码', newPasswordPlaceholder: '至少 8 位',
+    confirmPasswordPlaceholder: '请再次输入新密码', savePassword: '保存密码', highestSecurityLevel: '最高密级',
+    selectAvatarFirst: '请先选择头像图片', avatarUpdated: '头像已更新', avatarRemoved: '头像已移除',
+    passwordsRequired: '请填写当前密码和新密码', passwordMinLength: '新密码至少 8 位',
+    passwordMismatch: '两次输入的新密码不一致', passwordChanged: '密码已修改',
+  },
+  navigation: { breadcrumb: '面包屑导航' },
+  uploadBox: { placeholder: '选择 txt / md / pdf / docx 文件', upload: '上传' },
+  avatar: { alt: '用户头像' },
+  preview: {
+    toolbar: '预览缩放工具栏',
+    zoomOut: '缩小预览',
+    zoomIn: '放大预览',
+    reset: '重置',
+  },
+  hero: { loginAria: 'Botree Knowledge OS 企业知识管理与智能体平台' },
+} as const;

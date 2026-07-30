@@ -15,6 +15,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { beginActionMask, endActionMask } from '@/stores/actionMask';
 import type { ApiResponse } from '@/types/api';
 import { clearToken, getToken } from '@/utils/auth';
+import { resolveApiErrorMessage } from '@/utils/apiError';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
 
@@ -58,11 +59,7 @@ async function resolveErrorMessage(error: unknown): Promise<string> {
     }
   }
 
-  const message = (response?.data as { message?: unknown } | undefined)?.message;
-  if (typeof message === 'string' && message.trim()) {
-    return message;
-  }
-  return (error as { message?: string })?.message || '网络请求失败';
+  return resolveApiErrorMessage(error);
 }
 
 export const request = axios.create({
@@ -89,7 +86,7 @@ request.interceptors.response.use(
     if (response.config.responseType === 'blob') {
       const payload = response.data instanceof Blob ? await parseBlobPayload(response.data) : null;
       if (payload && Number(payload.code) !== 0) {
-        const message = typeof payload.message === 'string' && payload.message.trim() ? payload.message : '请求失败';
+        const message = resolveApiErrorMessage({ response: { data: payload } });
         MessagePlugin.error(message);
         return Promise.reject(new Error(message));
       }
@@ -98,8 +95,9 @@ request.interceptors.response.use(
 
     const payload = response.data as ApiResponse<unknown>;
     if (payload.code !== 0) {
-      MessagePlugin.error(payload.message || '请求失败');
-      return Promise.reject(new Error(payload.message || '请求失败'));
+      const message = resolveApiErrorMessage({ response: { data: payload } });
+      MessagePlugin.error(message);
+      return Promise.reject(new Error(message));
     }
     return payload.data;
   },
