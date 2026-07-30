@@ -9,6 +9,7 @@ Document Service Tests
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -289,6 +290,86 @@ def test_rebuild_chunks_from_existing_converted_pdf_pages_allows_index_retry_wit
         assert len(chunks) == 1
         assert chunks[0].page_number == 1
         assert text_page.index_admission_status == "text_indexed"
+        assert blank_page.index_admission_status == "metadata_only"
+        assert db.scalar(select(func.count(DocumentChunk.id)).where(DocumentChunk.document_id == document.id)) == 1
+    finally:
+        db.close()
+
+
+def test_rebuild_chunks_from_existing_original_pdf_pages() -> None:
+    db = make_session()
+    try:
+        document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="standard.pdf",
+            file_type="pdf",
+            file_size=100,
+            storage_path="/tmp/standard.pdf",
+            review_status="approved",
+            parse_status="success",
+            index_status="failed",
+            version_no=1,
+            current_version=True,
+            is_current_version=True,
+        )
+        db.add(document)
+        db.flush()
+        text_page = DocumentPage(
+            knowledge_base_id=1,
+            document_id=document.id,
+            version_no=1,
+            page_no=1,
+            page_text="前言\n本文件规定了材料回收过程中的技术要求。\n本文件适用于退役动力电池再生利用活动。",
+            clean_content="前言\n本文件规定了材料回收过程中的技术要求。\n本文件适用于退役动力电池再生利用活动。",
+            source_hash="hash-1",
+            cleaning_metadata_json=json.dumps(
+                {
+                    "removed_line_count": 1,
+                    "removed_block_count": 1,
+                    "repeated_edge_noise_applied": True,
+                },
+                ensure_ascii=False,
+            ),
+            index_admission_status="metadata_only",
+            index_admission_reason_json='["quality_metrics_missing"]',
+        )
+        blank_page = DocumentPage(
+            knowledge_base_id=1,
+            document_id=document.id,
+            version_no=1,
+            page_no=2,
+            page_text="",
+            clean_content="",
+            source_hash=None,
+            index_admission_status="waiting_correction",
+            index_admission_reason_json='["source_untraceable"]',
+        )
+        db.add_all([text_page, blank_page])
+        db.flush()
+        db.add(
+            DocumentAsset(
+                document_id=document.id,
+                version_no=1,
+                asset_type="mineru_result",
+                file_name="result.json",
+                mime_type="application/json",
+                storage_path="/tmp/result.json",
+                file_size=10,
+                status="ready",
+            )
+        )
+        db.commit()
+
+        chunks = DocumentService(db)._rebuild_chunks_from_existing_pages(document)
+
+        db.refresh(text_page)
+        db.refresh(blank_page)
+        metadata = json.loads(text_page.cleaning_metadata_json or "{}")
+        assert len(chunks) == 1
+        assert chunks[0].page_number == 1
+        assert text_page.index_admission_status == "text_indexed"
+        assert metadata["quality_inference"]["source"] == "mineru_original_pdf_heuristic"
         assert blank_page.index_admission_status == "metadata_only"
         assert db.scalar(select(func.count(DocumentChunk.id)).where(DocumentChunk.document_id == document.id)) == 1
     finally:

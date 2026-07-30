@@ -2248,7 +2248,13 @@ class DocumentService:
         else:
             suffix = Path(str(getattr(document, "file_name", None) or getattr(document, "storage_path", ""))).suffix.lower()
             parser_name = "simple_text" if suffix in {".txt", ".md", ".csv"} else None
-        source_kind = "converted_pdf" if ASSET_TYPE_CONVERTED_PDF in ready_asset_types else None
+        if ASSET_TYPE_CONVERTED_PDF in ready_asset_types:
+            source_kind = "converted_pdf"
+        elif parser_name == "mineru":
+            suffix = Path(str(getattr(document, "file_name", None) or getattr(document, "storage_path", ""))).suffix.lower()
+            source_kind = "original" if suffix == ".pdf" else None
+        else:
+            source_kind = None
         return parser_name, source_kind
 
     def _build_chunks_from_page_payloads(

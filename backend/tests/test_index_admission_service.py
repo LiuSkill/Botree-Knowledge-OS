@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import json
 
 from app.services.index_admission_service import (
     AdmissionAssessment,
@@ -102,6 +103,68 @@ def test_converted_pdf_text_without_quality_is_promoted_to_text_index() -> None:
     assert text_page_numbers == {1}
     assert page.index_admission_status == "text_indexed"
     assert "quality_metrics_missing" not in page.index_admission_reason_json
+
+
+def test_original_pdf_text_without_quality_uses_inferred_metrics() -> None:
+    page = SimpleNamespace(
+        id=10,
+        page_no=1,
+        clean_content=(
+            "前言\n"
+            "本文件规定了车用动力电池回收利用再生利用过程中的材料回收要求。\n"
+            "本文件适用于退役锂离子动力电池材料回收、污染控制与质量管理。"
+        ),
+        page_text="",
+        source_hash="hash",
+        cleaning_metadata_json=json.dumps(
+            {
+                "removed_line_count": 2,
+                "removed_block_count": 2,
+                "repeated_edge_noise_applied": True,
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    text_page_numbers = IndexAdmissionService().apply_records(
+        [page],
+        [],
+        [],
+        parser_name="mineru",
+        source_kind="original",
+    )
+
+    metadata = json.loads(page.cleaning_metadata_json)
+    assert text_page_numbers == {1}
+    assert page.index_admission_status == "text_indexed"
+    assert metadata["quality_inference"]["source"] == "mineru_original_pdf_heuristic"
+    assert metadata["quality"]["ocr_confidence"] >= 0.7
+    assert "quality_metrics_missing" not in page.index_admission_reason_json
+
+
+def test_original_pdf_noise_stays_out_of_text_index_even_after_inference() -> None:
+    page = SimpleNamespace(
+        id=10,
+        page_no=1,
+        clean_content="P-101 / A-01\n<><><> ----\nA1 | B2 | C3\nLCP-01 / T-09",
+        page_text="",
+        source_hash="hash",
+        cleaning_metadata_json=json.dumps({"removed_line_count": 0, "removed_block_count": 0}, ensure_ascii=False),
+    )
+
+    text_page_numbers = IndexAdmissionService().apply_records(
+        [page],
+        [],
+        [],
+        parser_name="mineru",
+        source_kind="original",
+    )
+
+    metadata = json.loads(page.cleaning_metadata_json)
+    assert text_page_numbers == set()
+    assert page.index_admission_status == "metadata_only"
+    assert metadata["quality"]["reading_order_score"] < IndexAdmissionService.TEXT_QUALITY_THRESHOLD
+    assert "text_quality_below_threshold" in page.index_admission_reason_json
 
 
 def test_empty_untraceable_page_is_metadata_only() -> None:
