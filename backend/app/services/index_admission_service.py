@@ -67,7 +67,7 @@ class IndexAdmissionService:
         text_page_numbers: set[int] = set()
         for page in pages:
             result = self._assess_record(
-                getattr(page, "clean_content", None) or getattr(page, "page_text", ""),
+                getattr(page, "clean_content", None) or getattr(page, "page_text", None) or "",
                 page.id in visual_page_ids,
                 bool(getattr(page, "source_hash", None)),
                 raw_by_page_no.get(int(page.page_no)),
@@ -78,7 +78,7 @@ class IndexAdmissionService:
                 text_page_numbers.add(int(page.page_no))
         for block in blocks:
             result = self._assess_record(
-                getattr(block, "clean_text", None) or getattr(block, "text", ""),
+                getattr(block, "clean_text", None) or getattr(block, "text", None) or "",
                 block.id in visual_block_ids,
                 True,
                 self._json_dict(getattr(block, "metadata_json", None)),

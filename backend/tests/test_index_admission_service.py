@@ -57,6 +57,17 @@ def test_apply_records_persists_visual_only_admission_and_returns_no_text_page()
     assert "no_reliable_text" in page.index_admission_reason_json
 
 
+def test_apply_records_treats_null_page_and_block_text_as_empty() -> None:
+    page = SimpleNamespace(id=10, page_no=1, clean_content=None, page_text=None, source_hash="hash")
+    block = SimpleNamespace(id=20, page_id=10, clean_text=None, text=None)
+
+    text_page_numbers = IndexAdmissionService().apply_records([page], [block], [])
+
+    assert text_page_numbers == set()
+    assert page.index_admission_status == "metadata_only"
+    assert block.index_admission_status == "metadata_only"
+
+
 def test_unknown_ocr_quality_is_not_promoted_to_text_index() -> None:
     page = SimpleNamespace(id=10, page_no=1, clean_content="OCR candidate text", page_text="", source_hash="hash")
 
