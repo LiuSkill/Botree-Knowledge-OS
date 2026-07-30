@@ -43,6 +43,7 @@ class IndexAdmissionService:
 
     QUALITY_FIELDS = ("ocr_confidence", "valid_character_ratio", "reading_order_score", "terminology_score")
     TRUSTED_NATIVE_PARSERS = frozenset({"simple_text"})
+    TRUSTED_MINERU_SOURCE_KINDS = frozenset({"converted_pdf"})
 
     def apply_records(
         self,
@@ -52,6 +53,7 @@ class IndexAdmissionService:
         *,
         parsed_pages: list[dict[str, Any]] | None = None,
         parser_name: str | None = None,
+        source_kind: str | None = None,
     ) -> set[int]:
         """写回页/区域准入结论，并返回允许生成文本分块的页码。"""
 
@@ -67,22 +69,24 @@ class IndexAdmissionService:
         text_page_numbers: set[int] = set()
         for page in pages:
             result = self._assess_record(
-                getattr(page, "clean_content", None) or getattr(page, "page_text", None) or "",
+                self._preferred_text(page, "clean_content", "page_text"),
                 page.id in visual_page_ids,
                 bool(getattr(page, "source_hash", None)),
                 raw_by_page_no.get(int(page.page_no)),
                 parser_name,
+                source_kind,
             )
             self._write_result(page, result)
             if result.status is IndexAdmissionStatus.TEXT_INDEXED:
                 text_page_numbers.add(int(page.page_no))
         for block in blocks:
             result = self._assess_record(
-                getattr(block, "clean_text", None) or getattr(block, "text", None) or "",
+                self._preferred_text(block, "clean_text", "text"),
                 block.id in visual_block_ids,
                 True,
                 self._json_dict(getattr(block, "metadata_json", None)),
                 parser_name,
+                source_kind,
             )
             self._write_result(block, result)
         return text_page_numbers
@@ -94,11 +98,14 @@ class IndexAdmissionService:
         source_traceable: bool,
         metadata: dict[str, Any] | None,
         parser_name: str | None,
+        source_kind: str | None,
     ) -> IndexAdmissionResult:
         quality = self._quality_values(metadata)
-        trusted_native = parser_name in self.TRUSTED_NATIVE_PARSERS
-        missing_quality = bool(text.strip()) and not trusted_native and quality is None
-        scores = quality or ({name: 1.0 for name in self.QUALITY_FIELDS} if trusted_native and text.strip() else {})
+        trusted_text_source = parser_name in self.TRUSTED_NATIVE_PARSERS or (
+            parser_name == "mineru" and source_kind in self.TRUSTED_MINERU_SOURCE_KINDS
+        )
+        missing_quality = bool(text.strip()) and not trusted_text_source and quality is None
+        scores = quality or ({name: 1.0 for name in self.QUALITY_FIELDS} if trusted_text_source and text.strip() else {})
         return self.assess(
             AdmissionAssessment(
                 has_visual_asset=has_visual_asset,
@@ -137,6 +144,14 @@ class IndexAdmissionService:
             return None
         return parsed if isinstance(parsed, dict) else None
 
+    @staticmethod
+    def _preferred_text(record: Any, clean_attr: str, raw_attr: str) -> str:
+        clean_value = getattr(record, clean_attr, None)
+        if clean_value is not None:
+            return str(clean_value)
+        raw_value = getattr(record, raw_attr, None)
+        return str(raw_value or "")
+
     def _write_result(self, record: Any, result: IndexAdmissionResult) -> None:
         record.index_admission_status = result.status.value
         record.index_admission_reason_json = json.dumps(list(result.reasons), ensure_ascii=False)
@@ -166,6 +181,9 @@ class IndexAdmissionService:
             elif quality_score < self.TEXT_QUALITY_THRESHOLD:
                 reasons.append("text_quality_below_threshold")
             return IndexAdmissionResult(IndexAdmissionStatus.VISUAL_INDEXED, ("visual",), quality_score, tuple(reasons))
+        if not assessment.candidate_text.strip():
+            reasons.append("no_indexable_content")
+            return IndexAdmissionResult(IndexAdmissionStatus.METADATA_ONLY, ("metadata",), quality_score, tuple(reasons))
         if not assessment.source_traceable:
             reasons.append("source_untraceable")
             return IndexAdmissionResult(IndexAdmissionStatus.WAITING_CORRECTION, (), quality_score, tuple(reasons))

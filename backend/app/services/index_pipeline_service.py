@@ -77,8 +77,9 @@ class IndexPipelineService:
         if chunks and self.settings.milvus_enabled:
             vector_result = self.vector_index_service.index_document(document.id, version_no=document.version_no)
         else:
-            vector_result = {"skipped": True, "reason": "Milvus未启用，跳过向量索引构建"}
-            logger.info("Milvus未启用，跳过向量索引构建: document_id=%s", document.id)
+            reason = "Milvus未启用，跳过向量索引构建" if chunks else "无文本 Chunk，跳过向量索引构建"
+            vector_result = {"skipped": True, "reason": reason}
+            logger.info("跳过向量索引构建: document_id=%s reason=%s", document.id, reason)
         visual_result = self._build_visual_index(visual_assets, publication_token)
         graph_result = self.graph_index_service.build_document_graph(document) if chunks else {"skipped": True, "reason": "visual_only"}
         completed: dict[str, set[int]] = {"text": set(), "visual": set(), "metadata": set()}
@@ -110,7 +111,8 @@ class IndexPipelineService:
         )
         self.publication_repository.add(manifest)
         if publish and not publication.publishable:
-            raise AppException(f"索引发布单元未就绪，缺失索引: {publication.missing}")
+            detail = publication.missing or {"coverage": publication.coverage, "required": publication.required}
+            raise AppException(f"索引发布单元未就绪，缺失索引: {detail}")
         publish_result = self.publish_all(document, manifest=manifest) if publish else {"published": False}
         publish_result.update(
             {

@@ -1370,6 +1370,8 @@ class DocumentService:
             self._ensure_version_can_build_index(version)
             context = self._build_version_context(document, version, operator.id)
             chunks = self.repository.list_chunks(document.id, version_no=version.version_no)
+            if not chunks:
+                chunks = self._rebuild_chunks_from_existing_pages(context)  # type: ignore[arg-type]
 
             started_at = now_utc()
             version.index_status = INDEX_STATUS_INDEXING
@@ -1775,7 +1777,7 @@ class DocumentService:
 
         chunks = self.repository.list_chunks(document.id, version_no=document.version_no)
         if not chunks:
-            raise AppException("文档尚未解析，无法构建索引")
+            chunks = self._rebuild_chunks_from_existing_pages(document)
 
         document.build_started_at = now_utc()
         document.build_finished_at = None
@@ -2169,6 +2171,7 @@ class DocumentService:
             version_assets,
             parsed_pages=parsed_result.pages,
             parser_name=parsed_result.parser_name,
+            source_kind=parsed_result.parse_source.source_kind,
         )
         self.db.flush()
         logger.info(
@@ -2187,10 +2190,76 @@ class DocumentService:
             for page in parsed_result.pages
             if int(page.get("page_number") or page.get("page_no") or 0) in text_page_numbers
         ]
+        return self._build_chunks_from_page_payloads(document, admitted_pages)
+
+    def _rebuild_chunks_from_existing_pages(self, document: Document | SimpleNamespace) -> list[DocumentChunk]:
+        """
+        从已落库页级解析结果补建 Chunk。
+
+        该路径用于 parse_status 已成功但旧准入策略没有生成 chunk 的版本，
+        避免用户重试索引时被迫重新跑外部解析服务。
+        """
+
+        page_service = PageIndexService(self.db)
+        pages = page_service.repository.list_pages(document.id, document.version_no)
+        if not pages:
+            return []
+        blocks = page_service.repository.list_blocks(document.id, document.version_no)
+        assets = DocumentAssetService(self.db).list_version_assets(document.id, document.version_no)
+        parser_name, source_kind = self._infer_existing_parse_context(document, assets)
+        text_page_numbers = IndexAdmissionService().apply_records(
+            pages,
+            blocks,
+            assets,
+            parser_name=parser_name,
+            source_kind=source_kind,
+        )
+        self.db.flush()
+        admitted_pages = [
+            {
+                "page_number": page.page_no,
+                "page_title": page.page_title,
+                "clean_content": page.corrected_text or page.clean_content or page.page_text or "",
+            }
+            for page in pages
+            if int(page.page_no) in text_page_numbers
+        ]
+        chunks = self._build_chunks_from_page_payloads(document, admitted_pages)
+        if chunks:
+            self.repository.replace_chunks(document.id, chunks, version_no=document.version_no)
+        logger.info(
+            "已从已解析页补建正文 Chunk: document_id=%s version_no=%s chunks=%s parser=%s source_kind=%s",
+            document.id,
+            document.version_no,
+            len(chunks),
+            parser_name,
+            source_kind,
+        )
+        return chunks
+
+    def _infer_existing_parse_context(
+        self,
+        document: Document | SimpleNamespace,
+        assets: list[DocumentAsset],
+    ) -> tuple[str | None, str | None]:
+        ready_asset_types = {asset.asset_type for asset in assets if asset.status == ASSET_STATUS_READY}
+        if ASSET_TYPE_MINERU_RESULT in ready_asset_types:
+            parser_name = "mineru"
+        else:
+            suffix = Path(str(getattr(document, "file_name", None) or getattr(document, "storage_path", ""))).suffix.lower()
+            parser_name = "simple_text" if suffix in {".txt", ".md", ".csv"} else None
+        source_kind = "converted_pdf" if ASSET_TYPE_CONVERTED_PDF in ready_asset_types else None
+        return parser_name, source_kind
+
+    def _build_chunks_from_page_payloads(
+        self,
+        document: Document | SimpleNamespace,
+        pages: list[dict[str, object]],
+    ) -> list[DocumentChunk]:
         chunk_payloads = ChunkBuilder(
             rule_version="structure-v1",
             index_generation=get_settings().visual_index_generation,
-        ).build(admitted_pages)
+        ).build(pages)
 
         return [
             DocumentChunk(

@@ -210,6 +210,91 @@ def test_pdf_preview_creates_converted_pdf_asset_for_office_file() -> None:
         db.close()
 
 
+def test_rebuild_chunks_from_existing_converted_pdf_pages_allows_index_retry_without_reparse() -> None:
+    """旧准入策略下无 Chunk 的 Office 解析结果，重试索引时应可从页文本补建 Chunk。"""
+
+    db = make_session()
+    try:
+        db.add(KnowledgeBase(id=1, name="Base KB", code="base", type="base"))
+        document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="experiment.docx",
+            file_type="docx",
+            file_size=100,
+            storage_path="/tmp/experiment.docx",
+            review_status="approved",
+            parse_status="success",
+            index_status="failed",
+            version_no=1,
+            current_version=True,
+            is_current_version=True,
+        )
+        db.add(document)
+        db.flush()
+        text_page = DocumentPage(
+            knowledge_base_id=1,
+            document_id=document.id,
+            version_no=1,
+            page_no=1,
+            page_text="Office converted experiment report",
+            clean_content="Office converted experiment report",
+            source_hash="hash-1",
+            index_admission_status="metadata_only",
+            index_admission_reason_json='["quality_metrics_missing"]',
+        )
+        blank_page = DocumentPage(
+            knowledge_base_id=1,
+            document_id=document.id,
+            version_no=1,
+            page_no=2,
+            page_text="",
+            clean_content="",
+            source_hash=None,
+            index_admission_status="waiting_correction",
+            index_admission_reason_json='["source_untraceable"]',
+        )
+        db.add_all([text_page, blank_page])
+        db.flush()
+        db.add_all(
+            [
+                DocumentAsset(
+                    document_id=document.id,
+                    version_no=1,
+                    asset_type="converted_pdf",
+                    file_name="experiment.pdf",
+                    mime_type="application/pdf",
+                    storage_path="/tmp/experiment.pdf",
+                    file_size=100,
+                    status="ready",
+                ),
+                DocumentAsset(
+                    document_id=document.id,
+                    version_no=1,
+                    asset_type="mineru_result",
+                    file_name="result.json",
+                    mime_type="application/json",
+                    storage_path="/tmp/result.json",
+                    file_size=10,
+                    status="ready",
+                ),
+            ]
+        )
+        db.commit()
+
+        chunks = DocumentService(db)._rebuild_chunks_from_existing_pages(document)
+
+        db.refresh(text_page)
+        db.refresh(blank_page)
+        assert len(chunks) == 1
+        assert chunks[0].page_number == 1
+        assert text_page.index_admission_status == "text_indexed"
+        assert blank_page.index_admission_status == "metadata_only"
+        assert db.scalar(select(func.count(DocumentChunk.id)).where(DocumentChunk.document_id == document.id)) == 1
+    finally:
+        db.close()
+
+
 def test_deactivate_document_index_artifacts_keeps_db_state_when_vector_delete_fails() -> None:
     """
     旧版本向量删除失败时，数据库 Chunk 仍应先置为失效。

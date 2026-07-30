@@ -68,6 +68,16 @@ def test_apply_records_treats_null_page_and_block_text_as_empty() -> None:
     assert block.index_admission_status == "metadata_only"
 
 
+def test_apply_records_prefers_empty_clean_text_over_raw_noise() -> None:
+    page = SimpleNamespace(id=10, page_no=1, clean_content="", page_text="raw ocr noise", source_hash=None)
+
+    text_page_numbers = IndexAdmissionService().apply_records([page], [], [], parser_name="mineru")
+
+    assert text_page_numbers == set()
+    assert page.index_admission_status == "metadata_only"
+    assert "no_indexable_content" in page.index_admission_reason_json
+
+
 def test_unknown_ocr_quality_is_not_promoted_to_text_index() -> None:
     page = SimpleNamespace(id=10, page_no=1, clean_content="OCR candidate text", page_text="", source_hash="hash")
 
@@ -76,6 +86,32 @@ def test_unknown_ocr_quality_is_not_promoted_to_text_index() -> None:
     assert text_page_numbers == set()
     assert page.index_admission_status == "metadata_only"
     assert "quality_metrics_missing" in page.index_admission_reason_json
+
+
+def test_converted_pdf_text_without_quality_is_promoted_to_text_index() -> None:
+    page = SimpleNamespace(id=10, page_no=1, clean_content="Office converted report text", page_text="", source_hash="hash")
+
+    text_page_numbers = IndexAdmissionService().apply_records(
+        [page],
+        [],
+        [],
+        parser_name="mineru",
+        source_kind="converted_pdf",
+    )
+
+    assert text_page_numbers == {1}
+    assert page.index_admission_status == "text_indexed"
+    assert "quality_metrics_missing" not in page.index_admission_reason_json
+
+
+def test_empty_untraceable_page_is_metadata_only() -> None:
+    result = IndexAdmissionService().assess(
+        AdmissionAssessment(has_visual_asset=False, candidate_text="", source_traceable=False)
+    )
+
+    assert result.status is IndexAdmissionStatus.METADATA_ONLY
+    assert result.required_indexes == ("metadata",)
+    assert "no_indexable_content" in result.reasons
 
 
 def test_explicit_quality_metadata_controls_text_admission() -> None:

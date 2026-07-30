@@ -84,6 +84,7 @@ def test_visual_only_document_builds_and_publishes_without_text_chunks(tmp_path:
             visual_embedding_model="Qwen3-VL-Embedding-2B",
             visual_embedding_dim=2,
             visual_embedding_timeout_seconds=12,
+            visual_embedding_batch_size=4,
             visual_index_generation="vl-2026-07",
             visual_embedding_distance_metric="COSINE",
             resolve_local_path=lambda value: Path(value),
