@@ -15,6 +15,38 @@ export interface CategoryOption {
   disabled?: boolean;
 }
 
+const BUILTIN_CATEGORY_KEYS: Record<string, string> = {
+  工艺技术: 'processTechnology',
+  浸出工艺: 'leachingProcess',
+  萃取分离: 'solventExtractionSeparation',
+  沉淀结晶: 'precipitationCrystallization',
+  电化学回收: 'electrochemicalRecovery',
+  实验报告: 'experimentalReports',
+  条件优化: 'conditionOptimization',
+  表征分析: 'characterizationAnalysis',
+  中试验证: 'pilotValidation',
+  设计规范: 'designSpecifications',
+  工艺设计: 'processDesign',
+  设备选型: 'equipmentSelection',
+  安全规范: 'safetySpecifications',
+  标准法规: 'standardsRegulations',
+  国家标准: 'nationalStandards',
+  行业标准: 'industryStandards',
+  环保法规: 'environmentalRegulations',
+};
+
+export function localizedCategoryName(name: string, translate: (key: string) => string): string {
+  const key = BUILTIN_CATEGORY_KEYS[name.trim()];
+  return key ? translate(`knowledge.category.builtin.${key}`) : name;
+}
+
+export function localizedCategoryPath(path: string, translate: (key: string) => string): string {
+  return path
+    .split(/(\s*[/>]\s*)/u)
+    .map((part) => (/[/ >]/u.test(part) ? part : localizedCategoryName(part, translate)))
+    .join('');
+}
+
 export function flattenCategories(categories: KnowledgeCategory[], level = 0): KnowledgeCategory[] {
   /**
    * 将分类树拍平成深度优先列表。
@@ -22,17 +54,21 @@ export function flattenCategories(categories: KnowledgeCategory[], level = 0): K
   return categories.flatMap((category) => [category, ...flattenCategories(category.children || [], level + 1)]);
 }
 
-export function buildCategoryOptions(categories: KnowledgeCategory[], level = 0): CategoryOption[] {
+export function buildCategoryOptions(
+  categories: KnowledgeCategory[],
+  level = 0,
+  labelResolver: (name: string) => string = (name) => name,
+): CategoryOption[] {
   /**
    * 构建下拉框选项，使用缩进表达层级。
    */
   return categories.flatMap((category) => [
     {
-      label: `${'　'.repeat(level)}${category.name}`,
+      label: `${'　'.repeat(level)}${labelResolver(category.name)}`,
       value: category.id,
       disabled: !category.enabled,
     },
-    ...buildCategoryOptions(category.children || [], level + 1),
+    ...buildCategoryOptions(category.children || [], level + 1, labelResolver),
   ]);
 }
 

@@ -23,7 +23,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
-import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
+import { buildCategoryOptions, collectCategoryIds, findCategory, localizedCategoryName, localizedCategoryPath } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { clampSecurityLevel, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
@@ -38,7 +38,8 @@ const uploading = ref(false);
 const knowledgeBase = ref<KnowledgeBaseInfo | null>(null);
 const documents = ref<DocumentInfo[]>([]);
 const categories = ref<KnowledgeCategory[]>([]);
-const selectedUploadFile = ref<File | null>(null);
+const selectedUploadFiles = ref<File[]>([]);
+const uploadInputRef = ref<HTMLInputElement | null>(null);
 
 const filterForm = reactive({
   category_id: null as number | null,
@@ -49,7 +50,13 @@ const uploadForm = reactive({
   security_level: clampSecurityLevel('internal', authStore.maxSecurityLevel),
 });
 
-const categoryOptions = computed(() => buildCategoryOptions(categories.value));
+const categoryOptions = computed(() =>
+  buildCategoryOptions(categories.value, 0, (name) => localizedCategoryName(name, t)),
+);
+
+function categoryDisplayPath(path?: string | null): string {
+  return path ? localizedCategoryPath(path, t) : '-';
+}
 const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_VIEW));
 const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_UPLOAD));
 const canSubmitDocumentReview = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW));
@@ -102,7 +109,7 @@ function handleFileChange(event: Event): void {
    * 读取用户选择的本地资料文件。
    */
   const input = event.target as HTMLInputElement;
-  selectedUploadFile.value = input.files?.[0] || null;
+  selectedUploadFiles.value = Array.from(input.files || []);
 }
 
 async function handleUpload(): Promise<void> {
@@ -113,7 +120,7 @@ async function handleUpload(): Promise<void> {
     MessagePlugin.warning(t('knowledge.message.uploadKnowledgeForbidden'));
     return;
   }
-  if (!selectedUploadFile.value) {
+  if (!selectedUploadFiles.value.length) {
     MessagePlugin.warning(t('knowledge.message.materialRequired'));
     return;
   }
@@ -124,9 +131,12 @@ async function handleUpload(): Promise<void> {
 
   uploading.value = true;
   try {
-    await uploadKnowledgeDocument(currentId(), selectedUploadFile.value, uploadForm.category_id, uploadForm.security_level);
-    MessagePlugin.success(t('knowledge.message.uploadMaterialDraftSuccess'));
-    selectedUploadFile.value = null;
+    for (const file of selectedUploadFiles.value) {
+      await uploadKnowledgeDocument(currentId(), file, uploadForm.category_id, uploadForm.security_level);
+    }
+    MessagePlugin.success(t('knowledge.message.uploadBatchMaterialDraftSuccess', { count: selectedUploadFiles.value.length }));
+    selectedUploadFiles.value = [];
+    if (uploadInputRef.value) uploadInputRef.value.value = '';
     await loadData();
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : t('knowledge.message.uploadFailed'));
@@ -210,8 +220,10 @@ onMounted(loadData);
               </t-select>
             </t-form-item>
             <t-form-item :label="t('knowledge.field.materialFile')" required-mark>
-              <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
-              <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
+              <input ref="uploadInputRef" type="file" multiple accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
+              <div v-if="selectedUploadFiles.length" class="selected-file-list">
+                <div v-for="file in selectedUploadFiles" :key="`${file.name}-${file.size}-${file.lastModified}`" class="selected-file">{{ file.name }}</div>
+              </div>
             </t-form-item>
           </div>
           <t-button v-permission="PERMISSIONS.KNOWLEDGE_UPLOAD" theme="primary" :loading="uploading" @click="handleUpload">{{ t('knowledge.action.uploadMaterial') }}</t-button>
@@ -236,6 +248,7 @@ onMounted(loadData);
               <th>{{ t('knowledge.field.version') }}</th>
               <th>{{ t('knowledge.field.size') }}</th>
               <th>{{ t('knowledge.field.reviewStatus') }}</th>
+              <th>{{ t('knowledge.field.parseStatus') }}</th>
               <th>{{ t('knowledge.field.indexStatus') }}</th>
               <th>{{ t('knowledge.field.updatedAt') }}</th>
               <th>{{ t('common.field.operation') }}</th>
@@ -244,7 +257,7 @@ onMounted(loadData);
           <tbody>
             <tr v-for="doc in filteredDocuments" :key="doc.id">
               <td><t-link v-permission="PERMISSIONS.KNOWLEDGE_VIEW" theme="primary" @click="viewDocument(doc)">{{ doc.file_name }}</t-link></td>
-              <td>{{ doc.category_path || doc.category_name || '-' }}</td>
+              <td>{{ categoryDisplayPath(doc.category_path || doc.category_name) }}</td>
               <td>
                 <t-tag size="small" variant="light" :theme="securityLevelTheme(doc.security_level)">
                   {{ securityLevelLabel(doc.security_level) }}
@@ -253,6 +266,7 @@ onMounted(loadData);
               <td>v{{ doc.version_no }}</td>
               <td>{{ formatFileSize(doc.file_size) }}</td>
               <td><StatusTag type="review" :value="doc.review_status" /></td>
+              <td><StatusTag type="generic" :value="doc.parse_status || 'unparsed'" /></td>
               <td><StatusTag type="index" :value="doc.index_status" /></td>
               <td>{{ formatDateTime(doc.updated_at) }}</td>
               <td>

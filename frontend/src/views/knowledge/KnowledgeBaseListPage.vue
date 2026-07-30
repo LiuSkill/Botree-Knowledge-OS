@@ -23,7 +23,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
-import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
+import { buildCategoryOptions, collectCategoryIds, findCategory, localizedCategoryName, localizedCategoryPath } from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { clampSecurityLevel, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
@@ -59,7 +59,8 @@ const enterpriseBases = ref<KnowledgeBaseInfo[]>([]);
 const enterpriseDocuments = ref<DocumentInfo[]>([]);
 const categories = ref<KnowledgeCategory[]>([]);
 const uploadDialogVisible = ref(false);
-const selectedUploadFile = ref<File | null>(null);
+const selectedUploadFiles = ref<File[]>([]);
+const uploadInputRef = ref<HTMLInputElement | null>(null);
 const categoryDialogVisible = ref(false);
 const categoryDialogMode = ref<CategoryDialogMode>('create');
 const editingCategoryId = ref<number | null>(null);
@@ -93,7 +94,15 @@ const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSION
 const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_UPLOAD));
 const canSubmitDocumentReview = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW));
 
-const categoryOptions = computed(() => buildCategoryOptions(categories.value));
+const categoryOptions = computed(() => buildCategoryOptions(categories.value, 0, categoryDisplayName));
+
+function categoryDisplayName(name: string): string {
+  return localizedCategoryName(name, t);
+}
+
+function categoryDisplayPath(path?: string | null): string {
+  return path ? localizedCategoryPath(path, t) : '-';
+}
 
 const visibleCategoryRows = computed<CategoryRow[]>(() => {
   /**
@@ -117,7 +126,8 @@ const activeCategoryName = computed(() => {
    * 获取当前筛选分类名称。
    */
   if (!activeCategoryId.value) return t('knowledge.category.all');
-  return findCategory(categories.value, activeCategoryId.value)?.name || t('knowledge.category.all');
+  const name = findCategory(categories.value, activeCategoryId.value)?.name;
+  return name ? categoryDisplayName(name) : t('knowledge.category.all');
 });
 
 const documentsMatchingQuery = computed(() => {
@@ -273,7 +283,8 @@ function openUploadDialog(): void {
   }
   uploadForm.category_id = activeCategoryId.value || categoryOptions.value.find((item) => !item.disabled)?.value || null;
   uploadForm.security_level = clampSecurityLevel('internal', authStore.maxSecurityLevel);
-  selectedUploadFile.value = null;
+  selectedUploadFiles.value = [];
+  if (uploadInputRef.value) uploadInputRef.value.value = '';
   uploadDialogVisible.value = true;
 }
 
@@ -282,7 +293,7 @@ function handleFileChange(event: Event): void {
    * 读取上传弹窗中的本地文件。
    */
   const input = event.target as HTMLInputElement;
-  selectedUploadFile.value = input.files?.[0] || null;
+  selectedUploadFiles.value = Array.from(input.files || []);
 }
 
 async function confirmUpload(): Promise<void> {
@@ -293,7 +304,7 @@ async function confirmUpload(): Promise<void> {
     MessagePlugin.warning(t('knowledge.message.uploadForbidden'));
     return;
   }
-  if (!selectedUploadFile.value) {
+  if (!selectedUploadFiles.value.length) {
     MessagePlugin.warning(t('knowledge.message.fileRequired'));
     return;
   }
@@ -304,8 +315,12 @@ async function confirmUpload(): Promise<void> {
 
   uploading.value = true;
   try {
-    await uploadKnowledgeDocument(uploadTargetBase.value.id, selectedUploadFile.value, uploadForm.category_id, uploadForm.security_level);
-    MessagePlugin.success(t('knowledge.message.uploadDraftSuccess'));
+    for (const file of selectedUploadFiles.value) {
+      await uploadKnowledgeDocument(uploadTargetBase.value.id, file, uploadForm.category_id, uploadForm.security_level);
+    }
+    MessagePlugin.success(t('knowledge.message.uploadBatchDraftSuccess', { count: selectedUploadFiles.value.length }));
+    selectedUploadFiles.value = [];
+    if (uploadInputRef.value) uploadInputRef.value.value = '';
     uploadDialogVisible.value = false;
     await loadEnterpriseKnowledge();
   } catch (error) {
@@ -495,7 +510,7 @@ onMounted(loadEnterpriseKnowledge);
               <ChevronRightSIcon v-else />
             </span>
             <span v-else class="expand-placeholder"></span>
-            {{ row.category.name }}
+            {{ categoryDisplayName(row.category.name) }}
           </span>
           <span class="category-count">{{ categoryDocumentCounts.get(row.category.id) || 0 }}</span>
         </t-button>
@@ -568,6 +583,7 @@ onMounted(loadEnterpriseKnowledge);
                 <th>{{ t('knowledge.field.type') }}</th>
                 <th>{{ t('knowledge.field.size') }}</th>
                 <th>{{ t('knowledge.field.reviewStatus') }}</th>
+                <th>{{ t('knowledge.field.parseStatus') }}</th>
                 <th>{{ t('knowledge.field.indexStatus') }}</th>
                 <th>{{ t('knowledge.field.updatedAt') }}</th>
                 <th>{{ t('common.field.operation') }}</th>
@@ -578,7 +594,7 @@ onMounted(loadEnterpriseKnowledge);
                 <td>
                   <t-link v-permission="PERMISSIONS.KNOWLEDGE_VIEW" theme="primary" @click="viewDocument(document)">{{ document.file_name }}</t-link>
                 </td>
-                <td>{{ document.category_path || document.category_name || '-' }}</td>
+                <td>{{ categoryDisplayPath(document.category_path || document.category_name) }}</td>
                 <td>
                   <t-tag size="small" variant="light" :theme="securityLevelTheme(document.security_level)">
                     {{ securityLevelLabel(document.security_level) }}
@@ -588,6 +604,7 @@ onMounted(loadEnterpriseKnowledge);
                 <td>{{ getFileTypeLabel(document) }}</td>
                 <td>{{ formatFileSize(document.file_size) }}</td>
                 <td><StatusTag type="review" :value="document.review_status" /></td>
+                <td><StatusTag type="generic" :value="document.parse_status || 'unparsed'" /></td>
                 <td><StatusTag type="index" :value="document.index_status" /></td>
                 <td>{{ formatDateTime(document.updated_at || document.created_at) }}</td>
                 <td>
@@ -635,8 +652,10 @@ onMounted(loadEnterpriseKnowledge);
           </t-select>
         </t-form-item>
         <t-form-item :label="t('knowledge.field.documentFile')" required-mark>
-          <input type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
-          <div v-if="selectedUploadFile" class="selected-file">{{ selectedUploadFile.name }}</div>
+          <input ref="uploadInputRef" type="file" multiple accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf" @change="handleFileChange" />
+          <div v-if="selectedUploadFiles.length" class="selected-file-list">
+            <div v-for="file in selectedUploadFiles" :key="`${file.name}-${file.size}-${file.lastModified}`" class="selected-file">{{ file.name }}</div>
+          </div>
         </t-form-item>
       </t-form>
     </t-dialog>
