@@ -2263,9 +2263,18 @@ class DocumentService:
         pages: list[dict[str, object]],
     ) -> list[DocumentChunk]:
         chunk_payloads = ChunkBuilder(
-            rule_version="structure-v1",
             index_generation=get_settings().visual_index_generation,
-        ).build(pages)
+        ).build(
+            pages,
+            document_metadata={
+                "document_title": Path(document.file_name).stem,
+                "file_name": document.file_name,
+                "project_id": document.project_id,
+                "knowledge_base_id": document.knowledge_base_id,
+                "version_no": document.version_no,
+                "knowledge_type": document.knowledge_type,
+            },
+        )
 
         return [
             DocumentChunk(

@@ -18,6 +18,7 @@ import re
 from typing import Any
 
 from app.knowledge.parsing.parsed_document import ParsedDocumentResult
+from app.knowledge.parsing.searchable_text import render_table_block_text
 
 
 FILTER_STATUS_FILTERED = "filtered"
@@ -27,6 +28,9 @@ FILTER_REASON_MINERU_DISCARDED = "mineru_discarded"
 FILTER_REASON_MINERU_NON_BODY = "mineru_non_body"
 FILTER_REASON_TEXT_RULE = "text_rule"
 FILTER_REASON_TOC_PAGE = "toc_page"
+FILTER_REASON_DOCUMENT_CONTROL_TABLE = "document_control_table"
+FILTER_REASON_REVISION_HISTORY_TABLE = "revision_history_table"
+FILTER_REASON_SIGNATURE_CONTROL_BLOCK = "signature_control_block"
 
 
 @dataclass(slots=True)
@@ -120,6 +124,20 @@ class ParsedContentCleaner:
         "page-num",
         "watermark",
     }
+    DOCUMENT_CONTROL_FIELD_PATTERN = re.compile(
+        r"\b(?:client|project(?:\s+name)?|sub[- ]?project|doc\.?\s*no\.?|job\.?\s*no\.?|"
+        r"stage|rev\.?|description|desd\.?|chkd\.?|appd\.?|sheet)\b",
+        re.IGNORECASE,
+    )
+    DOCUMENT_IDENTITY_PATTERN = re.compile(
+        r"(?:\b(?:client|doc\.?\s*no\.?|job\.?\s*no\.?|sub[- ]?project|rev\.?)\b|"
+        r"\b[A-Z]{2,}\d{3,}(?:-[A-Z0-9]+){2,}\b|"
+        r"\b(?:co\.?\s*,?\s*ltd\.?|company|technology)\b)",
+        re.IGNORECASE,
+    )
+    REVISION_STATUS_PATTERN = re.compile(r"\b(?:for\s+review|issued\s+for|approved|as[- ]built)\b", re.IGNORECASE)
+    ISO_DATE_PATTERN = re.compile(r"\b(?:19|20)\d{2}[./-]\d{1,2}[./-]\d{1,2}\b")
+    SIGNATURE_CONTROL_PATTERN = re.compile(r"^(?:disp|signature|date|desd\.?|chkd\.?|appd\.?|[a-d])$", re.IGNORECASE)
 
     def clean_result(self, parsed_result: ParsedDocumentResult) -> ParsedDocumentResult:
         """
@@ -238,6 +256,7 @@ class ParsedContentCleaner:
 
         for index, block in enumerate(blocks):
             raw_text = self._first_text(block, self.BLOCK_TEXT_KEYS)
+            rendered_table_text = render_table_block_text(block)
             normalized_text = self._normalize_line(raw_text)
             block_type = self._block_type(block)
 
@@ -254,6 +273,34 @@ class ParsedContentCleaner:
                 summary.removed_block_count += 1
                 summary.filtered_block_count += 1
                 summary.mineru_discarded_block_count += 1
+                continue
+
+            table_text = rendered_table_text if self._is_table_like_line(rendered_table_text) else raw_text
+            if self._is_signature_control_block(raw_text):
+                filtered = self._mark_block_filtered(block, FILTER_REASON_SIGNATURE_CONTROL_BLOCK)
+                annotated_blocks.append(filtered)
+                filtered_blocks.append(filtered)
+                summary.removed_line_count += self._count_non_empty_lines(raw_text)
+                summary.removed_block_count += 1
+                summary.filtered_block_count += 1
+                continue
+            if self._is_revision_history_table(table_text):
+                filtered = self._mark_block_filtered(block, FILTER_REASON_REVISION_HISTORY_TABLE)
+                annotated_blocks.append(filtered)
+                filtered_blocks.append(filtered)
+                summary.removed_line_count += self._count_non_empty_lines(table_text)
+                summary.removed_block_count += 1
+                summary.filtered_block_count += 1
+                continue
+            if (block_type == "table" or self._is_table_like_line(table_text)) and self._is_document_control_table(
+                table_text
+            ):
+                filtered = self._mark_block_filtered(block, FILTER_REASON_DOCUMENT_CONTROL_TABLE)
+                annotated_blocks.append(filtered)
+                filtered_blocks.append(filtered)
+                summary.removed_line_count += self._count_non_empty_lines(table_text)
+                summary.removed_block_count += 1
+                summary.filtered_block_count += 1
                 continue
 
             if block_type == "table":
@@ -295,6 +342,26 @@ class ParsedContentCleaner:
             summary.mineru_discarded_block_count += 1
 
         return annotated_blocks, clean_blocks, filtered_blocks
+
+    def _is_document_control_table(self, text: str) -> bool:
+        """识别工程图纸/报告中重复的标题栏和修订控制表。"""
+
+        fields = {match.group(0).lower() for match in self.DOCUMENT_CONTROL_FIELD_PATTERN.finditer(text)}
+        return len(fields) >= 3 or (len(fields) >= 2 and bool(self.DOCUMENT_IDENTITY_PATTERN.search(text)))
+
+    def _is_revision_history_table(self, text: str) -> bool:
+        """识别与表头分离的工程文档修订历史数据行。"""
+
+        return self._is_table_like_line(text) and bool(self.REVISION_STATUS_PATTERN.search(text)) and len(
+            self.ISO_DATE_PATTERN.findall(text)
+        ) >= 2
+
+    def _is_signature_control_block(self, text: str) -> bool:
+        """识别图纸标题栏中脱离表格的签字/日期标签组。"""
+
+        lines = [line.strip() for line in self._split_lines(text) if line.strip()]
+        matched = sum(1 for line in lines if self.SIGNATURE_CONTROL_PATTERN.fullmatch(line))
+        return len(lines) >= 6 and matched >= 4 and matched / len(lines) >= 0.5
 
     def _clean_text(self, text: str, repeated_lines: set[str], edge_only: bool) -> tuple[str, int, list[str]]:
         lines = self._split_lines(text)

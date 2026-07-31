@@ -16,6 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
+from urllib.parse import unquote, urlparse
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
@@ -463,6 +464,29 @@ def test_mineru_parser_raises_when_task_failed() -> None:
         Path(temp_path).unlink(missing_ok=True)
 
 
+def test_mineru_parser_rejects_invalid_pdf_header_before_submit() -> None:
+    """
+    扩展名为 PDF 但内容损坏时，应在提交 MinerU 之前直接返回清晰错误。
+    """
+
+    parser = MinerUParser()
+    original_base_url = parser.settings.mineru_base_url
+    parser.settings.mineru_base_url = "http://127.0.0.1:8000"
+    temp_path = with_temp_file(".pdf", b"\x88}\x1c\x98\x04\x01\x05\x00")
+
+    try:
+        with patch("app.knowledge.parsing.mineru_parser.requests.post") as mocked_post:
+            try:
+                parser.parse_document(temp_path)
+                raise AssertionError("损坏 PDF 应抛出 AppException")
+            except AppException as exc:
+                assert "PDF文件头无效" in str(exc)
+        mocked_post.assert_not_called()
+    finally:
+        parser.settings.mineru_base_url = original_base_url
+        Path(temp_path).unlink(missing_ok=True)
+
+
 def test_parser_service_does_not_fallback_when_mineru_is_configured() -> None:
     """
     配置 MinerU 后，PDF 运行时失败不得回退本地解析器。
@@ -600,7 +624,9 @@ def test_libreoffice_conversion_service_uses_isolated_profile_and_cleans_it() ->
                 captured["command"] = command
                 captured["timeout_seconds"] = timeout_seconds
                 profile_arg = next(arg for arg in command if arg.startswith("-env:UserInstallation=file://"))
-                profile_path = Path(profile_arg.removeprefix("-env:UserInstallation=file://"))
+                profile_uri = profile_arg.removeprefix("-env:UserInstallation=")
+                parsed_profile = urlparse(profile_uri)
+                profile_path = Path(unquote(parsed_profile.path.lstrip("/")))
                 captured["profile_path"] = profile_path
                 assert profile_path.exists()
 
@@ -692,6 +718,7 @@ def main() -> None:
     test_mineru_parser_maps_container_absolute_paths_to_host_paths()
     test_mineru_parser_times_out_with_task_id()
     test_mineru_parser_raises_when_task_failed()
+    test_mineru_parser_rejects_invalid_pdf_header_before_submit()
     test_parser_service_does_not_fallback_when_mineru_is_configured()
     test_parser_service_uses_simple_parser_when_mineru_is_unconfigured()
     test_parser_service_converts_office_before_mineru()

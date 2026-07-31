@@ -20,6 +20,7 @@ import requests
 
 from app.core.config import get_settings
 from app.core.exceptions import AppException
+from app.knowledge.parsing.file_signature import ensure_pdf_header
 from app.knowledge.parsing.parsed_document import ParseSource, ParsedDocumentResult
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,8 @@ class MinerUParser:
         path = Path(storage_path)
         if not path.is_file():
             raise AppException("源文件不存在，无法调用 MinerU 解析", status_code=400, code=400)
+        if path.suffix.lower() == ".pdf":
+            ensure_pdf_header(path)
         output_root_host_dir = self._prepare_output_root()
 
         parse_source = parse_source or ParseSource(

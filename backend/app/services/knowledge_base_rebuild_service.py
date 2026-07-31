@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import json
 import logging
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -139,9 +140,30 @@ class KnowledgeBaseRebuildService:
                 page_number=item["page_number"],
                 section_title=item["section_title"],
                 security_level=document.security_level,
-                metadata_json=json.dumps(item.get("metadata", {}), ensure_ascii=False),
+                metadata_json=json.dumps(
+                    {
+                        "file_name": document.file_name,
+                        "version_no": document.version_no,
+                        "project_id": document.project_id,
+                        "knowledge_base_id": document.knowledge_base_id,
+                        "category_id": document.category_id,
+                        "security_level": document.security_level,
+                        **item.get("metadata", {}),
+                    },
+                    ensure_ascii=False,
+                ),
             )
-            for item in ChunkBuilder(rule_version="structure-v1", index_generation=settings.visual_index_generation).build(pages)
+            for item in ChunkBuilder(index_generation=settings.visual_index_generation).build(
+                pages,
+                document_metadata={
+                    "document_title": Path(document.file_name).stem,
+                    "file_name": document.file_name,
+                    "project_id": document.project_id,
+                    "knowledge_base_id": document.knowledge_base_id,
+                    "version_no": document.version_no,
+                    "knowledge_type": document.knowledge_type,
+                },
+            )
         ]
 
     def _backfill_admission(self, document: Document, pages: list[object]) -> None:

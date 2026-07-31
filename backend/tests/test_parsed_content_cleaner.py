@@ -223,6 +223,97 @@ def test_cleaner_keeps_table_blocks_and_preserves_raw_payload() -> None:
     assert "botree_cleaned_markdown" not in (cleaned.raw_payload or {})
 
 
+def test_cleaner_removes_document_control_table_but_keeps_technical_table() -> None:
+    control_table = (
+        "| CLIENT | Battery Metals | PROJECT | BMI Recycling |\n"
+        "| DOC. NO. | BCE2408-PS-0000-2001-001 | REV. | A |\n"
+        "| DESCRIPTION | Process Description | CHKD. | DATE |"
+    )
+    technical_table = "| Equipment | Power |\n| Agitator | 7.5 kW |"
+    pages = [
+        {
+            "page_number": 1,
+            "content": f"{control_table}\n{technical_table}",
+            "blocks": [
+                {"block_type": "table", "text": control_table},
+                {"block_type": "table", "text": technical_table},
+            ],
+        }
+    ]
+
+    cleaned = ParsedContentCleaner().clean_result(make_parse_result(pages))
+
+    assert len(cleaned.pages[0]["clean_blocks"]) == 1
+    assert "Agitator" in cleaned.pages[0]["clean_blocks"][0]["clean_text"]
+    assert cleaned.pages[0]["filtered_blocks"][0]["filter_reason"] == "document_control_table"
+
+
+def test_cleaner_removes_split_document_control_table() -> None:
+    control_fragment = (
+        "| BOTREE TECHNOLOGY CO., LTD | Process Description | CLIENT | Battery Metals |\n"
+        "| BOTREE TECHNOLOGY CO., LTD | Process Description | PROJECT | BMI Recycling |"
+    )
+    pages = [
+        {
+            "page_number": 1,
+            "content": control_fragment,
+            "blocks": [
+                {
+                    "block_type": "text",
+                    "metadata": {
+                        "table_body": (
+                            "<table><tr><td>BOTREE TECHNOLOGY CO., LTD</td>"
+                            "<td>Process Description</td><td>CLIENT</td><td>Battery Metals</td></tr>"
+                            "<tr><td>BOTREE TECHNOLOGY CO., LTD</td><td>Process Description</td>"
+                            "<td>PROJECT</td><td>BMI Recycling</td></tr></table>"
+                        )
+                    },
+                }
+            ],
+        }
+    ]
+
+    cleaned = ParsedContentCleaner().clean_result(make_parse_result(pages))
+
+    assert cleaned.pages[0]["clean_blocks"] == []
+    assert cleaned.pages[0]["filtered_blocks"][0]["filter_reason"] == "document_control_table"
+
+
+def test_cleaner_removes_revision_rows_split_from_header() -> None:
+    revision_rows = (
+        "| 1B | For Review | Li Zhang | 2024.11.19 | Lixin Zhou | 2024.11.20 |\n"
+        "| 1A | For Review | Li Zhang | 2024.10.10 | Lixin Zhou | 2024.10.11 |"
+    )
+    pages = [
+        {
+            "page_number": 1,
+            "content": revision_rows,
+            "blocks": [{"block_type": "table", "text": revision_rows}],
+        }
+    ]
+
+    cleaned = ParsedContentCleaner().clean_result(make_parse_result(pages))
+
+    assert cleaned.pages[0]["clean_blocks"] == []
+    assert cleaned.pages[0]["filtered_blocks"][0]["filter_reason"] == "revision_history_table"
+
+
+def test_cleaner_removes_detached_signature_control_labels() -> None:
+    labels = "专业\nDISP\n签字\nSIGNATURE\n日期\nDATE\nA\nB\nC\nD"
+    pages = [
+        {
+            "page_number": 1,
+            "content": labels,
+            "blocks": [{"block_type": "text", "text": labels}],
+        }
+    ]
+
+    cleaned = ParsedContentCleaner().clean_result(make_parse_result(pages))
+
+    assert cleaned.pages[0]["clean_blocks"] == []
+    assert cleaned.pages[0]["filtered_blocks"][0]["filter_reason"] == "signature_control_block"
+
+
 def test_cleaner_removes_inline_toc_noise_and_keeps_body_tail() -> None:
     """MinerU inline TOC noise should be removed while preserving real body text after it."""
 
