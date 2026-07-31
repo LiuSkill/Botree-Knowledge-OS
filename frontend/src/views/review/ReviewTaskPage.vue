@@ -49,6 +49,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const BUILD_TASK_TYPE = 'full_build';
 const BUILD_TASK_RUNNING_STATUS = ['pending', 'running'];
 const BUILD_TASK_TERMINAL_STATUS = ['success', 'failed', 'canceled'];
+const BATCH_BUILD_SELECTABLE_STATUS = ['not_indexed', 'failed'];
 const BUILD_POLL_INTERVAL_MS = 5000;
 const ROUTE_REVIEW_STATUS_MAP: Record<string, string> = {
   pending: REVIEW_TASK_STATUS.reviewing,
@@ -140,7 +141,7 @@ const approvedColumns = computed(() => [
     colKey: 'row-select',
     type: 'multiple',
     width: 48,
-    checkProps: ({ row }: { row: DocumentInfo }) => ({ disabled: batchSubmitting.value || !canRunBuild(row) }),
+    checkProps: ({ row }: { row: DocumentInfo }) => ({ disabled: batchSubmitting.value || !canSelectForBatchBuild(row) }),
   },
   { colKey: 'document', title: t('review.field.document'), minWidth: 260, ellipsis: true },
   { colKey: 'scope', title: t('review.field.scope'), width: 160, ellipsis: true },
@@ -443,20 +444,21 @@ function openBatchRejectDialog(): void {
 }
 
 async function runBatchBuild(): Promise<void> {
-  if (!selectedDocumentIds.value.length || batchSubmitting.value) return;
-  const selectedDocuments = approvedDocuments.value.filter((item) => selectedDocumentIds.value.includes(item.id));
-  const rebuildCount = selectedDocuments.filter((item) => isIndexedIndexStatus(item.index_status)).length;
-  const rebuildNotice = rebuildCount ? t('review.batch.rebuildNotice', { count: rebuildCount }) : '';
+  const selectableDocumentIds = new Set(
+    approvedDocuments.value.filter(canSelectForBatchBuild).map((document) => document.id),
+  );
+  const documentIds = selectedDocumentIds.value.filter((documentId) => selectableDocumentIds.has(documentId));
+  if (!documentIds.length || batchSubmitting.value) return;
   const confirmed = await showConfirmDialog({
     header: t('review.batch.buildConfirmTitle'),
-    body: t('review.batch.buildConfirmBody', { count: selectedDocumentIds.value.length, notice: rebuildNotice }),
+    body: t('review.batch.buildConfirmBody', { count: documentIds.length, notice: '' }),
     confirmBtn: t('review.action.startBuild'),
   });
   if (!confirmed) return;
 
   batchSubmitting.value = true;
   try {
-    const result = await createDocumentIndexBuildTasksBatch(selectedDocumentIds.value);
+    const result = await createDocumentIndexBuildTasksBatch(documentIds);
     for (const item of result.results) {
       if (item.success && item.task) {
         updateLatestBuildTask(item.task);
@@ -575,6 +577,13 @@ function canRunBuild(document: DocumentInfo): boolean {
    * 审核权限控制构建按钮，执行中状态不允许重复触发。
    */
   return canBuildIndex.value && document.review_status === 'approved' && !isBuilding(document.id) && !['parsing', 'indexing'].includes(document.index_status);
+}
+
+function canSelectForBatchBuild(document: DocumentInfo): boolean {
+  /**
+   * 批量构建只处理尚未构建或上次构建失败的资料，已索引资料需通过单条操作明确确认重建。
+   */
+  return canRunBuild(document) && BATCH_BUILD_SELECTABLE_STATUS.includes(document.index_status);
 }
 
 function projectOptionLabel(project: ProjectInfo): string {
@@ -743,7 +752,12 @@ function handleTaskSelectChange(keys: Array<string | number>): void {
 }
 
 function handleDocumentSelectChange(keys: Array<string | number>): void {
-  selectedDocumentIds.value = keys.map(Number).filter((item) => Number.isInteger(item));
+  const selectableDocumentIds = new Set(
+    approvedDocuments.value.filter(canSelectForBatchBuild).map((document) => document.id),
+  );
+  selectedDocumentIds.value = keys
+    .map(Number)
+    .filter((documentId) => Number.isInteger(documentId) && selectableDocumentIds.has(documentId));
 }
 
 watch(

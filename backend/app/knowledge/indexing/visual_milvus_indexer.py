@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 from app.core.config import get_settings
@@ -68,6 +69,13 @@ class VisualMilvusIndexer:
             raise AppException("视觉索引配置不完整", status_code=500, code=500)
         try:
             from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, connections, utility
+            try:
+                from pymilvus.exceptions import PyMilvusDeprecationWarning
+
+                # 视觉索引仍沿用当前稳定的 ORM-style 连接方式，先过滤 SDK 已知弃用告警，避免污染索引与检索日志。
+                warnings.filterwarnings("ignore", category=PyMilvusDeprecationWarning)
+            except Exception:
+                warnings.filterwarnings("ignore", message=".*ORM-style PyMilvus API.*")
         except ImportError as exc:
             raise AppException("当前环境缺少 pymilvus", status_code=500, code=500) from exc
 
