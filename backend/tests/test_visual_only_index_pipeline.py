@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -69,6 +70,43 @@ def test_visual_only_document_builds_and_publishes_without_text_chunks(tmp_path:
                 storage_path=str(image_path),
                 file_size=image_path.stat().st_size,
                 status="ready",
+                metadata_json=json.dumps(
+                    {
+                        "source_file_name": "drawing.pdf",
+                        "visual_admission": {
+                            "status": "accepted",
+                            "category": "generic_visual",
+                            "priority_score": 140,
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        )
+        second_image_path = tmp_path / "drawing-page-1-logo.png"
+        second_image_path.write_bytes(b"visual-logo")
+        db.add(
+            DocumentAsset(
+                document_id=document.id,
+                version_no=1,
+                page_id=page.id,
+                asset_type="block_image",
+                file_name=second_image_path.name,
+                mime_type="image/png",
+                storage_path=str(second_image_path),
+                file_size=second_image_path.stat().st_size,
+                status="ready",
+                metadata_json=json.dumps(
+                    {
+                        "source_file_name": "drawing.pdf",
+                        "visual_admission": {
+                            "status": "rejected",
+                            "category": "excluded",
+                            "priority_score": 0,
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
             )
         )
         db.commit()

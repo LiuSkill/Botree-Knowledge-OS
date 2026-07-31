@@ -349,6 +349,8 @@ class DocumentAssetService:
             "page_no": page.page_no,
             "document_id": document.id,
             "version_no": document.version_no,
+            "source_file_name": document.file_name,
+            "page_title": page.page_title,
         }
         if block is not None:
             metadata["block_id"] = block.id

@@ -170,8 +170,29 @@ class IndexPipelineService:
             for asset in self.asset_repository.list_by_document_version(document.id, document.version_no, status="ready")
             if asset.asset_type in {"page_preview", "block_image"}
         ]
-        result: list[VisualIndexAsset] = []
+        admitted_assets: list[tuple[int, object]] = []
         for asset in assets:
+            metadata = self._json_dict(getattr(asset, "metadata_json", None)) or {}
+            visual_admission = metadata.get("visual_admission") if isinstance(metadata.get("visual_admission"), dict) else None
+            if visual_admission is not None and str(visual_admission.get("status") or "") != "accepted":
+                continue
+            priority_score = 0
+            if visual_admission is not None:
+                try:
+                    priority_score = int(visual_admission.get("priority_score") or 0)
+                except (TypeError, ValueError):
+                    priority_score = 0
+            admitted_assets.append((priority_score, asset))
+        admitted_assets.sort(
+            key=lambda item: (
+                -item[0],
+                int(getattr(item[1], "page_id", 0) or 0),
+                int(getattr(item[1], "block_id", 0) or 0),
+                int(getattr(item[1], "id", 0) or 0),
+            )
+        )
+        result: list[VisualIndexAsset] = []
+        for _, asset in admitted_assets:
             page = page_by_id.get(asset.page_id)
             if page is None or not asset.storage_path:
                 continue
@@ -200,6 +221,18 @@ class IndexPipelineService:
                 )
             )
         return result
+
+    @staticmethod
+    def _json_dict(value: object) -> dict[str, object] | None:
+        if isinstance(value, dict):
+            return value
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
     def publish_all(
         self, document: Document, manifest: IndexPublicationManifest | None = None

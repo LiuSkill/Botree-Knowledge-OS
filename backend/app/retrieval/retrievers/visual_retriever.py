@@ -128,6 +128,8 @@ class VisualRetriever(BaseRetriever):
         block_id = int(hit.get("block_id") or 0) or None
         block = self.db.get(DocumentPageBlock, block_id) if block_id else None
         bbox = self._json_value(block.bbox_json) if block else None
+        asset_metadata = self._json_value(asset.metadata_json)
+        visual_context = self._visual_context(asset_metadata, document.file_name)
         return Evidence(
             score=float(hit["score"]),
             source_type="pdf_visual",
@@ -151,6 +153,7 @@ class VisualRetriever(BaseRetriever):
                 "index_generation": hit.get("index_generation"),
                 "version_no": document.version_no,
                 "security_level": document.security_level,
+                "visual_context": visual_context,
             },
             assets=[
                 EvidenceAsset(
@@ -168,10 +171,29 @@ class VisualRetriever(BaseRetriever):
                         "bbox": bbox,
                         "previous_block_id": int(hit.get("previous_block_id") or 0) or None,
                         "next_block_id": int(hit.get("next_block_id") or 0) or None,
+                        "visual_context": visual_context,
                     },
                 )
             ],
         )
+
+    @staticmethod
+    def _visual_context(metadata: object | None, default_file_name: str) -> dict[str, Any]:
+        if not isinstance(metadata, dict):
+            return {"source_file_name": default_file_name}
+        visual_admission = metadata.get("visual_admission") if isinstance(metadata.get("visual_admission"), dict) else {}
+        source_file_name = str(
+            visual_admission.get("source_file_name") or metadata.get("source_file_name") or default_file_name
+        )
+        result: dict[str, Any] = {"source_file_name": source_file_name}
+        for key in ("page_title", "figure_title", "context_text", "category", "priority_score", "status"):
+            value = visual_admission.get(key)
+            if value not in (None, "", []):
+                result[key] = value
+        adjacent_texts = visual_admission.get("adjacent_texts")
+        if isinstance(adjacent_texts, list) and adjacent_texts:
+            result["adjacent_texts"] = adjacent_texts
+        return result
 
     @staticmethod
     def _json_value(value: str | None) -> object | None:

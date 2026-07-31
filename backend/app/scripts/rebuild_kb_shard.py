@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.exceptions import AppException
+from app.knowledge.chunking.page_payloads import build_chunk_page_payloads_from_page_models
 from app.knowledge.indexing.index_service import IndexService
 from app.knowledge.indexing.visual_milvus_indexer import VisualMilvusIndexer
 from app.models.document import Document
@@ -79,15 +80,12 @@ def main() -> None:
                     if document is None:
                         raise AppException(f"文档 {document_id} 不存在，无法重建")
                     pages = service.repository.list_pages(document)
-                    payloads = [
-                        {
-                            "page_number": page.page_no,
-                            "page_title": page.page_title,
-                            "text": page.corrected_text or page.clean_content or page.page_text,
-                        }
-                        for page in pages
-                        if page.index_admission_status == "text_indexed"
-                    ]
+                    blocks = service.page_index_repository.list_blocks(document.id, document.version_no)
+                    payloads = build_chunk_page_payloads_from_page_models(
+                        pages,
+                        blocks,
+                        admitted_page_numbers={int(page.page_no) for page in pages if page.index_admission_status == "text_indexed"},
+                    )
                     chunks = service._build_chunks(document, payloads)
                     old_chunks = service.document_repository.list_chunks(document.id, include_obsolete=True)
                     vector_ids = [chunk.vector_id for chunk in old_chunks if chunk.vector_id]

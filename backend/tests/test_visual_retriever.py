@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine
@@ -78,6 +79,21 @@ def test_visual_retriever_recalls_page_without_text_chunk(tmp_path) -> None:
                 storage_path=str(image_path),
                 file_size=5,
                 status="ready",
+                metadata_json=json.dumps(
+                    {
+                        "source_file_name": "scan.pdf",
+                        "visual_admission": {
+                            "status": "accepted",
+                            "category": "flow_diagram",
+                            "priority_score": 428,
+                            "page_title": "浸出流程图",
+                            "figure_title": "图2 一次浸出流程图",
+                            "adjacent_texts": ["上游为配料段", "下游连接过滤段"],
+                            "context_text": "scan.pdf | 浸出流程图 | 图2 一次浸出流程图 | 上游为配料段 | 下游连接过滤段",
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
             )
         )
         db.commit()
@@ -98,6 +114,8 @@ def test_visual_retriever_recalls_page_without_text_chunk(tmp_path) -> None:
     assert evidences[0].content == "视觉证据：scan.pdf 第4页"
     assert evidences[0].assets[0].asset_id == 31
     assert evidences[0].metadata["index_generation"] == "vl-2026-07"
+    assert evidences[0].metadata["visual_context"]["figure_title"] == "图2 一次浸出流程图"
+    assert evidences[0].assets[0].metadata["visual_context"]["source_file_name"] == "scan.pdf"
 
 
 def test_router_exposes_visual_retriever_when_visual_index_is_configured(monkeypatch) -> None:

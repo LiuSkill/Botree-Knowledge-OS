@@ -25,12 +25,14 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
 from app.core.exceptions import AppException  # noqa: E402
+from app.knowledge.chunking.chunk_builder import ChunkBuilder as StructureChunkBuilder  # noqa: E402
 from app.models import (  # noqa: E402
     Base,
     Document,
     DocumentAsset,
     DocumentChunk,
     DocumentPage,
+    DocumentPageBlock,
     DocumentVersion,
     IndexTask,
     KnowledgeBase,
@@ -372,6 +374,122 @@ def test_rebuild_chunks_from_existing_original_pdf_pages() -> None:
         assert metadata["quality_inference"]["source"] == "mineru_original_pdf_heuristic"
         assert blank_page.index_admission_status == "metadata_only"
         assert db.scalar(select(func.count(DocumentChunk.id)).where(DocumentChunk.document_id == document.id)) == 1
+    finally:
+        db.close()
+
+
+def test_rebuild_chunks_from_existing_pages_preserves_structured_table_blocks() -> None:
+    db = make_session()
+    try:
+        document = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="BCE2408-PL-EM-001 Design Basis Rev1D 20240904.pdf",
+            file_type="pdf",
+            file_size=100,
+            storage_path="/tmp/design-basis.pdf",
+            review_status="approved",
+            parse_status="success",
+            index_status="failed",
+            version_no=1,
+            current_version=True,
+            is_current_version=True,
+        )
+        db.add(document)
+        db.flush()
+        page = DocumentPage(
+            knowledge_base_id=1,
+            document_id=document.id,
+            version_no=1,
+            page_no=5,
+            page_title="1 Plant capacity",
+            page_text="1 Plant capacity",
+            clean_content="1 Plant capacity",
+            source_hash="hash-plant-capacity",
+            index_admission_status="metadata_only",
+            index_admission_reason_json='["quality_metrics_missing"]',
+        )
+        db.add(page)
+        db.flush()
+        first_rows = "".join(
+            f"<tr><td>{index}</td><td>Element-{index}</td><td>{index * 10}%</td></tr>" for index in range(1, 8)
+        )
+        continued_rows = "".join(
+            f"<tr><td>{index}</td><td>Element-{index}</td><td>{index * 10}%</td></tr>" for index in range(8, 13)
+        )
+        db.add_all(
+            [
+                DocumentPageBlock(
+                    page_id=page.id,
+                    document_id=document.id,
+                    block_index=1,
+                    block_type="table",
+                    text="",
+                    clean_text="",
+                    filter_status="kept",
+                    metadata_json=json.dumps(
+                        {
+                            "table_caption": ["Table 1 Plant capacity"],
+                            "table_body": (
+                                "<table><tr><th>No.</th><th>Element</th><th>Rate</th></tr>" + first_rows + "</table>"
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                ),
+                DocumentPageBlock(
+                    page_id=page.id,
+                    document_id=document.id,
+                    block_index=2,
+                    block_type="table",
+                    text="",
+                    clean_text="",
+                    filter_status="kept",
+                    metadata_json=json.dumps(
+                        {"table_body": "<table>" + continued_rows + "</table>"},
+                        ensure_ascii=False,
+                    ),
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                DocumentAsset(
+                    document_id=document.id,
+                    version_no=1,
+                    asset_type="converted_pdf",
+                    file_name="design-basis.pdf",
+                    mime_type="application/pdf",
+                    storage_path="/tmp/design-basis.pdf",
+                    file_size=100,
+                    status="ready",
+                ),
+                DocumentAsset(
+                    document_id=document.id,
+                    version_no=1,
+                    asset_type="mineru_result",
+                    file_name="design-basis.json",
+                    mime_type="application/json",
+                    storage_path="/tmp/design-basis.json",
+                    file_size=10,
+                    status="ready",
+                ),
+            ]
+        )
+        db.commit()
+
+        class _SmallChunkBuilder(StructureChunkBuilder):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(chunk_size=120, *args, **kwargs)
+
+        with patch("app.services.document_service.ChunkBuilder", _SmallChunkBuilder):
+            chunks = DocumentService(db)._rebuild_chunks_from_existing_pages(document)
+
+        continued_chunks = [item.content for item in chunks if "| 8 | Element-8 | 80% |" in item.content or "| 12 | Element-12 | 120% |" in item.content]
+        assert continued_chunks
+        assert all("Table 1 Plant capacity" in item for item in continued_chunks)
+        assert all("| No. | Element | Rate |" in item for item in continued_chunks)
+        assert "| 12 | Element-12 | 120% |" in "\n".join(continued_chunks)
     finally:
         db.close()
 

@@ -142,6 +142,43 @@ def test_long_table_chunks_repeat_caption_and_header() -> None:
         assert combined.count(f"| {index} | Element-{index} | {index * 10}% |") == 1
 
 
+def test_continued_table_block_inherits_previous_caption_and_header() -> None:
+    first_rows = "".join(
+        f"<tr><td>{index}</td><td>Element-{index}</td><td>{index * 10}%</td></tr>" for index in range(1, 8)
+    )
+    continued_rows = "".join(
+        f"<tr><td>{index}</td><td>Element-{index}</td><td>{index * 10}%</td></tr>" for index in range(8, 13)
+    )
+    chunks = ChunkBuilder(chunk_size=120).build(
+        [
+            {
+                "page_number": 5,
+                "clean_blocks": [
+                    {
+                        "block_type": "table",
+                        "metadata": {
+                            "table_caption": ["Table 1 Plant capacity"],
+                            "table_body": (
+                                "<table><tr><th>No.</th><th>Element</th><th>Rate</th></tr>" + first_rows + "</table>"
+                            ),
+                        },
+                    },
+                    {
+                        "block_type": "table",
+                        "metadata": {"table_body": "<table>" + continued_rows + "</table>"},
+                    },
+                ],
+            }
+        ]
+    )
+
+    continued_chunks = [item["content"] for item in chunks if "| 8 | Element-8 | 80% |" in item["content"] or "| 12 | Element-12 | 120% |" in item["content"]]
+    assert continued_chunks
+    assert all("Table 1 Plant capacity" in item for item in continued_chunks)
+    assert all("| No. | Element | Rate |" in item for item in continued_chunks)
+    assert "| 12 | Element-12 | 120% |" in "\n".join(continued_chunks)
+
+
 def test_page_boundary_does_not_force_title_away_from_body() -> None:
     chunks = ChunkBuilder(chunk_size=100).build(
         [

@@ -7,13 +7,19 @@ Botree Configuration
 3. 避免在业务代码中出现硬编码配置
 """
 
+import hashlib
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+WORKSPACE_ROOT = BACKEND_ROOT.parent
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -141,7 +147,7 @@ class Settings(BaseSettings):
     model_service_max_concurrency: int = Field(default=1, alias="MODEL_SERVICE_MAX_CONCURRENCY")
     model_service_warmup_on_startup: bool = Field(default=True, alias="MODEL_SERVICE_WARMUP_ON_STARTUP")
 
-    jwt_secret_key: str = Field(alias="JWT_SECRET_KEY")
+    jwt_secret_key: str | None = Field(default=None, alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(default=1440, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
 
@@ -174,7 +180,7 @@ class Settings(BaseSettings):
     default_admin_real_name: str = Field(default="系统管理员", alias="DEFAULT_ADMIN_REAL_NAME")
 
     model_config = SettingsConfigDict(
-        env_file=(".env", "backend/.env"),
+        env_file=(WORKSPACE_ROOT / ".env", BACKEND_ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
@@ -189,7 +195,7 @@ class Settings(BaseSettings):
             `backend/` 目录对应的绝对路径。
         """
 
-        return Path(__file__).resolve().parents[2]
+        return BACKEND_ROOT
 
     @property
     def workspace_root(self) -> Path:
@@ -240,7 +246,7 @@ class Settings(BaseSettings):
 
     @field_validator("jwt_secret_key")
     @classmethod
-    def validate_jwt_secret_key(cls, value: str) -> str:
+    def validate_jwt_secret_key(cls, value: str | None) -> str | None:
         """
         校验 JWT 签名密钥强度。
 
@@ -251,10 +257,38 @@ class Settings(BaseSettings):
             已去除首尾空白的密钥。
         """
 
+        if value is None:
+            return None
         normalized = value.strip()
         if len(normalized.encode("utf-8")) < 32:
             raise ValueError("JWT_SECRET_KEY长度不能低于32字节，请在.env中配置随机强密钥")
         return normalized
+
+    @model_validator(mode="after")
+    def ensure_jwt_secret_key(self) -> "Settings":
+        """开发环境缺失 JWT 密钥时生成本机稳定临时密钥；其他环境保持强制配置。"""
+
+        if self.jwt_secret_key:
+            return self
+        if self.app_env != "development":
+            raise ValueError("JWT_SECRET_KEY未配置，非 development 环境必须在 .env 或环境变量中提供该密钥")
+        self.jwt_secret_key = self._build_development_jwt_secret()
+        logger.warning("未配置JWT_SECRET_KEY，development 环境已启用本机稳定临时密钥，仅限本地开发使用")
+        return self
+
+    def _build_development_jwt_secret(self) -> str:
+        """基于当前工作区和本机标识生成稳定的开发态临时 JWT 密钥。"""
+
+        seed_parts = (
+            "botree-knowledge-development-jwt",
+            str(self.workspace_root),
+            os.environ.get("COMPUTERNAME", ""),
+            os.environ.get("HOSTNAME", ""),
+            os.environ.get("USERNAME", ""),
+            os.environ.get("USER", ""),
+        )
+        digest = hashlib.sha256("|".join(seed_parts).encode("utf-8")).hexdigest()
+        return f"dev-local-only-{digest}"
 
     @field_validator("cors_allow_origins")
     @classmethod

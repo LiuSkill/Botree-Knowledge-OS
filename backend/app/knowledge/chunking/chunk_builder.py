@@ -21,6 +21,16 @@ CLAUSE_BOUNDARY_PATTERN = re.compile(r"(?<=[，、：,:])")
 TABLE_ROW_PATTERN = re.compile(r"^\s*\|.*\|\s*$")
 TABLE_SEPARATOR_PATTERN = re.compile(r"^\s*\|(?:\s*:?-+:?\s*\|)+\s*$")
 TABLE_CAPTION_PATTERN = re.compile(r"^表\s*\d+\s*.+")
+TABLE_DATA_VALUE_PATTERN = re.compile(
+    r"(?:\d|%|wt%|ppm|ppb|kg|g|mg|t|kw|mw|w|kwh|mwh|mpa|kpa|bar|℃|°c|mm|cm|m2|m3|rpm)",
+    re.IGNORECASE,
+)
+TABLE_HEADER_HINT_PATTERN = re.compile(
+    r"^(?:no\.?|item|element|parameter|description|value|unit|min|max|avg|average|"
+    r"calculation(?:\s+in\s+design)?|percentage|capacity|hours?|feedstock|remarks?|note|"
+    r"序号|项目|参数|描述|名称|单位|数值|最小|最大|平均|备注|说明)$",
+    re.IGNORECASE,
+)
 FORMULA_ROW_BOUNDARY_PATTERN = re.compile(r"\\\\\s*")
 MEASUREMENT_PATTERN = re.compile(
     r"^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)\s*"
@@ -147,6 +157,7 @@ class ChunkBuilder:
         current = _ChunkDraft(parts=[], page_numbers=[], block_types=[])
         heading_path: list[str] = []
         pending_table_captions: list[_StructuralBlock] = []
+        last_table_prefix: str | None = None
 
         def flush() -> None:
             nonlocal current
@@ -164,6 +175,7 @@ class ChunkBuilder:
                 pending_table_captions = [displaced_caption] if displaced_caption is not None else []
             else:
                 caption_page = None
+                last_table_prefix = None
 
             if block.legacy_boundary and len(block.text) > self._content_limit:
                 flush()
@@ -199,14 +211,17 @@ class ChunkBuilder:
                     self._append_block(current, block)
                     if caption_page is not None and caption_page not in current.page_numbers:
                         current.page_numbers.append(caption_page)
+                    last_table_prefix = self._table_prefix(block.text) or last_table_prefix
                     continue
                 flush()
+                block = self._inherit_previous_table_prefix(block, last_table_prefix)
                 table_drafts = self._split_table(block)
                 self._attach_heading_context(table_drafts, heading_path)
                 self._attach_caption_context(table_drafts, caption_page)
                 drafts.extend(table_drafts[:-1])
                 if table_drafts:
                     current = table_drafts[-1]
+                last_table_prefix = self._table_prefix(block.text) or last_table_prefix
                 continue
 
             if block.block_type == "formula":
@@ -250,11 +265,14 @@ class ChunkBuilder:
 
         caption_lines = lines[:first_row]
         table_lines = lines[first_row:]
-        header_lines = table_lines[:1]
-        body_start = 1
+        header_lines: list[str] = []
+        body_start = 0
         if len(table_lines) > 1 and TABLE_SEPARATOR_PATTERN.match(table_lines[1]):
-            header_lines.append(table_lines[1])
+            header_lines.extend(table_lines[:2])
             body_start = 2
+        elif table_lines and not self._table_row_looks_like_data(table_lines[0]):
+            header_lines.append(table_lines[0])
+            body_start = 1
         prefix_lines = caption_lines + header_lines
         prefix = "\n".join(prefix_lines)
         rows = table_lines[body_start:]
@@ -295,6 +313,76 @@ class ChunkBuilder:
             self._draft_for_text(f"{prefix}\n{part}", block)
             for part in self._semantic_parts(row, available)
         ]
+
+    def _inherit_previous_table_prefix(
+        self,
+        block: _StructuralBlock,
+        last_table_prefix: str | None,
+    ) -> _StructuralBlock:
+        if not last_table_prefix or not self._table_needs_prefix(block.text):
+            return block
+        return _StructuralBlock(
+            block_type=block.block_type,
+            text=f"{last_table_prefix}\n{block.text}",
+            page_number=block.page_number,
+            block_index=block.block_index,
+            legacy_boundary=block.legacy_boundary,
+        )
+
+    def _table_needs_prefix(self, text: str) -> bool:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        first_row = next((index for index, line in enumerate(lines) if TABLE_ROW_PATTERN.match(line)), None)
+        if first_row is None or first_row > 0:
+            return False
+        table_lines = lines[first_row:]
+        if not table_lines:
+            return False
+        if len(table_lines) > 1 and TABLE_SEPARATOR_PATTERN.match(table_lines[1]):
+            return False
+        return self._table_row_looks_like_data(table_lines[0])
+
+    def _table_prefix(self, text: str) -> str | None:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        first_row = next((index for index, line in enumerate(lines) if TABLE_ROW_PATTERN.match(line)), None)
+        if first_row is None:
+            return None
+        caption_lines = lines[:first_row]
+        table_lines = lines[first_row:]
+        if not table_lines:
+            prefix = "\n".join(caption_lines).strip()
+            return prefix or None
+        header_lines: list[str] = []
+        if len(table_lines) > 1 and TABLE_SEPARATOR_PATTERN.match(table_lines[1]):
+            header_lines.extend(table_lines[:2])
+        elif not self._table_row_looks_like_data(table_lines[0]):
+            header_lines.append(table_lines[0])
+        prefix = "\n".join([*caption_lines, *header_lines]).strip()
+        return prefix or None
+
+    @staticmethod
+    def _table_row_cells(line: str) -> list[str]:
+        return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+    def _table_row_looks_like_data(self, line: str) -> bool:
+        cells = [cell for cell in self._table_row_cells(line) if cell]
+        if not cells:
+            return False
+        normalized_cells = [cell.lower() for cell in cells]
+        if any(TABLE_HEADER_HINT_PATTERN.fullmatch(cell) for cell in normalized_cells):
+            return False
+        numeric_like_count = sum(bool(re.search(r"\d", cell)) for cell in cells)
+        measurement_like_count = sum(bool(TABLE_DATA_VALUE_PATTERN.search(cell)) for cell in cells)
+        first_cell = cells[0]
+        first_cell_is_index = bool(re.fullmatch(r"(?:[#№]?\s*)?\d+(?:[.\-]\d+)?", first_cell))
+        first_cell_is_code = bool(re.fullmatch(r"[A-Za-z]{1,4}\d+(?:[-/]\d+)?", first_cell))
+        has_element_symbol = any(re.fullmatch(r"[A-Z][a-z]?", cell) for cell in cells[1:])
+        if measurement_like_count >= 1 and (numeric_like_count >= 2 or first_cell_is_index or first_cell_is_code):
+            return True
+        if numeric_like_count >= max(2, len(cells) // 2 + 1):
+            return True
+        if (first_cell_is_index or first_cell_is_code) and (measurement_like_count >= 1 or has_element_symbol):
+            return True
+        return False
 
     def _split_formula(self, block: _StructuralBlock) -> list[_ChunkDraft]:
         if len(block.text) <= self._content_limit:

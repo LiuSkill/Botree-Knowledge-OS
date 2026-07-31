@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.knowledge.chunking.chunk_builder import ChunkBuilder
+from app.knowledge.chunking.page_payloads import build_chunk_page_payloads_from_page_models
 from app.knowledge.indexing.index_service import IndexService
 from app.models.document import Document, DocumentChunk
 from app.repositories.document_repository import DocumentRepository
@@ -38,6 +39,7 @@ class KnowledgeBaseRebuildService:
         self.repository = KnowledgeBaseRebuildRepository(db)
         self.document_repository = DocumentRepository(db)
         self.publication_repository = IndexPublicationRepository(db)
+        self.page_index_repository = PageIndexRepository(db)
 
     def rebuild(self, knowledge_base_id: int, *, resume: bool = False) -> dict[str, object]:
         documents = self.repository.list_source_documents(knowledge_base_id)
@@ -68,15 +70,12 @@ class KnowledgeBaseRebuildService:
         results: list[dict[str, object]] = []
         for document in pending_documents:
             pages = self.repository.list_pages(document)
-            payloads = [
-                {
-                    "page_number": page.page_no,
-                    "page_title": page.page_title,
-                    "text": page.corrected_text or page.clean_content or page.page_text,
-                }
-                for page in pages
-                if page.index_admission_status == "text_indexed"
-            ]
+            blocks = self.page_index_repository.list_blocks(document.id, document.version_no)
+            payloads = build_chunk_page_payloads_from_page_models(
+                pages,
+                blocks,
+                admitted_page_numbers={int(page.page_no) for page in pages if page.index_admission_status == "text_indexed"},
+            )
             chunks = self._build_chunks(document, payloads)
             old_chunks = self.document_repository.list_chunks(document.id, include_obsolete=True)
             vector_ids = [chunk.vector_id for chunk in old_chunks if chunk.vector_id]

@@ -35,6 +35,7 @@ from app.core.security_levels import (
 )
 from app.core.minio import get_minio_client
 from app.knowledge.chunking.chunk_builder import ChunkBuilder
+from app.knowledge.chunking.page_payloads import build_chunk_page_payloads_from_page_models
 from app.knowledge.indexing.milvus_indexer import MilvusIndexer
 from app.knowledge.indexing.index_service import IndexService
 from app.knowledge.ingestion.upload_service import UploadService
@@ -2215,15 +2216,11 @@ class DocumentService:
             source_kind=source_kind,
         )
         self.db.flush()
-        admitted_pages = [
-            {
-                "page_number": page.page_no,
-                "page_title": page.page_title,
-                "clean_content": page.corrected_text or page.clean_content or page.page_text or "",
-            }
-            for page in pages
-            if int(page.page_no) in text_page_numbers
-        ]
+        admitted_pages = build_chunk_page_payloads_from_page_models(
+            pages,
+            blocks,
+            admitted_page_numbers={int(page_no) for page_no in text_page_numbers},
+        )
         chunks = self._build_chunks_from_page_payloads(document, admitted_pages)
         if chunks:
             self.repository.replace_chunks(document.id, chunks, version_no=document.version_no)

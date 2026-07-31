@@ -39,3 +39,22 @@ def test_effective_database_url_rejects_missing_database_when_sqlite_fallback_di
 
     with pytest.raises(ValueError):
         _ = settings.effective_database_url
+
+
+def test_development_environment_builds_local_fallback_jwt_secret_when_missing() -> None:
+    settings = Settings(
+        _env_file=None,
+        APP_ENV="development",
+    )
+
+    assert settings.jwt_secret_key is not None
+    assert settings.jwt_secret_key.startswith("dev-local-only-")
+    assert len(settings.jwt_secret_key.encode("utf-8")) >= 32
+
+
+def test_non_development_environment_requires_explicit_jwt_secret() -> None:
+    with pytest.raises(ValueError, match="JWT_SECRET_KEY未配置"):
+        Settings(
+            _env_file=None,
+            APP_ENV="production",
+        )
