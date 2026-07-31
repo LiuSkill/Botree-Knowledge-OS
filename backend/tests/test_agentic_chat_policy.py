@@ -14,6 +14,7 @@ from app.langgraph.retrieval_graph import (
 )
 from app.retrieval.schemas import Evidence
 from app.services.chat_service import AWAITING_GENERAL_CONFIRM, ChatService
+from app.services.multi_intent_models import coerce_question_intent_plan
 from app.services.qwen_orchestration_service import QwenOrchestrationService
 
 
@@ -212,12 +213,12 @@ def test_project_chat_answers_multiple_intents_in_original_order(monkeypatch):
     )
 
     assert result["answer"].index("## 查询关键设备") < result["answer"].index("## 查询工艺流程")
-    assert "### 项目包含哪些关键设备？\n回答：项目包含哪些关键设备？" in result["answer"]
-    assert "### 项目采用什么工艺流程？\n回答：项目采用什么工艺流程？" in result["answer"]
-    assert "小结：已完成 1/1 个子问题。" in result["answer"]
-    assert result["answer"].endswith("## 综合结论\n关键设备共同支撑所述工艺流程。")
+    assert "## 查询关键设备\n回答：项目包含哪些关键设备？" in result["answer"]
+    assert "## 查询工艺流程\n回答：项目采用什么工艺流程？" in result["answer"]
+    assert "###" not in result["answer"]
+    assert "小结" not in result["answer"]
     assert [item["name"] for item in result["intent_results"]] == ["查询关键设备", "查询工艺流程"]
-    assert all(item["status"] == "success" for item in result["intent_results"])
+    assert all(item["status"] == "completed" for item in result["intent_results"])
     assert len(result["evidences"]) == 1
     audit_step = result["agent_trace"][-1]
     assert audit_step["implementation"] == "multi_intent_orchestration"
@@ -247,7 +248,7 @@ def test_project_chat_preserves_dependent_sub_question_order(monkeypatch):
         SimpleNamespace(id=1),
     )
 
-    assert result["answer"].index("### 列出关键设备") < result["answer"].index("### 说明设备的上下游关系")
+    assert result["answer"].index("回答：列出关键设备") < result["answer"].index("回答：说明设备的上下游关系")
     assert "回答：列出关键设备" in result["answer"]
     assert "回答：说明设备的上下游关系" in result["answer"]
     assert result["intent_results"][0]["sub_questions"] == ["列出关键设备", "说明设备的上下游关系"]
@@ -296,7 +297,8 @@ def test_project_chat_reports_partial_multi_intent_information_once(monkeypatch)
 
     assert "回答：项目包含哪些关键设备？" in result["answer"]
     assert result["answer"].count("说明：") == 1
-    assert result["answer"].endswith("说明：部分子问题资料不足。以上内容基于当前可用信息回答。")
+    assert "查询排放指标" in result["answer"]
+    assert "缺少资料：" in result["answer"]
 
 
 def test_project_chat_labels_incomplete_calculation_as_available_information_total(monkeypatch):
@@ -319,8 +321,9 @@ def test_project_chat_labels_incomplete_calculation_as_available_information_tot
         SimpleNamespace(id=1),
     )
 
-    assert "可用信息汇总值" in result["answer"]
-    assert result["answer"].count("说明：") == 1
+    assert "无法基于项目资料回答" in result["answer"]
+    assert "缺少资料：" in result["answer"]
+    assert result["intent_results"][0]["answerability_status"] == "insufficient_evidence"
 
 
 def test_project_chat_isolates_failed_intent(monkeypatch):
@@ -340,7 +343,7 @@ def test_project_chat_isolates_failed_intent(monkeypatch):
     result = graph.run("查询设备，同时查询排放", "project_chat", "auto", 1, SimpleNamespace(id=1))
 
     assert "设备回答" in result["answer"]
-    assert [item["status"] for item in result["intent_results"]] == ["success", "failed"]
+    assert [item["status"] for item in result["intent_results"]] == ["completed", "failed"]
     assert "sensitive internal failure" not in result["answer"]
 
 
@@ -355,7 +358,7 @@ def test_project_chat_reports_omitted_intents(monkeypatch):
 
     assert len(result["intent_results"]) == 3
     assert result["answer"].count("说明：") == 1
-    assert "另有 1 个目标因执行预算未处理" in result["answer"]
+    assert "任务4" in result["answer"]
 
 
 def test_project_chat_without_evidence_refuses(monkeypatch):
@@ -569,6 +572,10 @@ def test_stream_multi_intent_emits_independent_progress_and_passes_frozen_plan(m
         "app.services.chat_service.ChatMemoryService",
         lambda db: SimpleNamespace(prepare_turn_context=lambda *args: None),
     )
+    monkeypatch.setattr(
+        "app.services.chat_service.TurnExecutionPlanService",
+        lambda db: SimpleNamespace(build_plan=lambda *args, **kwargs: coerce_question_intent_plan(plan)),
+    )
 
     plan = [
         {"id": "intent-1", "name": "查询设备", "question": "查询设备", "sub_questions": ["查询设备"]},
@@ -595,7 +602,7 @@ def test_stream_multi_intent_emits_independent_progress_and_passes_frozen_plan(m
                 "agent_trace": [],
                 "trace_steps": [],
                 "intent_results": [
-                    {"id": "intent-1", "name": "查询设备", "order": 1, "status": "success"},
+                    {"id": "intent-1", "name": "查询设备", "order": 1, "status": "completed"},
                     {"id": "intent-2", "name": "查询排放", "order": 2, "status": "failed"},
                 ],
                 "raw": {},

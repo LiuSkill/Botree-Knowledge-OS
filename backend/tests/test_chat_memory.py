@@ -146,7 +146,7 @@ def test_chat_memory_finalize_then_prepare_rewrites_follow_up() -> None:
 
         assert turn_context.memory_trigger_mode == "rewrite_single"
         assert turn_context.effective_question == "关于黑粉进料流程是什么，第二步呢"
-        assert turn_context.memory_trace["decision_reason"] == "context_dependent_with_memory"
+        assert turn_context.memory_trace["decision_reason"] == "explicit_reference_rewrite"
         assert turn_context.memory_referenced_context_ids
     finally:
         db.close()
@@ -188,6 +188,78 @@ def test_chat_memory_rewrites_follow_up_to_referenced_intent() -> None:
         db.close()
 
 
+def test_independent_project_question_uses_scope_only_without_leaking_previous_topic() -> None:
+    """完整独立问题只继承稳定��目范围，不得带入上一轮业务意图或问题链摘要。"""
+
+    db = make_session()
+    try:
+        session = ChatSession(user_id=1, title="独立问题记忆", chat_type="project_chat", mode="auto", project_id=9)
+        db.add(session)
+        db.flush()
+
+        first_user = ChatMessage(
+            session_id=session.id,
+            user_id=1,
+            role="user",
+            content="几个版本的 BCE508-PS-0000-4006-001 List and Amount of Waste and Emissions 有什么区别？",
+        )
+        first_assistant = ChatMessage(
+            session_id=session.id,
+            user_id=None,
+            role="assistant",
+            content="当前资料不足，无法确认几个版本之间的差异。",
+        )
+        db.add_all([first_user, first_assistant])
+        db.flush()
+
+        memory_service = ChatMemoryService(db)
+        memory_service.finalize_turn_memory(
+            session,
+            TurnOutcome(
+                session_id=session.id,
+                user_message_id=first_user.id,
+                assistant_message_id=first_assistant.id,
+                user_message=first_user.content,
+                answer=first_assistant.content,
+                answer_type="refusal",
+                evidence_status="EMPTY",
+                chat_type="project_chat",
+                project_id=9,
+                citations=[],
+                evidences=[],
+                trace_steps=[],
+                raw={},
+                turn_context=None,
+            ),
+        )
+        db.commit()
+
+        second_user = ChatMessage(
+            session_id=session.id,
+            user_id=1,
+            role="user",
+            content="本项目的总装机功率是多少？分别列出然后汇总",
+        )
+        db.add(second_user)
+        db.flush()
+
+        context = memory_service.prepare_turn_context(session, second_user, second_user.content)
+
+        assert context.original_question == second_user.content
+        assert context.effective_question == second_user.content
+        assert context.memory_trigger_mode == "scope_only"
+        assert context.memory_referenced_context_ids == []
+        assert context.answer_memory_context == {
+            "stable_scope": {"chat_type": "project_chat", "project_id": 9},
+            "reference_resolution": {},
+            "answer_preferences": {},
+        }
+        assert context.memory_trace["decision_reason"] == "stable_scope_only_complete_question"
+        assert "BCE508-PS-0000-4006-001" not in json.dumps(context.memory_trace, ensure_ascii=False)
+    finally:
+        db.close()
+
+
 def test_chat_service_complete_does_not_fail_when_memory_writeback_raises(monkeypatch) -> None:
     """短期记忆写回失败不能阻断主回答落库。"""
 
@@ -199,7 +271,19 @@ def test_chat_service_complete_does_not_fail_when_memory_writeback_raises(monkey
             def __init__(self, _db):
                 self.db = _db
 
-            def run(self, question, chat_type, mode, project_id, _user, *, turn_context=None, business_id=None):  # noqa: ARG002
+            def run(  # noqa: ARG002
+                self,
+                question,
+                chat_type,
+                mode,
+                project_id,
+                _user,
+                *,
+                turn_context=None,
+                turn_plan=None,
+                business_id=None,
+                response_language=None,
+            ):
                 return {
                     "answer": f"回答：{question}",
                     "chat_type": chat_type,

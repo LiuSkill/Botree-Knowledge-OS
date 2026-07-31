@@ -97,7 +97,7 @@ watch(
       <TransitionGroup name="progress-step" tag="div" class="processing-progress-list">
         <div
           v-for="row in rows"
-          :key="row.stage"
+          :key="row.key"
           class="processing-progress-row"
           :class="row.status"
         >

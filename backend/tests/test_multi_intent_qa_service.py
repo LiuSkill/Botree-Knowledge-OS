@@ -30,6 +30,7 @@ def _result(question: str) -> dict:
     return {
         "answer": f"回答：{question}",
         "answer_type": "normal_answer",
+        "evidence_status": "ENOUGH",
         "query_scope": "项目知识库",
         "used_retrievers": ["keyword"],
         "evidences": [],
@@ -96,10 +97,10 @@ def test_timeout_isolated_per_intent_and_answer_still_completes():
     events = list(service.execute_events("分别处理后汇总", plan, "project_chat", "auto", 1, SimpleNamespace(id=1)))
     result = next(payload for name, payload in events if name == "result")
 
-    assert [item["status"] for item in result["intent_results"]] == ["success", "failed"]
+    assert [item["status"] for item in result["intent_results"]] == ["completed", "timeout"]
     assert result["intent_results"][1]["failure_reason"] == "timeout"
     assert result["answer"].count("说明：") == 1
-    assert "综合结论" in result["answer"]
+    assert "## 快速任务" in result["answer"]
 
 
 def test_audit_attributes_plan_evaluation_and_trace_to_sub_question():
@@ -126,5 +127,111 @@ def test_synthesis_failure_uses_safe_fallback_instead_of_failing_answer():
     )
 
     assert result["answer_type"] == "multi_intent_answer"
-    assert "以上为各项任务基于当前可用资料得到的结果" in result["answer"]
-    assert result["answer"].count("说明：") == 1
+    assert "## 设备" in result["answer"]
+    assert "## 流程" in result["answer"]
+    assert "综合结论" not in result["answer"]
+
+
+def test_intent_outcomes_are_structured_and_final_answer_has_no_duplicate_markdown() -> None:
+    plan = QuestionIntentPlan(intents=[_intent(1, "装机功率统计", ["列出装机功率", "汇总装机功率"])])
+    result = MultiIntentQaService(_Graph(), None).execute(
+        "本项目的总装机功率是多少？分别列出然后汇总",
+        plan,
+        "project_chat",
+        "auto",
+        1,
+        SimpleNamespace(id=1),
+        business_id="session-9",
+    )
+
+    assert result["intent_results"][0]["status"] == "completed"
+    assert result["intent_results"][0]["answerability_status"] == "answered"
+    assert result["intent_results"][0]["sub_question_outcomes"][0]["answerability_status"] == "answered"
+    assert result["raw"]["planned_intent_ids"] == ["intent-1"]
+    assert result["raw"]["executed_intent_ids"] == ["intent-1"]
+    assert result["raw"]["answered_intent_ids"] == ["intent-1"]
+    assert "###" not in result["answer"]
+    assert "小结" not in result["answer"]
+    assert "完成 2/2 个子问题" not in result["answer"]
+
+
+def test_insufficient_evidence_is_reported_separately_from_execution_completion() -> None:
+    class InsufficientGraph(_Graph):
+        def run_single_intent(self, question, *args, **kwargs):  # noqa: ARG002
+            result = _result(question)
+            result["answer"] = "资料不足，未获得明确答案。"
+            result["answer_type"] = "refusal"
+            result["evidence_status"] = "EMPTY"
+            result["raw"]["evidence_evaluation"] = {"enough": False, "missing_aspects": ["总装机功率台账"]}
+            return result
+
+    plan = QuestionIntentPlan(intents=[_intent(1, "装机功率统计", ["列出装机功率"])])
+    result = MultiIntentQaService(InsufficientGraph(), None).execute(
+        "本项目的总装机功率是多少？",
+        plan,
+        "project_chat",
+        "auto",
+        1,
+        SimpleNamespace(id=1),
+    )
+
+    outcome = result["intent_results"][0]
+    assert outcome["status"] == "completed"
+    assert outcome["answerability_status"] == "insufficient_evidence"
+    assert outcome["missing_information"] == ["总装机功率台账"]
+    assert "资料不足，未获得明确答案" in result["answer"]
+
+
+def test_partial_single_intent_answer_deduplicates_repeated_conflict_copy() -> None:
+    repeated_answer = (
+        "检索到的资料之间存在冲突，当前无法基于知识库给出确定结论。\n"
+        "问题：本项目的总装机功率是多少？分别列出然后汇总\n"
+        "冲突证据编号：1, 3\n"
+        "建议优先核对资料版本、审核状态、来源优先级和发布日期后再确认。"
+    )
+
+    class PartialGraph(_Graph):
+        def run_single_intent(self, question, *args, **kwargs):  # noqa: ARG002
+            result = _result(question)
+            result["answer"] = repeated_answer
+            result["answer_type"] = "conflict_answer"
+            result["evidence_status"] = "CONFLICTED"
+            if "列出" in question:
+                result["raw"]["evidence_evaluation"] = {
+                    "reason": "召回证据中存在数值冲突，且缺乏完整分项列表。",
+                    "missing_aspects": [
+                        "明确的'本项目总装机功率'定义性陈述",
+                        "完整的设备功率分项列表以支持'分别列出'",
+                        "对证据间数值冲突（118 KW vs 731.25 KW）的上下文解释",
+                        "确认 731.25 KW 是否为最终项目总和而非局部汇总",
+                    ],
+                }
+            else:
+                result["raw"]["evidence_evaluation"] = {
+                    "reason": "召回证据中存在数值冲突，且缺乏明确的项目级总述段落。",
+                    "missing_aspects": [
+                        "明确的'本项目总装机功率'定义语句",
+                        "所有分项设备的完整列表以支持'分别列出'",
+                        "对证据间数值冲突（118 KW vs 731.25 KW）的上下文解释",
+                        "确认 731.25 KW 是否为最终项目总和而非局部汇总",
+                    ],
+                }
+            return result
+
+    plan = QuestionIntentPlan(intents=[_intent(1, "装机功率统计", ["列出装机功率", "汇总装机功率"])])
+    result = MultiIntentQaService(PartialGraph(), None).execute(
+        "本项目的总装机功率是多少？分别列出然后汇总",
+        plan,
+        "project_chat",
+        "auto",
+        1,
+        SimpleNamespace(id=1),
+    )
+
+    outcome = result["intent_results"][0]
+    assert outcome["answerability_status"] == "partially_answered"
+    assert outcome["conclusion"].count("检索到的资料之间存在冲突") == 1
+    assert result["answer"].count("检索到的资料之间存在冲突") == 1
+    assert len(outcome["missing_information"]) == 4
+    assert ("定义性陈述" in result["answer"]) ^ ("定义语句" in result["answer"])
+    assert ("完整的设备功率分项列表" in result["answer"]) ^ ("所有分项设备的完整列表" in result["answer"])

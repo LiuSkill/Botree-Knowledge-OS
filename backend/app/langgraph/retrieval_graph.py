@@ -35,7 +35,7 @@ from app.services.evidence_evaluator_service import EvidenceEvaluatorService, Ev
 from app.services.query_profile_service import QueryProfileService
 from app.services.question_understanding_service import QuestionUnderstandingService
 from app.services.qwen_orchestration_service import QwenOrchestrationService
-from app.services.multi_intent_models import QuestionIntentPlan, coerce_question_intent_plan
+from app.services.multi_intent_models import QuestionIntentPlan
 from app.services.policy_resolver_service import PolicyResolver
 from app.services.rag_prompt_templates import KNOWN_RETRIEVERS
 from app.services.reranker_service import RerankerService
@@ -43,6 +43,8 @@ from app.services.retrieval_planner_service import RetrievalPlannerService
 from app.services.retrieval_finalizer_service import RetrievalFinalizerService
 from app.services.visual_evidence_service import VisualEvidenceService
 from app.services.sensitive_content_service import SECURITY_NOTICE, SensitiveContentService
+from app.services.turn_execution_models import PlannedIntent, TurnExecutionPlan, plan_from_question_intent_plan
+from app.services.turn_execution_plan_service import TurnExecutionPlanService
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +191,7 @@ class RetrievalGraph:
         user: User,
         *,
         turn_context: Any | None = None,
+        turn_plan: TurnExecutionPlan | None = None,
         eval_mode: bool = False,
         return_evidence: bool = False,
         retrieval_limit: int | None = None,
@@ -214,6 +217,8 @@ class RetrievalGraph:
             user,
             backend="sequential_prepare",
             turn_context=turn_context,
+            turn_plan=turn_plan,
+            planned_intent=turn_plan.primary_intent if turn_plan is not None else None,
             eval_mode=eval_mode,
             return_evidence=return_evidence,
             retrieval_limit=retrieval_limit,
@@ -254,6 +259,7 @@ class RetrievalGraph:
         user: User,
         *,
         turn_context: Any | None = None,
+        turn_plan: TurnExecutionPlan | None = None,
         eval_mode: bool = False,
         return_evidence: bool = False,
         retrieval_limit: int | None = None,
@@ -279,6 +285,8 @@ class RetrievalGraph:
             user,
             backend="sequential_prepare_stream",
             turn_context=turn_context,
+            turn_plan=turn_plan,
+            planned_intent=turn_plan.primary_intent if turn_plan is not None else None,
             eval_mode=eval_mode,
             return_evidence=return_evidence,
             retrieval_limit=retrieval_limit,
@@ -405,6 +413,7 @@ class RetrievalGraph:
         require_real_reranker: bool = True,
         allow_reranker_fallback: bool = True,
         reranker_score_order: str = "desc",
+        turn_plan: TurnExecutionPlan | None = None,
         intent_plan: QuestionIntentPlan | None = None,
         business_id: str | int | None = None,
         response_language: str = "zh-CN",
@@ -423,19 +432,31 @@ class RetrievalGraph:
             与旧 AgentExecutor 兼容的结果字典
         """
 
-        intent_plan = intent_plan or self.qwen.plan_question_intents(
-            question,
-            chat_type,
-            mode,
-            business_id=business_id,
-        )
-        intent_plan = coerce_question_intent_plan(intent_plan)
-        if intent_plan.requires_orchestration:
+        resolved_turn_plan = turn_plan
+        if resolved_turn_plan is None:
+            base_plan = intent_plan if intent_plan is not None else self.qwen.plan_question_intents(
+                question,
+                chat_type,
+                mode,
+                business_id=business_id,
+            )
+            resolved_turn_plan = plan_from_question_intent_plan(
+                base_plan,
+                turn_id=getattr(turn_context, "turn_id", None),
+                original_question=str(getattr(turn_context, "original_question", question) or question),
+                effective_question=str(getattr(turn_context, "effective_question", question) or question),
+                memory_mode=str(getattr(turn_context, "memory_mode", getattr(turn_context, "memory_trigger_mode", "skip")) or "skip"),
+                stable_scope=dict(getattr(turn_context, "stable_scope", {}) or {}),
+                referenced_context_ids=list(getattr(turn_context, "memory_referenced_context_ids", []) or []),
+                topic_shift=dict((getattr(turn_context, "memory_trace", {}) or {}).get("topic_shift") or {}),
+                memory_decision_reason=str((getattr(turn_context, "memory_trace", {}) or {}).get("decision_reason") or ""),
+            )
+        if resolved_turn_plan.requires_orchestration:
             from app.services.multi_intent_qa_service import MultiIntentQaService
 
             return MultiIntentQaService(self, self.db).execute(
                 question,
-                intent_plan,
+                resolved_turn_plan,
                 chat_type,
                 mode,
                 project_id,
@@ -461,6 +482,8 @@ class RetrievalGraph:
             mode,
             project_id,
             user,
+            turn_plan=resolved_turn_plan,
+            planned_intent=resolved_turn_plan.primary_intent,
             turn_context=turn_context,
             eval_mode=eval_mode,
             return_evidence=return_evidence,
@@ -529,6 +552,8 @@ class RetrievalGraph:
         user: User,
         backend: str,
         turn_context: Any | None = None,
+        turn_plan: TurnExecutionPlan | None = None,
+        planned_intent: PlannedIntent | None = None,
         eval_mode: bool = False,
         return_evidence: bool = False,
         retrieval_limit: int | None = None,
@@ -550,12 +575,45 @@ class RetrievalGraph:
         if hasattr(session_memory, "model_dump"):
             session_memory = session_memory.model_dump(mode="json")
         memory_trace = dict(getattr(turn_context, "memory_trace", {}) or {})
-        memory_trigger_mode = str(getattr(turn_context, "memory_trigger_mode", "skip") or "skip")
+        memory_trigger_mode = str(
+            getattr(turn_context, "memory_mode", getattr(turn_context, "memory_trigger_mode", "skip")) or "skip"
+        )
         memory_referenced_context_ids = list(getattr(turn_context, "memory_referenced_context_ids", []) or [])
+        resolved_turn_plan = turn_plan
+        if resolved_turn_plan is None:
+            db = getattr(self, "db", None)
+            if db is not None:
+                resolved_turn_plan = TurnExecutionPlanService(db).build_plan(
+                    original_question,
+                    turn_context,
+                    chat_type,
+                    project_id,
+                    business_id=None,
+                    mode=mode,
+                )
+            else:
+                resolved_turn_plan = plan_from_question_intent_plan(
+                    QwenOrchestrationService.single_intent_plan(original_question),
+                    turn_id=getattr(turn_context, "turn_id", None),
+                    original_question=original_question,
+                    effective_question=effective_question,
+                    memory_mode=memory_trigger_mode,
+                    stable_scope=dict(getattr(turn_context, "stable_scope", {}) or {}),
+                    referenced_context_ids=memory_referenced_context_ids,
+                    topic_shift=dict(memory_trace.get("topic_shift") or {}),
+                    memory_decision_reason=str(memory_trace.get("decision_reason") or ""),
+                )
+        current_intent = planned_intent or resolved_turn_plan.primary_intent
         return {
             "question": original_question,
             "original_question": original_question,
             "effective_question": effective_question,
+            "turn_id": resolved_turn_plan.turn_id,
+            "turn_plan": resolved_turn_plan,
+            "plan_version": resolved_turn_plan.plan_version,
+            "planned_intent_id": current_intent.id,
+            "planned_intent_name": current_intent.name,
+            "planned_intent_ids": resolved_turn_plan.planned_intent_ids,
             "chat_type": chat_type,
             "mode": mode,
             "project_id": project_id,
@@ -574,6 +632,11 @@ class RetrievalGraph:
             "raw": {
                 "langgraph_backend": backend,
                 "run_id": uuid.uuid4().hex,
+                "turn_id": resolved_turn_plan.turn_id,
+                "plan_version": resolved_turn_plan.plan_version,
+                "planned_intent_ids": resolved_turn_plan.planned_intent_ids,
+                "planned_intent_id": current_intent.id,
+                "planned_intent_name": current_intent.name,
                 "memory_original_question": original_question,
                 "memory_effective_question": effective_question,
                 "memory_prepare_ms": int(memory_trace.get("prepare_ms") or 0),

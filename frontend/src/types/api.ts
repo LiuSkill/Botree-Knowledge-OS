@@ -567,16 +567,41 @@ export interface ChatProgressEvent {
   intent_name?: string | null;
   intent_order?: number | null;
   intent_total?: number | null;
+  event_type?: string | null;
+  turn_id?: number | null;
+  plan_version?: number | null;
+  execution_status?: 'running' | 'completed' | 'failed' | 'timeout' | null;
+  answerability_status?: 'answered' | 'partially_answered' | 'insufficient_evidence' | 'unavailable' | null;
 }
 
 export interface IntentResult {
   id: string;
   name: string;
   order: number;
-  status: 'success' | 'failed';
+  status: 'completed' | 'failed' | 'timeout';
+  answerability_status?: 'answered' | 'partially_answered' | 'insufficient_evidence' | 'unavailable';
   elapsed_ms: number;
   sub_questions: string[];
   citation_ids: string[];
+  conclusion?: string | null;
+  evidence_summary?: string | null;
+  missing_information?: string[];
+  citations?: string[];
+  risk_notices?: string[];
+  sub_question_outcomes?: Array<{
+    id: string;
+    order: number;
+    question: string;
+    status: 'completed' | 'failed' | 'timeout';
+    answerability_status: 'answered' | 'partially_answered' | 'insufficient_evidence' | 'unavailable';
+    conclusion: string;
+    evidence_summary?: string | null;
+    missing_information?: string[];
+    citations?: string[];
+    risk_notices?: string[];
+    elapsed_ms: number;
+    failure_reason?: string | null;
+  }>;
 }
 
 export interface ChatCompletionResult {

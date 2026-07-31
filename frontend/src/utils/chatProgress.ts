@@ -13,7 +13,8 @@ export interface ChatProgressStageConfig {
 }
 
 export interface ChatProgressRow extends ChatProgressStageConfig {
-  status: Exclude<ChatProgressStatus, 'failed'>;
+  key: string;
+  status: ChatProgressStatus;
   detail: string;
 }
 
@@ -288,32 +289,58 @@ export function mergeProgressEvent(items: ChatProgressEvent[], nextEvent: ChatPr
 }
 
 export function normalizeProgressEvents(events: ChatProgressEvent[]): ChatProgressEvent[] {
-  const byStage = new Map<string, ChatProgressEvent>();
+  const byKey = new Map<string, ChatProgressEvent>();
   for (const event of events) {
     if (!isProgressStage(event.stage)) continue;
-    const key = event.intent_id ? `${event.stage}:${event.intent_id}` : event.stage;
-    byStage.set(key, sanitizeProgressEvent(event));
+    const key = [event.turn_id ?? '', event.plan_version ?? '', event.intent_id ?? '', event.event_type ?? event.stage, event.stage].join(':');
+    byKey.set(key, sanitizeProgressEvent(event));
   }
-  const normalized = Array.from(byStage.values());
-  if (normalized.some((event) => event.intent_id)) {
-    return normalized.sort((left, right) => (left.intent_order ?? 0) - (right.intent_order ?? 0));
+  const normalized = Array.from(byKey.values()).sort((left, right) => (left.sequence ?? 0) - (right.sequence ?? 0));
+  if (normalized.some((event) => event.event_type || event.intent_id)) {
+    return normalized;
   }
+  const byStage = new Map(normalized.map((item) => [item.stage, item]));
   return CHAT_PROGRESS_STAGES.map((item) => byStage.get(item.stage)).filter(Boolean) as ChatProgressEvent[];
 }
 
 export function buildProgressRows(events: ChatProgressEvent[], streaming = false): ChatProgressRow[] {
   const normalized = normalizeProgressEvents(events);
-  if (normalized.some((event) => event.intent_id)) {
-    return normalized.map((event) => ({
-      stage: event.stage,
-      title: event.intent_name || event.title,
-      status: streaming && event.status === 'pending' ? 'running' : toVisibleStatus(event.status),
-      detail: event.detail || i18n.global.t('ai.progress.intentDetail', { current: event.intent_order ?? 1, total: event.intent_total ?? normalized.length }),
-    }));
+  if (normalized.some((event) => event.intent_id || event.event_type)) {
+    const intentLatest = new Map<string, ChatProgressEvent>();
+    let answeringEvent: ChatProgressEvent | null = null;
+    for (const event of normalized) {
+      if (event.intent_id) {
+        intentLatest.set(event.intent_id, event);
+        continue;
+      }
+      if (event.event_type === 'answer.composing' || event.event_type === 'answer.completed') {
+        answeringEvent = event;
+      }
+    }
+    const rows: ChatProgressRow[] = Array.from(intentLatest.values())
+      .sort((left, right) => (left.intent_order ?? 0) - (right.intent_order ?? 0))
+      .map((event) => ({
+        key: event.intent_id || `${event.stage}:${event.sequence ?? ''}`,
+        stage: event.stage,
+        title: event.intent_name || event.title,
+        status: streaming && event.status === 'pending' ? 'running' : toVisibleStatus(event.status),
+        detail: event.detail || i18n.global.t('ai.progress.intentDetail', { current: event.intent_order ?? 1, total: event.intent_total ?? intentLatest.size }),
+      }));
+    if (answeringEvent) {
+      rows.push({
+        key: answeringEvent.event_type || `answering:${answeringEvent.sequence ?? ''}`,
+        stage: answeringEvent.stage,
+        title: answeringEvent.title,
+        status: streaming && answeringEvent.status === 'pending' ? 'running' : toVisibleStatus(answeringEvent.status),
+        detail: answeringEvent.detail || safeDetail(answeringEvent.stage, normalizeStatus(answeringEvent.status), answeringEvent.title),
+      });
+    }
+    return rows;
   }
   const eventByStage = new Map(normalized.map((item) => [item.stage, item]));
   if (normalized.some((event) => event.compact)) {
     return normalized.map((event) => ({
+      key: event.event_type || event.stage,
       stage: event.stage,
       title: event.title,
       status: streaming && event.status === 'pending' ? 'running' : toVisibleStatus(event.status),
@@ -341,6 +368,7 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
     if (activeIndex >= 0 && index < activeIndex) {
       const completedDetail = event && normalizeStatus(event.status) === 'success' ? event.detail : null;
       return {
+        key: config.stage,
         ...config,
         title: event?.title ?? stageTitle(config.stage),
         status: 'success',
@@ -351,6 +379,7 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
       const eventStatus = toVisibleStatus(event.status);
       const status = streaming && index === activeIndex && eventStatus === 'pending' ? 'running' : eventStatus;
       return {
+        key: config.stage,
         ...config,
         title: event.title,
         status,
@@ -358,9 +387,9 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
       };
     }
     if (streaming && index === activeIndex) {
-      return { ...config, title: stageTitle(config.stage), status: 'running', detail: safeDetail(config.stage, 'running') };
+      return { key: config.stage, ...config, title: stageTitle(config.stage), status: 'running', detail: safeDetail(config.stage, 'running') };
     }
-    return { ...config, title: stageTitle(config.stage), status: 'pending', detail: safeDetail(config.stage, 'pending') };
+    return { key: config.stage, ...config, title: stageTitle(config.stage), status: 'pending', detail: safeDetail(config.stage, 'pending') };
   });
 }
 
@@ -405,10 +434,16 @@ function sanitizeProgressEvent(event: ChatProgressEvent): ChatProgressEvent {
     intent_name: event.intent_name ?? null,
     intent_order: event.intent_order ?? null,
     intent_total: event.intent_total ?? null,
+    event_type: event.event_type ?? null,
+    turn_id: event.turn_id ?? null,
+    plan_version: event.plan_version ?? null,
+    execution_status: event.execution_status ?? null,
+    answerability_status: event.answerability_status ?? null,
   };
 }
 
-function toVisibleStatus(status: ChatProgressStatus): Exclude<ChatProgressStatus, 'failed'> {
+function toVisibleStatus(status: ChatProgressStatus): ChatProgressStatus {
+  if (status === 'failed') return 'failed';
   if (status === 'success') return 'success';
   if (status === 'pending') return 'pending';
   return 'running';

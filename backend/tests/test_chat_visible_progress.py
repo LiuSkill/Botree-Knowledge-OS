@@ -8,6 +8,7 @@ Chat Visible Progress Tests
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -118,3 +119,55 @@ def test_sanitize_stream_result_strips_raw_trace_payload() -> None:
         "detail": "已完成回答整理",
         "sequence": 1,
     }
+
+
+def test_sanitize_stream_result_keeps_plan_metadata_and_removes_internal_multi_intent_copy() -> None:
+    """后端返回的自定义进度事件必须保留计划元信息，并过滤内部子问题计数文案。"""
+
+    service = _service()
+    result = {
+        "answer": "ok",
+        "used_retrievers": [],
+        "agent_trace": [],
+        "trace_steps": [],
+        "progress_events": [
+            {
+                "visible": True,
+                "event_type": "turn.planned",
+                "turn_id": 18,
+                "plan_version": 1,
+                "stage": "planning",
+                "title": "已建立执行计划",
+                "status": "success",
+                "detail": "将按本轮计划执行",
+                "sequence": 1,
+                "execution_status": "completed",
+                "answerability_status": "unavailable",
+            },
+            {
+                "visible": True,
+                "event_type": "intent.completed",
+                "turn_id": 18,
+                "plan_version": 1,
+                "intent_id": "intent-1",
+                "intent_name": "装机功率统计",
+                "stage": "filtering",
+                "title": "装机功率统计",
+                "status": "success",
+                "detail": "完成 2/2 个子问题",
+                "sequence": 2,
+                "execution_status": "completed",
+                "answerability_status": "insufficient_evidence",
+            },
+        ],
+        "raw": {"message_id": 42},
+    }
+
+    safe_result = service._sanitize_stream_result(result)  # type: ignore[attr-defined]
+
+    assert safe_result["progress_events"][0]["turn_id"] == 18
+    assert safe_result["progress_events"][0]["plan_version"] == 1
+    assert safe_result["progress_events"][1]["intent_id"] == "intent-1"
+    assert safe_result["progress_events"][1]["answerability_status"] == "insufficient_evidence"
+    assert "完成 2/2 个子问题" not in json.dumps(safe_result["progress_events"], ensure_ascii=False)
+    assert "资料不足，未获得明确答案" in json.dumps(safe_result["progress_events"], ensure_ascii=False)

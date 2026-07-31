@@ -43,9 +43,14 @@ class SubQuestionExecution(BaseModel):
     """单个子问题的执行结果。"""
 
     sub_question: IntentSubQuestion
-    status: Literal["success", "failed", "timeout"]
+    status: Literal["completed", "failed", "timeout"]
+    answerability_status: Literal["answered", "partially_answered", "insufficient_evidence", "unavailable"] = "unavailable"
     elapsed_ms: int = Field(ge=0)
     answer: str
+    evidence_summary: str | None = None
+    missing_information: list[str] = Field(default_factory=list)
+    citations: list[str] = Field(default_factory=list)
+    risk_notices: list[str] = Field(default_factory=list)
     result: dict[str, Any] = Field(default_factory=dict, exclude=True)
     failure_reason: str | None = None
 
@@ -54,10 +59,15 @@ class IntentExecution(BaseModel):
     """单个问答意图的聚合执行结果。"""
 
     intent: QuestionIntent
-    status: Literal["success", "failed", "timeout"]
+    status: Literal["completed", "failed", "timeout"]
+    answerability_status: Literal["answered", "partially_answered", "insufficient_evidence", "unavailable"] = "unavailable"
     elapsed_ms: int = Field(ge=0)
     sub_results: list[SubQuestionExecution] = Field(default_factory=list)
     answer: str
+    evidence_summary: str | None = None
+    missing_information: list[str] = Field(default_factory=list)
+    citations: list[str] = Field(default_factory=list)
+    risk_notices: list[str] = Field(default_factory=list)
     failure_reason: str | None = None
 
 

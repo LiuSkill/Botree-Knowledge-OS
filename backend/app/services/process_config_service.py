@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 import json
 import logging
@@ -1204,3 +1204,4 @@ class ProcessConfigService:
             )
             return ProcessAssetOutWithPrices.model_validate(data).model_dump(mode="json")
         return ProcessLibraryOutWithPrices.model_validate(data).model_dump(mode="json")
+UTC = timezone.utc

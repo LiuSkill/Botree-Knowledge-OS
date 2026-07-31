@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, TypeAlias
 
 from sqlalchemy import func, or_, select
@@ -608,3 +608,4 @@ class ProcessNodeRepository:
             )
         )
         return int(self.db.scalar(stmt) or 0)
+UTC = timezone.utc

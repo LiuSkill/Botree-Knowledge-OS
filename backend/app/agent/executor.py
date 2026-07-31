@@ -38,6 +38,7 @@ class AgentExecutor:
         user: User,
         *,
         turn_context: Any | None = None,
+        turn_plan: Any | None = None,
         business_id: str | int | None = None,
         response_language: str = "zh-CN",
     ) -> dict:
@@ -62,6 +63,7 @@ class AgentExecutor:
             project_id,
             user,
             turn_context=turn_context,
+            turn_plan=turn_plan,
             business_id=business_id,
             response_language=response_language,
         )

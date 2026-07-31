@@ -43,6 +43,7 @@ from app.services.multi_intent_models import coerce_question_intent_plan
 from app.services.qwen_orchestration_service import QwenOrchestrationService
 from app.services.retrieval_trace_service import RetrievalTraceService
 from app.services.system_service import SystemService
+from app.services.turn_execution_plan_service import TurnExecutionPlanService
 
 logger = logging.getLogger(__name__)
 
@@ -337,6 +338,14 @@ class ChatService:
             return pending_result
 
         turn_context = ChatMemoryService(self.db).prepare_turn_context(session, user_message, payload.message)
+        turn_plan = TurnExecutionPlanService(self.db).build_plan(
+            payload.message,
+            turn_context,
+            payload.chat_type,
+            payload.project_id,
+            session.id,
+            mode=payload.mode,
+        )
         agent_result = AgentExecutor(self.db).run(
             payload.message,
             payload.chat_type,
@@ -344,6 +353,7 @@ class ChatService:
             payload.project_id,
             user,
             turn_context=turn_context,
+            turn_plan=turn_plan,
             business_id=session.id,
             response_language=getattr(payload, "response_language", "zh-CN"),
         )
@@ -361,6 +371,18 @@ class ChatService:
 
         confirmation_decision = self._resolve_general_confirmation_decision(payload, session)
         turn_context = None if confirmation_decision is not None else ChatMemoryService(self.db).prepare_turn_context(session, user_message, payload.message)
+        turn_plan = (
+            None
+            if confirmation_decision is not None
+            else TurnExecutionPlanService(self.db).build_plan(
+                payload.message,
+                turn_context,
+                payload.chat_type,
+                payload.project_id,
+                session.id,
+                mode=payload.mode,
+            )
+        )
         initial_meta_payload = {
             "session_id": session.id,
             "chat_type": payload.chat_type,
@@ -385,29 +407,12 @@ class ChatService:
                     return
 
                 retrieval_graph = RetrievalGraph(self.db)
-                planning_started_at = time.perf_counter()
-                try:
-                    intent_plan = retrieval_graph.qwen.plan_question_intents(
-                        payload.message,
-                        payload.chat_type,
-                        payload.mode,
-                        business_id=session.id,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "多意图规划不可用，降级为单意图回答: session_id=%s status=fallback elapsed_ms=%s exception_type=%s",
-                        session.id,
-                        int((time.perf_counter() - planning_started_at) * 1000),
-                        type(exc).__name__,
-                    )
-                    intent_plan = QwenOrchestrationService.single_intent_plan(payload.message)
-                intent_plan = coerce_question_intent_plan(intent_plan)
-                if intent_plan.requires_orchestration:
-                    final_progress_by_intent: dict[str, dict[str, Any]] = {}
+                if turn_plan is not None and turn_plan.requires_orchestration:
+                    collected_progress: list[dict[str, Any]] = []
                     agent_result: dict[str, Any] | None = None
                     for event_name, event_payload in MultiIntentQaService(retrieval_graph, self.db).execute_events(
                         payload.message,
-                        intent_plan,
+                        turn_plan,
                         payload.chat_type,
                         payload.mode,
                         payload.project_id,
@@ -417,16 +422,13 @@ class ChatService:
                         response_language=getattr(payload, "response_language", "zh-CN"),
                     ):
                         if event_name == "progress":
-                            final_progress_by_intent[str(event_payload["intent_id"])] = event_payload
+                            collected_progress.append(event_payload)
                             yield self._encode_sse("progress", event_payload)
                         elif event_name == "result":
                             agent_result = event_payload
                     if agent_result is None:
                         raise AppException("多意图问答执行失败", status_code=502, code=502)
-                    agent_result["progress_events"] = sorted(
-                        final_progress_by_intent.values(),
-                        key=lambda item: int(item.get("intent_order") or 0),
-                    )
+                    agent_result["progress_events"] = list(agent_result.get("progress_events") or collected_progress)
                     yield self._encode_sse("delta", {"content": agent_result["answer"]})
                     result = self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
                     yield self._encode_sse("done", self._sanitize_stream_result(result))
@@ -438,6 +440,7 @@ class ChatService:
                     payload.project_id,
                     user,
                     turn_context=turn_context,
+                    turn_plan=turn_plan,
                     response_language=getattr(payload, "response_language", "zh-CN"),
                 ):
                     if event_name == "trace_delta":
@@ -627,7 +630,7 @@ class ChatService:
         safe_result = dict(result)
         custom_progress_events = safe_result.get("progress_events")
         progress_events = (
-            custom_progress_events
+            self._normalize_custom_progress_events(custom_progress_events)
             if isinstance(custom_progress_events, list)
             else self._build_visible_progress_events(
                 safe_result.get("agent_trace", []),
@@ -655,12 +658,83 @@ class ChatService:
 
     def _should_emit_progress(self, event: dict[str, Any], emitted_progress: dict[str, str]) -> bool:
         stage = str(event.get("stage") or "")
-        progress_key = f"{stage}:{event.get('intent_id') or ''}"
+        progress_key = ":".join(
+            str(part or "")
+            for part in (
+                event.get("turn_id"),
+                event.get("plan_version"),
+                event.get("intent_id"),
+                event.get("event_type") or stage,
+            )
+        )
         signature = f"{event.get('status')}::{event.get('title')}::{event.get('detail')}"
         if emitted_progress.get(progress_key) == signature:
             return False
         emitted_progress[progress_key] = signature
         return True
+
+    def _normalize_custom_progress_events(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        normalized: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+        for event in events:
+            stage = str(event.get("stage") or "")
+            event_type = str(event.get("event_type") or stage or "progress")
+            execution_status = str(
+                event.get("execution_status") or ("failed" if event.get("status") == "failed" else "completed")
+            )
+            answerability_status = str(event.get("answerability_status") or "unavailable")
+            status = "failed" if execution_status in {"failed", "timeout"} else (
+                "success"
+                if event_type in {"turn.planned", "intent.evidence_evaluated", "intent.completed", "answer.completed"}
+                else "running"
+            )
+            normalized[
+                (
+                    str(event.get("turn_id") or ""),
+                    str(event.get("plan_version") or ""),
+                    str(event.get("intent_id") or ""),
+                    stage,
+                    event_type,
+                )
+            ] = {
+                **event,
+                "visible": True,
+                "stage": stage,
+                "status": status,
+                "detail": self._custom_progress_detail(event_type, execution_status, answerability_status),
+                "execution_status": execution_status,
+                "answerability_status": answerability_status,
+            }
+        return sorted(normalized.values(), key=lambda item: int(item.get("sequence") or 0))
+
+    def _custom_progress_detail(
+        self,
+        event_type: str,
+        execution_status: str,
+        answerability_status: str,
+    ) -> str:
+        if event_type == "turn.planned":
+            return "已建立本轮执行计划"
+        if event_type == "answer.composing":
+            return "正在整理回答内容"
+        if event_type == "answer.completed":
+            return "已完成回答整理"
+        if event_type == "intent.retrieving":
+            return "正在检索相关资料"
+        if event_type == "intent.started":
+            return "正在处理该意图"
+        if execution_status == "timeout":
+            return "处理超时，暂未获得结果"
+        if execution_status == "failed":
+            return "处理失败，暂未获得结果"
+        if answerability_status == "answered":
+            return "已获得答案"
+        if answerability_status == "partially_answered":
+            return "已获得部分结果"
+        if answerability_status == "insufficient_evidence":
+            return "资料不足，未获得明确答案"
+        if event_type == "intent.evidence_evaluated":
+            return "已完成证据判断"
+        return "已处理完成"
 
     def _manual_progress_event(
         self,
@@ -953,7 +1027,7 @@ class ChatService:
 
         custom_progress_events = agent_result.get("progress_events")
         progress_events = (
-            custom_progress_events
+            self._normalize_custom_progress_events(custom_progress_events)
             if isinstance(custom_progress_events, list)
             else self._build_visible_progress_events(agent_result["agent_trace"], completed=True)
         )

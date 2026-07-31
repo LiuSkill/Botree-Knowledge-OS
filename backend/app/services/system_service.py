@@ -9,7 +9,7 @@ System Service
 
 import json
 import logging
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -37,6 +37,8 @@ from app.utils.pagination import paginate
 from app.utils.user_avatar import avatar_url_for_user
 
 logger = logging.getLogger(__name__)
+
+UTC = timezone.utc
 
 DOCUMENT_TYPE_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
     ("pdf", "PDF", "#4ea3f7"),

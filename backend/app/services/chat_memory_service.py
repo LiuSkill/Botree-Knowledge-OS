@@ -14,7 +14,7 @@ import json
 import logging
 import re
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,6 +28,8 @@ from app.retrieval.schemas import Evidence
 
 logger = logging.getLogger(__name__)
 
+UTC = timezone.utc
+
 MEMORY_SCHEMA_VERSION = 1
 DEFAULT_RAW_WINDOW_ROUNDS = 3
 MIN_RAW_WINDOW_ROUNDS = 1
@@ -40,13 +42,20 @@ SUMMARY_MAX_LEN = 160
 CONFIG_ENABLED_KEY = "chat_memory_enabled"
 CONFIG_WINDOW_ROUNDS_KEY = "chat_memory_raw_window_rounds"
 
-_FOLLOW_UP_PATTERNS: tuple[str, ...] = (
+_EXPLICIT_REFERENCE_PATTERNS: tuple[str, ...] = (
     "这个",
     "那个",
     "它",
     "其",
     "前者",
     "后者",
+    "第一个",
+    "第二个",
+    "第三个",
+    "这一步",
+    "那一步",
+)
+_RELATIVE_FOLLOW_UP_PATTERNS: tuple[str, ...] = (
     "继续",
     "接着",
     "然后",
@@ -56,11 +65,6 @@ _FOLLOW_UP_PATTERNS: tuple[str, ...] = (
     "第一点",
     "第二点",
     "第三点",
-    "第一个",
-    "第二个",
-    "第三个",
-    "这一步",
-    "那一步",
     "那如果",
     "为什么会这样",
     "怎么处理",
@@ -176,13 +180,18 @@ class TurnContext(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    turn_id: int | None = None
     session_id: int
     raw_recent_rounds: list[RecentRound] = Field(default_factory=list)
     session_memory: SessionMemorySnapshot | None = None
     original_question: str
     effective_question: str
+    memory_mode: str = "skip"
     memory_trigger_mode: str = "skip"
     memory_referenced_context_ids: list[str] = Field(default_factory=list)
+    stable_scope: dict[str, Any] = Field(default_factory=dict)
+    reference_resolution: dict[str, Any] = Field(default_factory=dict)
+    answer_preferences: dict[str, Any] = Field(default_factory=dict)
     answer_memory_context: dict[str, Any] = Field(default_factory=dict)
     memory_trace: dict[str, Any] = Field(default_factory=dict)
 
@@ -308,49 +317,79 @@ class ChatMemoryService:
             recent_rounds = self._build_recent_rounds(recent_messages, config.raw_window_rounds)
             topic_shift = self._detect_topic_shift(question, snapshot)
             working_snapshot = self._snapshot_after_read_prune(snapshot, topic_shift)
-            memory_source = self._memory_source_for_rewrite(working_snapshot, recent_rounds)
+            stable_scope = self._build_prepare_stable_scope(session, working_snapshot)
+            answer_preferences = self._build_answer_preferences(working_snapshot)
+            reference_resolution: dict[str, Any] = {}
+            memory_source = self._memory_source_for_rewrite(question, working_snapshot, recent_rounds)
             referenced_intent = self._referenced_intent(question, working_snapshot.last_intent_results)
             if referenced_intent is not None:
                 memory_source = {
                     "id": f"intent::{referenced_intent.id}",
+                    "kind": "intent",
                     "topic_label": "；".join([referenced_intent.name, *referenced_intent.sub_questions]),
                 }
+                reference_resolution = {
+                    "mode": "explicit_history_reference",
+                    "context_id": memory_source["id"],
+                    "label": memory_source["topic_label"],
+                }
+            elif memory_source is not None:
+                reference_resolution = {
+                    "mode": "explicit_reference",
+                    "context_id": memory_source["id"],
+                    "label": memory_source["topic_label"],
+                }
 
-            trigger_mode = "skip"
+            memory_mode = "skip"
             decision_reason = "disabled" if not config.enabled else "no_memory"
             referenced_ids: list[str] = []
             effective_question = question
             confidence = self._memory_confidence(working_snapshot)
 
             if config.enabled:
-                if topic_shift["strong"]:
-                    decision_reason = "topic_shift"
-                elif self._is_context_dependent(question):
-                    if memory_source is not None:
-                        trigger_mode = "rewrite_single"
-                        decision_reason = "context_dependent_with_memory"
+                if self._is_question_complete(question):
+                    memory_mode = "scope_only" if stable_scope else "skip"
+                    decision_reason = "stable_scope_only_complete_question" if stable_scope else "question_complete"
+                elif memory_source is not None and not topic_shift["strong"]:
+                    if self._can_rewrite_single(question, memory_source):
+                        memory_mode = "rewrite_single"
+                        decision_reason = "explicit_reference_rewrite"
                         referenced_ids = [memory_source["id"]]
                         effective_question = self._rewrite_question(memory_source["topic_label"], question)
                     else:
-                        decision_reason = "context_dependent_low_confidence"
-                elif self._is_question_complete(question):
-                    decision_reason = "question_complete"
+                        memory_mode = "scope_only" if stable_scope else "skip"
+                        decision_reason = (
+                            "stable_scope_only_incomplete_question" if stable_scope else "context_dependent_low_confidence"
+                        )
+                elif stable_scope:
+                    memory_mode = "scope_only"
+                    decision_reason = "stable_scope_only_topic_shift" if topic_shift["strong"] else "stable_scope_only_incomplete_question"
                 else:
-                    decision_reason = "skip"
+                    decision_reason = "topic_shift" if topic_shift["strong"] else "skip"
 
             prepare_ms = int((time.perf_counter() - started_at) * 1000)
             return TurnContext(
+                turn_id=user_message.id,
                 session_id=session.id,
                 raw_recent_rounds=recent_rounds,
                 session_memory=working_snapshot,
                 original_question=question,
                 effective_question=effective_question,
-                memory_trigger_mode=trigger_mode,
+                memory_mode=memory_mode,
+                memory_trigger_mode=memory_mode,
                 memory_referenced_context_ids=referenced_ids,
-                answer_memory_context=self._build_answer_memory_context(working_snapshot, memory_source, effective_question, question),
+                stable_scope=stable_scope,
+                reference_resolution=reference_resolution if memory_mode == "rewrite_single" else {},
+                answer_preferences=answer_preferences,
+                answer_memory_context=self._build_answer_memory_context(
+                    stable_scope,
+                    reference_resolution if memory_mode == "rewrite_single" else {},
+                    answer_preferences,
+                ),
                 memory_trace={
                     "prepare_ms": prepare_ms,
-                    "trigger_mode": trigger_mode,
+                    "trigger_mode": memory_mode,
+                    "memory_mode": memory_mode,
                     "decision_reason": decision_reason,
                     "original_question": question,
                     "effective_question": effective_question,
@@ -362,16 +401,22 @@ class ChatMemoryService:
         except Exception:  # noqa: BLE001
             logger.exception("会话短期记忆准备失败: session_id=%s", getattr(session, "id", None))
             return TurnContext(
+                turn_id=user_message.id,
                 session_id=session.id,
                 raw_recent_rounds=[],
                 session_memory=None,
                 original_question=question,
                 effective_question=question,
+                memory_mode="skip",
                 memory_trigger_mode="skip",
+                stable_scope={},
+                reference_resolution={},
+                answer_preferences={},
                 answer_memory_context={},
                 memory_trace={
                     "prepare_ms": int((time.perf_counter() - started_at) * 1000),
                     "trigger_mode": "skip",
+                    "memory_mode": "skip",
                     "decision_reason": "prepare_failed",
                     "original_question": question,
                     "effective_question": question,
@@ -541,21 +586,25 @@ class ChatMemoryService:
 
     def _memory_source_for_rewrite(
         self,
+        question: str,
         snapshot: SessionMemorySnapshot,
         recent_rounds: list[RecentRound],
     ) -> dict[str, Any] | None:
+        if not self._has_explicit_reference(question):
+            return None
         if snapshot.confirmed_contexts:
             item = snapshot.confirmed_contexts[0]
-            return {"id": item.id, "topic_label": item.summary}
+            return {"id": item.id, "kind": item.kind, "topic_label": item.summary}
         topic_label = str(snapshot.topic_context.topic_label or "").strip()
         if topic_label:
             return {
                 "id": f"topic::{snapshot.topic_context.topic_key or self._topic_key(topic_label)}",
+                "kind": "topic",
                 "topic_label": topic_label,
             }
         if snapshot.pending_contexts:
             item = snapshot.pending_contexts[0]
-            return {"id": item.id, "topic_label": item.summary}
+            return {"id": item.id, "kind": item.kind, "topic_label": item.summary}
         if recent_rounds:
             latest_full_round = next(
                 (
@@ -568,24 +617,43 @@ class ChatMemoryService:
             if latest_full_round is not None:
                 return {
                     "id": f"round::{latest_full_round.user_message_id}",
+                    "kind": "recent_round",
                     "topic_label": self._clip(latest_full_round.user_text, TOPIC_LABEL_MAX_LEN),
                 }
         return None
 
     def _build_answer_memory_context(
         self,
-        snapshot: SessionMemorySnapshot | None,
-        memory_source: dict[str, Any] | None,
-        effective_question: str,
-        original_question: str,
+        stable_scope: dict[str, Any],
+        reference_resolution: dict[str, Any],
+        answer_preferences: dict[str, Any],
     ) -> dict[str, Any]:
-        if snapshot is None:
-            return {}
         return {
-            "user_constraints": dict(snapshot.user_constraints),
-            "current_objects": list(snapshot.topic_context.current_objects),
-            "problem_chain_summary": snapshot.last_turn_summary.problem_chain_summary,
-            "pronoun_resolution": memory_source["topic_label"] if memory_source and effective_question != original_question else None,
+            "stable_scope": dict(stable_scope),
+            "reference_resolution": dict(reference_resolution),
+            "answer_preferences": dict(answer_preferences),
+        }
+
+    def _build_prepare_stable_scope(
+        self,
+        session: ChatSession,
+        snapshot: SessionMemorySnapshot,
+    ) -> dict[str, Any]:
+        stored = dict(snapshot.stable_context)
+        stable_scope = {
+            "chat_type": stored.get("chat_type") or session.chat_type,
+            "project_id": stored.get("project_id") if stored.get("project_id") is not None else session.project_id,
+        }
+        return {key: value for key, value in stable_scope.items() if value is not None}
+
+    def _build_answer_preferences(self, snapshot: SessionMemorySnapshot) -> dict[str, Any]:
+        return {
+            key: value
+            for key, value in {
+                "language": snapshot.user_constraints.get("language"),
+                "format_preference": snapshot.user_constraints.get("format_preference"),
+            }.items()
+            if value is not None
         }
 
     def _memory_confidence(self, snapshot: SessionMemorySnapshot) -> str:
@@ -624,7 +692,6 @@ class ChatMemoryService:
         return {
             "chat_type": turn_outcome.chat_type,
             "project_id": turn_outcome.project_id,
-            "answer_preferences": {},
             "conversation_state": getattr(session, "conversation_state", None),
         }
 
@@ -712,9 +779,21 @@ class ChatMemoryService:
 
     def _is_context_dependent(self, question: str) -> bool:
         normalized = self._normalize_text(question)
-        if any(pattern in question for pattern in _FOLLOW_UP_PATTERNS):
+        if any(pattern in question for pattern in _EXPLICIT_REFERENCE_PATTERNS):
+            return True
+        if len(normalized) <= 18 and any(pattern in question for pattern in _RELATIVE_FOLLOW_UP_PATTERNS):
             return True
         return len(normalized) <= 6 and question.endswith("呢")
+
+    def _has_explicit_reference(self, question: str) -> bool:
+        return self._is_context_dependent(question)
+
+    def _can_rewrite_single(self, question: str, memory_source: dict[str, Any]) -> bool:
+        if not self._has_explicit_reference(question):
+            return False
+        if self._is_question_complete(question):
+            return False
+        return bool(str(memory_source.get("topic_label") or "").strip())
 
     def _referenced_intent(
         self,

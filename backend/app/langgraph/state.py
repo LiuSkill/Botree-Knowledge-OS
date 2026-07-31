@@ -25,6 +25,12 @@ class RetrievalGraphState(TypedDict, total=False):
     question: str
     original_question: str
     effective_question: str
+    turn_id: int | None
+    turn_plan: Any
+    plan_version: int
+    planned_intent_id: str
+    planned_intent_name: str
+    planned_intent_ids: list[str]
     chat_type: str
     mode: str
     project_id: int | None

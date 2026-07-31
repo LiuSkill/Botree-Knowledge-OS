@@ -322,6 +322,24 @@ function applyProgressEvent(assistantId: number | string, payload: ChatProgressE
   currentAssistant.progressEvents = mergeProgressEvent(currentAssistant.progressEvents, payload);
 }
 
+function completeStreamingAssistant(assistantId: number | string, payload?: ChatStreamDoneEvent | null): void {
+  const currentAssistant = messages.value.find((item) => item.id === assistantId);
+  if (!currentAssistant) return;
+  if (payload?.answer) currentAssistant.content = payload.answer;
+  if (payload?.query_scope) currentAssistant.query_scope = payload.query_scope;
+  if (payload?.citations) currentAssistant.citations = payload.citations;
+  if (payload?.security_notice !== undefined) currentAssistant.securityNotice = payload.security_notice;
+  if (payload?.progress_events?.length) {
+    currentAssistant.progressEvents = markProgressComplete(payload.progress_events);
+  } else if (payload?.agent_trace?.length) {
+    currentAssistant.progressEvents = progressEventsFromTrace(payload.agent_trace, true);
+  }
+  currentAssistant.streaming = false;
+  if (currentAssistant.status === 'streaming') {
+    currentAssistant.status = currentAssistant.content.trim() ? 'complete' : undefined;
+  }
+}
+
 function chatContentStatus(message: UiChatMessage): '' | 'error' {
   return message.status === 'error' ? 'error' : '';
 }
@@ -989,8 +1007,9 @@ async function submitQuestion(): Promise<void> {
             ? markProgressComplete(payload.progress_events)
             : progressEventsFromTrace(payload.agent_trace || [], true);
           queryScope.value = payload.query_scope;
-          const currentAssistant = messages.value.find((item) => item.id === assistantId);
-          if (currentAssistant) currentAssistant.securityNotice = payload.security_notice;
+          streaming.value = false;
+          processingSessionId.value = null;
+          completeStreamingAssistant(assistantId, payload);
         },
       },
     );
@@ -1006,6 +1025,7 @@ async function submitQuestion(): Promise<void> {
           : progressEventsFromTrace(completedResult.agent_trace || [], true),
         securityNotice: completedResult.security_notice,
       });
+      completeStreamingAssistant(assistantId, completedResult);
       await refreshSessionState(completedResult.session_id);
       const latestAssistant = [...messages.value].reverse().find((item) => item.role === 'assistant');
       if (latestAssistant) latestAssistant.securityNotice = completedResult.security_notice;
@@ -1036,13 +1056,7 @@ async function submitQuestion(): Promise<void> {
   } finally {
     streaming.value = false;
     processingSessionId.value = null;
-    const currentAssistant = messages.value.find((item) => item.id === assistantId);
-    if (currentAssistant) {
-      currentAssistant.streaming = false;
-      if (currentAssistant.status === 'streaming') {
-        currentAssistant.status = currentAssistant.content.trim() ? 'complete' : undefined;
-      }
-    }
+    completeStreamingAssistant(assistantId, finalResult);
     await scrollToBottom();
     await focusQuestionInput();
   }
