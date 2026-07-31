@@ -46,6 +46,7 @@ ACTION_PARTIAL_ANSWER = "partial_answer"
 ACTION_PARTIAL_ANSWER_WITH_LLM = "partial_answer_with_llm"
 ACTION_CONFLICT_ANSWER = "conflict_answer"
 ACTION_REFUSAL = "refusal"
+VISUAL_RECALL_ANSWER_TOP_K = 3
 
 PROJECT_REFUSAL_TEXT = "当前项目资料中未检索到与该问题相关的有效信息，无法基于项目资料回答。\n说明：不会使用通用知识编造项目事实。"
 
@@ -65,22 +66,25 @@ class AnswerGenerator:
     ) -> str:
         """生成完整回答。"""
 
-        model_type, reason = self._select_answer_model(question, evidences)
+        answer_evidences = self._select_answer_evidences(evidences)
+        model_type, reason = self._select_answer_model(question, answer_evidences)
         if not evidences:
             answer = self.llm_service.answer_with_evidence(
                 question,
-                evidences,
+                answer_evidences,
                 model_type=model_type,
                 query_profile=query_profile,
             )
             self.last_model_route = self._no_evidence_model_route(query_profile, reason)
             return answer
         if model_type == ANSWER_MODEL_VISION:
-            answer = self.llm_service.answer_with_multimodal_evidence(question, evidences, query_profile=query_profile)
+            answer = self.llm_service.answer_with_multimodal_evidence(
+                question, answer_evidences, query_profile=query_profile
+            )
         else:
             answer = self.llm_service.answer_with_evidence(
                 question,
-                evidences,
+                answer_evidences,
                 model_type=model_type,
                 query_profile=query_profile,
             )
@@ -139,6 +143,7 @@ class AnswerGenerator:
     ) -> str:
         """按 AnswerPolicyGate 的动作生成回答。"""
 
+        evidences = self._select_answer_evidences(evidences)
         if action == ACTION_NORMAL_ANSWER:
             return self.generate(question, evidences, query_profile=query_profile)
         if action == ACTION_GENERAL_ANSWER:
@@ -177,6 +182,7 @@ class AnswerGenerator:
     ) -> Iterator[str]:
         """流式生成回答。"""
 
+        evidences = self._select_answer_evidences(evidences)
         if action == ACTION_GENERAL_ANSWER:
             yield from self._stream_general_answer(question, query_profile=query_profile)
             return
@@ -227,6 +233,45 @@ class AnswerGenerator:
                 query_profile=query_profile,
             )
         self.last_model_route = self.llm_service.model_route("answer", reason)
+
+    def _select_answer_evidences(self, evidences: list[Evidence]) -> list[Evidence]:
+        """视觉召回仅使用原始召回分数最高的三条，其他模态证据保持原顺序。"""
+
+        visual_evidences = [evidence for evidence in evidences if evidence.retriever == "visual"]
+        if len(visual_evidences) <= VISUAL_RECALL_ANSWER_TOP_K:
+            return evidences
+
+        selected_visual_ids = {
+            id(evidence)
+            for evidence in sorted(
+                visual_evidences,
+                key=self._visual_recall_score,
+                reverse=True,
+            )[:VISUAL_RECALL_ANSWER_TOP_K]
+        }
+        selected = [
+            evidence
+            for evidence in evidences
+            if evidence.retriever != "visual" or id(evidence) in selected_visual_ids
+        ]
+        logger.info(
+            "视觉召回答案证据已截断: recalled=%s selected=%s",
+            len(visual_evidences),
+            VISUAL_RECALL_ANSWER_TOP_K,
+        )
+        return selected
+
+    @staticmethod
+    def _visual_recall_score(evidence: Evidence) -> float:
+        """优先读取融合前保留的视觉召回原始分数。"""
+
+        raw_scores = evidence.metadata.get("raw_scores")
+        if isinstance(raw_scores, dict):
+            try:
+                return float(raw_scores.get("visual", evidence.score))
+            except (TypeError, ValueError):
+                pass
+        return float(evidence.score)
 
     def _select_answer_model(self, question: str, evidences: list[Evidence]) -> tuple[str, str]:
         """

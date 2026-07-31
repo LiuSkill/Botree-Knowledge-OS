@@ -128,7 +128,7 @@ def test_visual_evidence_prefers_page_preview_then_largest_block() -> None:
         db.commit()
 
         service = VisualEvidenceService(db)
-        service.settings.vision_llm_max_images = 2
+        service.settings.vision_llm_max_images = 8
         service.settings.vision_llm_max_image_bytes = 1024
         evidence = make_evidence(page_index.id)
         enriched = service.enrich("10-PS-0101-3002-001流程是怎样的", [evidence], {"has_doc_code": True})
@@ -136,6 +136,7 @@ def test_visual_evidence_prefers_page_preview_then_largest_block() -> None:
 
         assert [asset.asset_id for asset in enriched_again[0].assets] == [preview.id, large_block.id]
         assert enriched[0].assets[0].url == f"/api/documents/assets/{preview.id}"
+        assert all(asset.metadata["selection_source"] == "page_index" for asset in enriched[0].assets)
     finally:
         db.close()
 

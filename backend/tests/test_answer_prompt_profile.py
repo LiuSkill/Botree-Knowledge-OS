@@ -8,6 +8,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
+from app.agent.answer_generator import AnswerGenerator  # noqa: E402
 from app.retrieval.schemas import Evidence  # noqa: E402
 from app.services.llm_service import INDUSTRY_GENERAL_KNOWLEDGE_NOTICE, LLMService  # noqa: E402
 from app.services.rag_prompt_templates import ANSWER_SYSTEM_PROMPT, VISION_ANSWER_SYSTEM_PROMPT  # noqa: E402
@@ -28,6 +29,31 @@ def make_evidence(source_type: str = "project", project_id: int | None = 1, cont
         retriever="ripgrep",
         metadata={"security_level": "public"},
     )
+
+
+def test_visual_answer_evidences_use_top_three_raw_recall_scores() -> None:
+    """视觉回答按融合前召回分数取前三，同时保留非视觉证据。"""
+
+    text_evidence = make_evidence(content="文本证据")
+    visual_evidences: list[Evidence] = []
+    for index, raw_score in enumerate((0.2, 0.9, 0.5, 0.7), start=1):
+        evidence = make_evidence(content=f"视觉证据 {index}")
+        evidence.retriever = "visual"
+        evidence.score = 1.0 - index * 0.1
+        evidence.metadata["raw_scores"] = {"visual": raw_score}
+        visual_evidences.append(evidence)
+
+    generator = object.__new__(AnswerGenerator)
+    selected = generator._select_answer_evidences(  # noqa: SLF001
+        [text_evidence, *visual_evidences]
+    )
+
+    assert selected[0] is text_evidence
+    assert {item.content for item in selected if item.retriever == "visual"} == {
+        "视觉证据 2",
+        "视觉证据 3",
+        "视觉证据 4",
+    }
 
 
 def user_prompt_for(profile: dict) -> str:

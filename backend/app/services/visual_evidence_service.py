@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 VISUAL_ASSET_TYPES = {ASSET_TYPE_PAGE_PREVIEW, ASSET_TYPE_BLOCK_IMAGE}
 VISUAL_ASSET_TOP_K = 8
+PAGE_INDEX_IMAGE_TOP_K = 2
 VISUAL_QUERY_HINTS = (
     "图",
     "图片",
@@ -87,8 +88,14 @@ class VisualEvidenceService:
         # 补充检索会再次经过统一收尾流程；先计入已有资产，保证增强操作幂等且不突破图片上限。
         seen_asset_ids = {asset.asset_id for evidence in evidences for asset in evidence.assets}
         selected_count = len(seen_asset_ids)
+        page_index_selected_count = sum(
+            1
+            for evidence in evidences
+            for asset in evidence.assets
+            if asset.metadata.get("selection_source") == "page_index"
+        )
         for evidence in evidences:
-            if selected_count >= max_images:
+            if selected_count >= max_images or page_index_selected_count >= PAGE_INDEX_IMAGE_TOP_K:
                 break
             page_context = self._resolve_page_context(evidence)
             if page_context is None:
@@ -100,12 +107,17 @@ class VisualEvidenceService:
                 page_id=page.id,
                 asset_types=VISUAL_ASSET_TYPES,
             )
-            selected_assets = self._select_assets(candidates, max_images - selected_count, seen_asset_ids)
+            remaining = min(
+                max_images - selected_count,
+                PAGE_INDEX_IMAGE_TOP_K - page_index_selected_count,
+            )
+            selected_assets = self._select_assets(candidates, remaining, seen_asset_ids)
             if not selected_assets:
                 continue
             evidence.assets.extend(self._to_evidence_asset(asset, page.page_no) for asset in selected_assets)
             seen_asset_ids.update(asset.id for asset in selected_assets)
             selected_count += len(selected_assets)
+            page_index_selected_count += len(selected_assets)
 
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info(
@@ -215,7 +227,11 @@ class VisualEvidenceService:
     def _build_asset_metadata(self, asset: DocumentAsset) -> dict[str, Any]:
         """构建前端 Markdown 图片匹配所需的安全资产元数据。"""
 
-        metadata: dict[str, Any] = {"document_id": asset.document_id, "version_no": asset.version_no}
+        metadata: dict[str, Any] = {
+            "document_id": asset.document_id,
+            "version_no": asset.version_no,
+            "selection_source": "page_index",
+        }
         if not asset.metadata_json:
             return metadata
         try:
