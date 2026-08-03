@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Iterator
 from datetime import datetime
@@ -46,6 +47,7 @@ from app.services.system_service import SystemService
 from app.services.turn_execution_plan_service import TurnExecutionPlanService
 
 logger = logging.getLogger(__name__)
+_EVIDENCE_CITATION_PATTERN = re.compile(r"\[(\d+)\]")
 
 AWAITING_GENERAL_CONFIRM = "AWAITING_GENERAL_CONFIRM"
 NORMAL_CONVERSATION_STATE = "NORMAL"
@@ -470,7 +472,10 @@ class ChatService:
                 yield self._encode_sse("meta", meta_payload)
 
                 if prepared_state.get("direct_answer") or prepared_state.get("raw", {}).get("terminal_without_answer_generation"):
-                    answer = str(prepared_state.get("answer") or "").strip()
+                    answer = self._sanitize_answer_citations(
+                        str(prepared_state.get("answer") or "").strip(),
+                        len(prepared_state.get("evidences", [])),
+                    )
                     if not answer:
                         raise AppException("回答生成失败", status_code=502, code=502)
                     if not self._has_progress_stage(prepared_state.get("trace", []), "answering"):
@@ -506,7 +511,10 @@ class ChatService:
                         continue
                     answer_chunks.append(delta)
 
-                answer = "".join(answer_chunks).strip()
+                answer = self._sanitize_answer_citations(
+                    "".join(answer_chunks).strip(),
+                    len(prepared_state.get("evidences", [])),
+                )
                 if not answer:
                     raise AppException("LLM未返回有效内容", status_code=502, code=502)
 
@@ -1316,6 +1324,17 @@ class ChatService:
                 }
             )
         return citations
+
+    @staticmethod
+    def _sanitize_answer_citations(answer: str, evidence_count: int) -> str:
+        """删除超出本次 LLM 证据列表范围的引用，避免前端展示错误来源。"""
+
+        if evidence_count <= 0:
+            return _EVIDENCE_CITATION_PATTERN.sub("", answer)
+        return _EVIDENCE_CITATION_PATTERN.sub(
+            lambda match: match.group(0) if 1 <= int(match.group(1)) <= evidence_count else "",
+            answer,
+        )
 
     def _evidence_directory_name(self, evidence: Any) -> str | None:
         metadata = getattr(evidence, "metadata", None) or {}

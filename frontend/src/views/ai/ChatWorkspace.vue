@@ -104,6 +104,7 @@ const question = ref('');
 const streaming = ref(false);
 const processingSessionId = ref<number | null>(null);
 const citations = ref<Citation[]>([]);
+const selectedCitation = ref<{ messageId: number | string; citation: Citation } | null>(null);
 const trace = ref<ChatProgressEvent[]>([]);
 const queryScope = ref('');
 const chatHistoryRef = ref<HTMLElement | null>(null);
@@ -317,6 +318,24 @@ function normalizeMarkdownDisplay(content: string): string {
   }
 
   return normalized.join('\n').trim();
+}
+
+function renderCitationLinks(content: string, citations: Citation[], streaming = false): string {
+  if (streaming || !citations.length) return content;
+  return content.replace(/\[(\d+)\]/g, (match, rawIndex: string) => {
+    const index = Number(rawIndex);
+    return index >= 1 && index <= citations.length ? `[${index}](#citation-${index})` : '';
+  });
+}
+
+function handleCitationClick(event: MouseEvent, message: UiChatMessage): void {
+  const target = event.target as HTMLElement | null;
+  const link = target?.closest('a[href^="#citation-"]') as HTMLAnchorElement | null;
+  if (!link) return;
+  event.preventDefault();
+  const index = Number(link.getAttribute('href')?.slice('#citation-'.length));
+  if (!Number.isInteger(index) || !message.citations[index - 1]) return;
+  selectedCitation.value = { messageId: message.id, citation: message.citations[index - 1] };
 }
 
 function applyProgressEvent(assistantId: number | string, payload: ChatProgressEvent | null): void {
@@ -1232,7 +1251,26 @@ onBeforeUnmount(() => {
                   variant="outline"
                   class="chat-message assistant-chat-message"
                 >
-                  <ChatRichContent :content="normalizeMarkdownDisplay(message.content)" />
+                  <div @click="handleCitationClick($event, message)">
+                    <ChatRichContent
+                      :content="normalizeMarkdownDisplay(renderCitationLinks(message.content, message.citations, message.streaming))"
+                    />
+                  </div>
+                  <t-popup
+                    v-if="selectedCitation?.messageId === message.id"
+                    trigger="manual"
+                    :visible="true"
+                    placement="bottom-left"
+                    :destroy-on-close="false"
+                    @visible-change="(visible: boolean) => { if (!visible) selectedCitation = null }"
+                  >
+                    <template #content>
+                      <div class="citation-popover">
+                        <CitationList :citations="[selectedCitation.citation]" :chat-type="chatType" />
+                      </div>
+                    </template>
+                    <span class="citation-popover-anchor" />
+                  </t-popup>
                   <div v-if="message.securityNotice" class="sensitive-security-notice">
                     {{ message.securityNotice }}
                   </div>
@@ -2018,6 +2056,20 @@ onBeforeUnmount(() => {
   border-color: #f3d6d4;
   background: #fff7f6;
   color: #b42318;
+}
+
+.citation-popover {
+  width: min(520px, 80vw);
+  max-height: 55vh;
+  overflow: auto;
+  padding: 8px;
+  background: #fff;
+}
+
+.citation-popover-anchor {
+  display: inline-block;
+  width: 1px;
+  height: 1px;
 }
 
 </style>

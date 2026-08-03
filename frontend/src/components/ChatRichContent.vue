@@ -108,6 +108,13 @@ const markdownRenderer = new MarkdownIt({
   breaks: true,
 });
 
+const defaultLinkOpen = markdownRenderer.renderer.rules.link_open;
+markdownRenderer.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const href = tokens[idx].attrGet('href') || '';
+  if (/^#citation-\d+$/.test(href)) tokens[idx].attrSet('class', 't-link chat-citation-link');
+  return defaultLinkOpen ? defaultLinkOpen(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
+};
+
 markdownRenderer.renderer.rules.image = (tokens, idx) => {
   const token = tokens[idx];
   const rawSrc = token.attrGet('src') || '';
@@ -634,6 +641,8 @@ function sanitizeElementAttributes(element: HTMLElement, tagName: string): void 
 
     if (tagName === 'a' && attrName === 'href') {
       keepAttribute = /^(https?:|mailto:|tel:|#|\/)/i.test(attrValue);
+    } else if (tagName === 'a' && attrName === 'class') {
+      keepAttribute = attrValue.split(/\s+/).every((name) => ['t-link', 'chat-citation-link'].includes(name));
     } else if (tagName === 'a' && attrName === 'title') {
       keepAttribute = true;
     } else if (tagName === 'img' && attrName === 'src') {
@@ -916,5 +925,12 @@ function renderRichMarkdown(markdown: string): string {
 .chat-rich-content :deep(sup) {
   font-size: 0.78em;
   line-height: 0;
+}
+
+.chat-rich-content :deep(.chat-citation-link) {
+  color: var(--td-brand-color, #0052d9);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
 }
 </style>

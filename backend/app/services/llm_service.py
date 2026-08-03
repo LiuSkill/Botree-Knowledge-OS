@@ -658,6 +658,10 @@ class LLMService:
         """构建带来源追踪信息的 RAG 提示词。"""
 
         evidence_lines: list[str] = []
+        citation_rule = (
+            "Citation rule: use [n] only when directly supported by evidence n in this message's 1-based evidence list. "
+            "Never invent an index or use another citation format."
+        )
         for index, evidence in enumerate(evidences, start=1):
             content = evidence.content.replace("\r", " ").strip()
             asset_summary = ", ".join(
@@ -692,6 +696,7 @@ class LLMService:
                     else "输出语言：简体中文。最终答案必须使用简体中文；英文专有名词可保留原文。"
                 ),
                 "资料：",
+                citation_rule,
                 "\n\n".join(evidence_lines),
                 "请严格基于资料直接回答，并在关键结论后标注来源编号，例如 [1]；资料无法确认的内容不要补写。",
             ]
