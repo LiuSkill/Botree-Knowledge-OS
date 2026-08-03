@@ -112,6 +112,12 @@ class IndexAdmissionService:
         "schematic",
         "流程图",
         "工艺流程",
+        "实验流程",
+        "浸出流程",
+        "工序流程",
+        "工作流程",
+        "流程框图",
+        "流程简图",
         "流程示意",
         "流程说明",
         "管道仪表",
@@ -165,6 +171,27 @@ class IndexAdmissionService:
         "diagram",
         "drawing",
         "illustration",
+        "photo",
+        "image",
+        "picture",
+        "附图",
+        "照片",
+        "图片",
+        "参考图片",
+        "现场照片",
+        "现场图",
+        "外形图",
+        "外观图",
+        "配管图",
+        "基础图",
+        "安装图",
+        "程序图",
+        "工作程序图",
+        "结构图",
+        "布置图",
+        "原理图",
+        "简图",
+        "框图",
         "示意图",
         "图纸",
         "总图",
@@ -179,6 +206,40 @@ class IndexAdmissionService:
         "rejected": 0,
     }
     VISUAL_MAX_CONTEXT_CHARS = 180
+    VISUAL_TITLE_MAX_CHARS = 64
+    VISUAL_NAMED_TITLE_HINTS = (
+        "流程图",
+        "工艺流程",
+        "实验流程",
+        "浸出流程",
+        "工序流程",
+        "工作流程",
+        "流程框图",
+        "流程简图",
+        "附图",
+        "照片",
+        "图片",
+        "参考图片",
+        "现场照片",
+        "现场图",
+        "外形图",
+        "外观图",
+        "配管图",
+        "基础图",
+        "安装图",
+        "程序图",
+        "工作程序图",
+        "结构图",
+        "布置图",
+        "原理图",
+        "示意图",
+        "简图",
+        "框图",
+        "总图",
+        "photo",
+        "image",
+        "picture",
+    )
 
     def apply_records(
         self,
@@ -213,7 +274,7 @@ class IndexAdmissionService:
                     int(following.id) if following is not None else None,
                 )
 
-        visual_asset_decisions = self._assess_visual_assets(
+        visual_asset_decisions = self.apply_visual_admission(
             assets,
             page_by_id=page_by_id,
             block_by_id=block_by_id,
@@ -262,12 +323,42 @@ class IndexAdmissionService:
             self._write_result(block, result)
             self._write_metadata(block, "metadata_json", enriched_metadata)
 
-        for asset, decision in visual_asset_decisions.values():
+        return text_page_numbers
+
+    def apply_visual_admission(
+        self,
+        assets: list[Any],
+        *,
+        page_by_id: dict[int, Any],
+        block_by_id: dict[int, Any],
+        neighbor_by_block_id: dict[int, tuple[int | None, int | None]],
+    ) -> dict[int, tuple[Any, VisualAdmissionDecision]]:
+        decisions = self.assess_visual_admission(
+            assets,
+            page_by_id=page_by_id,
+            block_by_id=block_by_id,
+            neighbor_by_block_id=neighbor_by_block_id,
+        )
+        for asset, decision in decisions.values():
             metadata = dict(self._json_dict(getattr(asset, "metadata_json", None)) or {})
             metadata["visual_admission"] = self._visual_admission_payload(decision)
             self._write_metadata(asset, "metadata_json", metadata)
+        return decisions
 
-        return text_page_numbers
+    def assess_visual_admission(
+        self,
+        assets: list[Any],
+        *,
+        page_by_id: dict[int, Any],
+        block_by_id: dict[int, Any],
+        neighbor_by_block_id: dict[int, tuple[int | None, int | None]],
+    ) -> dict[int, tuple[Any, VisualAdmissionDecision]]:
+        return self._assess_visual_assets(
+            assets,
+            page_by_id=page_by_id,
+            block_by_id=block_by_id,
+            neighbor_by_block_id=neighbor_by_block_id,
+        )
 
     def _assess_visual_assets(
         self,
@@ -492,14 +583,14 @@ class IndexAdmissionService:
         block_text: str,
         figure_title: str | None,
     ) -> str | None:
+        if block_type == "table" or self._looks_like_table_snapshot(block_text, figure_title, visual_probe):
+            return "table_snapshot"
         if self._contains_any(visual_probe, self.VISUAL_FLOW_HINTS):
             return "flow_diagram"
         if self._contains_any(visual_probe, self.VISUAL_EQUIPMENT_HINTS):
             return "equipment_diagram"
         if self._contains_any(visual_probe, self.VISUAL_CURVE_HINTS):
             return "curve_chart"
-        if block_type == "table" or self._looks_like_table_snapshot(block_text, figure_title, visual_probe):
-            return "table_snapshot"
         if self._contains_any(visual_probe, self.VISUAL_GENERIC_HINTS):
             return "generic_visual"
         return None
@@ -536,11 +627,11 @@ class IndexAdmissionService:
             if title:
                 return self._trim_context(title, max_chars=120)
         first_line = next((line.strip() for line in block_text.splitlines() if line.strip()), "")
-        if self._looks_like_visual_caption(first_line):
+        if self._looks_like_visual_title(first_line):
             return self._trim_context(first_line, max_chars=120)
         for text in adjacent_texts:
             first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
-            if self._looks_like_visual_caption(first_line):
+            if self._looks_like_visual_title(first_line):
                 return self._trim_context(first_line, max_chars=120)
         return None
 
@@ -602,7 +693,7 @@ class IndexAdmissionService:
         )
 
     def _looks_like_table_snapshot(self, block_text: str, figure_title: str | None, visual_probe: str) -> bool:
-        if figure_title and self._looks_like_visual_caption(figure_title):
+        if figure_title and self._looks_like_visual_title(figure_title):
             lowered = figure_title.lower()
             if "table" in lowered or "表" in figure_title:
                 return True
@@ -633,6 +724,23 @@ class IndexAdmissionService:
         if re.match(r"^(图|表)\s*\d+", normalized):
             return True
         return bool(re.match(r"^(figure|table)\s*\d+", normalized, re.IGNORECASE))
+
+    def _looks_like_visual_title(self, text: str) -> bool:
+        return self._looks_like_visual_caption(text) or self._looks_like_named_visual_title(text)
+
+    def _looks_like_named_visual_title(self, text: str) -> bool:
+        normalized = self._normalize_inline_text(text)
+        if not normalized:
+            return False
+        normalized = normalized.rstrip("：:;；,.，。 ")
+        if not normalized or len(normalized) > self.VISUAL_TITLE_MAX_CHARS:
+            return False
+        if "|" in normalized or "\t" in normalized:
+            return False
+        if normalized.count("，") + normalized.count(",") + normalized.count("。") + normalized.count(".") > 2:
+            return False
+        lowered = normalized.lower()
+        return self._contains_any(lowered, self.VISUAL_NAMED_TITLE_HINTS)
 
     @classmethod
     def _trim_context(cls, text: str, *, max_chars: int | None = None) -> str:

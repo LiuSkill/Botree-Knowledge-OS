@@ -190,6 +190,172 @@ def test_apply_records_only_admits_structured_visual_assets_and_rejects_noise_as
     assert "excluded_filter_reason:signature_control_block" in logo_visual["reasons"]
 
 
+def test_apply_records_admits_experiment_flow_image_from_adjacent_title() -> None:
+    page = SimpleNamespace(
+        id=10,
+        page_no=2,
+        page_title="（2）实验流程",
+        clean_content="（2）实验流程\n（3）实验条件\n（4）实验步骤",
+        page_text="",
+        source_hash="hash",
+    )
+    title_block = SimpleNamespace(
+        id=20,
+        page_id=10,
+        block_index=1,
+        block_type="text",
+        clean_text="（2）实验流程",
+        text="（2）实验流程",
+        filter_status="kept",
+        filter_reason=None,
+        metadata_json=None,
+    )
+    flow_block = SimpleNamespace(
+        id=21,
+        page_id=10,
+        block_index=2,
+        block_type="image",
+        clean_text="",
+        text="",
+        filter_status="kept",
+        filter_reason=None,
+        metadata_json=None,
+    )
+    next_section_block = SimpleNamespace(
+        id=22,
+        page_id=10,
+        block_index=3,
+        block_type="text",
+        clean_text="（3）实验条件",
+        text="（3）实验条件",
+        filter_status="kept",
+        filter_reason=None,
+        metadata_json=None,
+    )
+    flow_asset = SimpleNamespace(
+        id=30,
+        page_id=10,
+        block_id=21,
+        status="ready",
+        asset_type="block_image",
+        file_name="page_0002_block_0003.jpg",
+        metadata_json=json.dumps({"source_file_name": "page_0002_block_0003.jpg"}, ensure_ascii=False),
+    )
+
+    text_page_numbers = IndexAdmissionService().apply_records(
+        [page],
+        [title_block, flow_block, next_section_block],
+        [flow_asset],
+    )
+
+    visual = json.loads(flow_asset.metadata_json)["visual_admission"]
+    assert text_page_numbers == set()
+    assert page.index_admission_status == "visual_indexed"
+    assert flow_block.index_admission_status == "visual_indexed"
+    assert visual["status"] == "accepted"
+    assert visual["category"] == "flow_diagram"
+    assert visual["figure_title"] == "（2）实验流程"
+
+
+def test_flow_page_title_does_not_override_table_snapshot() -> None:
+    page = SimpleNamespace(
+        id=10,
+        page_no=2,
+        page_title="（2）实验流程",
+        clean_content="（2）实验流程\n（3）实验条件",
+        page_text="",
+        source_hash="hash",
+    )
+    title_block = SimpleNamespace(
+        id=20,
+        page_id=10,
+        block_index=1,
+        block_type="text",
+        clean_text="（2）实验流程",
+        text="（2）实验流程",
+        filter_status="kept",
+        filter_reason=None,
+        metadata_json=None,
+    )
+    table_block = SimpleNamespace(
+        id=21,
+        page_id=10,
+        block_index=2,
+        block_type="table",
+        clean_text="",
+        text="",
+        filter_status="kept",
+        filter_reason=None,
+        metadata_json=None,
+    )
+    table_asset = SimpleNamespace(
+        id=31,
+        page_id=10,
+        block_id=21,
+        status="ready",
+        asset_type="block_image",
+        file_name="page_0002_block_0001.jpg",
+        metadata_json=json.dumps({"source_file_name": "page_0002_block_0001.jpg"}, ensure_ascii=False),
+    )
+
+    IndexAdmissionService().apply_records([page], [title_block, table_block], [table_asset])
+
+    visual = json.loads(table_asset.metadata_json)["visual_admission"]
+    assert visual["status"] == "accepted"
+    assert visual["category"] == "table_snapshot"
+    assert visual["figure_title"] == "（2）实验流程"
+
+
+def test_apply_records_admits_image_when_adjacent_figure_name_exists() -> None:
+    page = SimpleNamespace(
+        id=10,
+        page_no=6,
+        page_title="三. 产品简介",
+        clean_content="三. 产品简介\nLGZ 系列生产现场照片：",
+        page_text="",
+        source_hash="hash",
+    )
+    title_block = SimpleNamespace(
+        id=20,
+        page_id=10,
+        block_index=1,
+        block_type="text",
+        clean_text="LGZ 系列生产现场照片：",
+        text="LGZ 系列生产现场照片：",
+        filter_status="kept",
+        filter_reason=None,
+        metadata_json=None,
+    )
+    photo_block = SimpleNamespace(
+        id=21,
+        page_id=10,
+        block_index=2,
+        block_type="image",
+        clean_text="",
+        text="",
+        filter_status="kept",
+        filter_reason=None,
+        metadata_json=None,
+    )
+    photo_asset = SimpleNamespace(
+        id=31,
+        page_id=10,
+        block_id=21,
+        status="ready",
+        asset_type="block_image",
+        file_name="page_0006_block_0002.jpg",
+        metadata_json=json.dumps({"source_file_name": "page_0006_block_0002.jpg"}, ensure_ascii=False),
+    )
+
+    IndexAdmissionService().apply_records([page], [title_block, photo_block], [photo_asset])
+
+    visual = json.loads(photo_asset.metadata_json)["visual_admission"]
+    assert photo_block.index_admission_status == "visual_indexed"
+    assert visual["status"] == "accepted"
+    assert visual["category"] == "generic_visual"
+    assert visual["figure_title"] == "LGZ 系列生产现场照片："
+
+
 def test_original_pdf_text_without_quality_uses_inferred_metrics() -> None:
     page = SimpleNamespace(
         id=10,
