@@ -7,7 +7,7 @@ Index Task Repository
 3. 为 RQ worker 与 API 层提供统一数据访问入口
 """
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.index_task import IndexTask
@@ -44,14 +44,29 @@ class IndexTaskRepository:
         stmt = select(IndexTask).where(IndexTask.document_id == document_id).order_by(IndexTask.id.desc())
         return list(self.db.scalars(stmt).all())
 
-    def latest_task(self, document_id: int, task_type: str) -> IndexTask | None:
-        """查询指定文档某类任务的最新记录。"""
+    def list_latest_by_document(self, document_id: int) -> list[IndexTask]:
+        """按版本和任务类型返回最新一次执行记录，避免历史失败污染当前状态。"""
 
-        return self.db.scalar(
+        latest_ids = (
+            select(func.max(IndexTask.id).label("task_id"))
+            .where(IndexTask.document_id == document_id)
+            .group_by(IndexTask.version_no, IndexTask.task_type)
+            .subquery()
+        )
+        stmt = (
             select(IndexTask)
-            .where(IndexTask.document_id == document_id, IndexTask.task_type == task_type)
+            .join(latest_ids, latest_ids.c.task_id == IndexTask.id)
             .order_by(IndexTask.id.desc())
         )
+        return list(self.db.scalars(stmt).all())
+
+    def latest_task(self, document_id: int, task_type: str, version_no: int | None = None) -> IndexTask | None:
+        """查询指定文档某类任务的最新记录。"""
+
+        stmt = select(IndexTask).where(IndexTask.document_id == document_id, IndexTask.task_type == task_type)
+        if version_no is not None:
+            stmt = stmt.where(IndexTask.version_no == version_no)
+        return self.db.scalar(stmt.order_by(IndexTask.id.desc()))
 
     def active_task(
         self,

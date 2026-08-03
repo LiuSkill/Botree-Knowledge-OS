@@ -1670,6 +1670,18 @@ class DocumentService:
                         document.parse_finished_at = finished_at
                         document.parse_error = None
                         document.parse_log = parse_log
+                    parse_result = {
+                        "document_id": document.id,
+                        "version_id": version.id,
+                        "version_no": version.version_no,
+                        "chunk_count": len(chunks),
+                    }
+                    IndexTaskService(self.db).mark_latest_task_success(
+                        document_id=document.id,
+                        version_no=version.version_no,
+                        task_type="mineru_parse",
+                        result=parse_result,
+                    )
                     self.db.commit()
                     logger.info(
                         "MinerU 解析成功: document_id=%s version_id=%s version_no=%s project_id=%s file_name=%s operation=%s status=%s error_message=%s timestamp=%s chunks=%s",
@@ -1684,12 +1696,7 @@ class DocumentService:
                         finished_at.isoformat(),
                         len(chunks),
                     )
-                    return {
-                        "document_id": document.id,
-                        "version_id": version.id,
-                        "version_no": version.version_no,
-                        "chunk_count": len(chunks),
-                    }
+                    return parse_result
                 except OperationalError as exc:
                     if not is_database_lock_error(exc) or attempt >= PARSE_DB_WRITE_MAX_ATTEMPTS:
                         raise

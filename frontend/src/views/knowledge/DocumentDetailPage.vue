@@ -8,6 +8,9 @@
 -->
 <script setup lang="ts">
 import MarkdownIt from 'markdown-it';
+import katex from 'katex';
+import 'katex/contrib/mhchem';
+import 'katex/dist/katex.min.css';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { AssignmentCheckedIcon, DownloadIcon, FileSearchIcon, FullscreenIcon, PlayCircleIcon, RefreshIcon, UploadIcon } from 'tdesign-icons-vue-next';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
@@ -299,6 +302,9 @@ const viewedReviewComment = computed(() => (viewedVersion.value?.review_comment 
 const showRejectReason = computed(() => viewedReviewStatus.value === 'rejected' && viewedReviewComment.value.length > 0);
 const viewedParseStatus = computed(() => viewedVersion.value?.parse_status || documentInfo.value?.parse_status || 'unparsed');
 const viewedIndexStatus = computed(() => viewedVersion.value?.index_status || documentInfo.value?.index_status || 'not_indexed');
+const visibleIndexTasks = computed(() =>
+  indexTasks.value.filter((task) => task.version_no === viewedVersionNo.value),
+);
 const documentSecurityLevel = computed<SecurityLevel>(() => (documentInfo.value?.security_level || 'internal') as SecurityLevel);
 const documentProjectName = computed(() =>
   documentInfo.value?.project_name ||
@@ -875,6 +881,53 @@ function sanitizeMarkdownHtml(html: string): string {
   return template.innerHTML;
 }
 
+type MathPlaceholder = { token: string; html: string };
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function renderMath(expression: string, displayMode: boolean): string {
+  const source = expression.trim();
+  if (!source) return '';
+  try {
+    return katex.renderToString(source, {
+      displayMode,
+      throwOnError: false,
+      strict: 'ignore',
+      trust: false,
+      output: 'htmlAndMathml',
+    });
+  } catch {
+    return `<code>${escapeHtml(source)}</code>`;
+  }
+}
+
+function protectMath(markdown: string): { markdown: string; placeholders: MathPlaceholder[] } {
+  const placeholders: MathPlaceholder[] = [];
+  const prefix = `DETAILMATH${Math.random().toString(36).slice(2)}TOKEN`;
+  const add = (expression: string, displayMode: boolean): string => {
+    const token = `${prefix}${placeholders.length}END`;
+    placeholders.push({
+      token,
+      html: displayMode ? `<div class="detail-math-block">${renderMath(expression, true)}</div>` : `<span class="detail-math-inline">${renderMath(expression, false)}</span>`,
+    });
+    return token;
+  };
+  let result = markdown.replace(/\$\$([\s\S]+?)\$\$/g, (_match, expression: string) => add(expression, true));
+  result = result.replace(/\\\[([\s\S]+?)\\\]/g, (_match, expression: string) => add(expression, true));
+  result = result.replace(/\\\(([\s\S]+?)\\\)/g, (_match, expression: string) => add(expression, false));
+  result = result.replace(/\$([^$\n]+?)\$/g, (_match, expression: string) => add(expression, false));
+  return { markdown: result, placeholders };
+}
+
+function restoreMathPlaceholders(html: string, placeholders: MathPlaceholder[]): string {
+  return placeholders.reduce(
+    (currentHtml, item) => currentHtml.replace(new RegExp(escapeRegExp(item.token), 'g'), item.html),
+    html,
+  );
+}
+
 function collectMarkdownImageSources(markdown: string): string[] {
   if (!markdown.trim()) return [];
   const normalizedMarkdown = preprocessMarkdown(markdown);
@@ -906,7 +959,9 @@ function renderMarkdown(markdown: string): string {
    * 使用标准 Markdown 渲染器处理表格、列表、代码块，再通过白名单清洗 HTML。
    */
   if (!markdown.trim()) return '';
-  return sanitizeMarkdownHtml(markdownRenderer.render(preprocessMarkdown(markdown)));
+  const protectedMarkdown = protectMath(preprocessMarkdown(markdown));
+  const renderedHtml = sanitizeMarkdownHtml(markdownRenderer.render(protectedMarkdown.markdown));
+  return restoreMathPlaceholders(renderedHtml, protectedMarkdown.placeholders);
 }
 
 async function ensureAssetUrl(asset: DocumentAssetInfo | null | undefined): Promise<string> {
@@ -1727,9 +1782,9 @@ onBeforeUnmount(() => {
                 <template #icon><RefreshIcon /></template>
               </t-button>
             </div>
-            <div v-if="!indexTasks.length" class="muted-text">{{ t('document.detail.task.empty') }}</div>
+            <div v-if="!visibleIndexTasks.length" class="muted-text">{{ t('document.detail.task.empty') }}</div>
             <div v-else class="task-list">
-              <article v-for="task in indexTasks.slice(0, 5)" :key="task.id" class="task-item">
+              <article v-for="task in visibleIndexTasks.slice(0, 5)" :key="task.id" class="task-item">
                 <div class="task-header">
                   <div class="task-title">
                     <strong>{{ taskTypeText(task.task_type) }}</strong>

@@ -21,6 +21,7 @@ from app.core.redis import get_rq_queue
 from app.models.index_task import IndexTask
 from app.models.user import User
 from app.repositories.index_task_repository import IndexTaskRepository
+from app.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +164,25 @@ class IndexTaskService:
             指定文档的索引任务列表。
         """
 
-        return self.repository.list_by_document(document_id)
+        return self.repository.list_latest_by_document(document_id)
+
+    def mark_latest_task_success(
+        self,
+        document_id: int,
+        version_no: int,
+        task_type: str,
+        result: dict[str, Any],
+    ) -> None:
+        """同步重试成功后收敛最新任务状态，同时保留更早的历史记录用于审计。"""
+
+        task = self.repository.latest_task(document_id, task_type, version_no)
+        if task is None:
+            return
+        task.status = "success"
+        task.progress = 100
+        task.finished_at = now_utc()
+        task.error_message = None
+        task.result_json = json.dumps(result, ensure_ascii=False)
 
     def _require_queue(self) -> Any:
         """
