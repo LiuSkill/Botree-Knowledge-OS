@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import requests
 
 from app.knowledge.indexing.visual_index_service import (
     VisualIndexAsset,
@@ -203,6 +204,51 @@ def test_visual_embedding_service_splits_large_image_requests(tmp_path: Path, mo
 
     assert batch_sizes == [2, 2, 1]
     assert vectors == [[1.0, 0.0], [1.0, 1.0], [2.0, 0.0], [2.0, 1.0], [3.0, 0.0]]
+
+
+def test_visual_embedding_service_splits_timed_out_batch(tmp_path: Path, monkeypatch) -> None:
+    image_paths = []
+    for index in range(2):
+        image_path = tmp_path / f"slow-{index}.png"
+        image_path.write_bytes(f"image-{index}".encode())
+        image_paths.append(image_path)
+    attempted_batch_sizes: list[int] = []
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "index_generation": "vl-2026-07",
+                "dimension": 2,
+                "distance_metric": "COSINE",
+                "data": [{"index": 0, "embedding": [0.1, 0.2]}],
+            }
+
+    def fake_post(*args, **kwargs) -> Response:
+        count = len(kwargs["json"]["input"])
+        attempted_batch_sizes.append(count)
+        if count > 1:
+            raise requests.ReadTimeout("batch timeout")
+        return Response()
+
+    monkeypatch.setattr("app.services.visual_embedding_service.requests.post", fake_post)
+    service = VisualEmbeddingService(
+        api_base="http://model-service:8890",
+        api_key=None,
+        model_name="Qwen3-VL-Embedding-2B",
+        dimension=2,
+        timeout_seconds=12,
+        index_generation="vl-2026-07",
+        distance_metric="COSINE",
+        batch_size=2,
+    )
+
+    vectors = service.embed_images(image_paths)
+
+    assert attempted_batch_sizes == [2, 1, 1]
+    assert vectors == [[0.1, 0.2], [0.1, 0.2]]
 
 
 def test_visual_embedding_service_rejects_incompatible_index_generation(monkeypatch) -> None:

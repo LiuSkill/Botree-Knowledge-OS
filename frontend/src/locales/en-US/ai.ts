@@ -78,6 +78,10 @@ export default {
     region: 'Region',
     loading: 'Loading',
     assetLoadFailed: 'Image #{id} failed to load',
+    openPreview: 'Preview original file: {fileName}',
+    previewLoading: 'Loading file preview...',
+    previewFailed: 'Failed to load the file preview',
+    previewPopupBlocked: 'The browser blocked the preview window. Allow pop-ups for this site and try again.',
   },
   progress: {
     title: 'Progress',

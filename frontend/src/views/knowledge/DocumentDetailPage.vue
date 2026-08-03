@@ -31,6 +31,7 @@ import {
   submitDocumentReview,
   updateDocumentSecurityLevel,
 } from '@/api/documents';
+import ChatRichContent from '@/components/ChatRichContent.vue';
 import PageContainer from '@/components/PageContainer.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
@@ -1648,7 +1649,7 @@ onBeforeUnmount(() => {
                     </td>
                     <td>{{ chunk.section_title || '-' }}</td>
                     <td class="content-cell">
-                      <div class="chunk-markdown" v-html="renderMarkdown(chunk.content)" />
+                      <ChatRichContent class="chunk-markdown" :content="chunk.content" />
                     </td>
                   </tr>
                 </tbody>
@@ -2586,6 +2587,11 @@ onBeforeUnmount(() => {
   border: 1px solid #eef2f7;
   border-radius: 8px;
   background: #fff;
+}
+
+.chunk-markdown :deep(.chat-math-block) {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .task-header {

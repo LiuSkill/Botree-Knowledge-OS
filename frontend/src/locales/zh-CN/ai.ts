@@ -78,6 +78,10 @@ export default {
     region: '局部区域',
     loading: '加载中',
     assetLoadFailed: '图片 #{id} 加载失败',
+    openPreview: '预览原始文件：{fileName}',
+    previewLoading: '正在加载文件预览...',
+    previewFailed: '文件预览加载失败',
+    previewPopupBlocked: '浏览器已拦截预览窗口，请允许本站打开新窗口',
   },
   progress: {
     title: '处理进度',

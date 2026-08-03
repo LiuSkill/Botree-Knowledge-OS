@@ -95,6 +95,20 @@ class VisualEmbeddingService:
                 int((time.perf_counter() - started_at) * 1000),
             )
             return vectors
+        except requests.Timeout as exc:
+            if len(inputs) > 1:
+                midpoint = len(inputs) // 2
+                logger.warning(
+                    "视觉 Embedding 批次超时，拆分后重试: model=%s count=%s left=%s right=%s elapsed_ms=%s",
+                    self.model_name,
+                    len(inputs),
+                    midpoint,
+                    len(inputs) - midpoint,
+                    int((time.perf_counter() - started_at) * 1000),
+                )
+                return self._request(inputs[:midpoint]) + self._request(inputs[midpoint:])
+            logger.exception("视觉 Embedding 单条请求超时: model=%s", self.model_name)
+            raise AppException(f"视觉 Embedding 服务调用超时: {exc}", status_code=502, code=502) from exc
         except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
             logger.exception("视觉 Embedding 调用失败: model=%s count=%s", self.model_name, len(inputs))
             raise AppException(f"视觉 Embedding 服务调用失败: {exc}", status_code=502, code=502) from exc

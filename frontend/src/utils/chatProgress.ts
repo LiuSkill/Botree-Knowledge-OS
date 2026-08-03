@@ -414,6 +414,10 @@ export function markProgressComplete(events: ChatProgressEvent[]): ChatProgressE
   }));
 }
 
+export function restoreStoredProgress(events: ChatProgressEvent[], completed: boolean): ChatProgressEvent[] {
+  return completed ? markProgressComplete(events) : events;
+}
+
 function isRawProgressEvent(value: unknown): value is ChatProgressEvent {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;

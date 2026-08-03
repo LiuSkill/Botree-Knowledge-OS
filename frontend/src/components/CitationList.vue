@@ -8,10 +8,11 @@
 -->
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
+import { FileSearchIcon } from 'tdesign-icons-vue-next';
 import { computed, onBeforeUnmount, reactive, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
-import { downloadDocumentAsset } from '@/api/documents';
+import { downloadDocumentAsset, downloadDocumentPdfPreview } from '@/api/documents';
 import ChatRichContent from '@/components/ChatRichContent.vue';
 import type { Citation, CitationAsset } from '@/types/api';
 
@@ -23,6 +24,8 @@ const props = defineProps<{
 const { t } = useI18n();
 const assetUrlMap = reactive<Record<number, string>>({});
 const loadingAssetIds = reactive<Record<number, boolean>>({});
+const previewingDocumentIds = reactive<Record<number, boolean>>({});
+const previewUrls = new Set<string>();
 const CITATION_ASSET_METADATA_KEYS = [
   'original_candidate_value',
   'resolved_local_path',
@@ -85,6 +88,32 @@ function openAssetPreview(asset: CitationAsset): void {
   const url = assetUrlMap[asset.asset_id];
   if (!url) return;
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+async function openDocumentPreview(citation: Citation): Promise<void> {
+  if (previewingDocumentIds[citation.document_id]) return;
+
+  // 必须在用户点击事件中立即创建页签，否则异步下载完成后可能被浏览器拦截。
+  const previewWindow = window.open('', '_blank');
+  if (!previewWindow) {
+    MessagePlugin.warning(t('ai.citation.previewPopupBlocked'));
+    return;
+  }
+
+  previewWindow.document.title = citation.file_name;
+  previewWindow.document.body.textContent = t('ai.citation.previewLoading');
+  previewingDocumentIds[citation.document_id] = true;
+  try {
+    const blob = await downloadDocumentPdfPreview(citation.document_id);
+    const url = URL.createObjectURL(blob);
+    previewUrls.add(url);
+    previewWindow.location.replace(url);
+  } catch (error) {
+    previewWindow.close();
+    MessagePlugin.error(error instanceof Error ? error.message : t('ai.citation.previewFailed'));
+  } finally {
+    delete previewingDocumentIds[citation.document_id];
+  }
 }
 
 function assetBbox(asset: CitationAsset): Record<string, number> | null {
@@ -161,7 +190,11 @@ watch(
   { immediate: true },
 );
 
-onBeforeUnmount(resetAssetUrls);
+onBeforeUnmount(() => {
+  resetAssetUrls();
+  for (const url of previewUrls) URL.revokeObjectURL(url);
+  previewUrls.clear();
+});
 </script>
 
 <template>
@@ -169,7 +202,17 @@ onBeforeUnmount(resetAssetUrls);
     <t-empty v-if="!citations.length" size="small" :description="t('ai.citation.empty')" />
     <div v-for="item in citations" :key="`${item.document_id}-${item.chunk_id}`" class="citation-item">
       <div class="citation-title">
-        <span>{{ item.file_name }}</span>
+        <t-link
+          class="citation-file-link"
+          theme="primary"
+          hover="color"
+          :loading="previewingDocumentIds[item.document_id]"
+          :title="t('ai.citation.openPreview', { fileName: item.file_name })"
+          @click="openDocumentPreview(item)"
+        >
+          <template #prefix-icon><FileSearchIcon /></template>
+          <span>{{ item.file_name }}</span>
+        </t-link>
         <t-tag size="small" variant="light">{{ sourceLabel(item.source_type, chatType) }}</t-tag>
       </div>
       <p v-if="item.drawing_no || item.page_number" class="citation-meta">
@@ -228,8 +271,17 @@ onBeforeUnmount(resetAssetUrls);
   color: #111827;
 }
 
-.citation-title > span {
+.citation-file-link {
   min-width: 0;
+  font-weight: 600;
+}
+
+.citation-file-link :deep(.t-link__content) {
+  min-width: 0;
+}
+
+.citation-file-link span {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

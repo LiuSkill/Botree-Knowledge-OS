@@ -68,6 +68,7 @@ import {
   progressEventFromTrace,
   progressEventsFromTrace,
   normalizeProgressEvents,
+  restoreStoredProgress,
 } from '@/utils/chatProgress';
 
 interface UiChatMessage extends Omit<ChatMessage, 'id' | 'citations'> {
@@ -241,12 +242,16 @@ function parseAgentTrace(rawTrace?: string | null): AgentTraceStep[] {
 
 function toUiMessage(message: ChatMessage): UiChatMessage {
   const fallbackTrace = parseAgentTrace(message.agent_trace_json);
-  const progressEvents = parseProgressJson(message.progress_json);
+  const storedProgressEvents = parseProgressJson(message.progress_json);
+  const isCompletedAssistant = message.role === 'assistant' && Boolean(message.content.trim());
+  const progressEvents = storedProgressEvents.length
+    ? restoreStoredProgress(storedProgressEvents, isCompletedAssistant)
+    : progressEventsFromTrace(fallbackTrace, isCompletedAssistant);
   return {
     ...message,
     id: message.id,
     citations: message.citations || [],
-    progressEvents: progressEvents.length ? progressEvents : progressEventsFromTrace(fallbackTrace, Boolean(message.content.trim())),
+    progressEvents,
     status: undefined,
     streaming: false,
   };
