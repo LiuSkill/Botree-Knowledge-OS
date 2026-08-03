@@ -302,6 +302,18 @@ export default {
       strictKb: 'Strictly knowledge-base grounded',
       weakOnly: 'Weak evidence only',
     },
+    memoryDecision: {
+      disabled: 'Conversation memory is disabled',
+      noMemory: 'No conversation memory is available',
+      stableScopeOnlyCompleteQuestion: 'The question is complete; only the stable conversation scope is retained',
+      questionComplete: 'The question is complete and needs no rewrite',
+      explicitReferenceRewrite: 'The question was rewritten from an explicit reference',
+      stableScopeOnlyIncompleteQuestion: 'The question is incomplete; only the stable conversation scope is retained',
+      contextDependentLowConfidence: 'Confidence in the contextual reference is too low',
+      stableScopeOnlyTopicShift: 'A topic shift was detected; only the stable conversation scope is retained',
+      topicShift: 'A topic shift was detected',
+      skip: 'Conversation memory is not needed',
+    },
     field: {
       action: 'Action',
       answerPolicy: 'Answer Policy',

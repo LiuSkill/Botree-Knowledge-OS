@@ -175,6 +175,19 @@ const POLICY_LABELS: Record<string, string> = {
   WEAK_ONLY: 'ai.trace.policy.weakOnly',
 };
 
+const MEMORY_DECISION_LABELS: Record<string, string> = {
+  disabled: 'ai.trace.memoryDecision.disabled',
+  no_memory: 'ai.trace.memoryDecision.noMemory',
+  stable_scope_only_complete_question: 'ai.trace.memoryDecision.stableScopeOnlyCompleteQuestion',
+  question_complete: 'ai.trace.memoryDecision.questionComplete',
+  explicit_reference_rewrite: 'ai.trace.memoryDecision.explicitReferenceRewrite',
+  stable_scope_only_incomplete_question: 'ai.trace.memoryDecision.stableScopeOnlyIncompleteQuestion',
+  context_dependent_low_confidence: 'ai.trace.memoryDecision.contextDependentLowConfidence',
+  stable_scope_only_topic_shift: 'ai.trace.memoryDecision.stableScopeOnlyTopicShift',
+  topic_shift: 'ai.trace.memoryDecision.topicShift',
+  skip: 'ai.trace.memoryDecision.skip',
+};
+
 const FIELD_LABELS: Record<string, string> = {
   action: 'ai.trace.field.action',
   answer_policy: 'ai.trace.field.answerPolicy',
@@ -380,6 +393,7 @@ function localizeKnownCodes(text: string): string {
     ...SOURCE_LABELS,
     ...RETRIEVER_LABELS,
     ...POLICY_LABELS,
+    ...MEMORY_DECISION_LABELS,
     ...FIELD_LABELS,
     ...PROVIDER_LABELS,
   };

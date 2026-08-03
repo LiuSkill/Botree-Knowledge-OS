@@ -302,6 +302,18 @@ export default {
       strictKb: '严格依据知识库',
       weakOnly: '仅有弱证据',
     },
+    memoryDecision: {
+      disabled: '会话记忆已禁用',
+      noMemory: '无可用会话记忆',
+      stableScopeOnlyCompleteQuestion: '问题表述完整，仅沿用稳定会话范围',
+      questionComplete: '问题表述完整，无需改写',
+      explicitReferenceRewrite: '已根据明确指代改写问题',
+      stableScopeOnlyIncompleteQuestion: '问题信息不完整，仅沿用稳定会话范围',
+      contextDependentLowConfidence: '上下文关联置信度不足',
+      stableScopeOnlyTopicShift: '检测到话题切换，仅沿用稳定会话范围',
+      topicShift: '检测到话题切换',
+      skip: '无需使用会话记忆',
+    },
     field: {
       action: '处理动作',
       answerPolicy: '回答策略',
