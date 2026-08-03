@@ -97,6 +97,16 @@ RAG_REQUIRED_KEYWORDS = (
     "黑粉回收",
     "bmi",
 )
+BASE_VISUAL_FLOW_HINTS = (
+    "流程图",
+    "工艺流程",
+    "实验流程",
+    "物料流向",
+    "工艺路线",
+    "流程",
+    "流向",
+    "flow",
+)
 PURE_GENERAL_QA_HINTS = (
     "太阳从哪边升起",
     "太阳从哪里升起",
@@ -541,6 +551,10 @@ class QwenOrchestrationService:
         lowered = question.lower()
         is_project_reference = self._is_project_reference_question(question, chat_type, mode)
         industry_domains = detect_industry_domains(question)
+        if chat_type == "base_chat" and mode not in {"project_only", "hybrid"} and self._is_base_visual_flow_question(
+            question
+        ):
+            return "knowledge_qa", 0.95, "基础问答流程图问题优先走视觉候选召回，不绑定项目问答规则"
         if is_project_overview_query(question) and is_project_reference:
             return "project_overview", 0.92, "命中项目概览类规则"
         if is_project_reference and ("项目" in question or PROJECT_NAME_PATTERN.search(question)):
@@ -565,6 +579,12 @@ class QwenOrchestrationService:
             return "project_qa", confidence, "根据项目问答上下文识别为项目资料问答"
         confidence = 0.72 if len(question.strip()) >= 80 else 0.82
         return "knowledge_qa", confidence, "根据基础问答上下文识别为知识问答"
+
+    def _is_base_visual_flow_question(self, question: str) -> bool:
+        """识别基础问答中的流程图/工艺流程问题，不判断其是否属于某个项目。"""
+
+        normalized = normalize_query_text(question).lower()
+        return any(hint in normalized for hint in BASE_VISUAL_FLOW_HINTS)
 
     def _rule_detect_direct_answer(self, question: str, chat_type: str, mode: str) -> dict[str, Any] | None:
         """在调用意图模型前识别可直接回答的问题。"""

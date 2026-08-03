@@ -336,14 +336,15 @@ class AnswerGenerator:
         query_profile: dict[str, Any] | None = None,
     ) -> str:
         topic = self._topic_text(question)
+        material_label = self._material_label(query_profile or {})
         if self._uses_english(query_profile or {}):
             return (
                 f'Only headings, figure names, or weak evidence related to "{topic}" were found. '
-                "The available project materials do not contain enough body text, process details, parameters, or explanations to provide a complete answer. "
+                f"The available {material_label} do not contain enough body text, process details, parameters, or explanations to provide a complete answer. "
                 "Please add the relevant body pages, parsed drawings, parameter tables, or equipment relationship descriptions and try again."
             )
         lines = [
-            f"基于当前项目资料，只检索到与「{topic}」相关的标题、图名或弱证据，未检索到足够的正文流程/参数/说明，因此无法给出完整回答。"
+            f"基于当前{material_label}，只检索到与「{topic}」相关的标题、图名或弱证据，未检索到足够的正文流程/参数/说明，因此无法给出完整回答。"
         ]
         evidence_lines = self._evidence_excerpt_lines(evidences)
         if evidence_lines:
@@ -352,7 +353,7 @@ class AnswerGenerator:
         missing = evidence_evaluation.get("missing_aspects") or []
         if missing:
             lines.append(f"当前缺失的信息包括：{'、'.join(str(item) for item in missing)}。")
-        lines.append("建议补充正文页、图纸解析结果、参数表或设备关系说明后再检索；如需使用通用知识补充，请先确认。")
+        lines.append("建议补充正文页、图纸解析结果、参数表或设备关系说明后再检索。")
         return "\n".join(lines)
 
     def _partial_answer(
@@ -363,12 +364,13 @@ class AnswerGenerator:
         query_profile: dict[str, Any] | None = None,
     ) -> str:
         topic = self._topic_text(question)
+        material_label = self._material_label(query_profile or {})
         if self._uses_english(query_profile or {}):
             evidence_lines = self._evidence_excerpt_lines(evidences)
             summary = "\n".join(evidence_lines) if evidence_lines else "The available evidence is insufficient to extract a definite conclusion."
-            return f'Only partial text related to "{topic}" was found. The information is incomplete; the following is limited to what the evidence confirms:\n{summary}'
+            return f'Only partial text related to "{topic}" was found in the available {material_label}. The information is incomplete; the following is limited to what the evidence confirms:\n{summary}'
         lines = [
-            f"基于当前项目资料，只检索到与「{topic}」相关的部分正文片段，信息不完整，以下仅概括已能从现有证据中确认的内容："
+            f"基于当前{material_label}，只检索到与「{topic}」相关的部分正文片段，信息不完整，以下仅概括已能从现有证据中确认的内容："
         ]
         evidence_lines = self._evidence_excerpt_lines(evidences)
         if evidence_lines:
@@ -377,7 +379,7 @@ class AnswerGenerator:
             lines.append("现有证据片段不足以提炼明确内容。")
         missing = evidence_evaluation.get("missing_aspects") or []
         if missing:
-            lines.append(f"尚缺少：{'、'.join(str(item) for item in missing)}。因此不能补写未被项目资料明确支持的流程、参数或设备关系。")
+            lines.append(f"尚缺少：{'、'.join(str(item) for item in missing)}。因此不能补写当前资料明确支持范围之外的流程、参数或设备关系。")
         return "\n".join(lines)
 
     def _partial_answer_with_llm(
@@ -625,31 +627,67 @@ class AnswerGenerator:
     ) -> str:
         profile = query_profile or {}
         reason_code = self._refusal_reason_code(evidence_evaluation, profile)
+        material_label = self._material_label(profile)
+        scope = str(profile.get("knowledge_scope") or "").strip()
+        has_explicit_scope = bool(scope)
+        project_scope = scope == "project" or not has_explicit_scope
         if self._uses_english(profile):
             messages = {
-                "no_project_evidence": "No relevant valid information was found in the current project materials, so the question cannot be answered from project evidence.",
+                "no_project_evidence": (
+                    "No relevant valid information was found in the current project materials, so the question cannot be answered from project evidence."
+                    if project_scope
+                    else f"No relevant valid information was found in the current {material_label}, so the question cannot be answered from the available evidence."
+                ),
                 "conflict_evidence": "The retrieved materials conflict, so a definite conclusion cannot be provided.",
                 "permission_denied": "No relevant materials are accessible with the current permissions.",
                 "invalid_question": "The question is unclear or lacks sufficient business context. Please specify the project, material, or object.",
-                "out_of_scope": "The question is outside the current knowledge-base or project scope.",
-                "unsafe_generalization": "The question concerns project facts and cannot be supplemented with general knowledge.",
+                "out_of_scope": (
+                    "The question is outside the current knowledge-base or project scope."
+                    if not has_explicit_scope
+                    else "The question is outside the current knowledge-base scope."
+                ),
+                "unsafe_generalization": (
+                    "The question concerns project facts and cannot be supplemented with general knowledge."
+                    if not has_explicit_scope
+                    else "The question cannot be supplemented with unsupported general knowledge."
+                ),
             }
             return f"{messages.get(reason_code, 'The available materials do not support an answer.')}\nQuestion: {self._topic_text(question)}"
         messages = {
-            "no_project_evidence": "当前项目资料中未检索到相关有效信息，无法基于项目资料回答。",
+            "no_project_evidence": (
+                "当前项目资料中未检索到相关有效信息，无法基于项目资料回答。"
+                if project_scope
+                else f"当前{material_label}中未检索到相关有效信息，无法基于现有资料回答。"
+            ),
             "conflict_evidence": "检索到的资料存在冲突，无法给出确定结论。",
             "permission_denied": "当前权限下没有可访问的相关资料，无法回答。",
             "invalid_question": "问题不明确或缺少有效业务含义，请补充项目、资料或具体对象。",
-            "out_of_scope": "该问题超出当前知识库或项目范围，无法基于现有资料回答。",
-            "unsafe_generalization": "该问题涉及项目事实，不能使用通用知识补答。",
+            "out_of_scope": (
+                "该问题超出当前知识库或项目范围，无法基于现有资料回答。"
+                if not has_explicit_scope
+                else "该问题超出当前知识库范围，无法基于现有资料回答。"
+            ),
+            "unsafe_generalization": (
+                "该问题涉及项目事实，不能使用通用知识补答。"
+                if not has_explicit_scope
+                else "该问题不能使用未经证据支持的通用知识补答。"
+            ),
         }
         reason_labels = {
-            "no_project_evidence": "未检索到可支撑回答的项目资料",
+            "no_project_evidence": f"未检索到可支撑回答的{material_label}",
             "conflict_evidence": "检索资料存在冲突",
             "permission_denied": "当前权限下无可访问资料",
             "invalid_question": "问题不明确或缺少业务含义",
-            "out_of_scope": "问题超出当前知识库或项目范围",
-            "unsafe_generalization": "不能使用通用知识补答项目事实",
+            "out_of_scope": (
+                "问题超出当前知识库或项目范围"
+                if not has_explicit_scope
+                else "问题超出当前知识库范围"
+            ),
+            "unsafe_generalization": (
+                "不能使用通用知识补答项目事实"
+                if not has_explicit_scope
+                else "不能使用未经证据支持的通用知识补答"
+            ),
         }
         detail = messages.get(reason_code, PROJECT_REFUSAL_TEXT)
         reason_label = reason_labels.get(reason_code, "当前资料不足以支撑回答")
@@ -677,7 +715,7 @@ class AnswerGenerator:
     def _evidence_excerpt_lines(self, evidences: list[Evidence]) -> list[str]:
         lines: list[str] = []
         for index, evidence in enumerate(evidences[:3], start=1):
-            source_parts = [str(evidence.file_name or "项目资料")]
+            source_parts = [str(evidence.file_name or "知识库资料")]
             if evidence.page_number:
                 source_parts.append(f"第 {evidence.page_number} 页")
             if evidence.drawing_no:
@@ -685,6 +723,16 @@ class AnswerGenerator:
             source = "，".join(source_parts)
             lines.append(f"[{index}] {source}：{self._clip_content(evidence.content)}")
         return lines
+
+    def _material_label(self, query_profile: dict[str, Any]) -> str:
+        """Return wording that matches the active knowledge scope."""
+
+        scope = str(query_profile.get("knowledge_scope") or "").strip()
+        if scope == "project":
+            return "项目资料"
+        if scope == "industry":
+            return "行业知识库资料"
+        return "项目资料"
 
     def _topic_text(self, question: str) -> str:
         return self._clip_content(question, limit=60) or "该问题"

@@ -123,13 +123,13 @@ def test_project_overview_question_requires_rag() -> None:
     assert decision["intent"] in {"project_qa", "project_overview"}
 
 
-def test_current_drawing_flow_question_requires_rag() -> None:
+def test_base_drawing_flow_question_uses_visual_knowledge_rag() -> None:
     decision = QwenOrchestrationService(db=None).detect_route_decision("这张图的流程是什么", "base_chat", "auto")  # type: ignore[arg-type]
 
-    assert decision["route"] == "project_rag"
+    assert decision["route"] == "rag"
     assert decision["skip_retrieval"] is False
-    assert decision["intent"] == "project_qa"
-    assert decision["knowledge_scope"] == "project"
+    assert decision["intent"] == "knowledge_qa"
+    assert decision["knowledge_scope"] == "industry"
 
 
 def assert_industry_rag_decision(question: str) -> None:
@@ -160,14 +160,27 @@ def test_pid_reading_question_requires_industry_knowledge_rag() -> None:
 def test_project_acid_leaching_flow_requires_rag() -> None:
     decision = QwenOrchestrationService(db=None).detect_route_decision("BMI 项目的酸浸流程是什么", "base_chat", "auto")  # type: ignore[arg-type]
 
-    assert decision["route"] == "project_rag"
+    assert decision["route"] == "rag"
     assert decision["skip_retrieval"] is False
-    assert decision["intent"] == "project_qa"
-    assert decision["knowledge_scope"] == "project"
+    assert decision["intent"] == "knowledge_qa"
+    assert decision["knowledge_scope"] == "industry"
 
 
 def test_current_drawing_material_flow_requires_project_rag() -> None:
     decision = QwenOrchestrationService(db=None).detect_route_decision("这张图里的物料流向是什么", "base_chat", "auto")  # type: ignore[arg-type]
+
+    assert decision["route"] == "rag"
+    assert decision["skip_retrieval"] is False
+    assert decision["intent"] == "knowledge_qa"
+    assert decision["knowledge_scope"] == "industry"
+
+
+def test_project_chat_drawing_flow_keeps_project_qa_rules() -> None:
+    decision = QwenOrchestrationService(db=None).detect_route_decision(
+        "BMI 项目黑粉两段浸出实验实验流程图",
+        "project_chat",
+        "auto",
+    )  # type: ignore[arg-type]
 
     assert decision["route"] == "project_rag"
     assert decision["skip_retrieval"] is False

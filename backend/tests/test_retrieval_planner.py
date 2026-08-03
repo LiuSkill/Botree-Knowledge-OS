@@ -389,6 +389,39 @@ def test_knowledge_qa_natural_language_prefers_milvus_only() -> None:
     assert "page_index" in plan.skipped_retrievers
 
 
+def test_base_visual_process_flow_prioritizes_visual_retriever() -> None:
+    """基础问答流程图不依赖 project_qa，也必须进入独立视觉召回。"""
+
+    plan = RetrievalPlannerService(None).plan(
+        query="BMI 项目黑粉两段浸出实验实验流程图",
+        sub_queries=["BMI 项目黑粉两段浸出实验实验流程图"],
+        intent="knowledge_qa",
+        chat_type="base_chat",
+        mode="base_chat",
+        project_id=None,
+        available_retrievers=["visual", "page_index", "milvus", "keyword"],
+        query_profile={
+            "query_type": "process_flow",
+            "answer_shape": "process_steps",
+            "knowledge_scope": "industry",
+            "need_visual_asset": True,
+        },
+        policy_resolution={
+            "resolved_task_type": "process_flow",
+            "answer_policy": "KB_FIRST",
+            "knowledge_scope": "industry",
+        },
+        question_understanding={
+            "retrieval_needs": {"visual_evidence": True, "page_level_retrieval": True},
+            "query_rewrites": ["BMI 黑粉 两段浸出 实验流程图"],
+        },
+    )
+
+    assert plan.selected_retrievers[0] == "visual"
+    assert {"visual", "page_index", "milvus", "keyword"}.issubset(set(plan.selected_retrievers))
+    assert plan.query_features["retrieval_needs"]["visual_evidence"] is True
+
+
 def test_industry_knowledge_scope_uses_base_retrievers_only() -> None:
     """行业基础知识问答只规划行业基础知识库检索器。"""
 

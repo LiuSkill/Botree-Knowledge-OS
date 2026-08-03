@@ -783,6 +783,8 @@ class RetrievalPlannerService:
                 reasons[name] = "policy_matrix: exact_text_search 或定位/参数类问题需要原文精确搜索"
             elif name == RETRIEVER_GRAPHRAG:
                 reasons[name] = "policy_matrix: optional graph retrieval 命中关系推理信号"
+            elif name == RETRIEVER_VISUAL:
+                reasons[name] = "policy_matrix: 流程图问题优先使用独立视觉候选召回"
             else:
                 reasons[name] = f"policy_matrix: resolved_task_type={resolved_task_type}"
         if retrieval_needs:

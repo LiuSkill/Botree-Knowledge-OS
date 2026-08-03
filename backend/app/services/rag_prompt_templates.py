@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 
-KNOWN_RETRIEVERS = ("project_metadata", "page_index", "milvus", "ripgrep", "keyword", "graphrag")
+KNOWN_RETRIEVERS = ("project_metadata", "page_index", "milvus", "ripgrep", "keyword", "graphrag", "visual")
 
 PLANNER_SYSTEM_PROMPT = """
 你是企业知识库 RAG 检索规划器。
@@ -16,6 +16,7 @@ PLANNER_SYSTEM_PROMPT = """
 
 Retriever 使用边界：
 - page_index：适合页码定位、图纸/P&ID/PFD、整页流程、图片资产、表格所在页、用户问“哪页/哪张图/图中流程”。
+- visual：独立视觉候选召回，适合流程图、P&ID/PFD、实验装置图和正文不足但图像包含答案的页面；不依赖文本先命中。
 - ripgrep：适合精确词项、设备位号、图号、文件名、英文短语、型号、参数名、化学品名、专有名词。
 - milvus：适合语义问题、概念性描述、同义表达、项目介绍、没有明确关键词的问题。
 - graphrag：适合上下游关系、物料流向、设备连接、因果影响、跨段落/跨文件推理。

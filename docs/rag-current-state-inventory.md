@@ -438,7 +438,7 @@ flowchart TD
 | `VISION_LLM_MAX_IMAGE_BYTES` | `8MB` | `backend/app/core/config.py:92` | 单图最大大小 | 大图纸可能被丢弃 |
 | `EMBEDDING_PROVIDER` | `local` | `backend/app/core/config.py:93` | embedding provider | 本地模型未配时不可用 |
 | `EMBEDDING_MODEL` | `None` | `backend/app/core/config.py:94` | embedding 模型 | 需要 DB/env 配置 |
-| `EMBEDDING_DEVICE` | `cpu` | `backend/app/core/config.py:95` | embedding 设备 | CPU 延迟较高 |
+| `EMBEDDING_DEVICE` | `cuda` | `backend/app/core/config.py:125` | 文本 Embedding 设备 | 必须使用 GPU；CUDA 不可用时启动/调用失败 |
 | `EMBEDDING_BATCH_SIZE` | `8` | `backend/app/core/config.py:96` | embedding batch | 吞吐/显存权衡 |
 | `EMBEDDING_TIMEOUT_SECONDS` | `60` | `backend/app/core/config.py:97` | embedding 超时 | 大批量索引需关注 |
 | `RERANKER_DEVICE` | `cpu` | `backend/app/core/config.py:98` | reranker 设备 | CPU rerank 延迟明显 |

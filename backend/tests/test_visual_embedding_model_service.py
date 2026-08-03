@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.model_service import main as model_service
@@ -20,8 +22,20 @@ class _AlignedVisualEmbedding:
         return [[0.1, 0.2], [0.3, 0.4]][: len(inputs)]
 
 
+def test_text_embedding_device_rejects_cpu(monkeypatch) -> None:
+    monkeypatch.setattr(
+        model_service,
+        "settings",
+        SimpleNamespace(model_service_embedding_device="cpu"),
+    )
+
+    with pytest.raises(HTTPException, match="文本 Embedding 必须使用 GPU"):
+        model_service._configured_embedding_device()
+
+
 def test_startup_warmup_loads_and_encodes_visual_model(monkeypatch) -> None:
     encoded_inputs: list[object] = []
+    visual_calls: list[tuple[object, ...]] = []
 
     class _WarmVisualEmbedding:
         def encode(self, inputs: list[object]) -> list[list[float]]:
@@ -35,7 +49,7 @@ def test_startup_warmup_loads_and_encodes_visual_model(monkeypatch) -> None:
             model_service_warmup_on_startup=True,
             model_service_embedding_model="text-model",
             embedding_model="text-model",
-            model_service_embedding_device="cpu",
+            model_service_embedding_device="cuda",
             model_service_embedding_batch_size=2,
             model_service_embedding_dimension=2,
             embedding_dim=2,
@@ -45,18 +59,21 @@ def test_startup_warmup_loads_and_encodes_visual_model(monkeypatch) -> None:
             model_service_reranker_batch_size=2,
             visual_embedding_model="visual-model",
             visual_embedding_dim=2,
+            model_service_visual_embedding_device="cuda",
+            model_service_visual_embedding_batch_size=1,
         ),
     )
     monkeypatch.setattr("app.services.embedding_local.get_local_embedding", lambda *args: object())
     monkeypatch.setattr("app.services.reranker_local.get_local_reranker", lambda *args: object())
     monkeypatch.setattr(
         "app.services.visual_embedding_local.get_local_visual_embedding",
-        lambda *args: _WarmVisualEmbedding(),
+        lambda *args: visual_calls.append(args) or _WarmVisualEmbedding(),
     )
 
     model_service.warmup_models()
 
     assert encoded_inputs == ["visual embedding warmup"]
+    assert visual_calls == [("visual-model", "cuda", 1, 2)]
 
 
 def test_visual_embedding_response_declares_compatible_index_generation(monkeypatch) -> None:
@@ -71,7 +88,7 @@ def test_visual_embedding_response_declares_compatible_index_generation(monkeypa
             visual_embedding_dim=2,
             visual_index_generation="vl-2026-07",
             visual_embedding_distance_metric="COSINE",
-            model_service_embedding_device="cpu",
+            model_service_embedding_device="cuda",
             model_service_embedding_batch_size=2,
         ),
     )

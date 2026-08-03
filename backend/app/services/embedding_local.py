@@ -33,7 +33,7 @@ class LocalQwenEmbedding:
     职责：
     - 校验本地模型目录是否存在
     - 加载 Qwen3-Embedding-0.6B 并生成向量
-    - 在 CUDA 不可用或显存不足时自动降级到 CPU
+    - 强制使用 CUDA；显存不足时只降低批量并继续在 GPU 上重试
     """
 
     def __init__(self, model_name: str, device: str, batch_size: int, dimension: int) -> None:
@@ -42,7 +42,7 @@ class LocalQwenEmbedding:
 
         参数:
             model_name: 本地模型绝对路径或可解析路径。
-            device: 期望推理设备，支持 cuda/cpu。
+            device: 期望推理设备，必须为 cuda 或 cuda:N。
             batch_size: 推理批量大小。
             dimension: 输出向量维度。
         """
@@ -125,22 +125,32 @@ class LocalQwenEmbedding:
             return []
 
         started_at = time.perf_counter()
-        try:
-            if self.sentence_model is not None:
-                vectors = self._embed_with_sentence_transformer(texts)
-            else:
-                vectors = self._embed_with_transformers(texts)
-        except RuntimeError as exc:
-            if not self._is_cuda_oom(exc):
-                raise
-            logger.exception("本地Embedding显存不足，尝试降低批量并切换CPU: device=%s batch_size=%s", self.device, self.batch_size)
-            self.batch_size = max(1, self.batch_size // 2)
-            if self.device == "cuda":
-                self._fallback_to_cpu()
-            if self.sentence_model is not None:
-                vectors = self._embed_with_sentence_transformer(texts)
-            else:
-                vectors = self._embed_with_transformers(texts)
+        while True:
+            try:
+                if self.sentence_model is not None:
+                    vectors = self._embed_with_sentence_transformer(texts)
+                else:
+                    vectors = self._embed_with_transformers(texts)
+                break
+            except RuntimeError as exc:
+                if not self._is_cuda_oom(exc):
+                    raise
+                if self.batch_size <= 1:
+                    logger.exception(
+                        "本地Embedding在最小批量下仍然GPU显存不足: device=%s batch_size=%s",
+                        self.device,
+                        self.batch_size,
+                    )
+                    raise RuntimeError("文本Embedding必须使用GPU，但GPU显存不足") from exc
+                previous_batch_size = self.batch_size
+                self.batch_size = max(1, self.batch_size // 2)
+                self._clear_cuda_cache()
+                logger.warning(
+                    "本地Embedding GPU显存不足，降低批量后重试: device=%s previous_batch_size=%s batch_size=%s",
+                    self.device,
+                    previous_batch_size,
+                    self.batch_size,
+                )
         vector_dimension = len(vectors[0]) if vectors else self.dimension
         logger.info(
             "本地Embedding调用完成: loaded=%s path=%s backend=%s device=%s count=%s batch_size=%s dimension=%s elapsed_ms=%s",
@@ -160,19 +170,10 @@ class LocalQwenEmbedding:
         加载 transformers 回退模型。
 
         说明:
-            CUDA 加载失败且异常属于显存不足时，自动清理显存并改用 CPU。
+            这里只回退推理后端，不回退设备；文本 Embedding 始终必须在 GPU 上运行。
         """
 
-        try:
-            self._load_transformers_model()
-        except RuntimeError as exc:
-            if self.device == "cuda" and self._is_cuda_oom(exc):
-                logger.exception("transformers加载本地Embedding时显存不足，回退CPU: path=%s", self.model_path)
-                self.device = "cpu"
-                self._clear_cuda_cache()
-                self._load_transformers_model()
-                return
-            raise
+        self._load_transformers_model()
 
     def _load_transformers_model(self) -> None:
         """
@@ -256,22 +257,6 @@ class LocalQwenEmbedding:
             return vector[: self.dimension]
         return vector + [0.0] * (self.dimension - len(vector))
 
-    def _fallback_to_cpu(self) -> None:
-        """
-        将本地模型切换到 CPU。
-
-        说明:
-            显存不足时释放 CUDA 缓存，并尽量复用已加载模型，保障服务继续可用。
-        """
-
-        self.device = "cpu"
-        self._clear_cuda_cache()
-        if self.sentence_model is not None:
-            self.sentence_model = SentenceTransformer(str(self.model_path), device="cpu", trust_remote_code=True)
-            return
-        if self.auto_model is not None:
-            self.auto_model = self.auto_model.to("cpu")
-
     def _resolve_device(self, requested_device: str) -> str:
         """
         解析推理设备。
@@ -280,17 +265,22 @@ class LocalQwenEmbedding:
             requested_device: 配置中的设备名。
 
         返回:
-            实际使用的设备名。
+            已验证可用的 CUDA 设备名。
         """
 
-        normalized_device = requested_device.lower().strip()
-        if normalized_device == "cuda":
-            if torch.cuda.is_available() and self._cuda_smoke_test():
-                return "cuda"
-            logger.warning("配置请求CUDA但当前环境不可用，自动回退CPU")
-        return "cpu"
+        normalized_device = (requested_device or "").lower().strip()
+        if not self._is_cuda_device(normalized_device):
+            raise ValueError("文本Embedding必须使用GPU，请将EMBEDDING_DEVICE配置为cuda")
+        if not torch.cuda.is_available() or not self._cuda_smoke_test(normalized_device):
+            raise RuntimeError("文本Embedding必须使用GPU，但当前CUDA不可用")
+        return normalized_device
 
-    def _cuda_smoke_test(self) -> bool:
+    def _is_cuda_device(self, device: str) -> bool:
+        """判断设备配置是否属于 CUDA。"""
+
+        return device == "cuda" or device.startswith("cuda:")
+
+    def _cuda_smoke_test(self, device_name: str = "cuda") -> bool:
         """
         执行最小 CUDA 可用性测试。
 
@@ -299,7 +289,7 @@ class LocalQwenEmbedding:
         """
 
         try:
-            device = torch.device("cuda")
+            device = torch.device(device_name)
             tensor = torch.tensor([1], device=device)
             _ = tensor + 1
             torch.cuda.synchronize()

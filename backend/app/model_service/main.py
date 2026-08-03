@@ -136,11 +136,41 @@ def _configured_embedding_dimension() -> int:
     return int(settings.model_service_embedding_dimension or settings.embedding_dim)
 
 
+def _configured_embedding_device() -> str:
+    """获取并校验文本 Embedding 的 GPU 设备。"""
+
+    device = str(settings.model_service_embedding_device or "").strip().lower()
+    if not (device == "cuda" or device.startswith("cuda:")):
+        raise HTTPException(status_code=500, detail="文本 Embedding 必须使用 GPU")
+    return device
+
+
 def _configured_visual_embedding_model() -> str:
     model_name = str(settings.visual_embedding_model or "").strip()
     if not model_name:
         raise HTTPException(status_code=500, detail="VISUAL_EMBEDDING_MODEL 未配置")
     return model_name
+
+
+def _configured_visual_embedding_device() -> str:
+    """获取视觉模型独立的推理设备，兼容旧配置回退到 Embedding 设备。"""
+
+    return str(
+        getattr(settings, "model_service_visual_embedding_device", None)
+        or settings.model_service_embedding_device
+    )
+
+
+def _configured_visual_embedding_batch_size() -> int:
+    """获取视觉模型独立的推理批量，兼容旧配置回退到 Embedding 批量。"""
+
+    return max(
+        1,
+        int(
+            getattr(settings, "model_service_visual_embedding_batch_size", 0)
+            or settings.model_service_embedding_batch_size
+        ),
+    )
 
 
 def _authorize(request: Request) -> None:
@@ -195,12 +225,12 @@ def health() -> dict[str, Any]:
         "model_service_enabled": settings.model_service_enabled,
         "embedding": {
             "model": embedding_model,
-            "device": settings.model_service_embedding_device,
+            "device": _configured_embedding_device(),
             "batch_size": settings.model_service_embedding_batch_size,
             "dimension": _configured_embedding_dimension(),
             "loaded": is_local_embedding_loaded(
                 embedding_model,
-                settings.model_service_embedding_device,
+                _configured_embedding_device(),
                 settings.model_service_embedding_batch_size,
                 _configured_embedding_dimension(),
             ),
@@ -214,6 +244,11 @@ def health() -> dict[str, Any]:
                 settings.model_service_reranker_device,
                 settings.model_service_reranker_batch_size,
             ),
+        },
+        "visual_embedding": {
+            "model": _configured_visual_embedding_model() if settings.visual_embedding_model else None,
+            "device": _configured_visual_embedding_device(),
+            "batch_size": _configured_visual_embedding_batch_size(),
         },
         "max_concurrency": max(1, int(settings.model_service_max_concurrency or 1)),
     }
@@ -240,7 +275,7 @@ def create_embeddings(request: Request, payload: EmbeddingRequest) -> EmbeddingR
     with _inference_slot():
         model = get_local_embedding(
             configured_model,
-            settings.model_service_embedding_device,
+            _configured_embedding_device(),
             settings.model_service_embedding_batch_size,
             dimension,
         )
@@ -251,7 +286,7 @@ def create_embeddings(request: Request, payload: EmbeddingRequest) -> EmbeddingR
         "模型服务Embedding调用完成: model=%s count=%s device=%s elapsed_ms=%s",
         configured_model,
         len(texts),
-        getattr(model, "device", settings.model_service_embedding_device),
+        getattr(model, "device", _configured_embedding_device()),
         int((time.perf_counter() - started_at) * 1000),
     )
     return EmbeddingResponse(
@@ -338,8 +373,8 @@ def create_visual_embeddings(request: Request, payload: VisualEmbeddingRequest) 
     with _inference_slot():
         model = get_local_visual_embedding(
             configured_model,
-            settings.model_service_embedding_device,
-            settings.model_service_embedding_batch_size,
+            _configured_visual_embedding_device(),
+            _configured_visual_embedding_batch_size(),
             dimension,
         )
         vectors = model.encode(inputs)
@@ -364,7 +399,7 @@ def warmup_models() -> None:
 
         get_local_embedding(
             _configured_embedding_model(),
-            settings.model_service_embedding_device,
+            _configured_embedding_device(),
             settings.model_service_embedding_batch_size,
             _configured_embedding_dimension(),
         )
@@ -382,8 +417,7 @@ def warmup_models() -> None:
         )
         logger.info("模型服务Reranker预热完成")
     except Exception:
-        logger.exception("模型服务Reranker预热失败")
-        raise
+        logger.exception("模型服务Reranker预热失败，继续提供Embedding服务")
     if not str(settings.visual_embedding_model or "").strip():
         logger.info("跳过视觉Embedding预热: VISUAL_EMBEDDING_MODEL未配置")
         return
@@ -394,8 +428,8 @@ def warmup_models() -> None:
         # 让部署在进入就绪状态前即暴露模型或契约错误。
         visual_model = get_local_visual_embedding(
             _configured_visual_embedding_model(),
-            settings.model_service_embedding_device,
-            settings.model_service_embedding_batch_size,
+            _configured_visual_embedding_device(),
+            _configured_visual_embedding_batch_size(),
             settings.visual_embedding_dim,
         )
         vectors = visual_model.encode(["visual embedding warmup"])

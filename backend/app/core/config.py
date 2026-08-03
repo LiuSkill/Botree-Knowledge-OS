@@ -122,7 +122,7 @@ class Settings(BaseSettings):
     embedding_model: str | None = Field(default=None, alias="EMBEDDING_MODEL")
     embedding_api_base: str | None = Field(default=None, alias="EMBEDDING_API_BASE")
     embedding_api_key: str | None = Field(default=None, alias="EMBEDDING_API_KEY")
-    embedding_device: str = Field(default="cpu", alias="EMBEDDING_DEVICE")
+    embedding_device: str = Field(default="cuda", alias="EMBEDDING_DEVICE")
     embedding_batch_size: int = Field(default=8, alias="EMBEDDING_BATCH_SIZE")
     embedding_timeout_seconds: int = Field(default=60, alias="EMBEDDING_TIMEOUT_SECONDS")
     reranker_provider: str | None = Field(default=None, alias="RERANKER_PROVIDER")
@@ -144,6 +144,8 @@ class Settings(BaseSettings):
     model_service_reranker_model: str | None = Field(default=None, alias="MODEL_SERVICE_RERANKER_MODEL")
     model_service_reranker_device: str = Field(default="cuda", alias="MODEL_SERVICE_RERANKER_DEVICE")
     model_service_reranker_batch_size: int = Field(default=8, alias="MODEL_SERVICE_RERANKER_BATCH_SIZE")
+    model_service_visual_embedding_device: str = Field(default="cuda", alias="MODEL_SERVICE_VISUAL_EMBEDDING_DEVICE")
+    model_service_visual_embedding_batch_size: int = Field(default=1, alias="MODEL_SERVICE_VISUAL_EMBEDDING_BATCH_SIZE")
     model_service_max_concurrency: int = Field(default=1, alias="MODEL_SERVICE_MAX_CONCURRENCY")
     model_service_warmup_on_startup: bool = Field(default=True, alias="MODEL_SERVICE_WARMUP_ON_STARTUP")
 
