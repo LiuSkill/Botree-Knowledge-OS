@@ -207,6 +207,9 @@ const versionDialogVisible = ref(false);
 const documentInfo = ref<DocumentInfo | null>(null);
 const previewData = ref<DocumentPreview | null>(null);
 const chunks = ref<DocumentChunk[]>([]);
+const chunkPage = ref(1);
+const chunkPageSize = ref(20);
+const chunkTotal = ref(0);
 const versions = ref<DocumentVersionInfo[]>([]);
 const indexTasks = ref<IndexTaskInfo[]>([]);
 const selectedVersionFile = ref<File | null>(null);
@@ -237,9 +240,7 @@ const securityForm = reactive({
 const assetUrlMap = reactive<Record<number, string>>({});
 const assetPromiseMap = new Map<number, Promise<string>>();
 const previewCache = new Map<string, DocumentPreview>();
-const chunkCache = new Map<string, DocumentChunk[]>();
 const previewPromiseCache = new Map<string, Promise<DocumentPreview>>();
-const chunkPromiseCache = new Map<string, Promise<DocumentChunk[]>>();
 const observedAssetImages = new Set<HTMLImageElement>();
 let assetImageObserver: IntersectionObserver | null = null;
 let markdownPreviewGeneration = 0;
@@ -395,9 +396,7 @@ function cacheKeyForVersion(versionNo: number | null = selectedVersionNo.value):
 
 function invalidateDetailCache(): void {
   previewCache.clear();
-  chunkCache.clear();
   previewPromiseCache.clear();
-  chunkPromiseCache.clear();
   resetAssetUrls();
 }
 
@@ -1220,22 +1219,18 @@ async function loadPreview(): Promise<void> {
   }
 }
 
-async function loadChunks(): Promise<void> {
-  const cacheKey = cacheKeyForVersion();
-  let chunkItems = chunkCache.get(cacheKey);
-  if (!chunkItems) {
-    let chunkPromise = chunkPromiseCache.get(cacheKey);
-    if (!chunkPromise) {
-      chunkPromise = listDocumentChunks(documentId.value, selectedVersionNo.value).finally(() => {
-        chunkPromiseCache.delete(cacheKey);
-      });
-      chunkPromiseCache.set(cacheKey, chunkPromise);
-    }
-    chunkItems = await chunkPromise;
-    chunkCache.set(cacheKey, chunkItems);
-  }
-  chunks.value = chunkItems;
+async function loadChunks(page = chunkPage.value): Promise<void> {
+  const result = await listDocumentChunks(documentId.value, selectedVersionNo.value, page, chunkPageSize.value);
+  chunks.value = result.items;
+  chunkPage.value = result.page;
+  chunkPageSize.value = result.page_size;
+  chunkTotal.value = result.total;
   await bindRenderedAssetImages();
+}
+
+async function handleChunkPageChange(pageInfo: { current: number }): Promise<void> {
+  chunkPage.value = pageInfo.current;
+  await loadChunks(pageInfo.current);
 }
 
 async function loadData(force = false): Promise<void> {
@@ -1428,11 +1423,15 @@ async function viewVersion(version: DocumentVersionInfo): Promise<void> {
   selectedVersionNo.value = version.version_no;
   activeTab.value = 'preview';
   chunks.value = [];
+  chunkPage.value = 1;
+  chunkTotal.value = 0;
   await loadPreview();
 }
 
 async function viewCurrentVersion(): Promise<void> {
   selectedVersionNo.value = null;
+  chunkPage.value = 1;
+  chunkTotal.value = 0;
   await refreshActiveTab();
 }
 
@@ -1874,6 +1873,16 @@ onBeforeUnmount(() => {
                   </tr>
                 </tbody>
               </table>
+            </div>
+            <div v-if="chunkTotal > chunkPageSize" class="chunk-pagination">
+              <t-pagination
+                :current="chunkPage"
+                :page-size="chunkPageSize"
+                :total="chunkTotal"
+                :page-size-options="[]"
+                show-jumper
+                @change="handleChunkPageChange"
+              />
             </div>
           </section>
 
@@ -2607,6 +2616,12 @@ onBeforeUnmount(() => {
   max-width: 680px;
   white-space: normal;
   word-break: break-word;
+}
+
+.chunk-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
 }
 
 .chunk-markdown {

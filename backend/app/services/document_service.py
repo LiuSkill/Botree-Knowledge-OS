@@ -1196,6 +1196,26 @@ class DocumentService:
         self._ensure_project_document_access(document, user, "project:view")
         return self.repository.list_chunks(document_id, version_no=version_no)
 
+    def list_chunks_page(
+        self,
+        document_id: int,
+        user: User,
+        *,
+        page: int,
+        page_size: int,
+        version_no: int | None = None,
+    ) -> tuple[list[DocumentChunk], int]:
+        """分页查询文档分块，权限规则与完整分块查询保持一致。"""
+
+        document = self.get_document(document_id, user)
+        self._ensure_project_document_access(document, user, "project:view")
+        return self.repository.list_chunks_page(
+            document_id,
+            page=page,
+            page_size=page_size,
+            version_no=version_no,
+        )
+
     def _resolve_index_build_version(self, document: Document, version_no: int | None = None) -> DocumentVersion:
         """解析前端要构建的目标版本。"""
 

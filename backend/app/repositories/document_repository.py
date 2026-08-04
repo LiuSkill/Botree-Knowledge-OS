@@ -462,6 +462,29 @@ class DocumentRepository:
             ).all()
         )
 
+    def list_chunks_page(
+        self,
+        document_id: int,
+        *,
+        page: int,
+        page_size: int,
+        version_no: int | None = None,
+    ) -> tuple[list[DocumentChunk], int]:
+        """分页查询有效文档分块，避免大文档一次加载全部正文。"""
+
+        filters = [DocumentChunk.document_id == document_id, DocumentChunk.chunk_status == "active"]
+        if version_no is not None:
+            filters.append(DocumentChunk.version_no == version_no)
+        total = int(self.db.scalar(select(func.count(DocumentChunk.id)).where(*filters)) or 0)
+        stmt = (
+            select(DocumentChunk)
+            .where(*filters)
+            .order_by(DocumentChunk.version_no.desc(), DocumentChunk.chunk_index)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(self.db.scalars(stmt).all()), total
+
     def get_chunk(self, chunk_id: int) -> DocumentChunk | None:
         """
         按 ID 查询 Chunk。

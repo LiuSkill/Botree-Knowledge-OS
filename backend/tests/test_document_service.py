@@ -43,6 +43,7 @@ from app.models import (  # noqa: E402
     ReviewTask,
 )
 from app.models.user import User  # noqa: E402
+from app.repositories.document_repository import DocumentRepository  # noqa: E402
 from app.services.document_service import DocumentService  # noqa: E402
 from app.services.review_service import ReviewService  # noqa: E402
 
@@ -77,6 +78,41 @@ def make_fk_session() -> Session:
     Base.metadata.create_all(bind=engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
     return session_factory()
+
+
+def test_list_chunks_page_bounds_large_document_result() -> None:
+    """大文档分块查询必须在数据库层分页，不能一次加载全部内容。"""
+
+    db = make_session()
+    try:
+        db.add_all(
+            [
+                DocumentChunk(
+                    knowledge_base_id=1,
+                    document_id=1,
+                    knowledge_type="base",
+                    version_no=1,
+                    chunk_index=index,
+                    content=f"chunk-{index}",
+                    security_level="internal",
+                )
+                for index in range(120)
+            ]
+        )
+        db.commit()
+
+        items, total = DocumentRepository(db).list_chunks_page(
+            document_id=1,
+            version_no=1,
+            page=2,
+            page_size=20,
+        )
+
+        assert total == 120
+        assert len(items) == 20
+        assert [item.chunk_index for item in items] == list(range(20, 40))
+    finally:
+        db.close()
 
 
 def make_operator() -> User:

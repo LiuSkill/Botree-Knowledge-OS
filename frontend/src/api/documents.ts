@@ -10,7 +10,7 @@
 import { request } from '@/api/request';
 import type {
   BatchOperationResult,
-  DocumentChunk,
+  DocumentChunkPage,
   DocumentDeleteResult,
   DocumentIndexSummary,
   DocumentInfo,
@@ -47,8 +47,10 @@ export function publishDocument(id: number): Promise<DocumentInfo> {
   return request.post(`/documents/${id}/publish`) as Promise<DocumentInfo>;
 }
 
-export function listDocumentChunks(id: number, versionNo?: number | null): Promise<DocumentChunk[]> {
-  return request.get(`/documents/${id}/chunks`, { params: versionNo ? { version_no: versionNo } : undefined }) as Promise<DocumentChunk[]>;
+export function listDocumentChunks(id: number, versionNo: number | null | undefined, page: number, pageSize: number): Promise<DocumentChunkPage> {
+  return request.get(`/documents/${id}/chunks`, {
+    params: { version_no: versionNo || undefined, page, page_size: pageSize },
+  }) as Promise<DocumentChunkPage>;
 }
 
 export function getDocumentPreview(id: number, versionNo?: number | null): Promise<DocumentPreview> {

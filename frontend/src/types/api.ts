@@ -315,6 +315,13 @@ export interface DocumentChunk {
   security_level: SecurityLevel;
 }
 
+export interface DocumentChunkPage {
+  items: DocumentChunk[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export interface BatchOperationResultItem {
   task_id?: number;
   document_id?: number;

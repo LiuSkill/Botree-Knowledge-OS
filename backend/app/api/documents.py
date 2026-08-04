@@ -210,13 +210,30 @@ def download_url(
 def list_chunks(
     document_id: int,
     version_no: int | None = None,
+    page: int = 1,
+    page_size: int = 20,
     current_user: User = Depends(require_any_permission("knowledge:view", "project:view", "review:view")),
     db: Session = Depends(get_db),
 ) -> dict:
     """查询文档 Chunk。"""
 
-    chunks = DocumentService(db).list_chunks(document_id, current_user, version_no)
-    return success([DocumentChunkOut.model_validate(item).model_dump(mode="json") for item in chunks])
+    normalized_page = max(1, page)
+    normalized_page_size = min(100, max(1, page_size))
+    chunks, total = DocumentService(db).list_chunks_page(
+        document_id,
+        current_user,
+        page=normalized_page,
+        page_size=normalized_page_size,
+        version_no=version_no,
+    )
+    return success(
+        {
+            "items": [DocumentChunkOut.model_validate(item).model_dump(mode="json") for item in chunks],
+            "total": total,
+            "page": normalized_page,
+            "page_size": normalized_page_size,
+        }
+    )
 
 
 @router.get("/{document_id}/pages", summary="文档页级解析结果")
