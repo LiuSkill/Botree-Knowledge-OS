@@ -2044,7 +2044,11 @@ class RetrievalGraph:
             return "INVALID_QUERY"
         if state.get("intent_type") in {"invalid", "invalid_or_noise_query", "ambiguous"}:
             return "INVALID_OR_AMBIGUOUS_INTENT"
-        if self._is_flow_visual_query(state) and any(item.retriever == "page_index" for item in candidates):
+        if (
+            self._is_flow_visual_query(state)
+            and any(item.retriever == "page_index" for item in candidates)
+            and not any(item.retriever == "visual" for item in candidates)
+        ):
             return "FLOW_VISUAL_PAGE_INDEX_PRIORITY"
         if state.get("intent") == "project_overview" and len(candidates) <= 12:
             return "PROJECT_OVERVIEW_LIGHTWEIGHT_DEDUPE"

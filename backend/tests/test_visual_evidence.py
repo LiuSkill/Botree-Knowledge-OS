@@ -8,6 +8,7 @@ Visual Evidence Tests
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -137,6 +138,107 @@ def test_visual_evidence_prefers_page_preview_then_largest_block() -> None:
         assert [asset.asset_id for asset in enriched_again[0].assets] == [preview.id, large_block.id]
         assert enriched[0].assets[0].url == f"/api/documents/assets/{preview.id}"
         assert all(asset.metadata["selection_source"] == "page_index" for asset in enriched[0].assets)
+    finally:
+        db.close()
+
+
+def test_visual_evidence_prefers_flow_diagram_block_for_process_query() -> None:
+    """流程类问题下，同页图块优先选 visual_admission 标记的流程图。"""
+
+    db = make_session()
+    try:
+        page = DocumentPage(
+            knowledge_base_id=1,
+            project_id=1,
+            document_id=11,
+            version_no=1,
+            page_no=1,
+            page_text="page",
+            correction_status="raw",
+        )
+        db.add(page)
+        db.flush()
+        page_index = PageIndex(
+            knowledge_base_id=1,
+            project_id=1,
+            document_id=11,
+            page_id=page.id,
+            chunk_id=101,
+            version_no=1,
+            page_no=1,
+            index_text="BMI 黑粉两段浸出实验实验流程",
+            status="published",
+        )
+        db.add(page_index)
+        db.flush()
+
+        table_block = DocumentAsset(
+            document_id=11,
+            version_no=1,
+            page_id=page.id,
+            block_id=1,
+            asset_type=ASSET_TYPE_BLOCK_IMAGE,
+            file_name="large_table.jpg",
+            mime_type="image/jpeg",
+            storage_backend="local",
+            storage_path="storage/derived/11/v1/large_table.jpg",
+            file_size=900,
+            status="ready",
+            metadata_json=json.dumps(
+                {
+                    "visual_admission": {
+                        "status": "accepted",
+                        "category": "table_snapshot",
+                        "priority_score": 294,
+                        "figure_title": "实验数据表",
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        )
+        flow_block = DocumentAsset(
+            document_id=11,
+            version_no=1,
+            page_id=page.id,
+            block_id=2,
+            asset_type=ASSET_TYPE_BLOCK_IMAGE,
+            file_name="small_flow.jpg",
+            mime_type="image/jpeg",
+            storage_backend="local",
+            storage_path="storage/derived/11/v1/small_flow.jpg",
+            file_size=300,
+            status="ready",
+            metadata_json=json.dumps(
+                {
+                    "source_file_name": "BMI黑粉两段浸出实验实验报告.docx",
+                    "visual_admission": {
+                        "status": "accepted",
+                        "category": "flow_diagram",
+                        "priority_score": 442,
+                        "page_title": "（2）实验流程",
+                        "figure_title": "两段浸出实验流程图",
+                        "context_text": "BMI黑粉两段浸出实验实验报告.docx | （2）实验流程",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        )
+        db.add_all([table_block, flow_block])
+        db.commit()
+
+        service = VisualEvidenceService(db)
+        service.settings.vision_llm_max_images = 1
+        service.settings.vision_llm_max_image_bytes = 1024
+        evidence = make_evidence(page_index.id)
+        enriched = service.enrich(
+            "BMI 项目黑粉两段浸出实验实验流程图",
+            [evidence],
+            {"query_type": "process_flow", "need_visual_asset": True},
+        )
+
+        assert [asset.asset_id for asset in enriched[0].assets] == [flow_block.id]
+        assert enriched[0].assets[0].metadata["visual_context"]["category"] == "flow_diagram"
+        assert enriched[0].assets[0].metadata["visual_context"]["priority_score"] == 442
     finally:
         db.close()
 

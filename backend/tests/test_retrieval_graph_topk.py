@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
 from app.langgraph.retrieval_graph import RetrievalGraph  # noqa: E402
-from app.retrieval.schemas import Evidence  # noqa: E402
+from app.retrieval.schemas import Evidence, EvidenceAsset  # noqa: E402
 
 
 def test_retrieval_graph_uses_fixed_topk_defaults() -> None:
@@ -75,6 +75,61 @@ def test_process_flow_page_index_candidates_skip_heavy_reranker() -> None:
     ]
 
     assert graph._reranker_skip_reason(state, candidates) == "FLOW_VISUAL_PAGE_INDEX_PRIORITY"  # noqa: SLF001
+
+
+def test_process_flow_kept_visual_candidate_does_not_skip_reranker() -> None:
+    graph = object.__new__(RetrievalGraph)
+    state = {
+        "query_profile": {
+            "query_type": "process_flow",
+            "answer_shape": "process_steps",
+            "need_visual_asset": True,
+        },
+        "query_features": {},
+        "raw": {},
+        "intent_type": "project_fact",
+    }
+    page_index = Evidence(
+        score=0.04,
+        source_type="project",
+        knowledge_base_id=1,
+        project_id=2,
+        document_id=101,
+        chunk_id=1001,
+        drawing_no=None,
+        file_name="BMI黑粉两段浸出实验实验报告.docx",
+        page_number=4,
+        content="两段浸出实验结果表",
+        retriever="page_index",
+    )
+    visual = Evidence(
+        score=0.016,
+        source_type="project",
+        knowledge_base_id=1,
+        project_id=2,
+        document_id=6128,
+        chunk_id=-52099,
+        drawing_no=None,
+        file_name="BMI黑粉两段浸出实验实验报告.docx",
+        page_number=2,
+        content="视觉证据：第2页 （2）实验流程",
+        retriever="visual",
+        metadata={"asset_id": 52099},
+        assets=[
+            EvidenceAsset(
+                asset_id=52099,
+                asset_type="block_image",
+                url="/api/documents/assets/52099",
+                mime_type="image/jpeg",
+                file_name="page_0002_block_0003.jpg",
+                file_size=22113,
+                page_number=2,
+                block_id=283802,
+            )
+        ],
+    )
+
+    assert graph._reranker_skip_reason(state, [page_index, visual]) is None  # noqa: SLF001
 
 
 def test_merge_evidences_dedupes_same_chunk_across_drawing_no_variants() -> None:

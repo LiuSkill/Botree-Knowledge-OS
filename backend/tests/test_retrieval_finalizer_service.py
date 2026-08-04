@@ -128,3 +128,103 @@ def test_process_flow_visual_query_keeps_explicit_flow_diagram_document() -> Non
     assert [(item.document_id, item.file_name) for item in result.evidences] == [
         (117, "10-PS-0200-0000-001_Process Flow Diagram_Rev1.pdf")
     ]
+
+
+def test_visual_context_without_process_flow_does_not_filter_documents() -> None:
+    guard = _Guard()
+    reranker = SimpleNamespace(last_details=[], last_runtime={})
+    flow = _evidence(1, "visual")
+    flow.document_id = 117
+    flow.file_name = "10-PS-0200-0000-001_Process Flow Diagram_Rev1.pdf"
+    flow.assets.append(
+        EvidenceAsset(1, "block_image", "/assets/1", "image/jpeg", "flow.jpg", 100, 1)
+    )
+    comment = _evidence(2, "page_index")
+    comment.document_id = 111
+    comment.file_name = "Comments of PID.xlsx"
+
+    result = RetrievalFinalizerService(
+        evidence_access_guard=guard,
+        reranker=reranker,
+    ).finalize(
+        query="show related drawings",
+        evidence_groups=[[flow, comment]],
+        merge_limit=20,
+        rerank_candidate_limit=20,
+        result_limit=10,
+        chat_type="project_chat",
+        project_id=2,
+        user=SimpleNamespace(id=7),
+        rerank=lambda candidates, limit: list(candidates)[:limit],
+        visual_context={"visual_evidence": True},
+        visual_limit=8,
+    )
+
+    assert [(item.document_id, item.file_name) for item in result.evidences] == [
+        (117, "10-PS-0200-0000-001_Process Flow Diagram_Rev1.pdf"),
+        (111, "Comments of PID.xlsx"),
+    ]
+
+
+def test_process_flow_visual_hit_survives_rrf_and_rerank_top_cutoff() -> None:
+    """流程图视觉命中即使 RRF 分低，也要进入最终视觉证据。"""
+
+    guard = _Guard()
+    reranker = SimpleNamespace(last_details=[], last_runtime={})
+    visual_context = {
+        "category": "flow_diagram",
+        "priority_score": 442,
+        "figure_title": "（2）实验流程",
+        "source_file_name": "BMI黑粉两段浸出实验实验报告.docx",
+    }
+    flow = _evidence(9, "visual")
+    flow.document_id = 6128
+    flow.chunk_id = -52099
+    flow.file_name = "BMI黑粉两段浸出实验实验报告.docx"
+    flow.page_number = 2
+    flow.content = "视觉证据：BMI黑粉两段浸出实验实验报告.docx 第2页 （2）实验流程"
+    flow.metadata.update({"asset_id": 52099, "visual_context": visual_context})
+    flow.assets.append(
+        EvidenceAsset(
+            asset_id=52099,
+            asset_type="block_image",
+            url="/assets/52099",
+            mime_type="image/jpeg",
+            file_name="page_0002_block_0003.jpg",
+            file_size=22113,
+            page_number=2,
+            block_id=283802,
+            metadata={"visual_context": visual_context},
+        )
+    )
+    page = _evidence(1, "page_index")
+    keyword = _evidence(1, "keyword")
+    milvus = _evidence(1, "milvus")
+
+    def score_desc_rerank(candidates: list[Evidence], limit: int) -> list[Evidence]:
+        return sorted(candidates, key=lambda item: float(item.score), reverse=True)[:limit]
+
+    result = RetrievalFinalizerService(
+        evidence_access_guard=guard,
+        reranker=reranker,
+    ).finalize(
+        query="BMI 项目黑粉两段浸出实验实验流程图",
+        evidence_groups=[[flow], [page], [keyword], [milvus]],
+        merge_limit=20,
+        rerank_candidate_limit=20,
+        result_limit=1,
+        chat_type="project_chat",
+        project_id=1,
+        user=SimpleNamespace(id=7),
+        rerank=score_desc_rerank,
+        visual_context={
+            "visual_evidence": True,
+            "query_profile": {"query_type": "process_flow", "need_visual_asset": True},
+        },
+        visual_limit=1,
+    )
+
+    assert [(item.retriever, item.document_id, item.page_number) for item in result.evidences] == [
+        ("visual", 6128, 2)
+    ]
+    assert [asset.asset_id for asset in result.evidences[0].assets] == [52099]
