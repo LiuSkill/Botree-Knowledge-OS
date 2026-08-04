@@ -46,6 +46,8 @@ def test_sanitize_answer_citations_normalizes_footnotes_and_fullwidth_brackets()
     assert sanitized == "脚注[1]，中文括号[2]，全角括号[3]。"
 
 
+
+
 def test_progress_event_from_trace_hides_internal_fields() -> None:
     """trace item 中的实现、耗时和策略字段不应进入用户可见 progress 事件。"""
 

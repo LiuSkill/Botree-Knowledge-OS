@@ -104,7 +104,12 @@ const question = ref('');
 const streaming = ref(false);
 const processingSessionId = ref<number | null>(null);
 const citations = ref<Citation[]>([]);
-const selectedCitation = ref<{ messageId: number | string; citation: Citation } | null>(null);
+const selectedCitation = ref<{
+  messageId: number | string;
+  citation: Citation;
+  anchorLeft: number;
+  anchorTop: number;
+} | null>(null);
 const trace = ref<ChatProgressEvent[]>([]);
 const queryScope = ref('');
 const chatHistoryRef = ref<HTMLElement | null>(null);
@@ -337,7 +342,13 @@ function handleCitationClick(event: MouseEvent, message: UiChatMessage): void {
   event.preventDefault();
   const index = Number(link.getAttribute('href')?.slice('#citation-'.length));
   if (!Number.isInteger(index) || !message.citations[index - 1]) return;
-  selectedCitation.value = { messageId: message.id, citation: message.citations[index - 1] };
+  const anchorRect = link.getBoundingClientRect();
+  selectedCitation.value = {
+    messageId: message.id,
+    citation: message.citations[index - 1],
+    anchorLeft: anchorRect.left + anchorRect.width / 2,
+    anchorTop: anchorRect.bottom,
+  };
 }
 
 function applyProgressEvent(assistantId: number | string, payload: ChatProgressEvent | null): void {
@@ -1260,6 +1271,7 @@ onBeforeUnmount(() => {
                   </div>
                   <t-popup
                     v-if="selectedCitation?.messageId === message.id"
+                    :key="`${message.id}-${selectedCitation.anchorLeft}-${selectedCitation.anchorTop}`"
                     trigger="manual"
                     :visible="true"
                     placement="bottom-left"
@@ -1271,7 +1283,13 @@ onBeforeUnmount(() => {
                         <CitationList :citations="[selectedCitation.citation]" :chat-type="chatType" />
                       </div>
                     </template>
-                    <span class="citation-popover-anchor" />
+                    <span
+                      class="citation-popover-anchor"
+                      :style="{
+                        left: `${selectedCitation.anchorLeft}px`,
+                        top: `${selectedCitation.anchorTop}px`,
+                      }"
+                    />
                   </t-popup>
                   <div v-if="message.securityNotice" class="sensitive-security-notice">
                     {{ message.securityNotice }}
@@ -2069,9 +2087,12 @@ onBeforeUnmount(() => {
 }
 
 .citation-popover-anchor {
-  display: inline-block;
+  position: fixed;
+  display: block;
   width: 1px;
   height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 </style>
