@@ -9,7 +9,8 @@
 <script setup lang="ts">
 import { MessagePlugin } from 'tdesign-vue-next';
 import { AssignmentCheckedIcon, FullscreenIcon } from 'tdesign-icons-vue-next';
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import type { Directive } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -49,6 +50,16 @@ const MARKDOWN_ASSET_METADATA_KEYS = [
 ] as const;
 
 const IMAGE_PLACEHOLDER_SRC = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+const PREVIEW_MARKDOWN_SEGMENT_TARGET_CHARS = 12000;
+const PREVIEW_MARKDOWN_SEGMENT_MAX_CHARS = 24000;
+const INITIAL_PREVIEW_SEGMENT_COUNT = 4;
+const PREVIEW_SEGMENT_BATCH_SIZE = 4;
+const LAZY_ASSET_ROOT_MARGIN = '360px 0px';
+
+interface RenderedMarkdownSegment {
+  id: string;
+  content: string;
+}
 
 const route = useRoute();
 const router = useRouter();
@@ -76,6 +87,13 @@ const rejectForm = reactive({
 
 const assetUrlMap = reactive<Record<number, string>>({});
 const assetPromiseMap = new Map<number, Promise<string>>();
+const markdownPreviewSegments = ref<string[]>([]);
+const renderedMarkdownSegments = ref<RenderedMarkdownSegment[]>([]);
+const markdownPreviewCursor = ref(0);
+const markdownPreviewRendering = ref(false);
+const observedAssetImages = new Set<HTMLImageElement>();
+let assetImageObserver: IntersectionObserver | null = null;
+let markdownPreviewGeneration = 0;
 
 const taskId = computed(() => Number(route.params.id));
 const viewedVersionNo = computed(() => task.value?.display_version_no ?? task.value?.version_no ?? documentInfo.value?.version_no ?? null);
@@ -84,6 +102,7 @@ const reviewedVersion = computed(() => {
   return versionNo ? versions.value.find((item) => item.version_no === versionNo) || null : null;
 });
 const markdownContent = computed(() => previewData.value?.markdown_content?.trim() || '');
+const markdownPreviewHasMore = computed(() => markdownPreviewCursor.value < markdownPreviewSegments.value.length);
 const structuredPreviewPages = computed(() => {
   const pages = previewData.value?.pages || [];
   if (!pages.length || collectMarkdownImageSources(markdownContent.value).length > 0) return [];
@@ -144,15 +163,8 @@ async function loadPreview(): Promise<void> {
   previewLoading.value = true;
   try {
     previewData.value = await getDocumentPreview(task.value.document_id, viewedVersionNo.value);
-    await Promise.allSettled((previewData.value?.markdown_image_assets || []).map((asset) => ensureAssetUrl(asset)));
-    await Promise.allSettled(
-      (previewData.value?.pages || []).flatMap((page) => [
-        page.page_preview_asset ? ensureAssetUrl(page.page_preview_asset) : Promise.resolve(''),
-        ...page.blocks
-          .filter((block) => block.image_asset)
-          .map((block) => ensureAssetUrl(block.image_asset)),
-      ]),
-    );
+    resetRenderedMarkdown(markdownContent.value);
+    await renderNextMarkdownSegments(INITIAL_PREVIEW_SEGMENT_COUNT);
   } finally {
     previewLoading.value = false;
   }
@@ -330,6 +342,209 @@ function collectMarkdownImageSources(markdown: string): string[] {
   return Array.from(sources);
 }
 
+function splitOversizedMarkdownBlock(block: string): string[] {
+  if (block.length <= PREVIEW_MARKDOWN_SEGMENT_MAX_CHARS) return [block];
+  const segments: string[] = [];
+  for (let start = 0; start < block.length; start += PREVIEW_MARKDOWN_SEGMENT_TARGET_CHARS) {
+    segments.push(block.slice(start, start + PREVIEW_MARKDOWN_SEGMENT_TARGET_CHARS));
+  }
+  return segments;
+}
+
+function splitHtmlTableRows(tableHtml: string): string[] {
+  const openMatch = tableHtml.match(/^<table\b[^>]*>/i);
+  const closeMatch = tableHtml.match(/<\/table>\s*$/i);
+  const openTag = openMatch?.[0] || '<table>';
+  const closeTag = closeMatch?.[0].trim() || '</table>';
+  const body = tableHtml.slice(openMatch?.[0].length || 0, closeMatch?.index ?? tableHtml.length);
+  const rows = body.match(/<tr\b[\s\S]*?<\/tr>/gi);
+  if (!rows?.length) return splitOversizedMarkdownBlock(tableHtml);
+
+  const segments: string[] = [];
+  let currentRows: string[] = [];
+  let currentLength = openTag.length + closeTag.length;
+  const flushRows = () => {
+    if (!currentRows.length) return;
+    segments.push(`${openTag}${currentRows.join('')}${closeTag}`);
+    currentRows = [];
+    currentLength = openTag.length + closeTag.length;
+  };
+  for (const row of rows) {
+    if (currentRows.length && currentLength + row.length > PREVIEW_MARKDOWN_SEGMENT_TARGET_CHARS) flushRows();
+    currentRows.push(row);
+    currentLength += row.length;
+    if (currentLength >= PREVIEW_MARKDOWN_SEGMENT_MAX_CHARS) flushRows();
+  }
+  flushRows();
+  return segments;
+}
+
+function splitDenseHtmlTable(markdown: string): string[] {
+  const segments: string[] = [];
+  const tablePattern = /<table\b[\s\S]*?<\/table>/gi;
+  let cursor = 0;
+  for (const match of markdown.matchAll(tablePattern)) {
+    const start = match.index || 0;
+    if (start > cursor) segments.push(markdown.slice(cursor, start));
+    segments.push(...(match[0].length <= PREVIEW_MARKDOWN_SEGMENT_MAX_CHARS ? [match[0]] : splitHtmlTableRows(match[0])));
+    cursor = start + match[0].length;
+  }
+  if (cursor < markdown.length) segments.push(markdown.slice(cursor));
+  return segments.filter((segment) => segment.trim());
+}
+
+function splitMarkdownPlainText(markdown: string): string[] {
+  const segments: string[] = [];
+  const buffer: string[] = [];
+  let bufferLength = 0;
+  let fenceMarker: string | null = null;
+  const flushBuffer = () => {
+    const value = buffer.join('\n').trim();
+    if (value) segments.push(...splitOversizedMarkdownBlock(value));
+    buffer.length = 0;
+    bufferLength = 0;
+  };
+
+  for (const line of markdown.replace(/\r\n/g, '\n').split('\n')) {
+    const trimmedLine = line.trim();
+    const fenceMatch = trimmedLine.match(/^(```|~~~)/);
+    if (fenceMatch) fenceMarker = fenceMarker ? null : fenceMatch[1];
+    if (!fenceMarker && !trimmedLine && bufferLength >= PREVIEW_MARKDOWN_SEGMENT_TARGET_CHARS) {
+      flushBuffer();
+      continue;
+    }
+    if (!fenceMarker && bufferLength >= PREVIEW_MARKDOWN_SEGMENT_TARGET_CHARS && /^(#{1,6}\s+|[-*]\s+|\d+\.\s+)/.test(trimmedLine)) {
+      flushBuffer();
+    }
+    buffer.push(line);
+    bufferLength += line.length + 1;
+    if (!fenceMarker && bufferLength >= PREVIEW_MARKDOWN_SEGMENT_MAX_CHARS) flushBuffer();
+  }
+  flushBuffer();
+  return segments;
+}
+
+function splitMarkdownForPreview(markdown: string): string[] {
+  if (!markdown.trim()) return [];
+  return splitDenseHtmlTable(markdown).flatMap((segment) =>
+    /^<table\b[\s\S]*<\/table>$/i.test(segment.trim()) ? [segment.trim()] : splitMarkdownPlainText(segment),
+  );
+}
+
+function resetRenderedMarkdown(markdown: string): void {
+  markdownPreviewGeneration += 1;
+  renderedMarkdownSegments.value = [];
+  markdownPreviewSegments.value = splitMarkdownForPreview(markdown);
+  markdownPreviewCursor.value = 0;
+  markdownPreviewRendering.value = false;
+}
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
+async function renderNextMarkdownSegments(count = PREVIEW_SEGMENT_BATCH_SIZE): Promise<void> {
+  const generation = markdownPreviewGeneration;
+  if (markdownPreviewRendering.value || !markdownPreviewHasMore.value) return;
+  markdownPreviewRendering.value = true;
+  try {
+    const end = Math.min(markdownPreviewCursor.value + count, markdownPreviewSegments.value.length);
+    while (markdownPreviewCursor.value < end) {
+      const index = markdownPreviewCursor.value;
+      const content = markdownPreviewSegments.value[index];
+      renderedMarkdownSegments.value.push({ id: `${generation}-${index}`, content });
+      markdownPreviewCursor.value = index + 1;
+      const assets = collectMarkdownImageSources(content)
+        .map((source) => findMarkdownImageAsset(source))
+        .filter((asset): asset is DocumentAssetInfo => Boolean(asset));
+      void Promise.allSettled(assets.map((asset) => ensureAssetUrl(asset)));
+      await nextTick();
+      await yieldToBrowser();
+      if (generation !== markdownPreviewGeneration) return;
+    }
+  } finally {
+    if (generation === markdownPreviewGeneration) markdownPreviewRendering.value = false;
+  }
+}
+
+function collectPreviewAssets(): DocumentAssetInfo[] {
+  const preview = previewData.value;
+  if (!preview) return [];
+  const assets = [...preview.markdown_image_assets];
+  for (const page of preview.pages) {
+    if (page.page_preview_asset) assets.push(page.page_preview_asset);
+    for (const block of page.blocks) if (block.image_asset) assets.push(block.image_asset);
+  }
+  return Array.from(new Map(assets.map((asset) => [asset.id, asset])).values());
+}
+
+function findPreviewAssetById(assetId: number): DocumentAssetInfo | null {
+  return collectPreviewAssets().find((asset) => asset.id === assetId) || null;
+}
+
+function unobserveAssetImage(element: HTMLImageElement): void {
+  assetImageObserver?.unobserve(element);
+  observedAssetImages.delete(element);
+}
+
+async function loadAssetImageElement(element: HTMLImageElement, asset: DocumentAssetInfo): Promise<void> {
+  if (element.dataset.documentAssetLoading === String(asset.id)) return;
+  element.dataset.documentAssetLoading = String(asset.id);
+  try {
+    const url = await ensureAssetUrl(asset);
+    if (url && element.dataset.documentAssetId === String(asset.id)) element.src = url;
+  } catch (error) {
+    MessagePlugin.warning(error instanceof Error ? error.message : t('document.detail.assetPreviewFailed', { id: asset.id }));
+  } finally {
+    delete element.dataset.documentAssetLoading;
+  }
+}
+
+function getAssetImageObserver(): IntersectionObserver | null {
+  if (typeof window === 'undefined' || !('IntersectionObserver' in window)) return null;
+  if (!assetImageObserver) {
+    assetImageObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const element = entry.target as HTMLImageElement;
+        const asset = findPreviewAssetById(Number(element.dataset.documentAssetId));
+        unobserveAssetImage(element);
+        if (asset) void loadAssetImageElement(element, asset);
+      }
+    }, { rootMargin: LAZY_ASSET_ROOT_MARGIN });
+  }
+  return assetImageObserver;
+}
+
+function bindAssetImageElement(element: HTMLImageElement, asset: DocumentAssetInfo | null | undefined): void {
+  unobserveAssetImage(element);
+  if (!asset || asset.status !== 'ready') return;
+  element.dataset.documentAssetId = String(asset.id);
+  const cachedUrl = assetUrlMap[asset.id];
+  if (cachedUrl) {
+    element.src = cachedUrl;
+    return;
+  }
+  element.src = IMAGE_PLACEHOLDER_SRC;
+  const observer = getAssetImageObserver();
+  if (observer) {
+    observer.observe(element);
+    observedAssetImages.add(element);
+  } else {
+    void loadAssetImageElement(element, asset);
+  }
+}
+
+const vAssetLazy: Directive<HTMLImageElement, DocumentAssetInfo | null | undefined> = {
+  mounted(element, binding) {
+    bindAssetImageElement(element, binding.value);
+  },
+  updated(element, binding) {
+    bindAssetImageElement(element, binding.value);
+  },
+  unmounted: unobserveAssetImage,
+};
+
 async function ensureAssetUrl(asset: DocumentAssetInfo | null | undefined): Promise<string> {
   if (!asset || asset.status !== 'ready') return '';
   if (assetUrlMap[asset.id]) return assetUrlMap[asset.id];
@@ -424,6 +639,8 @@ function closePdfPreview(): void {
 onMounted(loadData);
 
 onBeforeUnmount(() => {
+  assetImageObserver?.disconnect();
+  observedAssetImages.clear();
   revokePdfPreviewUrl();
   resetAssetUrls();
 });
@@ -558,7 +775,25 @@ onBeforeUnmount(() => {
               <div v-if="previewLoading" class="empty-panel">{{ t('document.detail.empty.loadingPreview') }}</div>
               <div v-else-if="!markdownContent" class="empty-panel">{{ t('review.detail.noPreview') }}</div>
               <template v-else>
-                <ChatRichContent class="review-rich-content" :content="markdownContent" :image-source-resolver="resolvePreviewImageSource" />
+                <div class="markdown-preview-stream">
+                  <ChatRichContent
+                    v-for="segment in renderedMarkdownSegments"
+                    :key="segment.id"
+                    class="review-rich-content"
+                    :content="segment.content"
+                    :image-source-resolver="resolvePreviewImageSource"
+                  />
+                  <div v-if="markdownPreviewHasMore" class="preview-load-more">
+                    <t-button
+                      size="small"
+                      variant="outline"
+                      :loading="markdownPreviewRendering"
+                      @click="renderNextMarkdownSegments()"
+                    >
+                      {{ t('document.detail.action.loadMorePreview') }}
+                    </t-button>
+                  </div>
+                </div>
                 <div v-if="structuredPreviewPages.length" class="structured-preview">
                   <article v-for="page in structuredPreviewPages" :key="page.id" class="page-preview-card">
                     <div class="page-preview-title">
@@ -567,6 +802,7 @@ onBeforeUnmount(() => {
                     </div>
                     <img
                       v-if="page.page_preview_asset?.status === 'ready'"
+                      v-asset-lazy="page.page_preview_asset"
                       class="page-preview-image"
                       :src="assetBlobUrl(page.page_preview_asset) || IMAGE_PLACEHOLDER_SRC"
                       :alt="`Page ${page.page_no}`"
@@ -577,6 +813,7 @@ onBeforeUnmount(() => {
                       <img
                         v-for="block in page.blocks.filter((item) => item.image_asset?.status === 'ready')"
                         :key="block.id"
+                        v-asset-lazy="block.image_asset"
                         class="block-preview-image"
                         :src="assetBlobUrl(block.image_asset) || IMAGE_PLACEHOLDER_SRC"
                         :alt="block.text || `Block ${block.block_index}`"
@@ -645,12 +882,31 @@ onBeforeUnmount(() => {
       :title="documentFileName"
       :version-label="viewedVersionNo ? `v${viewedVersionNo}` : '-'"
     >
-      <ChatRichContent class="review-rich-content" :content="markdownContent" :image-source-resolver="resolvePreviewImageSource" />
+      <div class="markdown-preview-stream">
+        <ChatRichContent
+          v-for="segment in renderedMarkdownSegments"
+          :key="`zoom-${segment.id}`"
+          class="review-rich-content"
+          :content="segment.content"
+          :image-source-resolver="resolvePreviewImageSource"
+        />
+        <div v-if="markdownPreviewHasMore" class="preview-load-more">
+          <t-button
+            size="small"
+            variant="outline"
+            :loading="markdownPreviewRendering"
+            @click="renderNextMarkdownSegments()"
+          >
+            {{ t('document.detail.action.loadMorePreview') }}
+          </t-button>
+        </div>
+      </div>
       <div v-if="structuredPreviewPages.length" class="structured-preview">
         <article v-for="page in structuredPreviewPages" :key="`zoom-${page.id}`" class="page-preview-card">
           <div class="page-preview-title">Page {{ page.page_no }}</div>
           <img
             v-if="page.page_preview_asset?.status === 'ready'"
+            v-asset-lazy="page.page_preview_asset"
             class="page-preview-image"
             :src="assetBlobUrl(page.page_preview_asset) || IMAGE_PLACEHOLDER_SRC"
             :alt="`Page ${page.page_no}`"
@@ -661,6 +917,7 @@ onBeforeUnmount(() => {
             <img
               v-for="block in page.blocks.filter((item) => item.image_asset?.status === 'ready')"
               :key="block.id"
+              v-asset-lazy="block.image_asset"
               class="block-preview-image"
               :src="assetBlobUrl(block.image_asset) || IMAGE_PLACEHOLDER_SRC"
               :alt="block.text || `Block ${block.block_index}`"
@@ -854,6 +1111,21 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 0;
   background: #fff;
+}
+
+.markdown-preview-stream .review-rich-content {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.markdown-preview-stream .review-rich-content:first-child {
+  padding-top: 24px;
+}
+
+.preview-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 24px;
 }
 
 /* 审核页空间充足时完整铺开表格，单元格换行以避免内容被横向截断。 */
