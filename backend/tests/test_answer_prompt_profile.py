@@ -76,6 +76,15 @@ def test_answer_system_prompt_uses_new_evidence_grounded_style() -> None:
     assert multimodal_messages[0]["content"] == VISION_ANSWER_SYSTEM_PROMPT
     assert "当前资料未检索到相关信息" in ANSWER_SYSTEM_PROMPT
     assert "不要机械套固定模板" in VISION_ANSWER_SYSTEM_PROMPT
+    assert "必须优先读取图片中的节点" in VISION_ANSWER_SYSTEM_PROMPT
+    assert (
+        "不得只根据图片标题、文件名、图名或行业通用知识介绍流程"
+        in VISION_ANSWER_SYSTEM_PROMPT
+    )
+    assert (
+        "不要用标题、文件名或行业通用知识替代读图"
+        in multimodal_messages[1]["content"][0]["text"]
+    )
 
 
 def test_english_response_language_is_enforced_in_text_and_vision_system_prompts() -> None:

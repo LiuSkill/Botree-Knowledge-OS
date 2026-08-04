@@ -510,10 +510,14 @@ class LLMService:
         uses_english = (query_profile or {}).get("response_language") == "en-US"
         visual_instruction = (
             "Image evidence is included with this message. Use visible equipment, pipelines, arrows, and instrument labels "
-            "when answering process questions. If neither the image nor text evidence confirms a detail, explicitly state that it cannot be confirmed."
+            "when answering process, flow-chart, block-diagram, P&ID, or PFD questions. "
+            "Do not replace image reading with the title, file name, or general knowledge. "
+            "If neither the image nor text evidence confirms a detail, explicitly state that it cannot be confirmed."
             if uses_english
             else (
-                "图片证据已随本次消息提供。请结合图片中的设备、管线、箭头和仪表标识回答流程问题。"
+                "图片证据已随本次消息提供。流程图、框图、P&ID/PFD 或图中流程问题"
+                "必须优先读取图片中的节点、设备、管线、箭头、标签和方向。"
+                "不要用标题、文件名或行业通用知识替代读图。"
                 "如果图片或文字证据都无法确认某个细节，请明确说明无法确认。"
             )
         )

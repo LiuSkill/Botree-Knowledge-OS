@@ -953,13 +953,14 @@ class RetrievalPlannerService:
             or query_features.get("has_page_hint")
             or query_features.get("has_section_hint")
         )
+        retrieval_needs = query_features.get("retrieval_needs") or {}
+        need_visual_asset = bool(
+            profile.get("need_visual_asset")
+            or (isinstance(retrieval_needs, dict) and retrieval_needs.get("visual_evidence"))
+        )
 
         stages: list[list[str]]
-        if knowledge_scope == "industry":
-            stages = [
-                keep([RETRIEVER_MILVUS, RETRIEVER_KEYWORD]),
-            ]
-        elif query_type == "page_location":
+        if query_type == "page_location":
             stages = [
                 keep([RETRIEVER_PAGE_INDEX, RETRIEVER_RIPGREP]),
                 keep([RETRIEVER_KEYWORD]),
@@ -974,6 +975,8 @@ class RetrievalPlannerService:
             ]
         elif query_type == "process_flow":
             flow_stage = [RETRIEVER_PAGE_INDEX, RETRIEVER_RIPGREP, RETRIEVER_MILVUS]
+            if need_visual_asset:
+                flow_stage.insert(0, RETRIEVER_VISUAL)
             if need_graph_reasoning:
                 flow_stage.append(RETRIEVER_GRAPHRAG)
             stages = [
@@ -984,6 +987,10 @@ class RetrievalPlannerService:
             stages = [
                 keep([RETRIEVER_GRAPHRAG, RETRIEVER_MILVUS, RETRIEVER_RIPGREP]),
                 keep([RETRIEVER_KEYWORD]),
+            ]
+        elif knowledge_scope == "industry":
+            stages = [
+                keep([RETRIEVER_MILVUS, RETRIEVER_KEYWORD]),
             ]
         elif query_type == "project_overview":
             overview_stage = [RETRIEVER_PROJECT_METADATA, RETRIEVER_MILVUS, RETRIEVER_KEYWORD]
@@ -1250,6 +1257,7 @@ class RetrievalPlannerService:
             RETRIEVER_MILVUS: "需要语义召回项目描述、同义表达或概念性资料",
             RETRIEVER_GRAPHRAG: "需要上下游关系、物料流向、设备连接或跨段落推理",
             RETRIEVER_KEYWORD: "作为低成本关键词保底检索",
+            RETRIEVER_VISUAL: "流程图、框图或图纸类问题需要独立视觉候选召回",
         }
         return {
             name: f"{reason_map.get(name, '规则检索规划选中')}；query_type={query_type or 'unknown'}"

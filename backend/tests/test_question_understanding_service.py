@@ -94,6 +94,25 @@ def test_process_object_flow_query_is_understood_as_process_flow() -> None:
     assert understanding["retrieval_needs"]["visual_evidence"] is True
 
 
+def test_base_high_temperature_flow_block_diagram_uses_visual_rewrites() -> None:
+    understanding = QuestionUnderstandingService().understand(
+        "介绍一下高温法工艺流程框图",
+        chat_type="base_chat",
+        project_id=None,
+        user_id=7,
+        intent="knowledge_qa",
+        query_profile={"query_type": "process_flow", "knowledge_scope": "industry"},
+    ).to_dict()
+
+    assert understanding["task_type"] == TaskType.PROCESS_FLOW.value
+    assert understanding["answer_shape"] == AnswerShape.PROCESS_STEPS.value
+    assert understanding["retrieval_needs"]["page_level_retrieval"] is True
+    assert understanding["retrieval_needs"]["visual_evidence"] is True
+    assert "高温法 工艺流程框图" in understanding["query_rewrites"]
+    assert "high temperature process flow diagram" in understanding["query_rewrites"]
+    assert "Block Diagram" in understanding["query_rewrites"]
+
+
 def test_drawing_page_location_is_understood_as_document_location() -> None:
     understanding = QuestionUnderstandingService().understand(
         "黑粉进料流程在哪张图纸第几页",
