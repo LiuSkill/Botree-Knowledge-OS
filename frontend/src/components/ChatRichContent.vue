@@ -937,19 +937,19 @@ function renderRichMarkdown(markdown: string): string {
 .chat-rich-content :deep(.chat-citation-link) {
   color: var(--td-brand-color, #0052d9);
   display: inline-flex;
-  width: 16px;
-  height: 16px;
-  margin: 0 2px;
+  width: 12px;
+  height: 12px;
+  margin: 0 1px;
   font-size: 0;
   line-height: 1;
-  vertical-align: -2px;
+  vertical-align: -1px;
   text-decoration: none;
   cursor: pointer;
 }
 
 .chat-rich-content :deep(.chat-citation-link::before) {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   background: currentColor;
   content: '';
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center / contain no-repeat;
