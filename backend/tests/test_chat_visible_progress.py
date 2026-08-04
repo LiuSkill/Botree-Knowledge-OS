@@ -22,6 +22,30 @@ def _service() -> ChatService:
     return object.__new__(ChatService)
 
 
+def test_sanitize_answer_citations_normalizes_markdown_links() -> None:
+    answer = "结论一[1](#citation-1)，结论二[2](https://example.test/source)。"
+
+    sanitized = ChatService._sanitize_answer_citations(answer, evidence_count=2)
+
+    assert sanitized == "结论一[1]，结论二[2]。"
+
+
+def test_sanitize_answer_citations_removes_out_of_range_links() -> None:
+    answer = "有效[1](#citation-1)，无效[3](#citation-3)。"
+
+    sanitized = ChatService._sanitize_answer_citations(answer, evidence_count=2)
+
+    assert sanitized == "有效[1]，无效。"
+
+
+def test_sanitize_answer_citations_normalizes_footnotes_and_fullwidth_brackets() -> None:
+    answer = "脚注[^1]，中文括号【2】，全角括号［3］。"
+
+    sanitized = ChatService._sanitize_answer_citations(answer, evidence_count=3)
+
+    assert sanitized == "脚注[1]，中文括号[2]，全角括号[3]。"
+
+
 def test_progress_event_from_trace_hides_internal_fields() -> None:
     """trace item 中的实现、耗时和策略字段不应进入用户可见 progress 事件。"""
 

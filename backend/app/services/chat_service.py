@@ -48,6 +48,8 @@ from app.services.turn_execution_plan_service import TurnExecutionPlanService
 
 logger = logging.getLogger(__name__)
 _EVIDENCE_CITATION_PATTERN = re.compile(r"\[(\d+)\]")
+_MARKDOWN_EVIDENCE_CITATION_PATTERN = re.compile(r"\[(\d+)\]\([^)]*\)")
+_ALTERNATIVE_EVIDENCE_CITATION_PATTERN = re.compile(r"(?:\[\^(\d+)\]|[【［](\d+)[】］])")
 
 AWAITING_GENERAL_CONFIRM = "AWAITING_GENERAL_CONFIRM"
 NORMAL_CONVERSATION_STATE = "NORMAL"
@@ -1327,8 +1329,13 @@ class ChatService:
 
     @staticmethod
     def _sanitize_answer_citations(answer: str, evidence_count: int) -> str:
-        """删除超出本次 LLM 证据列表范围的引用，避免前端展示错误来源。"""
+        """将模型引用统一为纯 `[n]`，并删除超出本次证据范围的编号。"""
 
+        answer = _MARKDOWN_EVIDENCE_CITATION_PATTERN.sub(lambda match: f"[{match.group(1)}]", answer)
+        answer = _ALTERNATIVE_EVIDENCE_CITATION_PATTERN.sub(
+            lambda match: f"[{match.group(1) or match.group(2)}]",
+            answer,
+        )
         if evidence_count <= 0:
             return _EVIDENCE_CITATION_PATTERN.sub("", answer)
         return _EVIDENCE_CITATION_PATTERN.sub(

@@ -322,7 +322,9 @@ function normalizeMarkdownDisplay(content: string): string {
 
 function renderCitationLinks(content: string, citations: Citation[], streaming = false): string {
   if (streaming || !citations.length) return content;
-  return content.replace(/\[(\d+)\]/g, (match, rawIndex: string) => {
+  // 兼容修复上线前已持久化的 Markdown 引用，避免再次转换后出现嵌套链接语法。
+  const normalizedContent = content.replace(/\[(\d+)\]\([^)]*\)/g, '[$1]');
+  return normalizedContent.replace(/\[(\d+)\]/g, (match, rawIndex: string) => {
     const index = Number(rawIndex);
     return index >= 1 && index <= citations.length ? `[${index}](#citation-${index})` : '';
   });

@@ -659,8 +659,10 @@ class LLMService:
 
         evidence_lines: list[str] = []
         citation_rule = (
-            "Citation rule: use [n] only when directly supported by evidence n in this message's 1-based evidence list. "
-            "Never invent an index or use another citation format."
+            "Mandatory citation format: when a statement is based on evidence, append only its 1-based evidence index "
+            "in plain square brackets, for example [1]. Never output Markdown links such as [1](#citation-1), "
+            "footnotes, source names, XML/HTML tags, or any other citation style. Every evidence-based answer must "
+            "contain at least one valid [n] citation, and every cited n must exist in this message's evidence list."
         )
         for index, evidence in enumerate(evidences, start=1):
             content = evidence.content.replace("\r", " ").strip()
