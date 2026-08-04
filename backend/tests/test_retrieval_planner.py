@@ -422,6 +422,31 @@ def test_base_visual_process_flow_prioritizes_visual_retriever() -> None:
     assert plan.query_features["retrieval_needs"]["visual_evidence"] is True
 
 
+def test_base_flow_block_diagram_rule_plan_uses_visual_before_industry_fast_path() -> None:
+    """基础问答流程框图不能被 industry 普通知识分支截走。"""
+
+    plan = RetrievalPlannerService(None).plan(
+        query="介绍一下高温法工艺流程框图",
+        sub_queries=["介绍一下高温法工艺流程框图"],
+        intent="knowledge_qa",
+        chat_type="base_chat",
+        mode="base_chat",
+        project_id=None,
+        available_retrievers=["visual", "page_index", "milvus", "ripgrep", "keyword"],
+        query_profile={
+            "query_type": "process_flow",
+            "answer_shape": "process_steps",
+            "knowledge_scope": "industry",
+            "need_visual_asset": True,
+        },
+    )
+
+    assert plan.selected_retrievers[0] == "visual"
+    assert {"visual", "page_index", "milvus", "ripgrep"}.issubset(set(plan.selected_retrievers))
+    assert "page_index" not in plan.skipped_retrievers
+    assert plan.strategy == "rules"
+
+
 def test_industry_knowledge_scope_uses_base_retrievers_only() -> None:
     """行业基础知识问答只规划行业基础知识库检索器。"""
 

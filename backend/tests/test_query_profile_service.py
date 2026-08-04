@@ -59,3 +59,12 @@ def test_process_flow_query_without_explicit_drawing_keyword_still_requests_visu
     assert profile["query_type"] == "process_flow"
     assert profile["answer_shape"] == "process_steps"
     assert profile["need_visual_asset"] is True
+
+
+def test_base_flow_block_diagram_profile_requests_visual_assets() -> None:
+    profile = QueryProfileService().build_profile("介绍一下高温法工艺流程框图", intent="knowledge_qa")
+
+    assert profile["query_type"] == "process_flow"
+    assert profile["answer_shape"] == "process_steps"
+    assert profile["knowledge_scope"] == "industry"
+    assert profile["need_visual_asset"] is True

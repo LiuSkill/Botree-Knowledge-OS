@@ -126,6 +126,11 @@ class QueryNormalizerService:
         ("黑粉", ("Black Mass", "Black powder")),
         ("进料", ("Feeding", "Raw Material Feeding")),
         ("原料进料", ("Raw Material & Chemical Feeding",)),
+        ("流程图", ("Process Flow Diagram", "process flow diagram")),
+        ("工艺流程图", ("Process Flow Diagram", "process flow diagram")),
+        ("工艺流程框图", ("Process Flow Diagram", "Block Diagram", "process flow block diagram")),
+        ("框图", ("Block Diagram", "block diagram")),
+        ("示意图", ("Diagram", "schematic diagram")),
         ("pfd", ("Process Flow Diagram",)),
         ("p&id", ("Piping & Instrumentation Diagram",)),
         ("p＆id", ("Piping & Instrumentation Diagram",)),
@@ -151,6 +156,17 @@ class QueryNormalizerService:
                     "Black Mass Feeding",
                     "Raw Material Feeding",
                     "Raw Material & Chemical Feeding",
+                ]
+            )
+        if "高温法" in normalized and any(token in normalized for token in ("工艺流程", "流程图", "框图")):
+            rewrites.extend(
+                [
+                    "高温法 工艺流程",
+                    "高温法 工艺流程图",
+                    "高温法 工艺流程框图",
+                    "high temperature process flow diagram",
+                    "high-temperature process flow diagram",
+                    "high temperature process flow block diagram",
                 ]
             )
 
@@ -210,6 +226,11 @@ class QuestionUnderstandingService:
     )
     _PROCESS_HINTS = (
         "流程",
+        "流程图",
+        "框图",
+        "示意图",
+        "工艺流程图",
+        "工艺流程框图",
         "全流程",
         "流向",
         "物料流向",
@@ -218,6 +239,9 @@ class QuestionUnderstandingService:
         "从哪里到哪里",
         "连接",
         "process flow",
+        "process diagram",
+        "block diagram",
+        "schematic diagram",
         "flow",
         "feeding",
     )
@@ -281,7 +305,25 @@ class QuestionUnderstandingService:
     _DEFINITION_HINTS = ("是什么", "什么意思", "定义", "概念", "原理", "how to read", "what is")
     _SUMMARY_HINTS = ("总结", "概述", "归纳", "summary")
     _CASUAL_HINTS = ("你好", "您好", "hi", "hello", "你是谁", "谢谢")
-    _VISUAL_HINTS = ("图", "图纸", "这张图", "图中", "p&id", "p＆id", "pid", "drawing")
+    _VISUAL_HINTS = (
+        "图",
+        "图片",
+        "图纸",
+        "这张图",
+        "图中",
+        "流程图",
+        "框图",
+        "示意图",
+        "工艺流程图",
+        "工艺流程框图",
+        "p&id",
+        "p＆id",
+        "pid",
+        "pfd",
+        "drawing",
+        "diagram",
+        "block diagram",
+    )
 
     _TASK_TO_SHAPE: dict[str, str] = {
         TaskType.PROJECT_OVERVIEW.value: AnswerShape.PROJECT_SUMMARY.value,
@@ -472,7 +514,17 @@ class QuestionUnderstandingService:
         entities.extend((query_profile or {}).get("entities") or [])
         entities.extend(domain_terms)
         entities.extend(re.findall(r"\b[A-Z][A-Za-z0-9&./#_-]{1,}\b", normalized))
-        for token in ("黑粉", "进料", "原料进料", "PFD", "P&ID"):
+        for token in (
+            "黑粉",
+            "进料",
+            "原料进料",
+            "高温法",
+            "流程图",
+            "框图",
+            "工艺流程框图",
+            "PFD",
+            "P&ID",
+        ):
             if token.lower() in normalized.lower():
                 entities.append(token)
         return self._dedupe(entities)[:20]

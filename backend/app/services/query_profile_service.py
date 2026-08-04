@@ -72,8 +72,31 @@ PAGE_LOCATION_HINTS = (
     "drawing",
     "page",
 )
+VISUAL_DIAGRAM_HINTS = (
+    "图",
+    "图片",
+    "图纸",
+    "流程图",
+    "框图",
+    "示意图",
+    "工艺流程图",
+    "工艺流程框图",
+    "drawing",
+    "diagram",
+    "block diagram",
+    "process diagram",
+    "process flow diagram",
+    "pid",
+    "p&id",
+    "pfd",
+)
 PROCESS_FLOW_HINTS = (
     "流程",
+    "流程图",
+    "框图",
+    "示意图",
+    "工艺流程图",
+    "工艺流程框图",
     "全流程",
     "从哪里到哪里",
     "上下游",
@@ -82,6 +105,9 @@ PROCESS_FLOW_HINTS = (
     "工艺路线",
     "流向",
     "flow",
+    "diagram",
+    "block diagram",
+    "process diagram",
     "upstream",
     "downstream",
     "connection",
@@ -156,9 +182,7 @@ class QueryProfileService:
         has_project_name = bool(project_name_candidates)
         need_page_location = self._contains_any(lowered, PAGE_LOCATION_HINTS)
         need_exact_term = self._contains_any(lowered, EXACT_LOOKUP_HINTS) or has_doc_code or has_tag
-        explicit_visual_hint = need_page_location or any(
-            token in lowered for token in ("图纸", "drawing", "diagram", "pid", "p&id", "pfd")
-        )
+        explicit_visual_hint = need_page_location or self._contains_any(lowered, VISUAL_DIAGRAM_HINTS)
         need_graph_reasoning = self._contains_any(lowered, GRAPH_REASONING_HINTS)
 
         if intent in {"greeting", "pure_general_qa", "general_qa"}:
