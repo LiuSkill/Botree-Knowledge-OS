@@ -111,7 +111,12 @@ const markdownRenderer = new MarkdownIt({
 const defaultLinkOpen = markdownRenderer.renderer.rules.link_open;
 markdownRenderer.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const href = tokens[idx].attrGet('href') || '';
-  if (/^#citation-\d+$/.test(href)) tokens[idx].attrSet('class', 't-link chat-citation-link');
+  const citationMatch = href.match(/^#citation-(\d+)$/);
+  if (citationMatch) {
+    tokens[idx].attrSet('class', 't-link chat-citation-link');
+    tokens[idx].attrSet('title', `查看证据来源 ${citationMatch[1]}`);
+    tokens[idx].attrSet('aria-label', `查看证据来源 ${citationMatch[1]}`);
+  }
   return defaultLinkOpen ? defaultLinkOpen(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
 };
 
@@ -643,6 +648,8 @@ function sanitizeElementAttributes(element: HTMLElement, tagName: string): void 
       keepAttribute = /^(https?:|mailto:|tel:|#|\/)/i.test(attrValue);
     } else if (tagName === 'a' && attrName === 'class') {
       keepAttribute = attrValue.split(/\s+/).every((name) => ['t-link', 'chat-citation-link'].includes(name));
+    } else if (tagName === 'a' && attrName === 'aria-label') {
+      keepAttribute = /^查看证据来源 \d+$/.test(attrValue);
     } else if (tagName === 'a' && attrName === 'title') {
       keepAttribute = true;
     } else if (tagName === 'img' && attrName === 'src') {
@@ -929,8 +936,27 @@ function renderRichMarkdown(markdown: string): string {
 
 .chat-rich-content :deep(.chat-citation-link) {
   color: var(--td-brand-color, #0052d9);
-  font-weight: 500;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  font-size: 0;
+  line-height: 1;
+  vertical-align: -2px;
   text-decoration: none;
   cursor: pointer;
+}
+
+.chat-rich-content :deep(.chat-citation-link::before) {
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  content: '';
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.chat-rich-content :deep(.chat-citation-link:hover) {
+  color: var(--td-brand-color-hover, #366ef4);
 }
 </style>
