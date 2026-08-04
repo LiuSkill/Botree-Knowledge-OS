@@ -26,6 +26,7 @@ export default {
       currentVersion: 'Back to Current Version',
       zoomPreview: 'Zoom Preview',
       chooseFile: 'Choose File',
+      loadMorePreview: 'Load More Content',
     },
     field: {
       fileName: 'File Name',

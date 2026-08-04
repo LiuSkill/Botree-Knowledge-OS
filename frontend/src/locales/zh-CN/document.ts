@@ -26,6 +26,7 @@ export default {
       currentVersion: '回到当前版本',
       zoomPreview: '放大预览',
       chooseFile: '选择文件',
+      loadMorePreview: '加载更多内容',
     },
     field: {
       fileName: '文件名',

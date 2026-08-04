@@ -131,6 +131,7 @@ ASSET_STATUS_READY = "ready"
 ASSET_STATUS_OBSOLETE = "obsolete"
 PDF_FILE_TYPE = "pdf"
 MARKDOWN_FIELD_CANDIDATES = ("md_content", "markdown", "md", "text", "content", "cleaned_markdown", "botree_cleaned_markdown")
+PREVIEW_MINERU_MARKDOWN_MAX_BYTES = 16 * 1024 * 1024
 PREVIEW_MARKDOWN_SOURCE_MINERU = "mineru_result"
 PREVIEW_MARKDOWN_SOURCE_PAGE_TEXT = "page_text_fallback"
 INDEX_BUILD_TASK_TYPE = "full_build"
@@ -3201,9 +3202,13 @@ class DocumentService:
         # 兼容早期没有保存 md_content 的解析结果，保持前端仍能按整篇文档展示。
         page_texts: list[str] = []
         for page in preview_pages:
-            text = page.get("corrected_text") or page.get("page_text")
-            if isinstance(text, str) and text.strip():
-                page_texts.append(text.strip())
+            candidates = [
+                text.strip()
+                for text in (page.get("corrected_text"), page.get("page_text"), page.get("clean_content"))
+                if isinstance(text, str) and text.strip()
+            ]
+            if candidates:
+                page_texts.append(max(candidates, key=len))
         fallback_content = "\n\n".join(page_texts).strip()
         if fallback_content:
             return fallback_content, PREVIEW_MARKDOWN_SOURCE_PAGE_TEXT
@@ -3228,6 +3233,17 @@ class DocumentService:
             logger.warning(
                 "MinerU Markdown 资产文件不存在: asset_id=%s path=%s",
                 mineru_result_asset.id,
+                path,
+            )
+            return None
+
+        file_size = int(mineru_result_asset.file_size or path.stat().st_size)
+        if file_size > PREVIEW_MINERU_MARKDOWN_MAX_BYTES:
+            logger.info(
+                "MinerU Markdown 资产过大，预览改用页级文本: asset_id=%s size=%s limit=%s path=%s",
+                mineru_result_asset.id,
+                file_size,
+                PREVIEW_MINERU_MARKDOWN_MAX_BYTES,
                 path,
             )
             return None
