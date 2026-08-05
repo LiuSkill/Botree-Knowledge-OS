@@ -261,6 +261,7 @@ export const ACTION_PERMISSION_GROUPS: ActionGroupDefinition[] = [
       { action: 'create', name: '新增知识分类', code: ACTION_PERMISSIONS.KNOWLEDGE_CREATE },
       { action: 'edit', name: '编辑知识分类/资料', code: ACTION_PERMISSIONS.KNOWLEDGE_EDIT },
       { action: 'upload', name: '上传知识文档', code: ACTION_PERMISSIONS.KNOWLEDGE_UPLOAD },
+      { action: 'version-create', name: '上传知识文档新版本', code: ACTION_PERMISSIONS.KNOWLEDGE_VERSION_CREATE },
       { action: 'submit-review', name: '提交知识资料审核', code: ACTION_PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW },
       { action: 'download', name: '下载知识资料', code: ACTION_PERMISSIONS.KNOWLEDGE_DOWNLOAD },
       { action: 'delete', name: '删除知识资料', code: ACTION_PERMISSIONS.KNOWLEDGE_DELETE },
