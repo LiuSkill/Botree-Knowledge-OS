@@ -17,6 +17,17 @@ from sqlalchemy.orm import Session
 from app.models.document import Document, DocumentChunk, DocumentVersion
 
 
+def visible_document_filter(user_id: int) -> object:
+    """草稿仅允许上传人本人可见；历史无上传人数据保持兼容，避免存量资料失联。"""
+
+    uploader_id = func.coalesce(Document.upload_user_id, Document.created_by)
+    return or_(
+        Document.review_status != "draft",
+        uploader_id.is_(None),
+        uploader_id == user_id,
+    )
+
+
 class DocumentRepository:
     """
     文档仓储
@@ -39,10 +50,13 @@ class DocumentRepository:
         index_status: str | None = None,
         knowledge_type: str | None = None,
         keyword: str | None = None,
+        viewer_user_id: int | None = None,
     ) -> list[Document]:
         """查询文档列表。"""
 
         stmt = select(Document).where(Document.is_deleted.is_(False)).order_by(Document.id.desc())
+        if viewer_user_id is not None:
+            stmt = stmt.where(visible_document_filter(viewer_user_id))
         if knowledge_type:
             stmt = stmt.where(Document.knowledge_type == knowledge_type)
         if knowledge_base_id is not None:
@@ -187,6 +201,7 @@ class DocumentRepository:
         document_type: str | None = None,
         discipline: str | None = None,
         upload_user_id: int | None = None,
+        viewer_user_id: int,
     ) -> dict[str, object]:
         """按项目资料查询条件返回分页结果和总数，避免前端加载全量数据后再统计。"""
 
@@ -205,6 +220,7 @@ class DocumentRepository:
             document_type=document_type,
             discipline=discipline,
             upload_user_id=upload_user_id,
+            viewer_user_id=viewer_user_id,
         )
         total = int(self.db.scalar(select(func.count(Document.id)).where(*filters)) or 0)
         items = list(
@@ -232,12 +248,14 @@ class DocumentRepository:
         document_type: str | None,
         discipline: str | None,
         upload_user_id: int | None,
+        viewer_user_id: int,
     ) -> list[object]:
         filters: list[object] = [
             Document.is_deleted.is_(False),
             Document.project_id == project_id,
             Document.knowledge_type == "project",
             Document.security_level.in_(security_levels),
+            visible_document_filter(viewer_user_id),
         ]
         if category_ids:
             filters.append(or_(Document.category_id.in_(category_ids), Document.directory_id.in_(category_ids)))

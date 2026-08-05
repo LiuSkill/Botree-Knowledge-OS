@@ -109,6 +109,7 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
             ActionPermission("create", "新增知识分类", "knowledge:create"),
             ActionPermission("edit", "编辑知识分类/资料", "knowledge:edit"),
             ActionPermission("upload", "上传知识文档", "knowledge:upload"),
+            ActionPermission("version-create", "上传知识文档新版本", "knowledge:version-create"),
             ActionPermission("submit-review", "提交知识资料审核", "knowledge:submit-review"),
             ActionPermission("download", "下载知识资料", "knowledge:download"),
             ActionPermission("delete", "删除知识资料", "knowledge:delete"),

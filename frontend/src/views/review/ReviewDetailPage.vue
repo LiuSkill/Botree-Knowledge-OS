@@ -52,8 +52,8 @@ const MARKDOWN_ASSET_METADATA_KEYS = [
 const IMAGE_PLACEHOLDER_SRC = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 const PREVIEW_MARKDOWN_SEGMENT_TARGET_CHARS = 12000;
 const PREVIEW_MARKDOWN_SEGMENT_MAX_CHARS = 24000;
-const INITIAL_PREVIEW_SEGMENT_COUNT = 4;
-const PREVIEW_SEGMENT_BATCH_SIZE = 4;
+const INITIAL_PREVIEW_SEGMENT_COUNT = 1;
+const PREVIEW_SEGMENT_BATCH_SIZE = 1;
 const LAZY_ASSET_ROOT_MARGIN = '360px 0px';
 
 interface RenderedMarkdownSegment {
@@ -938,6 +938,8 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex-direction: column;
   gap: 16px;
+  overflow: auto;
+  padding-right: 8px;
 }
 
 .detail-action-group {
@@ -1098,9 +1100,8 @@ onBeforeUnmount(() => {
 }
 
 .preview-content-scroll {
-  max-height: calc(100vh - 430px);
   min-height: 320px;
-  overflow: auto;
+  overflow: visible;
   padding-right: 8px;
 }
 

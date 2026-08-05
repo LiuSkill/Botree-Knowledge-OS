@@ -75,6 +75,7 @@ class KnowledgeCategoryService:
             security_level=security_level,
             parse_status=parse_status,
             index_status=index_status,
+            user_id=user.id,
         )
         return self._build_tree(categories, direct_counts)
 

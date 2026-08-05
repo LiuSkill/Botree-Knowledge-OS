@@ -695,6 +695,7 @@ INSERT INTO permissions (module, action, code, description, created_at, updated_
 ('knowledge', 'create', 'knowledge:create', '知识中心：新增知识分类', NOW(), NOW()),
 ('knowledge', 'edit', 'knowledge:edit', '知识中心：编辑知识分类/资料', NOW(), NOW()),
 ('knowledge', 'upload', 'knowledge:upload', '知识中心：上传知识文档', NOW(), NOW()),
+('knowledge', 'version-create', 'knowledge:version-create', '知识中心：上传知识文档新版本', NOW(), NOW()),
 ('knowledge', 'submit-review', 'knowledge:submit-review', '知识中心：提交知识资料审核', NOW(), NOW()),
 ('knowledge', 'download', 'knowledge:download', '知识中心：下载知识资料', NOW(), NOW()),
 ('knowledge', 'delete', 'knowledge:delete', '知识中心：删除知识资料', NOW(), NOW()),

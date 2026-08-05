@@ -446,7 +446,7 @@ async def create_version(
     file: UploadFile = File(...),
     change_summary: str | None = Form(default=None),
     category_id: int | None = Form(default=None),
-    current_user: User = Depends(require_any_permission("knowledge:upload", "project:document:version-create")),
+    current_user: User = Depends(require_any_permission("knowledge:version-create", "project:document:version-create")),
     db: Session = Depends(get_db),
 ) -> dict:
     """上传文档新版本。"""
@@ -502,7 +502,7 @@ def download_version_file(
 def rollback_document(
     document_id: int,
     version_no: int | None = None,
-    current_user: User = Depends(require_any_permission("knowledge:upload", "project:document:version-create")),
+    current_user: User = Depends(require_any_permission("knowledge:version-create", "project:document:version-create")),
     db: Session = Depends(get_db),
 ) -> dict:
     """回滚文档版本。"""

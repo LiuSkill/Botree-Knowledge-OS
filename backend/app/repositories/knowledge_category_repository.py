@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.document import Document
 from app.models.knowledge_category import KnowledgeCategory
+from app.repositories.document_repository import visible_document_filter
 
 _UNSET_PARENT = object()
 
@@ -124,6 +125,7 @@ class KnowledgeCategoryRepository:
         security_level: str | None = None,
         parse_status: str | None = None,
         index_status: str | None = None,
+        user_id: int,
     ) -> dict[int, int]:
         """按文档列表相同口径批量统计分类文档数量。"""
 
@@ -135,6 +137,7 @@ class KnowledgeCategoryRepository:
             .where(category_ref.in_(category_ids), Document.is_deleted.is_(False))
             .group_by(category_ref)
         )
+        stmt = stmt.where(visible_document_filter(user_id))
         if security_levels is not None:
             stmt = stmt.where(Document.security_level.in_(security_levels))
         if keyword:

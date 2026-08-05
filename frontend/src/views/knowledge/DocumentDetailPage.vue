@@ -58,8 +58,22 @@ import { formatDateTime, formatFileSize } from '@/utils/format';
 import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
 import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
 
-type DetailTab = 'preview' | 'cleaning' | 'chunks' | 'versions';
+type DetailTab = 'preview' | 'cleaning' | 'chunks' | 'visualIndex' | 'versions';
 type RenderedMarkdownSegment = { id: string; html: string };
+type VisualIndexAsset = {
+  id: string;
+  asset: DocumentAssetInfo;
+  label: string;
+  blockType?: string;
+};
+type VisualIndexPageGroup = {
+  id: number;
+  pageNo: number;
+  pageTitle?: string | null;
+  drawingNo?: string | null;
+  pageAsset: VisualIndexAsset | null;
+  blockAssets: VisualIndexAsset[];
+};
 
 const SUBMITTABLE_REVIEW_STATUSES = new Set(['draft', 'rejected']);
 const VERSION_UPLOAD_ACCEPT = '.txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.rtf';
@@ -69,6 +83,7 @@ const PREVIEW_MARKDOWN_SEGMENT_TARGET_CHARS = 12000;
 const PREVIEW_MARKDOWN_SEGMENT_MAX_CHARS = 24000;
 const INITIAL_PREVIEW_SEGMENT_COUNT = 4;
 const PREVIEW_SEGMENT_BATCH_SIZE = 4;
+const VISUAL_INDEX_ASSET_BATCH_SIZE = 20;
 const LAZY_ASSET_ROOT_MARGIN = '360px 0px';
 const MARKDOWN_IMAGE_REFERENCE_PATTERN = /!\[[^\]]*]\([^)]+\)|<img\b/i;
 const MARKDOWN_ASSET_METADATA_KEYS = [
@@ -200,6 +215,10 @@ const pdfPreviewUrl = ref('');
 const pdfPreviewTitle = ref('');
 const pdfPreviewError = ref('');
 const zoomPreviewVisible = ref(false);
+const visualAssetPreviewVisible = ref(false);
+const visualAssetPreviewLoading = ref(false);
+const visualAssetPreviewUrl = ref('');
+const visualAssetPreviewTitle = ref('');
 const securityDialogVisible = ref(false);
 const securitySaving = ref(false);
 const versionDialogVisible = ref(false);
@@ -218,6 +237,7 @@ const markdownPreviewSegments = ref<string[]>([]);
 const renderedMarkdownSegments = ref<RenderedMarkdownSegment[]>([]);
 const markdownPreviewCursor = ref(0);
 const markdownPreviewRendering = ref(false);
+const visibleVisualIndexAssetCount = ref(VISUAL_INDEX_ASSET_BATCH_SIZE);
 
 const versionForm = reactive({
   change_summary: '',
@@ -266,7 +286,7 @@ const deleteDocumentPermission = computed(() =>
   isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_DELETE : PERMISSIONS.KNOWLEDGE_DELETE,
 );
 const uploadVersionPermission = computed(() =>
-  isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_VERSION_CREATE : PERMISSIONS.KNOWLEDGE_UPLOAD,
+  isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_VERSION_CREATE : PERMISSIONS.KNOWLEDGE_VERSION_CREATE,
 );
 const editSecurityPermission = computed(() =>
   isProjectDocument.value ? PERMISSIONS.PROJECT_DOCUMENT_SECURITY_UPDATE : PERMISSIONS.KNOWLEDGE_EDIT,
@@ -352,6 +372,57 @@ const structuredPreviewPages = computed(() => {
   if (!pages.length || markdownHasImageReferences(markdownContent.value)) return [];
   return pages.filter((page) => page.page_preview_asset || page.blocks.some((block) => block.image_asset));
 });
+const visualIndexPageGroups = computed<VisualIndexPageGroup[]>(() =>
+  (previewData.value?.pages || []).flatMap((page) => {
+    const pageAsset =
+      page.index_admission_status === 'visual_indexed' && page.page_preview_asset?.status === 'ready'
+        ? {
+            id: `page-${page.id}`,
+            asset: page.page_preview_asset,
+            label: t('document.detail.visualIndex.pageImage'),
+          }
+        : null;
+    const blockAssets = page.blocks
+      .filter((block) => block.index_admission_status === 'visual_indexed' && block.image_asset?.status === 'ready')
+      .map((block) => ({
+        id: `block-${block.id}`,
+        asset: block.image_asset as DocumentAssetInfo,
+        label: t('document.detail.visualIndex.blockImage', { index: block.block_index }),
+        blockType: block.block_type,
+      }));
+    if (!pageAsset && !blockAssets.length) return [];
+    return [{
+      id: page.id,
+      pageNo: page.page_no,
+      pageTitle: page.page_title,
+      drawingNo: page.drawing_no,
+      pageAsset,
+      blockAssets,
+    }];
+  }),
+);
+const visualIndexAssetTotal = computed(() =>
+  visualIndexPageGroups.value.reduce(
+    (total, page) => total + (page.pageAsset ? 1 : 0) + page.blockAssets.length,
+    0,
+  ),
+);
+const visibleVisualIndexPageGroups = computed<VisualIndexPageGroup[]>(() => {
+  let remaining = visibleVisualIndexAssetCount.value;
+  const groups: VisualIndexPageGroup[] = [];
+  for (const page of visualIndexPageGroups.value) {
+    if (remaining <= 0) break;
+    const pageAsset = page.pageAsset && remaining > 0 ? page.pageAsset : null;
+    if (pageAsset) remaining -= 1;
+    const blockAssets = page.blockAssets.slice(0, remaining);
+    remaining -= blockAssets.length;
+    if (pageAsset || blockAssets.length) {
+      groups.push({ ...page, pageAsset, blockAssets });
+    }
+  }
+  return groups;
+});
+const visualIndexHasMore = computed(() => visibleVisualIndexAssetCount.value < visualIndexAssetTotal.value);
 
 markdownRenderer.renderer.rules.image = (tokens, idx) => {
   const token = tokens[idx];
@@ -397,6 +468,7 @@ function cacheKeyForVersion(versionNo: number | null = selectedVersionNo.value):
 function invalidateDetailCache(): void {
   previewCache.clear();
   previewPromiseCache.clear();
+  visibleVisualIndexAssetCount.value = VISUAL_INDEX_ASSET_BATCH_SIZE;
   resetAssetUrls();
 }
 
@@ -1143,6 +1215,30 @@ function assetBlobUrl(asset: DocumentAssetInfo | null | undefined): string {
   return assetUrlMap[asset.id] || '';
 }
 
+async function openVisualAssetPreview(item: VisualIndexAsset): Promise<void> {
+  visualAssetPreviewTitle.value = item.label;
+  visualAssetPreviewUrl.value = assetBlobUrl(item.asset);
+  visualAssetPreviewVisible.value = true;
+  if (visualAssetPreviewUrl.value) return;
+
+  visualAssetPreviewLoading.value = true;
+  try {
+    visualAssetPreviewUrl.value = await ensureAssetUrl(item.asset);
+  } catch (error) {
+    visualAssetPreviewVisible.value = false;
+    MessagePlugin.warning(error instanceof Error ? error.message : t('document.detail.assetPreviewFailed', { id: item.asset.id }));
+  } finally {
+    visualAssetPreviewLoading.value = false;
+  }
+}
+
+function loadMoreVisualIndexAssets(): void {
+  visibleVisualIndexAssetCount.value = Math.min(
+    visibleVisualIndexAssetCount.value + VISUAL_INDEX_ASSET_BATCH_SIZE,
+    visualIndexAssetTotal.value,
+  );
+}
+
 async function openDocumentPdfPreview(version?: DocumentVersionInfo): Promise<void> {
   /**
    * 在弹窗中预览当前版本 PDF：PDF 原文件直接展示，非 PDF 展示后端转换后的 PDF。
@@ -1250,7 +1346,7 @@ async function loadData(force = false): Promise<void> {
     documentInfo.value = documentResult;
     versions.value = versionResult;
     indexTasks.value = taskResult;
-    if (activeTab.value === 'preview' || activeTab.value === 'cleaning') {
+    if (activeTab.value === 'preview' || activeTab.value === 'cleaning' || activeTab.value === 'visualIndex') {
       await loadPreview();
     } else if (activeTab.value === 'chunks') {
       await loadChunks();
@@ -1266,7 +1362,7 @@ async function refreshActiveTab(): Promise<void> {
   /**
    * 切换页签时按需刷新，避免预览图片被频繁重复请求。
    */
-  if (activeTab.value === 'preview' || activeTab.value === 'cleaning') {
+  if (activeTab.value === 'preview' || activeTab.value === 'cleaning' || activeTab.value === 'visualIndex') {
     await loadPreview();
     return;
   }
@@ -1421,6 +1517,7 @@ async function viewVersion(version: DocumentVersionInfo): Promise<void> {
     return;
   }
   selectedVersionNo.value = version.version_no;
+  visibleVisualIndexAssetCount.value = VISUAL_INDEX_ASSET_BATCH_SIZE;
   activeTab.value = 'preview';
   chunks.value = [];
   chunkPage.value = 1;
@@ -1430,6 +1527,7 @@ async function viewVersion(version: DocumentVersionInfo): Promise<void> {
 
 async function viewCurrentVersion(): Promise<void> {
   selectedVersionNo.value = null;
+  visibleVisualIndexAssetCount.value = VISUAL_INDEX_ASSET_BATCH_SIZE;
   chunkPage.value = 1;
   chunkTotal.value = 0;
   await refreshActiveTab();
@@ -1705,6 +1803,7 @@ onBeforeUnmount(() => {
             <t-tab-panel value="preview" :label="t('document.detail.tab.preview')" />
             <t-tab-panel value="cleaning" :label="t('document.detail.tab.cleaning')" />
             <t-tab-panel value="chunks" :label="t('document.detail.tab.chunks')" />
+            <t-tab-panel value="visualIndex" :label="t('document.detail.tab.visualIndex')" />
             <t-tab-panel value="versions" :label="t('document.detail.tab.versions')" />
           </t-tabs>
 
@@ -1886,6 +1985,67 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
+          <section v-else-if="activeTab === 'visualIndex'" class="tab-panel">
+            <div class="preview-toolbar">
+              <span class="muted-text">{{ t('document.detail.field.viewedVersion') }} {{ viewedVersionLabel }}</span>
+              <t-button v-if="selectedVersionNo" size="small" variant="text" class="preview-toolbar-link" @click="viewCurrentVersion">
+                {{ t('document.detail.action.currentVersion') }}
+              </t-button>
+            </div>
+            <div v-if="previewLoading" class="empty-panel">{{ t('document.detail.empty.loadingVisualIndex') }}</div>
+            <div v-else-if="!visualIndexPageGroups.length" class="empty-panel">{{ t('document.detail.empty.noVisualIndex') }}</div>
+            <div v-else class="visual-index-page-list">
+              <article v-for="page in visibleVisualIndexPageGroups" :key="page.id" class="visual-index-page">
+                <header class="visual-index-page-header">
+                  <strong>{{ t('document.detail.visualIndex.page', { page: page.pageNo }) }}</strong>
+                  <span v-if="page.pageTitle">{{ page.pageTitle }}</span>
+                  <span v-if="page.drawingNo">{{ t('document.detail.visualIndex.drawingNo') }}: {{ page.drawingNo }}</span>
+                </header>
+                <div class="visual-index-gallery">
+                  <button
+                    v-if="page.pageAsset"
+                    type="button"
+                    class="visual-index-item visual-index-page-item"
+                    @click="openVisualAssetPreview(page.pageAsset)"
+                  >
+                    <img
+                      v-asset-lazy="page.pageAsset.asset"
+                      :src="assetBlobUrl(page.pageAsset.asset) || IMAGE_PLACEHOLDER_SRC"
+                      :alt="page.pageAsset.label"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                    <span>{{ page.pageAsset.label }}</span>
+                  </button>
+                  <button
+                    v-for="item in page.blockAssets"
+                    :key="item.id"
+                    type="button"
+                    class="visual-index-item"
+                    @click="openVisualAssetPreview(item)"
+                  >
+                    <img
+                      v-asset-lazy="item.asset"
+                      :src="assetBlobUrl(item.asset) || IMAGE_PLACEHOLDER_SRC"
+                      :alt="item.label"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                    <span>{{ item.label }}<template v-if="item.blockType"> · {{ item.blockType }}</template></span>
+                  </button>
+                </div>
+              </article>
+              <div v-if="visualIndexHasMore" class="preview-load-more">
+                <t-button size="small" variant="outline" @click="loadMoreVisualIndexAssets">
+                  {{ t('document.detail.action.loadMoreVisualIndex', {
+                    current: Math.min(visibleVisualIndexAssetCount, visualIndexAssetTotal),
+                    total: visualIndexAssetTotal,
+                  }) }}
+                </t-button>
+              </div>
+            </div>
+          </section>
+
           <section v-else class="tab-panel">
             <div v-if="!versions.length" class="empty-panel">{{ t('document.detail.empty.noVersions') }}</div>
             <div v-else class="table-scroll">
@@ -2050,6 +2210,19 @@ onBeforeUnmount(() => {
             :title="pdfPreviewTitle"
           />
           <div v-else class="empty-panel">{{ t('document.detail.empty.noPdf') }}</div>
+        </div>
+      </t-dialog>
+
+      <t-dialog
+        v-model:visible="visualAssetPreviewVisible"
+        :header="visualAssetPreviewTitle"
+        width="min(1120px, 96vw)"
+        :footer="false"
+        destroy-on-close
+      >
+        <div class="visual-asset-preview-body">
+          <div v-if="visualAssetPreviewLoading" class="empty-panel">{{ t('document.detail.empty.loadingVisualAsset') }}</div>
+          <img v-else-if="visualAssetPreviewUrl" :src="visualAssetPreviewUrl" :alt="visualAssetPreviewTitle" />
         </div>
       </t-dialog>
 
@@ -2257,8 +2430,16 @@ onBeforeUnmount(() => {
 }
 
 .preview-toolbar-main {
+  position: sticky;
+  z-index: 5;
+  top: 0;
   justify-content: flex-start;
   gap: 16px;
+  min-height: 32px;
+  margin-top: -16px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
 }
 
 .preview-toolbar-actions {
@@ -2472,6 +2653,97 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   margin-top: 12px;
+}
+
+.visual-index-page-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.visual-index-page {
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.visual-index-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.visual-index-page-header strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.visual-index-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.visual-index-item {
+  display: flex;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  flex-direction: column;
+  overflow: hidden;
+  text-align: left;
+}
+
+.visual-index-item:hover,
+.visual-index-item:focus-visible {
+  border-color: #2563eb;
+  outline: none;
+}
+
+.visual-index-item img {
+  display: block;
+  width: 100%;
+  height: 180px;
+  background: #f8fafc;
+  object-fit: contain;
+}
+
+.visual-index-page-item {
+  grid-column: span 2;
+}
+
+.visual-index-page-item img {
+  height: 360px;
+}
+
+.visual-index-item span {
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.visual-asset-preview-body {
+  display: grid;
+  min-height: min(70vh, 720px);
+  place-items: center;
+  overflow: auto;
+}
+
+.visual-asset-preview-body img {
+  display: block;
+  max-width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
 }
 
 .cleaning-page-list {
@@ -2698,6 +2970,10 @@ onBeforeUnmount(() => {
 @media (max-width: 1180px) {
   .cleaning-columns {
     grid-template-columns: 1fr;
+  }
+
+  .visual-index-page-item {
+    grid-column: span 1;
   }
 }
 

@@ -127,7 +127,7 @@ class ProjectService:
         doc_repo = DocumentRepository(self.db)
         documents = [
             item
-            for item in doc_repo.list(project_id=project.id)
+            for item in doc_repo.list(project_id=project.id, viewer_user_id=user.id)
             if self.access_service.can_access_document(item, user, permission_codes=("project:view",))
         ]
         categories = list(
@@ -448,6 +448,7 @@ class ProjectService:
     def _project_document_stats(self, project_id: int, user: User) -> dict[str, int]:
         return self.project_repository.document_stats_for_project(
             project_id,
+            user_id=user.id,
             document_security_levels=allowed_security_levels(user_max_security_level(user)),
             include_document_stats=self.access_service.has_permission(
                 user,

@@ -201,6 +201,10 @@ class DocumentService:
     ) -> None:
         """项目资料叠加 RBAC、数据范围、项目密级和文档密级；基础知识仅校验文档密级。"""
 
+        uploader_id = document.upload_user_id or document.created_by
+        if document.review_status == "draft" and uploader_id is not None and uploader_id != user.id:
+            raise AppException("草稿文档仅上传人本人可见", status_code=404, code=404)
+
         if document.project_id is not None:
             self.access_service.ensure_document_access(
                 document,
@@ -283,6 +287,7 @@ class DocumentService:
             index_status=index_status,
             knowledge_type=knowledge_type,
             keyword=keyword,
+            viewer_user_id=user.id,
         )
 
         result: list[Document] = []
@@ -410,6 +415,7 @@ class DocumentService:
             document_type=document_type,
             discipline=discipline,
             upload_user_id=upload_user_id,
+            viewer_user_id=user.id,
         )
         documents = list(result["items"])
         self._enrich_category_fields_bulk(documents)
@@ -716,7 +722,10 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, "project:document:version-create")
+        version_permission = (
+            "project:document:version-create" if document.project_id is not None else "knowledge:version-create"
+        )
+        self._ensure_project_document_access(document, operator, version_permission)
         target_category_id = category_id or document.category_id
         if target_category_id is None:
             raise AppException("上传新版本前必须指定文档分类")
@@ -1904,7 +1913,7 @@ class DocumentService:
         document_id: int,
         operator: User,
         version_no: int | None = None,
-        permission_code: str = "project:document:version-create",
+        permission_code: str | None = None,
     ) -> Document:
         """
         回滚文档到目标版本。
@@ -1919,7 +1928,10 @@ class DocumentService:
         """
 
         document = self.get_document(document_id, operator)
-        self._ensure_project_document_access(document, operator, permission_code)
+        effective_permission = permission_code or (
+            "project:document:version-create" if document.project_id is not None else "knowledge:version-create"
+        )
+        self._ensure_project_document_access(document, operator, effective_permission)
         versions = self.repository.list_versions(document.id)
         if not versions:
             raise AppException("文档没有可回滚版本")

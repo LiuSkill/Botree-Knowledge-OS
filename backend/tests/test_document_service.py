@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
@@ -121,6 +122,37 @@ def make_operator() -> User:
     user = User(id=1, username="tester", password_hash="x", real_name="Tester")
     user.roles = [Role(id=1, name="Admin", code="admin", enabled=True, security_level="confidential")]
     return user
+
+
+def test_draft_document_is_visible_only_to_uploader() -> None:
+    """草稿在列表和详情入口都必须仅对上传人本人可见。"""
+
+    db = make_session()
+    try:
+        draft = Document(
+            knowledge_base_id=1,
+            knowledge_type="base",
+            file_name="private-draft.txt",
+            file_type="txt",
+            file_size=1,
+            storage_path="storage/private-draft.txt",
+            review_status="draft",
+            created_by=1,
+        )
+        db.add(draft)
+        db.commit()
+        service = DocumentService(db)
+        uploader = make_operator()
+        other_user = make_operator()
+        other_user.id = 2
+
+        assert [item.id for item in service.list_documents(uploader)] == [draft.id]
+        assert service.list_documents(other_user) == []
+        with pytest.raises(AppException) as exc_info:
+            service.get_document(draft.id, other_user)
+        assert exc_info.value.status_code == 404
+    finally:
+        db.close()
 
 
 def test_pdf_preview_uses_original_pdf_file() -> None:

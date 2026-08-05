@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentChunk
 from app.models.knowledge_base import KnowledgeBase
+from app.repositories.document_repository import visible_document_filter
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,9 @@ class KnowledgeBaseRepository:
             stmt = stmt.where(KnowledgeBase.project_id == project_id)
         return list(self.db.scalars(stmt).all())
 
-    def list_with_counts(self, kb_type: str | None = None, project_id: int | None = None) -> list[KnowledgeBaseStatsRow]:
+    def list_with_counts(
+        self, *, user_id: int, kb_type: str | None = None, project_id: int | None = None
+    ) -> list[KnowledgeBaseStatsRow]:
         """查询知识库列表并聚合未删除资料数、有效分块数。"""
 
         document_counts = (
@@ -40,7 +43,7 @@ class KnowledgeBaseRepository:
                 Document.knowledge_base_id.label("knowledge_base_id"),
                 func.count(Document.id).label("document_count"),
             )
-            .where(Document.is_deleted.is_(False))
+            .where(Document.is_deleted.is_(False), visible_document_filter(user_id))
             .group_by(Document.knowledge_base_id)
             .subquery()
         )
@@ -50,7 +53,11 @@ class KnowledgeBaseRepository:
                 func.count(DocumentChunk.id).label("chunk_count"),
             )
             .join(DocumentChunk, DocumentChunk.document_id == Document.id)
-            .where(Document.is_deleted.is_(False), DocumentChunk.chunk_status == "active")
+            .where(
+                Document.is_deleted.is_(False),
+                DocumentChunk.chunk_status == "active",
+                visible_document_filter(user_id),
+            )
             .group_by(Document.knowledge_base_id)
             .subquery()
         )

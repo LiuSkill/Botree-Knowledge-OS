@@ -22,7 +22,7 @@ class KnowledgeBaseService:
     def list_bases(self, user: User, kb_type: str | None = None, project_id: int | None = None) -> list[dict]:
         if project_id is not None:
             ProjectService(self.db).ensure_project_access(project_id, user)
-        rows = self.repository.list_with_counts(kb_type=kb_type, project_id=project_id)
+        rows = self.repository.list_with_counts(user_id=user.id, kb_type=kb_type, project_id=project_id)
         project_service = ProjectService(self.db)
         result: list[dict] = []
         for row in rows:
@@ -50,7 +50,7 @@ class KnowledgeBaseService:
             raise AppException("知识库不存在", status_code=404, code=404)
         if kb.type == "project" and kb.project_id is not None:
             ProjectService(self.db).ensure_project_access(kb.project_id, user)
-        documents = DocumentRepository(self.db).list(knowledge_base_id=kb.id)
+        documents = DocumentRepository(self.db).list(knowledge_base_id=kb.id, viewer_user_id=user.id)
         doc_repo = DocumentRepository(self.db)
         return self._kb_to_dict(kb, len(documents), sum(len(doc_repo.list_chunks(doc.id)) for doc in documents))
 

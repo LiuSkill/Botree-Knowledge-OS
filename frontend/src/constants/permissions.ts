@@ -35,6 +35,7 @@ export const ACTION_PERMISSIONS = {
   KNOWLEDGE_EDIT: 'knowledge:edit',
   KNOWLEDGE_DELETE: 'knowledge:delete',
   KNOWLEDGE_UPLOAD: 'knowledge:upload',
+  KNOWLEDGE_VERSION_CREATE: 'knowledge:version-create',
   KNOWLEDGE_SUBMIT_REVIEW: 'knowledge:submit-review',
   KNOWLEDGE_DOWNLOAD: 'knowledge:download',
 

@@ -27,6 +27,7 @@ export default {
       zoomPreview: 'Zoom Preview',
       chooseFile: 'Choose File',
       loadMorePreview: 'Load More Content',
+      loadMoreVisualIndex: 'Load more ({current}/{total} shown)',
     },
     field: {
       fileName: 'File Name',
@@ -63,9 +64,16 @@ export default {
     },
     tab: {
       preview: 'Original Preview',
-      cleaning: 'Parsing Cleanup',
-      chunks: 'Knowledge Chunks',
+      cleaning: 'Material Cleanup',
+      chunks: 'Text Materials',
+      visualIndex: 'Visual Materials',
       versions: 'Version History',
+    },
+    visualIndex: {
+      page: 'Page {page}',
+      drawingNo: 'Drawing No.',
+      pageImage: 'Page image',
+      blockImage: 'Block image {index}',
     },
     cleaning: {
       raw: 'Raw Parsed Content',
@@ -83,6 +91,9 @@ export default {
       loadingCleaning: 'Loading parsing cleanup result...',
       noCleaning: 'This version has no parsing cleanup result yet.',
       noChunks: 'This version has no knowledge chunks yet.',
+      loadingVisualIndex: 'Loading visual index assets...',
+      noVisualIndex: 'This version has no assets admitted to the visual index.',
+      loadingVisualAsset: 'Loading visual asset...',
       noVersions: 'This document has no version records yet.',
       loadingPdf: 'Loading PDF preview...',
       noPdf: 'No PDF is available for preview.',

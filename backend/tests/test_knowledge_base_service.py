@@ -111,3 +111,54 @@ def test_authorization_summary_uses_aggregated_counts() -> None:
         assert statement_count == 1
     finally:
         db.close()
+
+
+def test_knowledge_base_counts_exclude_other_users_drafts() -> None:
+    """知识库汇总必须与当前用户可见文档口径一致，不能泄露他人草稿数量。"""
+
+    db = make_session()
+    try:
+        base = KnowledgeBase(name="企业知识库", code="base", type="base", enabled=True, created_by=1)
+        db.add(base)
+        db.flush()
+        db.add_all(
+            [
+                Document(
+                    knowledge_base_id=base.id,
+                    knowledge_type="base",
+                    file_name="mine.txt",
+                    file_type="txt",
+                    file_size=1,
+                    storage_path="storage/mine.txt",
+                    review_status="draft",
+                    created_by=1,
+                ),
+                Document(
+                    knowledge_base_id=base.id,
+                    knowledge_type="base",
+                    file_name="other.txt",
+                    file_type="txt",
+                    file_size=1,
+                    storage_path="storage/other.txt",
+                    review_status="draft",
+                    created_by=2,
+                ),
+                Document(
+                    knowledge_base_id=base.id,
+                    knowledge_type="base",
+                    file_name="approved.txt",
+                    file_type="txt",
+                    file_size=1,
+                    storage_path="storage/approved.txt",
+                    review_status="approved",
+                    created_by=2,
+                ),
+            ]
+        )
+        db.commit()
+
+        summary = KnowledgeBaseService(db).authorization_summary(make_user())
+
+        assert summary["knowledge_bases"][0]["document_count"] == 2
+    finally:
+        db.close()

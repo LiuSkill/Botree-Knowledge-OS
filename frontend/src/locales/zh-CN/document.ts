@@ -27,6 +27,7 @@ export default {
       zoomPreview: '放大预览',
       chooseFile: '选择文件',
       loadMorePreview: '加载更多内容',
+      loadMoreVisualIndex: '加载更多（已显示 {current}/{total}）',
     },
     field: {
       fileName: '文件名',
@@ -63,9 +64,16 @@ export default {
     },
     tab: {
       preview: '原始内容预览',
-      cleaning: '解析清洗',
-      chunks: '知识分块',
+      cleaning: '资料清洗',
+      chunks: '文本资料',
+      visualIndex: '视觉资料',
       versions: '版本历史',
+    },
+    visualIndex: {
+      page: '第 {page} 页',
+      drawingNo: '图号',
+      pageImage: '页级图片',
+      blockImage: '块级图片 {index}',
     },
     cleaning: {
       raw: '原始解析内容',
@@ -83,6 +91,9 @@ export default {
       loadingCleaning: '正在加载解析清洗结果...',
       noCleaning: '当前版本还没有解析清洗结果。',
       noChunks: '当前版本还没有知识分块。',
+      loadingVisualIndex: '正在加载视觉索引资料...',
+      noVisualIndex: '当前版本暂无已进入视觉索引的资料。',
+      loadingVisualAsset: '正在加载视觉资料...',
       noVersions: '当前文档还没有版本记录。',
       loadingPdf: '正在加载 PDF 预览...',
       noPdf: '暂无可预览 PDF。',

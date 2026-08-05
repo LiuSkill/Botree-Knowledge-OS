@@ -12,6 +12,7 @@ from app.core.data_scope import DATA_SCOPE_ALL, DATA_SCOPE_DEPARTMENT, DATA_SCOP
 from app.models.document import Document
 from app.models.knowledge_base import KnowledgeBase
 from app.models.project import Project, ProjectMember
+from app.repositories.document_repository import visible_document_filter
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,7 @@ class ProjectRepository:
         """一次性查询用户可访问项目、项目知识库 ID 和文档统计。"""
 
         document_stats = self._document_stats_subquery(
+            user_id=user_id,
             document_security_levels=document_security_levels,
             include_document_stats=include_document_stats,
             pending_review_statuses=pending_review_statuses,
@@ -164,6 +166,7 @@ class ProjectRepository:
         self,
         project_id: int,
         *,
+        user_id: int,
         document_security_levels: list[str],
         include_document_stats: bool,
         pending_review_statuses: set[str],
@@ -171,6 +174,7 @@ class ProjectRepository:
         """按项目聚合文档统计，供详情接口直接返回统计字段。"""
 
         document_stats = self._document_stats_subquery(
+            user_id=user_id,
             document_security_levels=document_security_levels,
             include_document_stats=include_document_stats,
             pending_review_statuses=pending_review_statuses,
@@ -203,11 +207,12 @@ class ProjectRepository:
     def _document_stats_subquery(
         self,
         *,
+        user_id: int,
         document_security_levels: list[str],
         include_document_stats: bool,
         pending_review_statuses: set[str],
     ) -> Any:
-        document_filters = [Document.is_deleted.is_(False)]
+        document_filters = [Document.is_deleted.is_(False), visible_document_filter(user_id)]
         if include_document_stats:
             document_filters.append(Document.security_level.in_(document_security_levels))
         else:

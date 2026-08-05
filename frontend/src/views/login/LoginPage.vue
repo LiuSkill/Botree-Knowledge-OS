@@ -7,7 +7,7 @@
   3. 登录成功后进入工作台
 -->
 <script setup lang="ts">
-import { MessagePlugin } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { LockOnIcon, UserIcon } from 'tdesign-icons-vue-next';
 import { reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -17,6 +17,7 @@ import botreeLogo from '@/assets/botree-logo.png';
 import LanguageSwitcher from '@/components/LanguageSwitcher/index.vue';
 import LoginHeroPanel from '@/components/LoginHeroPanel.vue';
 import { useAuthStore } from '@/stores/auth';
+import { listReviewTasks } from '@/api/reviews';
 
 const router = useRouter();
 const route = useRoute();
@@ -36,9 +37,30 @@ async function submit(): Promise<void> {
   try {
     await authStore.login(form.username, form.password);
     MessagePlugin.success(t('auth.loginSuccess'));
+    await notifyPendingReviews();
     await router.push((route.query.redirect as string) || authStore.firstAccessiblePath || '/');
   } finally {
     loading.value = false;
+  }
+}
+
+async function notifyPendingReviews(): Promise<void> {
+  if (!authStore.hasActionPermission('review:view')) return;
+  try {
+    const result = await listReviewTasks({ status: 'reviewing', page: 1, page_size: 1 });
+    if (result.total <= 0) return;
+    const dialog = DialogPlugin.confirm({
+      header: t('auth.pendingReviewTitle'),
+      body: t('auth.pendingReviewBody', { count: result.total }),
+      confirmBtn: t('auth.pendingReviewGo'),
+      cancelBtn: t('auth.pendingReviewLater'),
+      onConfirm: async () => {
+        dialog.destroy();
+        await router.push({ path: '/reviews', query: { tab: 'tasks', status: 'reviewing' } });
+      },
+    });
+  } catch {
+    // 登录流程不因提醒查询失败而中断。
   }
 }
 </script>
