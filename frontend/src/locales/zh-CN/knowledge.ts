@@ -23,6 +23,7 @@ export default {
     enabled: '启用',
     codePlaceholder: '为空时自动生成',
     builtin: {
+      theoreticalKnowledge: '理论知识',
       processTechnology: '工艺技术',
       leachingProcess: '浸出工艺',
       solventExtractionSeparation: '萃取分离',

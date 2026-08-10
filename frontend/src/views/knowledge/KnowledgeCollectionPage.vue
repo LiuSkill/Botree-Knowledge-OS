@@ -23,7 +23,15 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
-import { buildCategoryOptions, collectCategoryIds, findCategory, localizedCategoryName, localizedCategoryPath } from '@/utils/categories';
+import {
+  buildCategoryOptions,
+  collectCategoryIds,
+  findCategory,
+  findCategoryPath,
+  localizedCategoryLabel,
+  localizedCategoryPath,
+  localizedCategoryTreePath,
+} from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { clampSecurityLevel, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
@@ -51,11 +59,17 @@ const uploadForm = reactive({
 });
 
 const categoryOptions = computed(() =>
-  buildCategoryOptions(categories.value, 0, (name) => localizedCategoryName(name, t)),
+  buildCategoryOptions(categories.value, 0, (_name, category) => localizedCategoryLabel(category, t)),
 );
 
 function categoryDisplayPath(path?: string | null): string {
   return path ? localizedCategoryPath(path, t) : '-';
+}
+
+function documentCategoryDisplayPath(document: DocumentInfo): string {
+  const categoryPath = findCategoryPath(categories.value, Number(document.category_id ?? document.directory_id));
+  if (categoryPath.length) return localizedCategoryTreePath(categoryPath, t);
+  return categoryDisplayPath(document.category_path || document.category_name);
 }
 const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_VIEW));
 const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_UPLOAD));
@@ -257,7 +271,7 @@ onMounted(loadData);
           <tbody>
             <tr v-for="doc in filteredDocuments" :key="doc.id">
               <td><t-link v-permission="PERMISSIONS.KNOWLEDGE_VIEW" theme="primary" @click="viewDocument(doc)">{{ doc.file_name }}</t-link></td>
-              <td>{{ categoryDisplayPath(doc.category_path || doc.category_name) }}</td>
+              <td>{{ documentCategoryDisplayPath(doc) }}</td>
               <td>
                 <t-tag size="small" variant="light" :theme="securityLevelTheme(doc.security_level)">
                   {{ securityLevelLabel(doc.security_level) }}

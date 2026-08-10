@@ -23,7 +23,15 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
-import { buildCategoryOptions, collectCategoryIds, findCategory, localizedCategoryName, localizedCategoryPath } from '@/utils/categories';
+import {
+  buildCategoryOptions,
+  collectCategoryIds,
+  findCategory,
+  findCategoryPath,
+  localizedCategoryLabel,
+  localizedCategoryPath,
+  localizedCategoryTreePath,
+} from '@/utils/categories';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { clampSecurityLevel, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
@@ -94,14 +102,20 @@ const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSION
 const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_UPLOAD));
 const canSubmitDocumentReview = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_SUBMIT_REVIEW));
 
-const categoryOptions = computed(() => buildCategoryOptions(categories.value, 0, categoryDisplayName));
+const categoryOptions = computed(() => buildCategoryOptions(categories.value, 0, (_name, category) => categoryDisplayLabel(category)));
 
-function categoryDisplayName(name: string): string {
-  return localizedCategoryName(name, t);
+function categoryDisplayLabel(category: KnowledgeCategory): string {
+  return localizedCategoryLabel(category, t);
 }
 
 function categoryDisplayPath(path?: string | null): string {
   return path ? localizedCategoryPath(path, t) : '-';
+}
+
+function documentCategoryDisplayPath(document: DocumentInfo): string {
+  const categoryPath = findCategoryPath(categories.value, Number(document.category_id ?? document.directory_id));
+  if (categoryPath.length) return localizedCategoryTreePath(categoryPath, t);
+  return categoryDisplayPath(document.category_path || document.category_name);
 }
 
 const visibleCategoryRows = computed<CategoryRow[]>(() => {
@@ -126,8 +140,8 @@ const activeCategoryName = computed(() => {
    * 获取当前筛选分类名称。
    */
   if (!activeCategoryId.value) return t('knowledge.category.all');
-  const name = findCategory(categories.value, activeCategoryId.value)?.name;
-  return name ? categoryDisplayName(name) : t('knowledge.category.all');
+  const category = findCategory(categories.value, activeCategoryId.value);
+  return category ? categoryDisplayLabel(category) : t('knowledge.category.all');
 });
 
 const documentsMatchingQuery = computed(() => {
@@ -486,7 +500,9 @@ onMounted(loadEnterpriseKnowledge);
       </div>
       <div class="category-list">
         <t-button class="category-row" :class="{ active: activeCategoryId === null }" block variant="text" @click="selectCategory(null)">
-          <span>{{ t('knowledge.category.all') }}</span>
+          <span class="category-name">
+            <span class="category-label" :title="t('knowledge.category.all')">{{ t('knowledge.category.all') }}</span>
+          </span>
           <span class="category-count">{{ documentsMatchingQuery.length }}</span>
         </t-button>
 
@@ -510,7 +526,7 @@ onMounted(loadEnterpriseKnowledge);
               <ChevronRightSIcon v-else />
             </span>
             <span v-else class="expand-placeholder"></span>
-            {{ categoryDisplayName(row.category.name) }}
+            <span class="category-label" :title="categoryDisplayLabel(row.category)">{{ categoryDisplayLabel(row.category) }}</span>
           </span>
           <span class="category-count">{{ categoryDocumentCounts.get(row.category.id) || 0 }}</span>
         </t-button>
@@ -594,7 +610,7 @@ onMounted(loadEnterpriseKnowledge);
                 <td>
                   <t-link v-permission="PERMISSIONS.KNOWLEDGE_VIEW" theme="primary" @click="viewDocument(document)">{{ document.file_name }}</t-link>
                 </td>
-                <td>{{ categoryDisplayPath(document.category_path || document.category_name) }}</td>
+                <td>{{ documentCategoryDisplayPath(document) }}</td>
                 <td>
                   <t-tag size="small" variant="light" :theme="securityLevelTheme(document.security_level)">
                     {{ securityLevelLabel(document.security_level) }}
@@ -744,6 +760,7 @@ onMounted(loadEnterpriseKnowledge);
 
 .category-row {
   display: flex;
+  box-sizing: border-box;
   width: 100%;
   height: auto;
   min-height: 34px;
@@ -779,8 +796,18 @@ onMounted(loadEnterpriseKnowledge);
 .category-name {
   display: inline-flex;
   min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
   gap: 4px;
+  overflow: hidden;
+}
+
+.category-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .expand-button,
@@ -794,6 +821,8 @@ onMounted(loadEnterpriseKnowledge);
 }
 
 .category-count {
+  flex: 0 0 auto;
+  margin-left: auto;
   color: #94a3b8;
   font-size: 12px;
   font-weight: 500;

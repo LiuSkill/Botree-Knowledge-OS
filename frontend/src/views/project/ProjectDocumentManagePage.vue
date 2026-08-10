@@ -40,7 +40,14 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
 import type { DocumentInfo, KnowledgeCategory, PageResult, ProjectInfo, SecurityLevel } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
-import { buildCategoryOptions, findCategory } from '@/utils/categories';
+import {
+  buildCategoryOptions,
+  findCategory,
+  findCategoryPath,
+  localizedCategoryLabel,
+  localizedCategoryPath,
+  localizedCategoryTreePath,
+} from '@/utils/categories';
 import {
   indexStatusOptions as buildIndexStatusOptions,
   indexStatusText as resolveIndexStatusText,
@@ -126,7 +133,7 @@ const categoryForm = reactive({
 
 const projectId = computed(() => Number(route.params.id));
 const projectTitle = computed(() => project.value?.project_name || project.value?.name || t('document.detail.projectFallback', { id: projectId.value }));
-const categoryOptions = computed(() => buildCategoryOptions(categories.value));
+const categoryOptions = computed(() => buildCategoryOptions(categories.value, 0, (_name, category, path) => localizedCategoryLabel(category, t, path)));
 const parseStatusOptions = computed(() => buildParseStatusOptions());
 const indexStatusOptions = computed(() => buildIndexStatusOptions());
 const documentStatusOptions = computed(() => [
@@ -170,37 +177,26 @@ const directoryRows = computed<DirectoryRow[]>(() => {
 
   if (!isDirectoryExpanded(ALL_DIRECTORY_KEY)) return rows;
 
-  const walk = (items: KnowledgeCategory[], level: number): void => {
+  const walk = (items: KnowledgeCategory[], level: number, path: KnowledgeCategory[] = []): void => {
     for (const category of items) {
+      const currentPath = [...path, category];
       rows.push({
         id: category.id,
         key: directoryKey(category.id),
-        name: category.name,
+        name: localizedCategoryLabel(category, t, currentPath),
         count: category.total_document_count,
         level,
         enabled: category.enabled,
         children: category.children || [],
       });
       if (isDirectoryExpanded(directoryKey(category.id))) {
-        walk(category.children || [], level + 1);
+        walk(category.children || [], level + 1, currentPath);
       }
     }
   };
 
   walk(categories.value, 1);
   return rows;
-});
-
-const categoryById = computed(() => {
-  const map = new Map<number, KnowledgeCategory>();
-  const walk = (items: KnowledgeCategory[]): void => {
-    items.forEach((item) => {
-      map.set(item.id, item);
-      walk(item.children || []);
-    });
-  };
-  walk(categories.value);
-  return map;
 });
 
 const activeDirectory = computed(() => {
@@ -352,7 +348,10 @@ function selectDirectory(row: DirectoryRow): void {
 
 function directoryName(document: DocumentInfo): string {
   const directoryId = document.directory_id || document.category_id || null;
-  return document.category_path || document.category_name || (directoryId ? categoryById.value.get(directoryId)?.name : '') || '-';
+  const directoryPath = findCategoryPath(categories.value, directoryId);
+  if (directoryPath.length) return localizedCategoryTreePath(directoryPath, t);
+  const rawDirectory = document.category_path || document.category_name || '';
+  return rawDirectory ? localizedCategoryPath(rawDirectory, t) : '-';
 }
 
 function documentDisplayName(document: DocumentInfo): string {
@@ -729,7 +728,7 @@ onMounted(async () => {
                 <ChevronRightSIcon v-else />
               </span>
               <span v-else class="directory-toggle-placeholder"></span>
-              <span class="directory-name">{{ row.name }}</span>
+              <span class="directory-name" :title="row.name">{{ row.name }}</span>
             </span>
             <span class="directory-count">{{ row.count }}</span>
           </t-button>
@@ -837,7 +836,7 @@ onMounted(async () => {
               </t-link>
             </template>
             <template #directory="{ row }">
-              {{ directoryName(row) }}
+              <span class="document-directory-cell" :title="directoryName(row)">{{ directoryName(row) }}</span>
             </template>
             <template #security_level="{ row }">
               <t-tag size="small" variant="light" :theme="securityLevelTheme(row.security_level)">
@@ -1138,9 +1137,11 @@ onMounted(async () => {
 
 .directory-row-main {
   display: inline-flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
   gap: 4px;
+  overflow: hidden;
 }
 
 .directory-toggle,
@@ -1154,6 +1155,7 @@ onMounted(async () => {
 }
 
 .directory-name {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   font-weight: 400;
@@ -1382,6 +1384,14 @@ onMounted(async () => {
 .document-name-link {
   display: inline-block;
   max-width: 100%;
+}
+
+.document-directory-cell {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .system-pagination {

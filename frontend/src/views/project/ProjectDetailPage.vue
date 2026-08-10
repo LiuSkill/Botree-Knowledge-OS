@@ -67,7 +67,15 @@ import type {
   SecurityLevel,
 } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
-import { buildCategoryOptions, collectCategoryIds, findCategory } from '@/utils/categories';
+import {
+  buildCategoryOptions,
+  collectCategoryIds,
+  findCategory,
+  findCategoryPath,
+  localizedCategoryLabel,
+  localizedCategoryPath,
+  localizedCategoryTreePath,
+} from '@/utils/categories';
 import { indexStatusText, parseStatusText, REVIEW_TASK_STATUS } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
@@ -255,7 +263,7 @@ const categoryDialogMode = ref<CategoryDialogMode>('create');
 const editingCategoryId = ref<number | null>(null);
 
 const projectId = computed(() => Number(route.params.id));
-const categoryOptions = computed(() => buildCategoryOptions(categories.value));
+const categoryOptions = computed(() => buildCategoryOptions(categories.value, 0, (_name, category, path) => localizedCategoryLabel(category, t, path)));
 const documentStatusOptions = computed(() => [
   { label: t('project.detail.document.statusPendingReview'), value: '待审核' },
   { label: t('project.detail.document.statusPublished'), value: '已发布' },
@@ -415,7 +423,7 @@ const filteredDocuments = computed(() => {
 const overviewDirectoryTree = computed<OverviewDirectoryNode[]>(() => {
   locale.value;
   if (categories.value.length) {
-    return categories.value.map(toOverviewDirectoryNode);
+    return categories.value.map((category) => toOverviewDirectoryNode(category));
   }
   return DEFAULT_PROJECT_DIRECTORY_TEMPLATE.map(toDefaultDirectoryNode);
 });
@@ -566,17 +574,18 @@ function isCategoryExpanded(categoryId: number): boolean {
   return expandedCategoryIds.value.includes(categoryId);
 }
 
-function toOverviewDirectoryNode(category: KnowledgeCategory): OverviewDirectoryNode {
+function toOverviewDirectoryNode(category: KnowledgeCategory, path: KnowledgeCategory[] = []): OverviewDirectoryNode {
   /**
    * 将后端项目目录树转换为概览页展示结构，计数优先使用包含子目录的 total_document_count。
    */
+  const currentPath = [...path, category];
   return {
     key: `category-${category.id}`,
     code: category.code,
-    name: category.name,
+    name: localizedCategoryLabel(category, t, currentPath),
     count: category.total_document_count,
     enabled: category.enabled,
-    children: (category.children || []).map(toOverviewDirectoryNode),
+    children: (category.children || []).map((child) => toOverviewDirectoryNode(child, currentPath)),
   };
 }
 
@@ -1036,6 +1045,14 @@ function documentDisplayName(document: DocumentInfo): string {
 
 function documentDirectoryId(document: DocumentInfo | null): number | null {
   return document?.directory_id || document?.category_id || null;
+}
+
+function documentDirectoryName(document: DocumentInfo | null): string {
+  const directoryId = documentDirectoryId(document);
+  const directoryPath = findCategoryPath(categories.value, directoryId);
+  if (directoryPath.length) return localizedCategoryTreePath(directoryPath, t);
+  const rawDirectory = document?.category_path || document?.category_name || '';
+  return rawDirectory ? localizedCategoryPath(rawDirectory, t) : '-';
 }
 
 function documentStatusCode(document: DocumentInfo): 'pending_review' | 'published' | string {
@@ -1588,7 +1605,7 @@ onMounted(loadData);
                   <ChevronRightSIcon v-else />
                 </span>
                 <span v-else class="overview-directory-toggle overview-directory-toggle--empty"></span>
-                <span>{{ row.name }}</span>
+                <span :title="row.name">{{ row.name }}</span>
               </span>
               <strong>{{ row.count }}</strong>
             </button>
@@ -1653,7 +1670,7 @@ onMounted(loadData);
           <div class="file-type-badge">{{ selectedDocument.file_type || 'FILE' }}</div>
           <div class="drawer-file-title">
             <div>{{ documentDisplayName(selectedDocument) }}</div>
-            <span>{{ selectedDocument.category_path || selectedDocument.category_name || '-' }}</span>
+            <span>{{ documentDirectoryName(selectedDocument) }}</span>
           </div>
         </div>
 
@@ -1704,7 +1721,7 @@ onMounted(loadData);
             <div class="drawer-section-title">{{ t('project.detail.document.sectionFile') }}</div>
             <div class="drawer-info-grid">
               <div><span>{{ t('project.detail.document.fieldProject') }}</span><strong>{{ project?.project_name || project?.name || '-' }}</strong></div>
-              <div><span>{{ t('project.detail.document.fieldDirectory') }}</span><strong>{{ selectedDocument.category_path || selectedDocument.category_name || '-' }}</strong></div>
+              <div><span>{{ t('project.detail.document.fieldDirectory') }}</span><strong>{{ documentDirectoryName(selectedDocument) }}</strong></div>
               <div><span>{{ t('project.detail.document.fieldType') }}</span><strong>{{ selectedDocument.document_type || selectedDocument.file_type || '-' }}</strong></div>
               <div><span>{{ t('project.detail.document.fieldDiscipline') }}</span><strong>{{ selectedDocument.discipline || '-' }}</strong></div>
               <div><span>{{ t('project.detail.document.fieldVersion') }}</span><strong>{{ documentVersionLabel(selectedDocument) }}</strong></div>
@@ -2388,6 +2405,7 @@ onMounted(loadData);
 
 .overview-directory-name {
   display: inline-flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
   gap: 8px;
@@ -2395,6 +2413,7 @@ onMounted(loadData);
 }
 
 .overview-directory-name > span:last-child {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

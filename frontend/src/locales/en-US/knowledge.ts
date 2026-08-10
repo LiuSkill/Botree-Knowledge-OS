@@ -23,6 +23,7 @@ export default {
     enabled: 'Enabled',
     codePlaceholder: 'Auto-generated if empty',
     builtin: {
+      theoreticalKnowledge: 'Theoretical Knowledge',
       processTechnology: 'Process Technology',
       leachingProcess: 'Leaching Process',
       solventExtractionSeparation: 'Solvent Extraction Separation',
