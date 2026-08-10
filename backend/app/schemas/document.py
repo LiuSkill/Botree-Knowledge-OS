@@ -198,6 +198,16 @@ class DocumentSecurityLevelUpdate(BaseModel):
     security_level: str = Field(..., description="public/internal/confidential")
 
 
+class KnowledgeDocumentStatusOptionsOut(BaseModel):
+    """Knowledge document filter status options after applying business status rules."""
+
+    project_document_statuses: list[str] = Field(default_factory=list)
+    parse_statuses: list[str] = Field(default_factory=list)
+    index_statuses: list[str] = Field(default_factory=list)
+    approved_index_statuses: list[str] = Field(default_factory=list)
+    review_task_statuses: list[str] = Field(default_factory=list)
+
+
 class DocumentMetadataUpdate(BaseModel):
     """Project document metadata update request."""
 

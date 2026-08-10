@@ -17,6 +17,7 @@ import type {
   DocumentPreview,
   DocumentVersionInfo,
   IndexTaskInfo,
+  KnowledgeDocumentStatusOptions,
   SecurityLevel,
 } from '@/types/api';
 
@@ -29,6 +30,10 @@ export function listDocuments(params?: {
   keyword?: string;
 }): Promise<DocumentInfo[]> {
   return request.get('/documents', { params }) as Promise<DocumentInfo[]>;
+}
+
+export function getKnowledgeDocumentStatusOptions(params?: { project_id?: number | null }): Promise<KnowledgeDocumentStatusOptions> {
+  return request.get('/documents/status-options', { params }) as Promise<KnowledgeDocumentStatusOptions>;
 }
 
 export function getDocument(id: number): Promise<DocumentInfo> {

@@ -28,9 +28,7 @@ import { computed, onMounted, reactive, ref, type Component } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
-import {
-  downloadDocumentVersion,
-} from '@/api/documents';
+import { downloadDocumentVersion } from '@/api/documents';
 import {
   createProjectDirectory,
   createProjectDocumentVersion,
@@ -76,7 +74,16 @@ import {
   localizedCategoryPath,
   localizedCategoryTreePath,
 } from '@/utils/categories';
-import { indexStatusText, parseStatusText, REVIEW_TASK_STATUS } from '@/utils/constants';
+import {
+  PROJECT_DOCUMENT_STATUS_PENDING,
+  PROJECT_DOCUMENT_STATUS_PUBLISHED,
+  PROJECT_DOCUMENT_STATUS_REJECTED,
+  indexStatusText,
+  parseStatusText,
+  projectDocumentStatusText as resolveProjectDocumentStatusText,
+  projectDocumentStatusValue,
+  REVIEW_TASK_STATUS,
+} from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { clampSecurityLevel, securityLevelLabel, securityLevelOptions, securityLevelTheme } from '@/utils/securityLevels';
 import ProjectFormDrawer from '@/views/project/ProjectFormDrawer.vue';
@@ -264,10 +271,6 @@ const editingCategoryId = ref<number | null>(null);
 
 const projectId = computed(() => Number(route.params.id));
 const categoryOptions = computed(() => buildCategoryOptions(categories.value, 0, (_name, category, path) => localizedCategoryLabel(category, t, path)));
-const documentStatusOptions = computed(() => [
-  { label: t('project.detail.document.statusPendingReview'), value: '待审核' },
-  { label: t('project.detail.document.statusPublished'), value: '已发布' },
-]);
 const documentTypeOptions = computed(() => DOCUMENT_TYPE_OPTIONS.map((value) => ({ label: t(DOCUMENT_TYPE_KEY_MAP[value]), value })));
 const disciplineOptions = computed(() => DISCIPLINE_OPTIONS.map((value) => ({ label: t(DISCIPLINE_KEY_MAP[value]), value })));
 const canViewProjectDetail = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
@@ -397,7 +400,7 @@ const filteredDocuments = computed(() => {
         .toLowerCase();
       if (!haystack.includes(keyword)) return false;
     }
-    if (documentFilters.document_status && documentStatusText(document) !== documentFilters.document_status) return false;
+    if (documentFilters.document_status && projectDocumentStatusValue(document.review_status || document.status || document.document_status) !== documentFilters.document_status) return false;
     if (documentFilters.security_level && document.security_level !== documentFilters.security_level) return false;
     if (documentFilters.parse_status && documentParseStatus(document) !== documentFilters.parse_status) return false;
     if (documentFilters.index_status && documentIndexStatus(document) !== documentFilters.index_status) return false;
@@ -1056,32 +1059,23 @@ function documentDirectoryName(document: DocumentInfo | null): string {
 }
 
 function documentStatusCode(document: DocumentInfo): 'pending_review' | 'published' | string {
-  const status = document.status || document.document_status || document.review_status;
-  const map: Record<string, 'pending_review' | 'published'> = {
-    pending_review: 'pending_review',
-    pending: 'pending_review',
-    active: 'published',
-    published: 'published',
-    reviewed: 'published',
-    draft: 'pending_review',
-    approved: 'published',
-    待审核: 'pending_review',
-    已发布: 'published',
-  };
-  return map[status] || status || '';
+  const status = document.review_status || document.status || document.document_status;
+  const value = projectDocumentStatusValue(status);
+  if (value === PROJECT_DOCUMENT_STATUS_PENDING) return 'pending_review';
+  if (value === PROJECT_DOCUMENT_STATUS_PUBLISHED) return 'published';
+  return value || '';
 }
 
 function documentStatusText(document: DocumentInfo): string {
-  const status = documentStatusCode(document);
-  const map: Record<string, string> = {
-    pending_review: 'project.detail.document.statusPendingReview',
-    published: 'project.detail.document.statusPublished',
-  };
-  return map[status] ? t(map[status]) : status || '-';
+  const status = document.review_status || document.status || document.document_status;
+  return resolveProjectDocumentStatusText(status) || '-';
 }
 
-function documentFileStatusTheme(document: DocumentInfo): 'default' | 'primary' | 'success' | 'warning' {
-  return documentStatusCode(document) === 'published' ? 'success' : 'warning';
+function documentFileStatusTheme(document: DocumentInfo): 'default' | 'primary' | 'success' | 'warning' | 'danger' {
+  const status = documentStatusCode(document);
+  if (status === 'published') return 'success';
+  if (status === PROJECT_DOCUMENT_STATUS_REJECTED) return 'danger';
+  return 'warning';
 }
 
 function documentParseStatus(document: DocumentInfo | DocumentVersionInfo | null): string {
@@ -1775,9 +1769,7 @@ onMounted(loadData);
                   </t-select>
                 </t-form-item>
                 <t-form-item :label="t('project.detail.document.fieldStatus')">
-                  <t-select v-model="selectedDocument.status" disabled>
-                    <t-option v-for="item in documentStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
-                  </t-select>
+                  <t-input :value="documentStatusText(selectedDocument)" disabled />
                 </t-form-item>
                 <t-form-item :label="t('project.detail.document.fieldSecurity')">
                   <t-select v-model="selectedDocument.security_level" :disabled="!canUpdateDocumentSecurity">

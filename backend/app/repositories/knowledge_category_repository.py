@@ -150,7 +150,7 @@ class KnowledgeCategoryRepository:
                     Document.discipline.like(like),
                 )
             )
-        if document_status == "published":
+        if document_status in {"published", "已发布"}:
             stmt = stmt.where(
                 or_(
                     Document.status.in_(("已发布", "published", "active")),
@@ -158,14 +158,12 @@ class KnowledgeCategoryRepository:
                     Document.review_status == "approved",
                 )
             )
-        elif document_status == "pending_review":
-            stmt = stmt.where(
-                or_(
-                    Document.status.in_(("待审核", "pending", "pending_review")),
-                    Document.document_status == "pending_review",
-                    Document.review_status.in_(("draft", "reviewing", "rejected")),
-                )
-            )
+        elif document_status in {"pending_review", "pending", "draft", "待审核"}:
+            stmt = stmt.where(Document.review_status == "draft")
+        elif document_status in {"reviewing", "submitted", "审核中"}:
+            stmt = stmt.where(Document.review_status.in_(("reviewing", "submitted")))
+        elif document_status in {"rejected", "已驳回"}:
+            stmt = stmt.where(Document.review_status == "rejected")
         elif document_status:
             stmt = stmt.where(Document.status == document_status)
         if security_level:

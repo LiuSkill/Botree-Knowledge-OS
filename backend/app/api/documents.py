@@ -35,6 +35,7 @@ from app.schemas.document import (
     DocumentSecurityLevelUpdate,
     DocumentVersionOut,
     IndexTaskOut,
+    KnowledgeDocumentStatusOptionsOut,
     PageCorrectionRequest,
     QualityCheckRequest,
     ReviewSubmitRequest,
@@ -113,6 +114,18 @@ def list_documents(
         keyword=keyword,
     )
     return success([DocumentOut.model_validate(item).model_dump(mode="json") for item in documents])
+
+
+@router.get("/status-options", summary="知识文档状态筛选选项")
+def list_status_options(
+    project_id: int | None = None,
+    current_user: User = Depends(require_any_permission("knowledge:view", "project:view", "review:view")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """返回按业务规则收敛后的知识文档状态，用于前端下拉查询条件。"""
+
+    options = DocumentService(db).list_status_options(current_user, project_id)
+    return success(KnowledgeDocumentStatusOptionsOut.model_validate(options).model_dump(mode="json"))
 
 
 @router.get("/assets/{asset_id}", summary="查看文档派生资产")

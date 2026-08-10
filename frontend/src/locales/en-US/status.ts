@@ -1,11 +1,11 @@
 export default {
-  draft: 'Draft', submitted: 'Submitted', reviewing: 'In Review', pending: 'Pending', approved: 'Approved', rejected: 'Rejected',
-  parsing: 'Parsing', parsed: 'Parsed', parsedPendingReview: 'Parsed, Pending Review', notIndexed: 'Not Indexed', indexing: 'Building Index', indexed: 'Indexed',
+  draft: 'Pending Review', submitted: 'In Review', reviewing: 'In Review', pending: 'Pending', approved: 'Published', rejected: 'Rejected',
+  parsing: 'Parsing', parsed: 'Parsed', parsedPendingReview: 'Parsed, Pending Review', notIndexed: 'Not Indexed', indexing: 'Building Index', indexed: 'Indexed', indexFailed: 'Index Failed', invalid: 'Invalid',
   unparsed: 'Unparsed', parseSuccess: 'Parsed', parseFailed: 'Parse Failed', queued: 'Queued', completed: 'Completed',
   active: 'Active', archived: 'Archived', enabled: 'Enabled', disabled: 'Disabled', running: 'Running', success: 'Success', failed: 'Failed', canceled: 'Canceled',
   public: 'Public', internal: 'Internal', confidential: 'Confidential',
   review: {
-    draft: 'Draft', submitted: 'Submitted', reviewing: 'In Review', approved: 'Approved', rejected: 'Rejected', archived: 'Archived',
+    draft: 'Pending Review', submitted: 'In Review', reviewing: 'In Review', approved: 'Published', rejected: 'Rejected', archived: 'Archived',
   },
   indexTaskType: {
     mineruParse: 'Document Parsing',

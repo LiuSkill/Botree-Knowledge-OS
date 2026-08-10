@@ -27,6 +27,9 @@ const STATUS_KEYS: Record<string, string> = {
 };
 
 const text = computed(() => {
+  if (props.type === 'index' && props.value === 'failed') return t('status.indexFailed');
+  if (props.type === 'generic' && props.value === 'success') return t('status.parseSuccess');
+  if (props.type === 'generic' && props.value === 'failed') return t('status.parseFailed');
   const key = STATUS_KEYS[props.value];
   return key ? t(key) : props.value;
 });

@@ -303,6 +303,14 @@ export interface DocumentIndexSummary {
   built_by?: number | null;
 }
 
+export interface KnowledgeDocumentStatusOptions {
+  project_document_statuses: string[];
+  parse_statuses: string[];
+  index_statuses: string[];
+  approved_index_statuses: string[];
+  review_task_statuses: string[];
+}
+
 export interface DocumentChunk {
   id: number;
   document_id: number;
@@ -474,6 +482,7 @@ export interface ChatMessage {
 export interface ChatMessageTrace {
   id?: number;
   message_id: number;
+  trace_id?: string | null;
   session_id?: number;
   chat_type?: 'project_chat' | 'base_chat';
   mode?: string;
@@ -792,6 +801,7 @@ export interface QAAuditSession {
 export interface QAAuditDetail {
   id: number;
   message_id: number;
+  trace_id?: string | null;
   session_id: number;
   session_title: string;
   user_id: number;

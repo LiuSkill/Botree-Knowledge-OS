@@ -227,6 +227,23 @@ def _ensure_document_in_project(document_id: int, project_id: int, current_user:
     return document
 
 
+def _matches_project_document_status(document: object, status: str) -> bool:
+    """按项目资料审核状态筛选，兼容历史轻量状态字段与当前审核字段。"""
+
+    review_status = str(getattr(document, "review_status", "") or "")
+    document_status = str(getattr(document, "document_status", "") or "")
+    raw_status = str(getattr(document, "status", "") or "")
+    if status in {"published", "已发布"}:
+        return review_status == "approved" or document_status in {"reviewed", "active"} or raw_status in {"已发布", "published", "active"}
+    if status in {"pending_review", "pending", "draft", "待审核"}:
+        return review_status == "draft"
+    if status in {"reviewing", "submitted", "审核中"}:
+        return review_status in {"reviewing", "submitted"}
+    if status in {"rejected", "已驳回"}:
+        return review_status == "rejected"
+    return raw_status == status
+
+
 @router.get("/{project_id}/overview", summary="项目概览")
 def get_project_overview(
     project_id: int,
@@ -262,7 +279,7 @@ def list_project_documents(
         keyword=keyword,
     )
     if status is not None:
-        documents = [item for item in documents if item.status == status]
+        documents = [item for item in documents if _matches_project_document_status(item, status)]
     if security_level is not None:
         documents = [item for item in documents if item.security_level == security_level]
     if parse_status is not None:

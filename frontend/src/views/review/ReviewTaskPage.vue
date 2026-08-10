@@ -13,7 +13,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
-import { createDocumentIndexBuildTask, createDocumentIndexBuildTasksBatch, listDocumentIndexTasks } from '@/api/documents';
+import { createDocumentIndexBuildTask, createDocumentIndexBuildTasksBatch, getKnowledgeDocumentStatusOptions, listDocumentIndexTasks } from '@/api/documents';
 import { listKnowledgeCategories } from '@/api/knowledgeCategories';
 import { listProjects } from '@/api/projects';
 import {
@@ -29,10 +29,16 @@ import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
-import type { DocumentInfo, IndexTaskInfo, KnowledgeCategory, ProjectInfo, ReviewTask } from '@/types/api';
+import type { DocumentInfo, IndexTaskInfo, KnowledgeCategory, KnowledgeDocumentStatusOptions, ProjectInfo, ReviewTask } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import { buildCategoryOptions } from '@/utils/categories';
-import { REVIEW_TASK_STATUS, indexStatusOptions, indexTaskStatusText, isReviewTaskPending } from '@/utils/constants';
+import {
+  REVIEW_TASK_STATUS,
+  indexStatusOptions,
+  indexTaskStatusText,
+  isReviewTaskPending,
+  reviewTaskStatusOptions as buildReviewTaskStatusOptions,
+} from '@/utils/constants';
 import { formatDateTime } from '@/utils/format';
 import { showConfirmDialog } from '@/utils/confirmDialog';
 import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
@@ -67,6 +73,7 @@ const taskStatus = ref('');
 const taskProjectId = ref<number | null>(null);
 const tasks = ref<ReviewTask[]>([]);
 const approvedDocuments = ref<DocumentInfo[]>([]);
+const statusOptions = ref<KnowledgeDocumentStatusOptions | null>(null);
 const taskTotal = ref(0);
 const taskPage = ref(1);
 const taskPageSize = ref(10);
@@ -99,12 +106,32 @@ const canBuildIndex = computed(() => authStore.hasActionPermission(PERMISSIONS.R
 const canApproveTask = computed(() => authStore.hasActionPermission(PERMISSIONS.REVIEW_APPROVE));
 const canRejectTask = computed(() => authStore.hasActionPermission(PERMISSIONS.REVIEW_REJECT));
 
+const taskStatusOptions = computed(() => buildReviewTaskStatusOptions(statusOptions.value?.review_task_statuses));
 const buildStatusOptions = computed(() => {
   /**
    * 构建进度筛选项统一来自状态常量，避免页面散落魔法字符串。
    */
-  return indexStatusOptions();
+  return indexStatusOptions(statusOptions.value?.approved_index_statuses);
 });
+
+function emptyStatusOptions(): KnowledgeDocumentStatusOptions {
+  return {
+    project_document_statuses: [],
+    parse_statuses: [],
+    index_statuses: [],
+    approved_index_statuses: [],
+    review_task_statuses: [],
+  };
+}
+
+async function loadStatusOptions(): Promise<void> {
+  try {
+    statusOptions.value = await getKnowledgeDocumentStatusOptions();
+  } catch {
+    statusOptions.value = emptyStatusOptions();
+  }
+}
+
 const rejectDialogVisible = ref(false);
 const rejectSubmitting = ref(false);
 const batchRejectMode = ref(false);
@@ -785,7 +812,7 @@ onMounted(async () => {
    * 初始化审核中心基础数据。
    */
   applyRouteQueryFilters();
-  await Promise.all([loadProjects(), loadCategories()]);
+  await Promise.all([loadProjects(), loadCategories(), loadStatusOptions()]);
   await refreshActiveTab();
 });
 
@@ -814,9 +841,7 @@ onBeforeUnmount(() => {
           </t-form-item>
           <t-form-item :label="t('review.field.reviewStatus')">
             <t-select v-model="taskStatus" class="filter-select" clearable :placeholder="t('review.placeholder.allStatus')" @change="handleTaskSearch">
-              <t-option :value="REVIEW_TASK_STATUS.reviewing" :label="t('status.review.reviewing')" />
-              <t-option :value="REVIEW_TASK_STATUS.approved" :label="t('status.review.approved')" />
-              <t-option :value="REVIEW_TASK_STATUS.rejected" :label="t('status.review.rejected')" />
+              <t-option v-for="item in taskStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
             </t-select>
           </t-form-item>
           <t-form-item>

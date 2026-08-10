@@ -49,6 +49,31 @@ class ReviewRepository:
             stmt = stmt.where(Document.project_id == project_id)
         return list(self.db.scalars(stmt).all())
 
+    def list_distinct_task_status_values(self, project_id: int | None = None) -> list[str]:
+        """按当前数据库已有最新审核任务统计查询下拉状态。"""
+
+        latest_task_ids = (
+            select(func.max(ReviewTask.id).label("task_id"))
+            .group_by(ReviewTask.document_id)
+            .subquery()
+        )
+        filters: list[object] = [
+            Document.is_deleted.is_(False),
+            ReviewTask.review_status.is_not(None),
+            ReviewTask.review_status != "",
+        ]
+        if project_id is not None:
+            filters.append(Document.project_id == project_id)
+        stmt = (
+            select(ReviewTask.review_status)
+            .join(latest_task_ids, latest_task_ids.c.task_id == ReviewTask.id)
+            .join(Document, Document.id == ReviewTask.document_id)
+            .where(*filters)
+            .distinct()
+            .order_by(ReviewTask.review_status)
+        )
+        return [str(value) for value in self.db.scalars(stmt).all()]
+
     def count_distinct_review_documents(
         self,
         *,

@@ -10,6 +10,7 @@ Document Repository
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy import and_, delete, false, func, or_, select, update
 from sqlalchemy.orm import Session
@@ -72,6 +73,39 @@ class DocumentRepository:
         if keyword:
             stmt = stmt.where((Document.file_name.like(f"%{keyword}%")) | (Document.document_name.like(f"%{keyword}%")))
         return list(self.db.scalars(stmt).all())
+
+    def list_distinct_status_values(
+        self,
+        *,
+        project_id: int | None = None,
+        security_levels: list[str] | None = None,
+        viewer_user_id: int | None = None,
+    ) -> dict[str, list[str]]:
+        """按当前数据库已有文档统计查询下拉状态，避免前端展示不存在的状态。"""
+
+        base_filters: list[object] = [Document.is_deleted.is_(False)]
+        if project_id is not None:
+            base_filters.append(Document.project_id == project_id)
+        if security_levels is not None:
+            base_filters.append(Document.security_level.in_(security_levels))
+        if viewer_user_id is not None:
+            base_filters.append(visible_document_filter(viewer_user_id))
+
+        def values(column: Any, extra_filters: list[object] | None = None) -> list[str]:
+            stmt = (
+                select(column)
+                .where(*base_filters, *(extra_filters or []), column.is_not(None), column != "")
+                .distinct()
+                .order_by(column)
+            )
+            return [str(value) for value in self.db.scalars(stmt).all()]
+
+        return {
+            "project_document_statuses": values(Document.status),
+            "parse_statuses": values(Document.parse_status),
+            "index_statuses": values(Document.index_status),
+            "approved_index_statuses": values(Document.index_status, [Document.review_status == "approved"]),
+        }
 
     def list_approved_page(
         self,
@@ -286,18 +320,18 @@ class DocumentRepository:
         return filters
 
     def _project_document_status_filter(self, status: str) -> object:
-        if status == "published":
+        if status in {"published", "已发布"}:
             return or_(
                 Document.status.in_(("已发布", "published", "active")),
                 Document.document_status.in_(("reviewed", "active")),
                 Document.review_status == "approved",
             )
-        if status == "pending_review":
-            return or_(
-                Document.status.in_(("待审核", "pending", "pending_review")),
-                Document.document_status == "pending_review",
-                Document.review_status.in_(("draft", "reviewing", "rejected")),
-            )
+        if status in {"pending_review", "pending", "draft", "待审核"}:
+            return Document.review_status == "draft"
+        if status in {"reviewing", "submitted", "审核中"}:
+            return Document.review_status.in_(("reviewing", "submitted"))
+        if status in {"rejected", "已驳回"}:
+            return Document.review_status == "rejected"
         return Document.status == status
 
     def get(self, document_id: int) -> Document | None:

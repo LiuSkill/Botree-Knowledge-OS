@@ -13,7 +13,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
-import { submitDocumentReview } from '@/api/documents';
+import { getKnowledgeDocumentStatusOptions, submitDocumentReview } from '@/api/documents';
 import { createKnowledgeCategory, deleteKnowledgeCategory, listKnowledgeCategories, updateKnowledgeCategory } from '@/api/knowledgeCategories';
 import { listKnowledgeBaseDocuments, listKnowledgeBases, uploadKnowledgeDocument } from '@/api/knowledgeBases';
 import PageContainer from '@/components/PageContainer.vue';
@@ -21,7 +21,7 @@ import StatusTag from '@/components/StatusTag.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
-import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, SecurityLevel } from '@/types/api';
+import type { DocumentInfo, KnowledgeBaseInfo, KnowledgeCategory, KnowledgeDocumentStatusOptions, SecurityLevel } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import {
   buildCategoryOptions,
@@ -32,6 +32,12 @@ import {
   localizedCategoryPath,
   localizedCategoryTreePath,
 } from '@/utils/categories';
+import {
+  indexStatusOptions as buildIndexStatusOptions,
+  parseStatusOptions as buildParseStatusOptions,
+  projectDocumentStatusOptions as buildProjectDocumentStatusOptions,
+  projectDocumentStatusValue,
+} from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { clampSecurityLevel, securityLevelLabel, securityLevelTheme } from '@/utils/securityLevels';
 
@@ -61,11 +67,15 @@ const searchKeyword = ref('');
 const activePage = ref(1);
 const pageSize = ref(PAGE_SIZE_OPTIONS[0]);
 const activeFileType = ref<FileTypeFilter>('all');
+const activeDocumentStatus = ref('');
+const activeParseStatus = ref('');
+const activeIndexStatus = ref('');
 const activeCategoryId = ref<number | null>(null);
 const expandedCategoryIds = ref<number[]>([]);
 const enterpriseBases = ref<KnowledgeBaseInfo[]>([]);
 const enterpriseDocuments = ref<DocumentInfo[]>([]);
 const categories = ref<KnowledgeCategory[]>([]);
+const statusOptions = ref<KnowledgeDocumentStatusOptions | null>(null);
 const uploadDialogVisible = ref(false);
 const selectedUploadFiles = ref<File[]>([]);
 const uploadInputRef = ref<HTMLInputElement | null>(null);
@@ -93,6 +103,9 @@ const fileTypeFilters = computed<Array<{ label: string; value: FileTypeFilter }>
   { label: 'Word', value: 'word' },
   { label: 'Excel', value: 'excel' },
 ]);
+const documentStatusOptions = computed(() => buildProjectDocumentStatusOptions(statusOptions.value?.project_document_statuses));
+const parseStatusOptions = computed(() => buildParseStatusOptions(statusOptions.value?.parse_statuses));
+const indexStatusOptions = computed(() => buildIndexStatusOptions(statusOptions.value?.index_statuses));
 
 const uploadTargetBase = computed(() => enterpriseBases.value[0] || null);
 const canCreateCategories = computed(() => authStore.hasActionPermission(PERMISSIONS.KNOWLEDGE_CREATE));
@@ -152,7 +165,12 @@ const documentsMatchingQuery = computed(() => {
   return enterpriseDocuments.value.filter((document) => {
     const matchedFileType = activeFileType.value === 'all' || getDocumentFileType(document) === activeFileType.value;
     const matchedKeyword = !keyword || normalizeText(document.file_name).includes(keyword);
-    return matchedFileType && matchedKeyword;
+    const matchedDocumentStatus =
+      !activeDocumentStatus.value ||
+      projectDocumentStatusValue(document.review_status || document.status || document.document_status) === activeDocumentStatus.value;
+    const matchedParseStatus = !activeParseStatus.value || normalizeParseStatus(document) === activeParseStatus.value;
+    const matchedIndexStatus = !activeIndexStatus.value || normalizeIndexStatus(document) === activeIndexStatus.value;
+    return matchedFileType && matchedKeyword && matchedDocumentStatus && matchedParseStatus && matchedIndexStatus;
   });
 });
 
@@ -191,7 +209,7 @@ const pagedDocuments = computed(() => {
   return filteredDocuments.value.slice(startIndex, startIndex + pageSize.value);
 });
 
-watch([activeCategoryId, activeFileType, searchKeyword], () => {
+watch([activeCategoryId, activeFileType, activeDocumentStatus, activeParseStatus, activeIndexStatus, searchKeyword], () => {
   /**
    * 筛选条件变化时回到第一页。
    */
@@ -204,10 +222,15 @@ async function loadEnterpriseKnowledge(): Promise<void> {
    */
   loading.value = true;
   try {
-    const [baseCategories, bases] = await Promise.all([listKnowledgeCategories({ scope_type: 'base' }), listKnowledgeBases({ type: 'base' })]);
+    const [baseCategories, bases, latestStatusOptions] = await Promise.all([
+      listKnowledgeCategories({ scope_type: 'base' }),
+      listKnowledgeBases({ type: 'base' }),
+      getKnowledgeDocumentStatusOptions().catch(() => emptyStatusOptions()),
+    ]);
     categories.value = baseCategories;
     expandedCategoryIds.value = collectInitialExpandedIds(baseCategories);
     enterpriseBases.value = bases;
+    statusOptions.value = latestStatusOptions;
     const documentGroups = await Promise.all(enterpriseBases.value.map((base) => listKnowledgeBaseDocuments(base.id)));
     enterpriseDocuments.value = documentGroups
       .flat()
@@ -218,6 +241,16 @@ async function loadEnterpriseKnowledge(): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+function emptyStatusOptions(): KnowledgeDocumentStatusOptions {
+  return {
+    project_document_statuses: [],
+    parse_statuses: [],
+    index_statuses: [],
+    approved_index_statuses: [],
+    review_task_statuses: [],
+  };
 }
 
 function collectInitialExpandedIds(items: KnowledgeCategory[]): number[] {
@@ -277,6 +310,35 @@ function getFileTypeLabel(document: DocumentInfo): string {
   if (type === 'word') return 'Word';
   if (type === 'excel') return 'Excel';
   return document.file_type?.toUpperCase() || t('knowledge.value.unknown');
+}
+
+function normalizeParseStatus(document: DocumentInfo): string {
+  const status = document.parse_status || '';
+  const map: Record<string, string> = {
+    parsed: 'success',
+    success: 'success',
+    completed: 'success',
+    failed: 'failed',
+    fail: 'failed',
+    parsing: 'parsing',
+    running: 'parsing',
+  };
+  return map[status] || status || 'unparsed';
+}
+
+function normalizeIndexStatus(document: DocumentInfo): string {
+  const status = document.index_status || '';
+  const map: Record<string, string> = {
+    indexed: 'indexed',
+    success: 'indexed',
+    completed: 'indexed',
+    failed: 'failed',
+    fail: 'failed',
+    not_indexed: 'not_indexed',
+    pending: 'not_indexed',
+    unindexed: 'not_indexed',
+  };
+  return map[status] || status || 'not_indexed';
 }
 
 function openUploadDialog(): void {
@@ -569,6 +631,21 @@ onMounted(loadEnterpriseKnowledge);
         <t-form-item :label="t('knowledge.filter.fileType')">
           <t-select v-model="activeFileType" class="filter-select">
             <t-option v-for="item in fileTypeFilters" :key="item.value" :value="item.value" :label="item.label" />
+          </t-select>
+        </t-form-item>
+        <t-form-item :label="t('document.detail.field.status')">
+          <t-select v-model="activeDocumentStatus" class="filter-select" clearable :placeholder="t('review.placeholder.allStatus')">
+            <t-option v-for="item in documentStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
+          </t-select>
+        </t-form-item>
+        <t-form-item :label="t('document.detail.field.parseStatus')">
+          <t-select v-model="activeParseStatus" class="filter-select" clearable :placeholder="t('review.placeholder.allStatus')">
+            <t-option v-for="item in parseStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
+          </t-select>
+        </t-form-item>
+        <t-form-item :label="t('document.detail.field.indexStatus')">
+          <t-select v-model="activeIndexStatus" class="filter-select" clearable :placeholder="t('review.placeholder.allStatus')">
+            <t-option v-for="item in indexStatusOptions" :key="item.value" :value="item.value" :label="item.label" />
           </t-select>
         </t-form-item>
       </t-form>

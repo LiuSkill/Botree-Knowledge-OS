@@ -25,7 +25,7 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 
-import { createDocumentIndexBuildTask, submitDocumentReview } from '@/api/documents';
+import { createDocumentIndexBuildTask, getKnowledgeDocumentStatusOptions, submitDocumentReview } from '@/api/documents';
 import {
   createProjectDirectory,
   deleteProjectDirectory,
@@ -38,7 +38,7 @@ import {
 import PageContainer from '@/components/PageContainer.vue';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useAuthStore } from '@/stores/auth';
-import type { DocumentInfo, KnowledgeCategory, PageResult, ProjectInfo, SecurityLevel } from '@/types/api';
+import type { DocumentInfo, KnowledgeDocumentStatusOptions, KnowledgeCategory, PageResult, ProjectInfo, SecurityLevel } from '@/types/api';
 import { withBreadcrumbContext } from '@/utils/breadcrumbContext';
 import {
   buildCategoryOptions,
@@ -53,6 +53,9 @@ import {
   indexStatusText as resolveIndexStatusText,
   parseStatusOptions as buildParseStatusOptions,
   parseStatusText as resolveParseStatusText,
+  projectDocumentStatusOptions as buildProjectDocumentStatusOptions,
+  projectDocumentStatusText as resolveProjectDocumentStatusText,
+  projectDocumentStatusTheme as resolveProjectDocumentStatusTheme,
 } from '@/utils/constants';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { confirmRebuildIndexedDocument, isIndexedIndexStatus } from '@/utils/indexBuildConfirm';
@@ -85,6 +88,7 @@ const { t } = useI18n();
 
 const categories = ref<KnowledgeCategory[]>([]);
 const documents = ref<DocumentInfo[]>([]);
+const statusOptions = ref<KnowledgeDocumentStatusOptions | null>(null);
 const documentTotal = ref(0);
 const directoryDocumentTotal = ref(0);
 const project = ref<ProjectInfo | null>(null);
@@ -134,12 +138,9 @@ const categoryForm = reactive({
 const projectId = computed(() => Number(route.params.id));
 const projectTitle = computed(() => project.value?.project_name || project.value?.name || t('document.detail.projectFallback', { id: projectId.value }));
 const categoryOptions = computed(() => buildCategoryOptions(categories.value, 0, (_name, category, path) => localizedCategoryLabel(category, t, path)));
-const parseStatusOptions = computed(() => buildParseStatusOptions());
-const indexStatusOptions = computed(() => buildIndexStatusOptions());
-const documentStatusOptions = computed(() => [
-  { label: t('project.detail.document.statusPublished'), value: 'published' },
-  { label: t('project.detail.document.statusPendingReview'), value: 'pending_review' },
-]);
+const parseStatusOptions = computed(() => buildParseStatusOptions(statusOptions.value?.parse_statuses));
+const indexStatusOptions = computed(() => buildIndexStatusOptions(statusOptions.value?.index_statuses));
+const documentStatusOptions = computed(() => buildProjectDocumentStatusOptions(statusOptions.value?.project_document_statuses));
 const canViewDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_VIEW));
 const canUploadDocuments = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_UPLOAD));
 const canCreateDirectories = computed(() => authStore.hasActionPermission(PERMISSIONS.PROJECT_DIRECTORY_CREATE));
@@ -161,6 +162,16 @@ const documentColumns = computed(() => [
   { colKey: 'created_at', title: t('document.detail.field.uploadedAt'), width: 170, ellipsis: true },
   { colKey: 'operation', title: t('document.detail.field.operation'), width: 172, align: 'center', fixed: 'right' },
 ]);
+
+function emptyStatusOptions(): KnowledgeDocumentStatusOptions {
+  return {
+    project_document_statuses: [],
+    parse_statuses: [],
+    index_statuses: [],
+    approved_index_statuses: [],
+    review_task_statuses: [],
+  };
+}
 
 const directoryRows = computed<DirectoryRow[]>(() => {
   const rows: DirectoryRow[] = [
@@ -207,10 +218,11 @@ async function loadData(): Promise<void> {
   if (!canViewDocuments.value) return;
   loading.value = true;
   try {
-    const [projectResult, directoryResult, documentResult] = await Promise.allSettled([
+    const [projectResult, directoryResult, documentResult, statusOptionsResult] = await Promise.allSettled([
       getProject(projectId.value),
       listProjectDirectories(projectId.value, directoryFilterParams()),
       listProjectDocumentsPage(projectId.value, documentQueryParams()),
+      getKnowledgeDocumentStatusOptions({ project_id: projectId.value }),
     ]);
 
     if (projectResult.status === 'fulfilled') {
@@ -234,6 +246,8 @@ async function loadData(): Promise<void> {
       documentTotal.value = 0;
       MessagePlugin.error(documentResult.reason instanceof Error ? documentResult.reason.message : t('project.detail.message.documentsLoadFailed'));
     }
+
+    statusOptions.value = statusOptionsResult.status === 'fulfilled' ? statusOptionsResult.value : emptyStatusOptions();
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : t('project.detail.message.documentsLoadFailed'));
   } finally {
@@ -255,12 +269,14 @@ async function loadDocumentsAndDirectories(): Promise<void> {
   if (!canViewDocuments.value) return;
   loading.value = true;
   try {
-    const [documentResult, directoryResult] = await Promise.all([
+    const [documentResult, directoryResult, statusOptionsResult] = await Promise.all([
       listProjectDocumentsPage(projectId.value, documentQueryParams()),
       listProjectDirectories(projectId.value, directoryFilterParams()),
+      getKnowledgeDocumentStatusOptions({ project_id: projectId.value }).catch(() => emptyStatusOptions()),
     ]);
     applyDocumentPage(documentResult);
     applyDirectoryTree(directoryResult);
+    statusOptions.value = statusOptionsResult;
   } finally {
     loading.value = false;
   }
@@ -371,26 +387,13 @@ function documentUploader(document: DocumentInfo): string {
 }
 
 function documentStatusLabel(document: DocumentInfo): string {
-  const status = document.status || document.document_status || document.review_status;
-  const map: Record<string, string> = {
-    active: 'project.detail.document.statusPublished',
-    approved: 'project.detail.document.statusPublished',
-    published: 'project.detail.document.statusPublished',
-    reviewed: 'project.detail.document.statusPublished',
-    pending: 'project.detail.document.statusPendingReview',
-    pending_review: 'project.detail.document.statusPendingReview',
-    draft: 'project.detail.document.statusPendingReview',
-    submitted: 'project.detail.document.statusPendingReview',
-  };
-  const key = map[status || ''];
-  return key ? t(key) : status || '-';
+  const status = document.review_status || document.status || document.document_status;
+  return resolveProjectDocumentStatusText(status) || '-';
 }
 
-function documentStatusTheme(document: DocumentInfo): 'success' | 'warning' | 'default' {
-  const status = document.status || document.document_status || document.review_status;
-  if (['active', 'approved', 'published', 'reviewed'].includes(status || '')) return 'success';
-  if (['pending', 'pending_review', 'draft', 'submitted'].includes(status || '')) return 'warning';
-  return 'default';
+function documentStatusTheme(document: DocumentInfo): 'success' | 'warning' | 'danger' | 'default' {
+  const status = document.review_status || document.status || document.document_status;
+  return resolveProjectDocumentStatusTheme(status);
 }
 
 function parseStatusLabel(document: DocumentInfo): string {

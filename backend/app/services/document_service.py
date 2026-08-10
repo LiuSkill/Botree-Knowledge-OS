@@ -91,7 +91,15 @@ DOCUMENT_STATUS_ACTIVE = "active"
 DOCUMENT_STATUS_INACTIVE = "inactive"
 DOCUMENT_STATUS_ARCHIVED = "archived"
 PROJECT_DOCUMENT_STATUS_PENDING = "待审核"
+PROJECT_DOCUMENT_STATUS_REVIEWING = "审核中"
+PROJECT_DOCUMENT_STATUS_REJECTED = "已驳回"
 PROJECT_DOCUMENT_STATUS_PUBLISHED = "已发布"
+PROJECT_DOCUMENT_STATUS_FILTER_VALUES = (
+    PROJECT_DOCUMENT_STATUS_PENDING,
+    PROJECT_DOCUMENT_STATUS_REVIEWING,
+    PROJECT_DOCUMENT_STATUS_REJECTED,
+    PROJECT_DOCUMENT_STATUS_PUBLISHED,
+)
 
 PARSE_DB_WRITE_MAX_ATTEMPTS = 3
 PARSE_DB_WRITE_RETRY_BASE_DELAY_SECONDS = 0.2
@@ -117,6 +125,10 @@ INDEX_STATUS_INDEXING = "indexing"
 INDEX_STATUS_INDEXED = "indexed"
 INDEX_STATUS_FAILED = "failed"
 INDEX_STATUS_INVALID = "invalid"
+
+PARSE_STATUS_FILTER_VALUES = (PARSE_STATUS_PARSING, PARSE_STATUS_FAILED, PARSE_STATUS_SUCCESS)
+INDEX_STATUS_FILTER_VALUES = (INDEX_STATUS_NOT_INDEXED, INDEX_STATUS_FAILED, INDEX_STATUS_INDEXED)
+REVIEW_TASK_STATUS_FILTER_VALUES = (REVIEW_STATUS_REVIEWING, REVIEW_STATUS_REJECTED, REVIEW_STATUS_APPROVED)
 
 CHUNK_STATUS_ACTIVE = "active"
 RESULT_FAILED = "failed"
@@ -321,6 +333,55 @@ class DocumentService:
         self._enrich_category_fields_bulk(result)
         self._enrich_uploader_fields(result)
         return result
+
+    def list_status_options(self, user: User, project_id: int | None = None) -> dict[str, list[str]]:
+        """查询知识文档筛选状态，按业务允许集合收敛并补齐必要状态。"""
+
+        if project_id is not None:
+            self.access_service.ensure_project_access(project_id, user, permission_codes=("project:view",))
+        options = self.repository.list_distinct_status_values(
+            project_id=project_id,
+            security_levels=self._user_allowed_levels(user),
+            viewer_user_id=user.id,
+        )
+        options["project_document_statuses"] = self._business_status_options(
+            options.get("project_document_statuses", []),
+            PROJECT_DOCUMENT_STATUS_FILTER_VALUES,
+            PROJECT_DOCUMENT_STATUS_FILTER_VALUES,
+        )
+        options["parse_statuses"] = self._business_status_options(
+            options.get("parse_statuses", []),
+            PARSE_STATUS_FILTER_VALUES,
+            PARSE_STATUS_FILTER_VALUES,
+        )
+        options["index_statuses"] = self._business_status_options(
+            options.get("index_statuses", []),
+            INDEX_STATUS_FILTER_VALUES,
+            INDEX_STATUS_FILTER_VALUES,
+        )
+        options["approved_index_statuses"] = self._business_status_options(
+            options.get("approved_index_statuses", []),
+            INDEX_STATUS_FILTER_VALUES,
+            INDEX_STATUS_FILTER_VALUES,
+        )
+        options["review_task_statuses"] = self._business_status_options(
+            ReviewRepository(self.db).list_distinct_task_status_values(project_id),
+            REVIEW_TASK_STATUS_FILTER_VALUES,
+            REVIEW_TASK_STATUS_FILTER_VALUES,
+        )
+        return options
+
+    @staticmethod
+    def _business_status_options(
+        values: list[str],
+        allowed_values: tuple[str, ...],
+        required_values: tuple[str, ...],
+    ) -> list[str]:
+        """下拉状态只暴露业务允许集合，必要状态即使当前无数据也保留。"""
+
+        existing_values = {value for value in values if value in allowed_values}
+        required_value_set = set(required_values)
+        return [value for value in allowed_values if value in existing_values or value in required_value_set]
 
     def list_approved_documents_page(
         self,
