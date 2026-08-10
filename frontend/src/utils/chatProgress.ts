@@ -44,6 +44,25 @@ function stageDetail(stage: ChatProgressStage, status: ChatProgressStatus): stri
   return i18n.global.t(`ai.progress.stages.${stage}.${status}`);
 }
 
+function currentLocale(): string {
+  return String(i18n.global.locale.value || 'zh-CN');
+}
+
+function hasCjkText(value: string): boolean {
+  return /[\u3400-\u9fff]/u.test(value);
+}
+
+function isAsciiOnlyText(value: string): boolean {
+  return /^[\x00-\x7f\s.,;:!?()'"-]+$/u.test(value);
+}
+
+function usesWrongDisplayLanguage(value: string): boolean {
+  if (!value) return false;
+  if (currentLocale() === 'en-US') return hasCjkText(value);
+  if (currentLocale() === 'zh-CN') return isAsciiOnlyText(value);
+  return false;
+}
+
 const TRACE_STAGE_KEYWORDS: Array<[ChatProgressStage, string[]]> = [
   [
     'understanding',
@@ -164,6 +183,11 @@ const FORBIDDEN_DETAIL_PATTERNS = [
   'ms',
 ];
 
+function containsInternalProgressToken(value: string): boolean {
+  const lowered = value.toLowerCase();
+  return FORBIDDEN_DETAIL_PATTERNS.some((pattern) => lowered.includes(pattern.toLowerCase()));
+}
+
 function isProgressStage(value: unknown): value is ChatProgressStage {
   return typeof value === 'string' && value in STAGE_TITLE_BY_KEY;
 }
@@ -205,18 +229,59 @@ function safeDetail(
   candidate?: string | null,
 ): string {
   const trimmedDetail = typeof candidate === 'string' ? candidate.trim() : '';
-  const candidateUsesWrongLanguage =
-    (i18n.global.locale.value === 'en-US' && /[\u3400-\u9fff]/u.test(trimmedDetail)) ||
-    (i18n.global.locale.value === 'zh-CN' && /^[\x00-\x7f\s.,;:!?()'"-]+$/u.test(trimmedDetail));
   if (
     trimmedDetail &&
-    !candidateUsesWrongLanguage &&
+    !usesWrongDisplayLanguage(trimmedDetail) &&
     trimmedDetail.length <= 80 &&
-    !FORBIDDEN_DETAIL_PATTERNS.some((pattern) => trimmedDetail.toLowerCase().includes(pattern.toLowerCase()))
+    !containsInternalProgressToken(trimmedDetail)
   ) {
     return trimmedDetail;
   }
   return defaultDetail(stage, status, sourceText);
+}
+
+function safeInlineText(candidate?: string | null): string {
+  const trimmed = typeof candidate === 'string' ? candidate.trim() : '';
+  if (!trimmed || trimmed.length > 80 || usesWrongDisplayLanguage(trimmed) || containsInternalProgressToken(trimmed)) return '';
+  return trimmed;
+}
+
+function intentTitle(event: ChatProgressEvent, intentCount: number): string {
+  const readableName = safeInlineText(event.intent_name || event.title);
+  if (readableName) return readableName;
+  return i18n.global.t('ai.progress.intentTitle', {
+    current: event.intent_order ?? 1,
+    total: event.intent_total ?? intentCount,
+  });
+}
+
+function rowTitle(event: ChatProgressEvent, intentCount = 1): string {
+  if (event.intent_id) return intentTitle(event, intentCount);
+  return safeTitle(event.stage, normalizeStatus(event.status), event.title);
+}
+
+function customProgressDetail(event: ChatProgressEvent): string | null {
+  const eventType = event.event_type || '';
+  const executionStatus = event.execution_status || (event.status === 'failed' ? 'failed' : 'completed');
+  const answerabilityStatus = event.answerability_status || 'unavailable';
+
+  if (eventType === 'turn.planned') return i18n.global.t('ai.progress.custom.turnPlanned');
+  if (eventType === 'answer.composing') return i18n.global.t('ai.progress.custom.answerComposing');
+  if (eventType === 'answer.completed') return i18n.global.t('ai.progress.custom.answerCompleted');
+  if (eventType === 'intent.retrieving') return i18n.global.t('ai.progress.custom.intentRetrieving');
+  if (eventType === 'intent.started') return i18n.global.t('ai.progress.custom.intentStarted');
+  if (executionStatus === 'timeout') return i18n.global.t('ai.progress.custom.timeout');
+  if (executionStatus === 'failed') return i18n.global.t('ai.progress.custom.failed');
+  if (answerabilityStatus === 'answered') return i18n.global.t('ai.progress.custom.answered');
+  if (answerabilityStatus === 'partially_answered') return i18n.global.t('ai.progress.custom.partiallyAnswered');
+  if (answerabilityStatus === 'insufficient_evidence') return i18n.global.t('ai.progress.custom.insufficientEvidence');
+  if (eventType === 'intent.evidence_evaluated') return i18n.global.t('ai.progress.custom.evidenceEvaluated');
+  if (eventType === 'intent.completed') return i18n.global.t('ai.progress.custom.completed');
+  return null;
+}
+
+function rowDetail(event: ChatProgressEvent): string {
+  return customProgressDetail(event) || safeDetail(event.stage, normalizeStatus(event.status), event.title, event.detail);
 }
 
 function traceText(step: Partial<AgentTraceStep>): string {
@@ -322,17 +387,17 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
       .map((event) => ({
         key: event.intent_id || `${event.stage}:${event.sequence ?? ''}`,
         stage: event.stage,
-        title: event.intent_name || event.title,
+        title: rowTitle(event, intentLatest.size),
         status: streaming && event.status === 'pending' ? 'running' : toVisibleStatus(event.status),
-        detail: event.detail || i18n.global.t('ai.progress.intentDetail', { current: event.intent_order ?? 1, total: event.intent_total ?? intentLatest.size }),
+        detail: rowDetail(event) || i18n.global.t('ai.progress.intentDetail', { current: event.intent_order ?? 1, total: event.intent_total ?? intentLatest.size }),
       }));
     if (answeringEvent) {
       rows.push({
         key: answeringEvent.event_type || `answering:${answeringEvent.sequence ?? ''}`,
         stage: answeringEvent.stage,
-        title: answeringEvent.title,
+        title: rowTitle(answeringEvent),
         status: streaming && answeringEvent.status === 'pending' ? 'running' : toVisibleStatus(answeringEvent.status),
-        detail: answeringEvent.detail || safeDetail(answeringEvent.stage, normalizeStatus(answeringEvent.status), answeringEvent.title),
+        detail: rowDetail(answeringEvent),
       });
     }
     return rows;
@@ -342,9 +407,9 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
     return normalized.map((event) => ({
       key: event.event_type || event.stage,
       stage: event.stage,
-      title: event.title,
+      title: rowTitle(event),
       status: streaming && event.status === 'pending' ? 'running' : toVisibleStatus(event.status),
-      detail: safeDetail(event.stage, normalizeStatus(event.status), event.title, event.detail),
+      detail: rowDetail(event),
     }));
   }
   let activeIndex = -1;
@@ -370,7 +435,7 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
       return {
         key: config.stage,
         ...config,
-        title: event?.title ?? stageTitle(config.stage),
+        title: event ? rowTitle(event) : stageTitle(config.stage),
         status: 'success',
         detail: safeDetail(config.stage, 'success', event?.title ?? '', completedDetail),
       };
@@ -381,9 +446,9 @@ export function buildProgressRows(events: ChatProgressEvent[], streaming = false
       return {
         key: config.stage,
         ...config,
-        title: event.title,
+        title: rowTitle(event),
         status,
-        detail: safeDetail(event.stage, normalizeStatus(event.status), event.title, event.detail),
+        detail: rowDetail(event),
       };
     }
     if (streaming && index === activeIndex) {

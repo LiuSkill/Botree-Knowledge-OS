@@ -80,6 +80,7 @@ const TASK_LABELS: Record<string, string> = {
   visual_evidence: 'ai.trace.task.visualEvidence',
   visual_reading: 'ai.trace.task.visualReading',
   vision_llm: 'ai.trace.task.visionLlm',
+  multi_intent_orchestration: 'ai.trace.task.multiIntent',
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -106,6 +107,8 @@ const RETRIEVER_LABELS: Record<string, string> = {
   project_metadata: 'ai.trace.retriever.projectMetadata',
   ripgrep: 'ai.trace.retriever.ripgrep',
   semantic_retrieval: 'ai.trace.retriever.semanticRetrieval',
+  visual: 'ai.trace.retriever.visual',
+  visual_retrieval: 'ai.trace.retriever.visualRetrieval',
 };
 
 const PROFILE_LABELS: Record<string, string> = {
@@ -175,6 +178,26 @@ const POLICY_LABELS: Record<string, string> = {
   WEAK_ONLY: 'ai.trace.policy.weakOnly',
 };
 
+const VALUE_LABELS: Record<string, string> = {
+  answered: 'ai.trace.value.answered',
+  completed: 'ai.trace.value.completed',
+  CONFLICTED: 'ai.trace.policy.conflicted',
+  EMPTY: 'ai.trace.policy.empty',
+  ENOUGH: 'ai.trace.policy.enough',
+  failed: 'ai.trace.value.failed',
+  insufficient_evidence: 'ai.trace.value.insufficientEvidence',
+  INVALID_QUERY: 'ai.trace.policy.invalidQuery',
+  PARTIAL: 'ai.trace.policy.partial',
+  partially_answered: 'ai.trace.value.partiallyAnswered',
+  pending: 'ai.trace.value.pending',
+  running: 'ai.trace.value.running',
+  success: 'ai.trace.value.success',
+  timeout: 'ai.trace.value.timeout',
+  unavailable: 'ai.trace.value.unavailable',
+  WEAK_ONLY: 'ai.trace.policy.weakOnly',
+  PENDING: 'ai.trace.value.pending',
+};
+
 const MEMORY_DECISION_LABELS: Record<string, string> = {
   disabled: 'ai.trace.memoryDecision.disabled',
   no_memory: 'ai.trace.memoryDecision.noMemory',
@@ -200,6 +223,8 @@ const FIELD_LABELS: Record<string, string> = {
   document_id: 'ai.trace.field.documentId',
   drawing_no: 'ai.trace.field.drawingNo',
   evidence_status: 'ai.trace.field.evidenceStatus',
+  strong_evidence_count: 'ai.trace.field.strongEvidenceCount',
+  weak_evidence_count: 'ai.trace.field.weakEvidenceCount',
   exact_text_search: 'ai.trace.field.exactTextSearch',
   executed_retrievers: 'ai.trace.field.executedRetrievers',
   fallback_ladder: 'ai.trace.field.fallbackLadder',
@@ -253,6 +278,28 @@ const FIELD_LABELS: Record<string, string> = {
   task_type: 'ai.trace.field.taskType',
   user_id: 'ai.trace.field.userId',
   visual_evidence: 'ai.trace.field.visualEvidence',
+  answerability_status: 'ai.trace.field.answerabilityStatus',
+  answered_intent_ids: 'ai.trace.field.answeredIntentIds',
+  citation_ids: 'ai.trace.field.citationIds',
+  conclusion: 'ai.trace.field.conclusion',
+  depends_on: 'ai.trace.field.dependsOn',
+  displayed_intent_ids: 'ai.trace.field.displayedIntentIds',
+  executed_intent_ids: 'ai.trace.field.executedIntentIds',
+  failure_reason: 'ai.trace.field.failureReason',
+  intent_results: 'ai.trace.field.intentResults',
+  missing_information: 'ai.trace.field.missingInformation',
+  omitted_targets: 'ai.trace.field.omittedTargets',
+  original_target: 'ai.trace.field.originalTarget',
+  parallel_group_id: 'ai.trace.field.parallelGroupId',
+  parent_node_id: 'ai.trace.field.parentNodeId',
+  plan_version: 'ai.trace.field.planVersion',
+  planned_intent_ids: 'ai.trace.field.plannedIntentIds',
+  risk_notices: 'ai.trace.field.riskNotices',
+  sub_question_id: 'ai.trace.field.subQuestionId',
+  sub_question_outcomes: 'ai.trace.field.subQuestionOutcomes',
+  sub_questions: 'ai.trace.field.subQuestions',
+  turn_id: 'ai.trace.field.turnId',
+  unexpected_intent_ids: 'ai.trace.field.unexpectedIntentIds',
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -292,9 +339,12 @@ const TRACE_STEP_LABELS: Record<string, string> = {
   问题理解生成: 'ai.trace.task.questionUnderstanding',
   策略解析: 'ai.trace.task.policyResolution',
   数据检索规划: 'ai.trace.task.planner',
+  检索召回与数据组装: 'ai.trace.task.retrieval',
   检索召回执行: 'ai.trace.task.retrieval',
   证据评估: 'ai.trace.task.evidenceJudge',
+  资料证据有效性判断: 'ai.trace.task.evidenceJudge',
   回答生成: 'ai.trace.task.answerGenerator',
+  多意图执行汇总: 'ai.trace.task.multiIntent',
 };
 
 const traceItems = computed<TraceViewItem[]>(() => {
@@ -312,6 +362,26 @@ const traceItems = computed<TraceViewItem[]>(() => {
 
 function translatedValue(value: string): string {
   return value.startsWith('ai.') ? t(value) : value;
+}
+
+function hasCjkText(value: string): boolean {
+  return /[\u3400-\u9fff]/u.test(value);
+}
+
+function usesWrongDisplayLanguage(value: string): boolean {
+  if (!value) return false;
+  if (locale.value === 'en-US') return hasCjkText(value);
+  return false;
+}
+
+function isInternalIdentifier(value: string): boolean {
+  return /^(intent|sub-question|turn|node)[-:][\w:-]+$/i.test(value);
+}
+
+function displayTextOrFallback(value: unknown, fallback: string): string {
+  const text = rawTextValue(value);
+  if (!text || usesWrongDisplayLanguage(text) || isInternalIdentifier(text)) return fallback;
+  return localizeKnownCodes(text);
 }
 
 function stepSummary(step: AgentTraceStep): string {
@@ -396,16 +466,27 @@ function localizeKnownCodes(text: string): string {
     ...MEMORY_DECISION_LABELS,
     ...FIELD_LABELS,
     ...PROVIDER_LABELS,
+    ...VALUE_LABELS,
   };
   const phraseReplacements: Array<[RegExp, string]> = [
     [/已完成会话上下文化/g, t('ai.trace.phrase.sessionContextCompleted')],
     [/已生成问题理解/g, t('ai.trace.phrase.questionUnderstandingGenerated')],
     [/已解析最终策略/g, t('ai.trace.phrase.finalPolicyResolved')],
     [/已生成数据检索规划/g, t('ai.trace.phrase.retrievalPlanGenerated')],
+    [
+      /基于\s*(?:Policy\s*Resolver|PolicyResolver)\s*(?:Resolved Task Type|resolved_task_type)\s*和\s*(?:Question\s*Understanding|QuestionUnderstanding)\s*(?:Retrieval Needs|retrieval_needs)\s*选择检索器/gi,
+      t('ai.trace.phrase.retrieverSelectionBasis'),
+    ],
+    [/未改写检索问题[：:]\s*/g, t('ai.trace.phrase.searchQuestionUnchangedPrefix')],
     [/会话短期记忆/g, t('ai.trace.phrase.sessionMemory')],
     [/问题理解/g, t('ai.trace.phrase.questionUnderstanding')],
     [/策略解析/g, t('ai.trace.phrase.policyResolution')],
     [/数据检索规划/g, t('ai.trace.phrase.retrievalPlanning')],
+    [/检索召回与数据组装/g, t('ai.trace.task.retrieval')],
+    [/资料证据有效性判断/g, t('ai.trace.task.evidenceJudge')],
+    [/证据状态/g, t('ai.trace.field.evidenceStatus')],
+    [/强证据/g, t('ai.trace.field.strongEvidenceCount')],
+    [/弱证据/g, t('ai.trace.field.weakEvidenceCount')],
     [/语义检索/g, t('ai.trace.retriever.milvus')],
     [/关键词检索/g, t('ai.trace.retriever.keyword')],
     [/页级检索/g, t('ai.trace.retriever.pageIndex')],
@@ -426,13 +507,19 @@ function localizeKnownCodes(text: string): string {
     [/\btrue\b/g, t('ai.trace.phrase.true')],
     [/\bfalse\b/g, t('ai.trace.phrase.false')],
   ];
-  const replacedText = phraseReplacements.reduce((result, [pattern, replacement]) => result.replace(pattern, replacement), text);
-  return Object.entries(labels)
+  const replacedText = phraseReplacements
+    .reduce((result, [pattern, replacement]) => result.replace(pattern, replacement), text)
+    .replace(/\bintent-(\d+)-sub-(\d+)\b/g, (_match, intent: string, subQuestion: string) =>
+      t('ai.trace.phrase.subQuestionWithIndex', { intent, subQuestion }),
+    )
+    .replace(/\bintent-(\d+)\b/g, (_match, index: string) => t('ai.trace.phrase.intentWithIndex', { index }));
+  const localizedText = Object.entries(labels)
     .sort(([left], [right]) => right.length - left.length)
     .reduce((result, [code, label]) => {
       const pattern = new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(code)}(?=$|[^A-Za-z0-9_])`, 'g');
       return result.replace(pattern, `$1${translatedValue(label)}`);
     }, replacedText);
+  return locale.value === 'en-US' ? localizedText.replace(/[、，]/g, ', ') : localizedText;
 }
 
 function readableLabel(key: string): string {
@@ -618,6 +705,75 @@ function querySummaryView(text: string): TraceSummaryView | null {
   };
 }
 
+function evidenceSummaryView(text: string): TraceSummaryView | null {
+  const match = text.match(
+    /^证据状态[：:]\s*([^，,\n]+)[，,]\s*强证据\s*(\d+)\s*条[，,]\s*弱证据\s*(\d+)\s*条[，,]\s*合并后保留\s*(\d+)\s*条证据(?:\s*\n\s*关联\s*(\d+)\s*张图纸图片)?$/,
+  );
+  if (!match) return null;
+  const [, status, strongCount, weakCount, retainedCount, imageCount] = match;
+  const metrics: TraceMetric[] = [
+    { label: t('ai.trace.field.strongEvidenceCount'), value: strongCount, suffix: t('ai.trace.unit.items') },
+    { label: t('ai.trace.field.weakEvidenceCount'), value: weakCount, suffix: t('ai.trace.unit.items') },
+    { label: t('ai.trace.field.retainedEvidenceCount'), value: retainedCount, suffix: t('ai.trace.unit.items') },
+  ];
+  if (imageCount !== undefined) {
+    metrics.push({ label: t('ai.trace.field.linkedImageCount'), value: imageCount, suffix: t('ai.trace.unit.images') });
+  }
+  return {
+    lead: t('ai.trace.summary.evidenceStatus', { status: translateTraceStatus(status.trim()) }),
+    lines: [],
+    metrics,
+    pairs: [],
+    queries: [],
+  };
+}
+
+function objectArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => asRecord(item)).filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
+function localizedIntentTitle(record: Record<string, unknown>, index: number): string {
+  const order = Number(record.order);
+  const fallbackIndex = Number.isFinite(order) && order > 0 ? order : index + 1;
+  return displayTextOrFallback(record.name || record.original_target, t('ai.trace.phrase.intentWithIndex', { index: fallbackIndex }));
+}
+
+function translateTraceStatus(value: unknown): string {
+  return translateCode(value || 'unavailable', VALUE_LABELS);
+}
+
+function multiIntentSummaryView(step: AgentTraceStep): TraceSummaryView | null {
+  if (step.implementation !== 'multi_intent_orchestration') return null;
+  const details = asRecord(step.details);
+  const intentResults = objectArray(details?.intent_results);
+  if (!intentResults.length) return null;
+
+  const lines = intentResults.map((record, index) => {
+    const order = Number(record.order);
+    const displayOrder = Number.isFinite(order) && order > 0 ? order : index + 1;
+    return t('ai.trace.summary.multiIntentItem', {
+      order: displayOrder,
+      title: localizedIntentTitle(record, index),
+      status: translateTraceStatus(record.status || 'completed'),
+      answerability: translateTraceStatus(record.answerability_status || 'unavailable'),
+    });
+  });
+
+  const omittedCount = Array.isArray(details?.omitted_targets) ? details.omitted_targets.length : 0;
+  if (omittedCount > 0) {
+    lines.push(t('ai.trace.summary.multiIntentOmitted', { count: omittedCount }));
+  }
+
+  return {
+    lead: t('ai.trace.summary.multiIntentCompleted', { count: intentResults.length }),
+    lines,
+    metrics: [],
+    pairs: [],
+    queries: [],
+  };
+}
+
 function fallbackLead(step: AgentTraceStep, metrics: TraceMetric[], pairs: TracePair[]): string {
   if (metrics.length) return t('ai.trace.summary.retrievalStats');
   if (pairs.some((item) => item.label === t('ai.trace.pair.select'))) return t('ai.trace.summary.retrieversSelected');
@@ -626,7 +782,14 @@ function fallbackLead(step: AgentTraceStep, metrics: TraceMetric[], pairs: Trace
 }
 
 function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
-  const text = localizeKnownCodes(stepSummary(step).trim());
+  const multiIntentView = multiIntentSummaryView(step);
+  if (multiIntentView) return multiIntentView;
+
+  const rawSummaryText = stepSummary(step).trim();
+  const evidenceView = evidenceSummaryView(rawSummaryText);
+  if (evidenceView) return evidenceView;
+
+  const text = localizeKnownCodes(rawSummaryText);
   const queryView = querySummaryView(text);
   if (queryView) return queryView;
 
@@ -646,7 +809,7 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
 
   const effectiveMetrics = metrics.length ? metrics : parsedMetrics;
   const pairs: TracePair[] = [];
-  const detailLines: string[] = [];
+  let detailLines: string[] = [];
 
   remainingLines.forEach((line) => {
     const pair = parseDisplayPair(line);
@@ -656,6 +819,9 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
     }
     detailLines.push(line);
   });
+  if (effectiveMetrics.length && shouldShowRetrieverMetrics(step)) {
+    detailLines = detailLines.filter((line) => !line.toLowerCase().startsWith('retriever_hits'));
+  }
 
   return {
     lead: detailLines.shift() || fallbackLead(step, effectiveMetrics, pairs),
