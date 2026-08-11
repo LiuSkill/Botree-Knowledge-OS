@@ -209,6 +209,8 @@ validate_trial_env() {
     ensure_non_empty MYSQL_DATABASE
     ensure_non_empty MYSQL_USER
     ensure_non_empty MYSQL_PASSWORD
+    [[ "${MYSQL_HOST}" == "${MYSQL_CONTAINER_NAME}" ]] || die \
+        "MYSQL_HOST 必须使用 Docker 网络中的 MySQL 容器名 ${MYSQL_CONTAINER_NAME}，当前值为 ${MYSQL_HOST}"
     ensure_non_empty REDIS_HOST
     ensure_non_empty REDIS_PASSWORD
     ensure_non_empty MINIO_ENDPOINT
