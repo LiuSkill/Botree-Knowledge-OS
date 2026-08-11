@@ -360,6 +360,26 @@ export default {
     },
   },
   audit: {
+    debugger: {
+      title: '问答 Debugger',
+      open: '查看 Trace',
+      missingTrace: '该问答暂无完整 Trace',
+      loadFailed: 'Trace 加载失败',
+      eventCount: '事件 {count} 条',
+      loadPayload: '加载节点详情',
+      loadMore: '加载更多节点',
+      copy: '复制',
+      section: {
+        summary: '摘要',
+        input: '输入',
+        output: '输出',
+        effective_config: '生效配置',
+        candidates: '候选/证据',
+        decisions: '决策',
+        errors: '错误',
+        raw: '原始 JSON',
+      },
+    },
     title: {
       sessions: '用户会话记录',
       details: '问答详情',

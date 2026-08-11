@@ -167,6 +167,7 @@ class ChatCompletionResponse(BaseModel):
     """问答响应。"""
 
     answer: str
+    trace_id: str | None = Field(default=None, description="问答 Debugger 根 Trace ID")
     redacted: bool = False
     redaction_types: list[str] = Field(default_factory=list)
     security_notice: str | None = None

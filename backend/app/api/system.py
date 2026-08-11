@@ -18,6 +18,7 @@ from app.core.response import success
 from app.models.user import User
 from app.schemas.system import OperationLogOut, OperationLogUserOption
 from app.services.system_service import SystemService
+from app.services.question_answer_trace_service import QuestionAnswerTraceService
 
 router = APIRouter(prefix="/system", tags=["系统管理"])
 health_router = APIRouter(tags=["健康检查"])
@@ -147,6 +148,69 @@ def retrieval_traces(_: User = Depends(require_permission("system:qa-audit:view"
     """查询 LangGraph 检索链路审计记录。"""
 
     return success(SystemService(db).retrieval_traces())
+
+
+@router.get("/qa-audits/{trace_id}/debugger", summary="问答 Debugger Trace")
+def qa_audit_debugger(
+    trace_id: str,
+    offset: int = 0,
+    limit: int = 100,
+    include_payload: bool = False,
+    business_stage: str | None = None,
+    _: User = Depends(require_permission("system:qa-audit:debug")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """按需读取完整问答 Trace；权限在服务端强制校验。"""
+
+    offset = max(offset, 0)
+    limit = min(max(limit, 1), 500)
+    debugger = QuestionAnswerTraceService(db).get_debugger(
+        trace_id,
+        offset=offset,
+        limit=limit,
+        include_payload=include_payload,
+        business_stage=business_stage,
+    )
+    if debugger is None:
+        return success({"trace_id": trace_id, "status": "not_found", "events": [], "stages": []})
+    return success(debugger)
+
+
+@router.get("/qa-audits/{trace_id}/debugger/events/{event_id}", summary="问答 Debugger 节点详情")
+def qa_audit_debugger_event(
+    trace_id: str,
+    event_id: str,
+    _: User = Depends(require_permission("system:qa-audit:debug")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """懒加载单个真实事件的完整业务载荷。"""
+
+    event = QuestionAnswerTraceService(db).get_debugger_event(trace_id, event_id)
+    if event is None:
+        return success({"trace_id": trace_id, "event_id": event_id, "status": "not_found", "payload": None})
+    return success(event)
+
+
+@router.delete("/qa-audits/{trace_id}/debugger", summary="清理问答 Debugger Trace")
+def delete_qa_audit_debugger(
+    trace_id: str,
+    confirm: bool = False,
+    current_user: User = Depends(require_permission("system:qa-audit:cleanup")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """仅在显式确认且具备清理权限时删除 Trace，并记录操作日志。"""
+
+    return success(SystemService(db).cleanup_question_answer_trace(trace_id, current_user, confirm=confirm))
+
+
+@router.get("/qa-debugger/metrics", summary="问答 Debugger 运维指标")
+def qa_debugger_metrics(
+    _: User = Depends(require_permission("system:qa-audit:debug")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """返回事件聚合异常与不完整 Trace 告警信号。"""
+
+    return success(QuestionAnswerTraceService(db).operational_metrics())
 
 
 @health_router.get("/health", summary="健康检查")

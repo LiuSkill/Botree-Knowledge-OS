@@ -124,6 +124,26 @@ def test_chat_completion_response_exposes_optional_intent_results() -> None:
     assert response.intent_results[0].name == "查询关键设备"
 
 
+def test_chat_completion_response_exposes_question_answer_trace_id() -> None:
+    """问答响应应暴露稳定 Trace ID，供事后关联 Debugger。"""
+
+    response = ChatCompletionResponse.model_validate(
+        {
+            "answer": "酸浸温度为 80 至 90 摄氏度。",
+            "trace_id": "trace-response-001",
+            "session_id": 1,
+            "chat_type": "project_chat",
+            "mode": "auto",
+            "query_scope": "项目知识库",
+            "used_retrievers": ["milvus"],
+            "agent_trace": [],
+            "citations": [],
+        }
+    )
+
+    assert response.trace_id == "trace-response-001"
+
+
 def test_chat_repository_filters_project_sessions_by_project_id() -> None:
     """同一用户的项目问答会话应按 project_id 过滤。"""
 

@@ -167,6 +167,8 @@ export const ACTION_PERMISSIONS = {
 
   SYSTEM_LOG_VIEW: 'system:log:view',
   SYSTEM_QA_AUDIT_VIEW: 'system:qa-audit:view',
+  SYSTEM_QA_AUDIT_DEBUG: 'system:qa-audit:debug',
+  SYSTEM_QA_AUDIT_CLEANUP: 'system:qa-audit:cleanup',
   SYSTEM_SENSITIVE_CONTENT_VIEW: 'system:sensitive-content:view',
   SYSTEM_SENSITIVE_CONTENT_TYPE_CREATE: 'system:sensitive-content:type-create',
   SYSTEM_SENSITIVE_CONTENT_TYPE_EDIT: 'system:sensitive-content:type-edit',

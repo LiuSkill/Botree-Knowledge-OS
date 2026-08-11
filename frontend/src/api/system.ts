@@ -58,3 +58,43 @@ export function listQAAuditSessions(params?: QAAuditFilters): Promise<PageResult
 export function listQAAudits(params?: QAAuditFilters): Promise<PageResult<QAAuditDetail>> {
   return request.get('/system/qa-audits', { params }) as Promise<PageResult<QAAuditDetail>>;
 }
+
+export interface QADebuggerEvent {
+  schema_version: number;
+  event_id: string;
+  trace_id: string;
+  node_id: string;
+  parent_node_id?: string | null;
+  business_stage: string;
+  event_type: string;
+  sequence: number;
+  occurred_at: string;
+  producer: string;
+  payload: Record<string, unknown> | null;
+  payload_available?: boolean;
+}
+
+export interface QADebuggerResult {
+  trace: Record<string, unknown> & { trace_id: string; status: string; completeness_status: string };
+  stages: Array<Record<string, unknown> & { stage: string; event_count: number }>;
+  events: QADebuggerEvent[];
+  events_offset: number;
+  events_limit: number;
+  events_total: number;
+}
+
+export function getQADebugger(
+  traceId: string,
+  offset = 0,
+  limit = 100,
+  includePayload = false,
+  businessStage?: string,
+): Promise<QADebuggerResult> {
+  return request.get(`/system/qa-audits/${encodeURIComponent(traceId)}/debugger`, {
+    params: { offset, limit, include_payload: includePayload, business_stage: businessStage },
+  }) as Promise<QADebuggerResult>;
+}
+
+export function getQADebuggerEvent(traceId: string, eventId: string): Promise<QADebuggerEvent> {
+  return request.get(`/system/qa-audits/${encodeURIComponent(traceId)}/debugger/events/${encodeURIComponent(eventId)}`) as Promise<QADebuggerEvent>;
+}

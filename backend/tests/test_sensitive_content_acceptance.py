@@ -67,6 +67,14 @@ def test_final_answer_is_filtered_before_trace_and_log(caplog: pytest.LogCapture
 
     assert result["answer"] == "最终报价为 [报价信息已隐藏]。"
     assert result["final_answer_redacted"] is True
+    assert result["raw"]["sensitive_filter"] == {
+        "before_content": "最终报价为 1350 万元。",
+        "after_content": "最终报价为 [报价信息已隐藏]。",
+        "matched_rule_codes": ["price_amount_rule"],
+        "redaction_types": ["price"],
+        "redaction_count": 1,
+        "action": "redact",
+    }
     assert "1350 万元" not in caplog.text
     assert "1350 万元" not in json.dumps(result["agent_trace"], ensure_ascii=False)
 
@@ -117,7 +125,7 @@ def test_ordinary_user_cannot_access_sensitive_management_api() -> None:
         app.dependency_overrides.clear()
 
 
-def test_stream_buffers_raw_tokens_until_final_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stream_splits_only_final_filtered_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeAnswerGenerator:
         last_model_route = {}
 
@@ -146,24 +154,37 @@ def test_stream_buffers_raw_tokens_until_final_filter(monkeypatch: pytest.Monkey
                     "redacted": filtered.redacted, "redaction_types": list(filtered.redaction_types),
                     "redaction_count": filtered.redaction_count, "final_answer_redacted": filtered.redacted}
 
+    class FakeMemoryService:
+        def __init__(self, _db): pass
+        def prepare_turn_context(self, *_args, **_kwargs): return None
+
+    class FakeTurnExecutionPlanService:
+        def __init__(self, _db): pass
+        def build_plan(self, *_args, **_kwargs): return None
+
     monkeypatch.setattr("app.services.chat_service.RetrievalGraph", FakeGraph)
+    monkeypatch.setattr("app.services.chat_service.ChatMemoryService", FakeMemoryService)
+    monkeypatch.setattr("app.services.chat_service.TurnExecutionPlanService", FakeTurnExecutionPlanService)
     service = object.__new__(ChatService)
     service.db = SimpleNamespace(commit=lambda: None, rollback=lambda: None)
     service.repository = SimpleNamespace(add_message=lambda _message: None)
     service._ensure_chat_action_permission = lambda *_args: None
     service._validate_chat_request = lambda *_args: None
     service._get_or_create_session = lambda *_args: SimpleNamespace(id=7)
+    service._start_question_answer_trace = lambda *_args: "trace-1"
+    service._question_answer_trace_observer = lambda *_args: (None, [])
     service._resolve_general_confirmation_decision = lambda *_args: None
     service._progress_event_from_trace = lambda *_args: None
     service._build_visible_progress_events = lambda *_args, **_kwargs: []
-    service._persist_agent_result = lambda _payload, _user, _session, result: result
+    service._persist_agent_result = lambda _payload, _user, _session, result, **_kwargs: result
     payload = ChatCompletionRequest(message="请给出报价")
 
     events = list(service.complete_stream(payload, user_with_roles((1, "ordinary", True))))
     delta_events = [event for event in events if "event: delta" in event]
-    assert len(delta_events) == 1
-    assert "1350 万元" not in "".join(delta_events)
-    assert "[报价信息已隐藏]" in delta_events[0]
+    stream_text = "".join(json.loads(event.split("data:", 1)[1])["content"] for event in delta_events)
+    assert len(delta_events) > 1
+    assert "1350 万元" not in stream_text
+    assert "[报价信息已隐藏]" in stream_text
 
 
 def test_application_sources_do_not_define_forbidden_raw_response_fields() -> None:

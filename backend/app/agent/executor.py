@@ -7,7 +7,7 @@ Agent Executor
 3. 返回答案、引用来源和检索器信息
 """
 
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
@@ -25,9 +25,9 @@ class AgentExecutor:
     - 汇总引用来源和执行轨迹
     """
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, trace_observer: Callable[[dict[str, Any]], None] | None = None) -> None:
         self.db = db
-        self.retrieval_graph = RetrievalGraph(db)
+        self.retrieval_graph = RetrievalGraph(db, trace_observer=trace_observer)
 
     def run(
         self,

@@ -28,6 +28,84 @@ def test_retrieval_graph_uses_fixed_topk_defaults() -> None:
     assert graph._answer_top_k(state) == 10  # noqa: SLF001
 
 
+def test_debug_evidence_payload_keeps_content_scores_source_and_assets() -> None:
+    """Debugger 候选快照必须足以复盘召回与重排，不得只保留摘要。"""
+
+    graph = object.__new__(RetrievalGraph)
+    evidence = Evidence(
+        score=0.87,
+        source_type="project",
+        knowledge_base_id=1,
+        project_id=2,
+        document_id=101,
+        chunk_id=1001,
+        drawing_no="PFD-001",
+        file_name="process.pdf",
+        page_number=3,
+        content="蒸发温度为 80 摄氏度。",
+        retriever="vector",
+        metadata={"original_score": 0.72, "filter_reason": None},
+        assets=[
+            EvidenceAsset(
+                asset_id=9,
+                asset_type="page_image",
+                url="/assets/9",
+                mime_type="image/png",
+                file_name="page-3.png",
+                file_size=128,
+                page_number=3,
+            )
+        ],
+    )
+
+    payload = graph._evidence_debug_payload(evidence)  # noqa: SLF001
+
+    assert payload["content"] == "蒸发温度为 80 摄氏度。"
+    assert payload["score"] == 0.87
+    assert payload["retriever"] == "vector"
+    assert payload["metadata"]["original_score"] == 0.72
+    assert payload["assets"][0]["asset_id"] == 9
+
+
+def test_trace_details_keep_stage_data_needed_for_debugger_replay() -> None:
+    """节点事件必须携带召回候选和最终证据，不能只在结束事件保存整包状态。"""
+
+    graph = object.__new__(RetrievalGraph)
+    evidence = Evidence(
+        score=0.91,
+        source_type="project",
+        knowledge_base_id=1,
+        project_id=2,
+        document_id=101,
+        chunk_id=1001,
+        drawing_no=None,
+        file_name="cooling-water.pdf",
+        page_number=42,
+        content="循环水供水温度为 32℃，回水温度为 42℃。",
+        retriever="vector",
+        metadata={},
+        assets=[],
+    )
+    candidate = graph._evidence_debug_payload(evidence)  # noqa: SLF001
+    state = {
+        "raw": {
+            "retrieval_before_rerank_candidates": [candidate],
+            "rerank_after_candidates": [{**candidate, "score": 0.96}],
+        },
+        "rerank_details": [{"chunk_id": 1001, "rank_before": 2, "rank_after": 1}],
+        "evidences": [evidence],
+        "model_routes": {},
+    }
+
+    retrieval = graph._trace_details("检索召回与数据组装", state, "retrieval")  # noqa: SLF001
+    evidence_judge = graph._trace_details("资料证据有效性判断", state, "evidence_judge")  # noqa: SLF001
+
+    assert retrieval["retrieval_before_rerank_candidates"][0]["content"].startswith("循环水")
+    assert retrieval["rerank_after_candidates"][0]["score"] == 0.96
+    assert retrieval["rerank_details"][0]["rank_after"] == 1
+    assert evidence_judge["final_evidence_set"][0]["file_name"] == "cooling-water.pdf"
+
+
 def test_explicit_topk_is_capped_by_fixed_pipeline_limits() -> None:
     graph = object.__new__(RetrievalGraph)
     state = {

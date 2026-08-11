@@ -14,7 +14,8 @@ import json
 import logging
 import re
 import time
-from collections.abc import Iterator
+import uuid
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any
 
@@ -42,6 +43,8 @@ from app.services.chat_memory_service import ChatMemoryService, MemoryCitationAn
 from app.services.multi_intent_qa_service import MultiIntentQaService
 from app.services.multi_intent_models import coerce_question_intent_plan
 from app.services.qwen_orchestration_service import QwenOrchestrationService
+from app.services.question_answer_trace_publisher import QuestionAnswerTracePublisher
+from app.services.question_answer_trace_service import QuestionAnswerTraceService
 from app.services.retrieval_trace_service import RetrievalTraceService
 from app.services.system_service import SystemService
 from app.services.turn_execution_plan_service import TurnExecutionPlanService
@@ -50,6 +53,8 @@ logger = logging.getLogger(__name__)
 _EVIDENCE_CITATION_PATTERN = re.compile(r"\[(\d+)\]")
 _MARKDOWN_EVIDENCE_CITATION_PATTERN = re.compile(r"\[(\d+)\]\([^)]*\)")
 _ALTERNATIVE_EVIDENCE_CITATION_PATTERN = re.compile(r"(?:\[\^(\d+)\]|[【［](\d+)[】］])")
+SAFE_STREAM_DELTA_CHARS = 10
+SAFE_STREAM_DELTA_DELAY_SECONDS = 0.015
 
 AWAITING_GENERAL_CONFIRM = "AWAITING_GENERAL_CONFIRM"
 NORMAL_CONVERSATION_STATE = "NORMAL"
@@ -335,32 +340,53 @@ class ChatService:
         self._ensure_chat_action_permission(user, payload.chat_type, "send-message")
         self._validate_chat_request(payload.chat_type, payload.project_id, user)
         session = self._get_or_create_session(payload, user)
-        user_message = self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
+        pending_user_message = ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message)
+        user_message = self.repository.add_message(pending_user_message) or pending_user_message
+        trace_id = self._start_question_answer_trace(payload, user, session, user_message)
+        trace_observer, observed_trace_events = self._question_answer_trace_observer(trace_id)
 
         pending_result = self._try_handle_general_confirmation(payload, user, session)
         if pending_result is not None:
+            pending_result["trace_id"] = trace_id
+            self._finish_question_answer_trace(trace_id, payload, user, session, pending_result)
             return pending_result
 
-        turn_context = ChatMemoryService(self.db).prepare_turn_context(session, user_message, payload.message)
-        turn_plan = TurnExecutionPlanService(self.db).build_plan(
-            payload.message,
-            turn_context,
-            payload.chat_type,
-            payload.project_id,
-            session.id,
-            mode=payload.mode,
-        )
-        agent_result = AgentExecutor(self.db).run(
-            payload.message,
-            payload.chat_type,
-            payload.mode,
-            payload.project_id,
-            user,
-            turn_context=turn_context,
-            turn_plan=turn_plan,
-            business_id=session.id,
-            response_language=getattr(payload, "response_language", "zh-CN"),
-        )
+        try:
+            turn_context = ChatMemoryService(self.db).prepare_turn_context(session, user_message, payload.message)
+            turn_plan = TurnExecutionPlanService(self.db).build_plan(
+                payload.message,
+                turn_context,
+                payload.chat_type,
+                payload.project_id,
+                session.id,
+                mode=payload.mode,
+            )
+            agent_executor = AgentExecutor(self.db)
+            if hasattr(agent_executor, "retrieval_graph"):
+                agent_executor.retrieval_graph.trace_observer = trace_observer
+            agent_result = agent_executor.run(
+                payload.message,
+                payload.chat_type,
+                payload.mode,
+                payload.project_id,
+                user,
+                turn_context=turn_context,
+                turn_plan=turn_plan,
+                business_id=session.id,
+                response_language=getattr(payload, "response_language", "zh-CN"),
+            )
+        except Exception as exc:
+            self._fail_question_answer_trace(
+                trace_id,
+                payload,
+                user,
+                session,
+                exc,
+                sequence=len(observed_trace_events) + 2,
+            )
+            raise
+        agent_result["question_answer_trace_events"] = observed_trace_events
+        agent_result["question_answer_trace_id"] = trace_id
         return self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
 
     def complete_stream(self, payload: ChatCompletionRequest, user: User) -> Iterator[str]:
@@ -369,7 +395,9 @@ class ChatService:
         self._ensure_chat_action_permission(user, payload.chat_type, "send-message")
         self._validate_chat_request(payload.chat_type, payload.project_id, user)
         session = self._get_or_create_session(payload, user)
-        user_message = self.repository.add_message(ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message))
+        pending_user_message = ChatMessage(session_id=session.id, user_id=user.id, role="user", content=payload.message)
+        user_message = self.repository.add_message(pending_user_message) or pending_user_message
+        trace_id = self._start_question_answer_trace(payload, user, session, user_message)
         # 流式连接可能被用户主动断开；先提交会话和问题，避免断开时回滚出前端已展示的会话 ID。
         self.db.commit()
 
@@ -388,6 +416,7 @@ class ChatService:
             )
         )
         initial_meta_payload = {
+            "trace_id": trace_id,
             "session_id": session.id,
             "chat_type": payload.chat_type,
             "mode": payload.mode,
@@ -404,6 +433,7 @@ class ChatService:
             answer_chunks: list[str] = []
             prepared_state: dict[str, Any] | None = None
             emitted_progress: dict[str, str] = {}
+            trace_observer, observed_trace_events = self._question_answer_trace_observer(trace_id)
             yield self._encode_sse("meta", initial_meta_payload)
             try:
                 if confirmation_decision is not None:
@@ -411,6 +441,7 @@ class ChatService:
                     return
 
                 retrieval_graph = RetrievalGraph(self.db)
+                retrieval_graph.trace_observer = trace_observer
                 if turn_plan is not None and turn_plan.requires_orchestration:
                     collected_progress: list[dict[str, Any]] = []
                     agent_result: dict[str, Any] | None = None
@@ -433,7 +464,9 @@ class ChatService:
                     if agent_result is None:
                         raise AppException("多意图问答执行失败", status_code=502, code=502)
                     agent_result["progress_events"] = list(agent_result.get("progress_events") or collected_progress)
-                    yield self._encode_sse("delta", {"content": agent_result["answer"]})
+                    agent_result["question_answer_trace_events"] = observed_trace_events
+                    agent_result["question_answer_trace_id"] = trace_id
+                    yield from self._stream_safe_answer_deltas(str(agent_result["answer"]))
                     result = self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
                     yield self._encode_sse("done", self._sanitize_stream_result(result))
                     return
@@ -488,7 +521,9 @@ class ChatService:
                         if answer_progress is not None and self._should_emit_progress(answer_progress, emitted_progress):
                             yield self._encode_sse("progress", answer_progress)
                     agent_result = retrieval_graph.to_agent_result(prepared_state)
-                    yield self._encode_sse("delta", {"content": agent_result["answer"]})
+                    agent_result["question_answer_trace_events"] = observed_trace_events
+                    agent_result["question_answer_trace_id"] = trace_id
+                    yield from self._stream_safe_answer_deltas(str(agent_result["answer"]))
                     result = self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
                     yield self._encode_sse("done", self._sanitize_stream_result(result))
                     return
@@ -529,7 +564,9 @@ class ChatService:
                     elapsed_ms=int((time.perf_counter() - answer_started_at) * 1000),
                     trace_sequence=answer_sequence,
                 )
-                yield self._encode_sse("delta", {"content": agent_result["answer"]})
+                agent_result["question_answer_trace_events"] = observed_trace_events
+                agent_result["question_answer_trace_id"] = trace_id
+                yield from self._stream_safe_answer_deltas(str(agent_result["answer"]))
                 if agent_result.get("agent_trace"):
                     final_progress = self._progress_event_from_trace(
                         retrieval_graph.trace_delta_payload(agent_result["agent_trace"][-1])
@@ -539,10 +576,14 @@ class ChatService:
                 result = self._persist_agent_result(payload, user, session, agent_result, turn_context=turn_context)
                 yield self._encode_sse("done", self._sanitize_stream_result(result))
             except AppException as exc:
+                terminal_sequence = len(observed_trace_events) + 2
+                self._fail_question_answer_trace(trace_id, payload, user, session, exc, sequence=terminal_sequence)
                 self.db.rollback()
                 logger.warning("知识问答流式输出失败: session_id=%s reason=%s", session.id, exc.message)
                 yield self._encode_sse("error", {"message": exc.message, "code": exc.code})
             except Exception as exc:  # noqa: BLE001
+                terminal_sequence = len(observed_trace_events) + 2
+                self._fail_question_answer_trace(trace_id, payload, user, session, exc, sequence=terminal_sequence)
                 self.db.rollback()
                 logger.exception("知识问答流式输出异常: session_id=%s", session.id)
                 yield self._encode_sse("error", {"message": "知识问答流式输出失败，请稍后重试", "code": 500})
@@ -590,8 +631,29 @@ class ChatService:
         for progress_event in result.get("progress_events", []):
             if self._should_emit_progress(progress_event, emitted_progress):
                 yield self._encode_sse("progress", progress_event)
-        yield self._encode_sse("delta", {"content": result["answer"]})
+        yield from self._stream_safe_answer_deltas(str(result["answer"]))
         yield self._encode_sse("done", self._sanitize_stream_result(result))
+
+    def _stream_safe_answer_deltas(self, answer: str) -> Iterator[str]:
+        """仅对最终过滤后的安全答案分片，避免原始模型 token 越过敏感过滤。"""
+
+        first_chunk = True
+        for chunk in self._iter_safe_answer_chunks(answer):
+            if not first_chunk and SAFE_STREAM_DELTA_DELAY_SECONDS > 0:
+                time.sleep(SAFE_STREAM_DELTA_DELAY_SECONDS)
+            first_chunk = False
+            yield self._encode_sse("delta", {"content": chunk})
+
+    @staticmethod
+    def _iter_safe_answer_chunks(answer: str) -> Iterator[str]:
+        chunk: list[str] = []
+        for char in str(answer or ""):
+            chunk.append(char)
+            if len(chunk) >= SAFE_STREAM_DELTA_CHARS or (len(chunk) >= 4 and char in "\n。！？；.!?;"):
+                yield "".join(chunk)
+                chunk = []
+        if chunk:
+            yield "".join(chunk)
 
     def _progress_event_from_trace(self, trace_item: dict[str, Any]) -> dict[str, Any] | None:
         """
@@ -1051,6 +1113,7 @@ class ChatService:
             progress_json=json.dumps(progress_events, ensure_ascii=False),
         )
         self.repository.add_message(assistant_message)
+        trace_id = str(agent_result.get("question_answer_trace_id") or "") or None
 
         citations = self._build_chat_citations(assistant_message.id, agent_result["evidences"])
         self.repository.add_citations(citations)
@@ -1126,6 +1189,17 @@ class ChatService:
             f"类型={agent_result['chat_type']}，模式={agent_result['mode']}，引用={len(citations)}",
         )
         self.db.commit()
+        if trace_id is not None:
+            next_sequence = self._publish_question_answer_execution_trace(trace_id, agent_result)
+            self._finish_question_answer_trace(
+                trace_id,
+                payload,
+                user,
+                session,
+                assistant_message,
+                sequence=next_sequence,
+                agent_result=agent_result,
+            )
         memory_writeback_meta = self._finalize_turn_memory_best_effort(
             payload=payload,
             session=session,
@@ -1140,6 +1214,7 @@ class ChatService:
         trace_steps = agent_result.get("trace_steps", agent_result["agent_trace"])
         return {
             "answer": agent_result["answer"],
+            "trace_id": trace_id,
             "redacted": bool(agent_result.get("redacted")),
             "redaction_types": list(agent_result.get("redaction_types", [])),
             "security_notice": agent_result.get("security_notice"),
@@ -1164,6 +1239,157 @@ class ChatService:
             "feedback_status": assistant_message.feedback_status,
             "raw": {"message_id": assistant_message.id, **agent_result.get("raw", {}), **memory_writeback_meta},
         }
+
+    def _start_question_answer_trace(
+        self,
+        payload: ChatCompletionRequest,
+        user: User,
+        session: ChatSession,
+        user_message: ChatMessage,
+    ) -> str:
+        """为单次提问生成根 Trace，并以 fail-open 方式投递入口事件。"""
+
+        trace_id = uuid.uuid4().hex
+        event = QuestionAnswerTraceService(self.db).build_event(
+            trace_id=trace_id,
+            event_id=uuid.uuid4().hex,
+            node_id="question-entry",
+            business_stage="question_entry",
+            event_type="trace.started",
+            sequence=1,
+            producer="chat_service",
+            payload={
+                "question": payload.message,
+                "chat_type": payload.chat_type,
+                "mode": payload.mode,
+                "project_id": payload.project_id,
+                "user_id": user.id,
+                "session_id": session.id,
+                "user_message_id": getattr(user_message, "id", None),
+            },
+        )
+        QuestionAnswerTracePublisher().publish(event)
+        return trace_id
+
+    def _question_answer_trace_observer(
+        self,
+        trace_id: str,
+    ) -> tuple[Callable[[dict[str, Any]], None], list[dict[str, Any]]]:
+        """创建节点级观察者：节点完成或失败后立即异步投递一次事件。"""
+
+        published_events: list[dict[str, Any]] = []
+
+        def observe(trace_item: dict[str, Any]) -> None:
+            event = QuestionAnswerTraceService(self.db).build_execution_events(
+                trace_id=trace_id,
+                agent_trace=[trace_item],
+            )[0]
+            event["sequence"] = len(published_events) + 2
+            published_events.append(event)
+            QuestionAnswerTracePublisher().publish(event)
+
+        return observe, published_events
+
+    def _finish_question_answer_trace(
+        self,
+        trace_id: str,
+        payload: ChatCompletionRequest,
+        user: User,
+        session: ChatSession,
+        result: ChatMessage | dict[str, Any],
+        *,
+        sequence: int = 2,
+        agent_result: dict[str, Any] | None = None,
+    ) -> None:
+        """问答持久化后异步投递根 Trace 结束事件。"""
+
+        assistant_message_id = result.id if isinstance(result, ChatMessage) else (result.get("raw") or {}).get("message_id")
+        observable_result = dict(agent_result or {})
+        evidences = observable_result.pop("evidences", [])
+        observable_result["evidences"] = self._serialize_evidences(evidences) if evidences else []
+        event = QuestionAnswerTraceService(self.db).build_event(
+            trace_id=trace_id,
+            event_id=uuid.uuid4().hex,
+            node_id="result-return",
+            parent_node_id="question-entry",
+            business_stage="result_return",
+            event_type="trace.completed",
+            sequence=sequence,
+            producer="chat_service",
+            payload={
+                "chat_type": payload.chat_type,
+                "project_id": payload.project_id,
+                "user_id": user.id,
+                "session_id": session.id,
+                "assistant_message_id": assistant_message_id,
+                "result": observable_result,
+            },
+        )
+        QuestionAnswerTracePublisher().publish(event)
+
+    def _publish_question_answer_execution_trace(
+        self,
+        trace_id: str,
+        agent_result: dict[str, Any],
+    ) -> int:
+        """异步投递真实执行节点，并返回终止事件序号。"""
+
+        events = list(agent_result.get("question_answer_trace_events") or [])
+        if not events:
+            trace_steps = list(agent_result.get("trace_steps", agent_result.get("agent_trace", [])) or [])
+            events = QuestionAnswerTraceService(self.db).build_execution_events(
+                trace_id=trace_id,
+                agent_trace=trace_steps,
+                runtime_observability=dict(agent_result.get("raw") or {}),
+            )
+            publisher = QuestionAnswerTracePublisher()
+            for event in events:
+                publisher.publish(event)
+        coverage_events = QuestionAnswerTraceService(self.db).build_stage_coverage_events(
+            trace_id=trace_id,
+            execution_events=events,
+        )
+        publisher = QuestionAnswerTracePublisher()
+        for event in coverage_events:
+            publisher.publish(event)
+        return len(events) + len(coverage_events) + 2
+
+    def _fail_question_answer_trace(
+        self,
+        trace_id: str,
+        payload: ChatCompletionRequest,
+        user: User,
+        session: ChatSession,
+        exc: Exception,
+        *,
+        sequence: int = 2,
+    ) -> None:
+        """最佳努力记录失败终点；任何采集异常都不得覆盖原问答异常。"""
+
+        try:
+            event = QuestionAnswerTraceService(self.db).build_event(
+                trace_id=trace_id,
+                event_id=uuid.uuid4().hex,
+                node_id="result-return",
+                parent_node_id="question-entry",
+                business_stage="result_return",
+                event_type="trace.failed",
+                sequence=sequence,
+                producer="chat_service",
+                payload={
+                    "chat_type": payload.chat_type,
+                    "project_id": payload.project_id,
+                    "user_id": user.id,
+                    "session_id": session.id,
+                    "exception": {
+                        "type": type(exc).__name__,
+                        "message": exc.message if isinstance(exc, AppException) else str(exc),
+                    },
+                },
+            )
+            QuestionAnswerTracePublisher().publish(event)
+        except Exception:  # noqa: BLE001
+            logger.exception("问答失败 Trace 投递异常: trace_id=%s session_id=%s", trace_id, session.id)
 
     def _finalize_turn_memory_best_effort(
         self,

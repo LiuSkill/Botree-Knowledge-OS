@@ -447,9 +447,16 @@ class MultiIntentQaService:
                     if retriever not in used_retrievers:
                         used_retrievers.append(retriever)
                 for trace in result.get("agent_trace", []):
+                    original_node_id = str(trace.get("node_id") or trace.get("step") or "node")
                     traces.append(
                         {
                             **trace,
+                            "node_id": f"{execution.intent.id}:{sub_result.sub_question.id}:{original_node_id}",
+                            "parent_node_id": f"sub-question:{sub_result.sub_question.id}",
+                            "depends_on": [
+                                f"sub-question:{item}" for item in sub_result.sub_question.depends_on
+                            ],
+                            "parallel_group_id": f"turn:{plan.turn_id}:intents",
                             "turn_id": plan.turn_id,
                             "plan_version": plan.plan_version,
                             "intent_id": execution.intent.id,
@@ -485,6 +492,7 @@ class MultiIntentQaService:
                             "id": item.sub_question.id,
                             "order": item.sub_question.order,
                             "question": item.sub_question.question,
+                            "depends_on": item.sub_question.depends_on,
                             "status": item.status,
                             "answerability_status": item.answerability_status,
                             "conclusion": item.answer,

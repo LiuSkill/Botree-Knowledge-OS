@@ -357,6 +357,8 @@ ACTION_GROUPS: tuple[ActionGroup, ...] = (
         ("system:qa-audit",),
         (
             ActionPermission("view", "查看问答审计", "system:qa-audit:view"),
+            ActionPermission("debug", "查看问答 Debugger", "system:qa-audit:debug"),
+            ActionPermission("cleanup", "清理问答 Trace", "system:qa-audit:cleanup"),
         ),
     ),
     ActionGroup(

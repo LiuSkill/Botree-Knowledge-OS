@@ -115,9 +115,12 @@ def test_audit_attributes_plan_evaluation_and_trace_to_sub_question():
     assert first_audit[0]["retrieval_plan"] == {"selected_retrievers": ["keyword"]}
     assert first_audit[0]["evidence_evaluation"] == {"enough": True}
     assert first_audit[0]["failure_reason"] is None
+    assert result["intent_results"][0]["sub_question_outcomes"][1]["depends_on"] == ["intent-1-sub-1"]
     attributed_traces = [item for item in result["agent_trace"] if item.get("implementation") == "keyword"]
     assert {item["intent_id"] for item in attributed_traces} == {"intent-1", "intent-2"}
     assert all(item["sub_question_id"].startswith(item["intent_id"]) for item in attributed_traces)
+    assert all(item["parent_node_id"] == f"sub-question:{item['sub_question_id']}" for item in attributed_traces)
+    assert {item["parallel_group_id"] for item in attributed_traces} == {f"turn:{result['raw']['turn_id']}:intents"}
 
 
 def test_synthesis_failure_uses_safe_fallback_instead_of_failing_answer():

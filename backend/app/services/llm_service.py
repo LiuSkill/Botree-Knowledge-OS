@@ -86,6 +86,7 @@ class LLMService:
         self.asset_service = DocumentAssetService(db)
         self.last_runtime_config: RuntimeModelConfig | None = None
         self.last_timeout_seconds: int | None = None
+        self.last_observation: dict[str, Any] | None = None
 
     def answer_with_evidence(
         self,
@@ -177,6 +178,11 @@ class LLMService:
         self.last_timeout_seconds = effective_timeout_seconds
 
         started_at = time.perf_counter()
+        self.last_observation = {
+            "status": "started",
+            "request": payload,
+            "timeout_seconds": effective_timeout_seconds,
+        }
         try:
             response = requests.post(
                 url,
@@ -187,6 +193,13 @@ class LLMService:
             response.raise_for_status()
             data = response.json()
             content = self._flatten_message_content(data["choices"][0]["message"]["content"])
+            self.last_observation = {
+                "status": "success",
+                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+                "request": payload,
+                "response": data,
+                "timeout_seconds": effective_timeout_seconds,
+            }
             logger.info(
                 "LLM调用成功: provider=%s model=%s model_type=%s elapsed_ms=%s",
                 runtime_config.provider,
@@ -196,6 +209,13 @@ class LLMService:
             )
             return content.strip()
         except requests.Timeout as exc:
+            self.last_observation = {
+                "status": "timeout",
+                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+                "request": payload,
+                "timeout_seconds": effective_timeout_seconds,
+                "error_type": type(exc).__name__,
+            }
             logger.warning(
                 "LLM调用超时: provider=%s model=%s model_type=%s timeout_seconds=%s elapsed_ms=%s",
                 runtime_config.provider,
@@ -206,6 +226,13 @@ class LLMService:
             )
             raise AppException("LLM接口响应超时，请稍后重试", status_code=504, code=504) from exc
         except (requests.RequestException, KeyError, IndexError, TypeError, ValueError) as exc:
+            self.last_observation = {
+                "status": "failed",
+                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+                "request": payload,
+                "timeout_seconds": effective_timeout_seconds,
+                "error_type": type(exc).__name__,
+            }
             logger.exception(
                 "LLM调用失败: provider=%s model=%s model_type=%s elapsed_ms=%s",
                 runtime_config.provider,
@@ -395,7 +422,7 @@ class LLMService:
                 "source": "not_called",
                 "reason": reason,
             }
-        return {
+        route = {
             "task": task,
             "model_type": runtime_config.model_type,
             "model_name": runtime_config.model_name,
@@ -404,6 +431,10 @@ class LLMService:
             "timeout_seconds": self.last_timeout_seconds,
             "reason": reason,
         }
+        observation = getattr(self, "last_observation", None)
+        if observation:
+            route.update(observation)
+        return route
 
     def _resolve_timeout_seconds(self, model_type: str, timeout_seconds: int | None = None) -> int:
         """解析任务级超时；证据判断属于主链路前置短任务，必须受硬上限保护。"""

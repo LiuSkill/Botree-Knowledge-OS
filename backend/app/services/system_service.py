@@ -31,6 +31,7 @@ from app.repositories.project_repository import ProjectRepository
 from app.repositories.review_repository import ReviewRepository
 from app.repositories.system_repository import SystemRepository
 from app.repositories.user_repository import UserRepository
+from app.repositories.question_answer_trace_repository import QuestionAnswerTraceRepository
 from app.services.project_access_service import ProjectAccessService
 from app.services.retrieval_trace_service import RetrievalTraceService
 from app.utils.pagination import paginate
@@ -435,6 +436,25 @@ class SystemService:
             for trace in RetrievalTraceService(self.db).list_recent()
         ]
 
+    def cleanup_question_answer_trace(self, trace_id: str, current_user: User, *, confirm: bool) -> dict[str, Any]:
+        """在单一事务中显式清理 Trace 并记录审计，不触碰聊天与知识数据。"""
+
+        if not confirm:
+            return {"trace_id": trace_id, "status": "confirmation_required", "deleted_events": 0}
+        repository = QuestionAnswerTraceRepository(self.db)
+        if repository.get_trace(trace_id) is None:
+            return {"trace_id": trace_id, "status": "not_found", "deleted_events": 0}
+        deleted_events = repository.delete_trace(trace_id)
+        self.record_operation(
+            current_user,
+            "清理问答 Debugger Trace",
+            "question_answer_trace",
+            trace_id,
+            f"显式清理 Trace 事件: {deleted_events} 条",
+        )
+        self.db.commit()
+        return {"trace_id": trace_id, "status": "deleted", "deleted_events": deleted_events}
+
     def list_menus(self) -> list[dict[str, Any]]:
         """
         查询系统真实菜单树。
@@ -532,10 +552,12 @@ class SystemService:
         """序列化单条问答明细，并补齐 trace 缺失时的问题文本。"""
 
         message, session, user, project, trace, citation_count = row
+        question_answer_trace = QuestionAnswerTraceRepository(self.db).get_by_assistant_message_id(message.id)
         question = trace.question if trace and trace.question else chat_repo.get_previous_user_question(session.id, message.id)
         return {
             "id": message.id,
             "message_id": message.id,
+            "trace_id": question_answer_trace.trace_id if question_answer_trace else None,
             "session_id": session.id,
             "session_title": session.title,
             "user_id": session.user_id,

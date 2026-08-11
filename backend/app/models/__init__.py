@@ -42,6 +42,7 @@ from app.models.process_config import (
     ProcessRouteVersion,
 )
 from app.models.project import Project, ProjectMember
+from app.models.question_answer_trace import QuestionAnswerTrace, QuestionAnswerTraceEvent
 from app.models.retrieval_trace import RetrievalTrace
 from app.models.review import ReviewLog, ReviewTask
 from app.models.system_config import SystemConfig
@@ -92,6 +93,8 @@ __all__ = [
     "Permission",
     "Project",
     "ProjectMember",
+    "QuestionAnswerTrace",
+    "QuestionAnswerTraceEvent",
     "RetrievalTrace",
     "ReviewLog",
     "ReviewTask",

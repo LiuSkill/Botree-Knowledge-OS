@@ -163,8 +163,9 @@ class RetrievalGraph:
     - 在 trace 中保留每个节点的输入、输出和耗时摘要
     """
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, trace_observer: Callable[[dict[str, Any]], None] | None = None) -> None:
         self.db = db
+        self.trace_observer = trace_observer
         self.settings = get_settings()
         self.qwen = QwenOrchestrationService(db)
         self.query_profile_service = QueryProfileService()
@@ -772,7 +773,7 @@ class RetrievalGraph:
             "details": self._trace_details(step, state, "answer"),
         }
         trace_item["display_text"] = self._trace_success_text("answer", state, trace_item)
-        state.setdefault("trace", []).append(trace_item)
+        self._append_trace_item(state, trace_item)
         logger.info(
             "LangGraph鑺傜偣瀹屾垚: run_id=%s step=%s implementation=%s status=success elapsed_ms=%s intent=%s sub_query_total=%s output_summary=%s",
             state.get("raw", {}).get("run_id"),
@@ -924,7 +925,7 @@ class RetrievalGraph:
                 "details": self._trace_details(step, next_state, trace_key),
             }
             trace_item["display_text"] = self._trace_success_text(trace_key, next_state, trace_item)
-            next_state.setdefault("trace", []).append(trace_item)
+            self._append_trace_item(next_state, trace_item)
             logger.info(
                 "LangGraph节点完成: run_id=%s step=%s implementation=%s status=success elapsed_ms=%s intent=%s sub_query_total=%s output_summary=%s",
                 run_id,
@@ -956,7 +957,7 @@ class RetrievalGraph:
                 "details": self._trace_details(step, state, trace_key),
             }
             trace_item["display_text"] = self._trace_failed_text(trace_key)
-            state.setdefault("trace", []).append(trace_item)
+            self._append_trace_item(state, trace_item)
             logger.exception(
                 "LangGraph节点失败: run_id=%s step=%s implementation=%s status=failed elapsed_ms=%s intent=%s input_summary=%s",
                 run_id,
@@ -1861,6 +1862,38 @@ class RetrievalGraph:
 
         return f"{evidence.document_id}:{evidence.chunk_id}"
 
+    def _evidence_debug_payload(self, evidence: Evidence) -> dict[str, Any]:
+        """生成可复盘召回、重排和证据选择的完整候选快照。"""
+
+        return {
+            "source_type": evidence.source_type,
+            "knowledge_base_id": evidence.knowledge_base_id,
+            "project_id": evidence.project_id,
+            "document_id": evidence.document_id,
+            "chunk_id": evidence.chunk_id,
+            "drawing_no": evidence.drawing_no,
+            "file_name": evidence.file_name,
+            "page_number": evidence.page_number,
+            "content": evidence.content,
+            "retriever": evidence.retriever,
+            "score": float(evidence.score),
+            "metadata": evidence.metadata,
+            "assets": [
+                {
+                    "asset_id": asset.asset_id,
+                    "asset_type": asset.asset_type,
+                    "url": asset.url,
+                    "mime_type": asset.mime_type,
+                    "file_name": asset.file_name,
+                    "file_size": asset.file_size,
+                    "page_number": asset.page_number,
+                    "block_id": asset.block_id,
+                    "metadata": asset.metadata,
+                }
+                for asset in evidence.assets
+            ],
+        }
+
     def _evidence_score(self, evidence: Evidence) -> float:
         try:
             return float(evidence.score)
@@ -2564,6 +2597,10 @@ class RetrievalGraph:
                         "fallback_used": retrieval.get("fallback_used", []),
                         "fallback_trigger_reason": retrieval.get("fallback_trigger_reason", []),
                         "retriever_timeouts": retrieval.get("retriever_timeouts", {}),
+                        "candidates": [
+                            self._evidence_debug_payload(evidence)
+                            for evidence in retrieval.get("evidences", [])
+                        ],
                     }
                 )
 
@@ -2664,9 +2701,17 @@ class RetrievalGraph:
             state["raw"]["visual_evidence_top_k"] = VISUAL_EVIDENCE_TOP_K
             state["raw"]["retrieval_before_rerank_doc_ids"] = raw_before_doc_ids
             state["raw"]["retrieval_before_rerank_scores"] = raw_before_scores
+            state["raw"]["retrieval_before_rerank_candidates"] = [
+                self._evidence_debug_payload(evidence)
+                for group in evidence_groups
+                for evidence in group
+            ]
             state["raw"]["pre_rerank_evidence_guard"] = pre_rerank_guard
             state["raw"]["rerank_after_doc_ids"] = [self._evidence_debug_id(evidence) for evidence in evidences]
             state["raw"]["rerank_after_scores"] = [float(evidence.score) for evidence in evidences]
+            state["raw"]["rerank_after_candidates"] = [
+                self._evidence_debug_payload(evidence) for evidence in evidences
+            ]
             state["raw"]["reranker_runtime"] = getattr(self.reranker, "last_runtime", {})
             state["raw"]["rerank_elapsed_ms"] = rerank_elapsed_ms
             state["raw"]["metadata_evidence_filtered_count"] = metadata_evidence_count
@@ -3886,7 +3931,7 @@ class RetrievalGraph:
             trace 详情字典
         """
 
-        return {
+        details = {
             "step": step,
             "intent": state.get("intent"),
             "route": state.get("raw", {}).get("route"),
@@ -3939,6 +3984,21 @@ class RetrievalGraph:
             "visual_asset_count": state.get("visual_asset_count", 0),
             "answer_preview": self._clip(state.get("answer", ""), 300),
         }
+        # Debugger 必须能在节点级还原数据变化，不能只依赖终止事件中的整包运行状态。
+        raw = state.get("raw", {})
+        if trace_key in {"retrieval", "retry_retrieval"}:
+            details.update(
+                {
+                    "retrieval_before_rerank_candidates": raw.get("retrieval_before_rerank_candidates", []),
+                    "rerank_after_candidates": raw.get("rerank_after_candidates", []),
+                    "rerank_details": state.get("rerank_details", []),
+                }
+            )
+        if trace_key in {"evidence_judge", "evidence_decision", "answer_policy_gate", "answer"}:
+            details["final_evidence_set"] = [
+                self._evidence_debug_payload(evidence) for evidence in state.get("evidences", [])
+            ]
+        return details
 
     def _model_route_for_trace_key(self, state: RetrievalGraphState, trace_key: str) -> dict[str, Any]:
         """按 trace_key 取当前节点的模型路由信息。"""
@@ -4178,8 +4238,25 @@ class RetrievalGraph:
             "details": self._trace_details(step, state, "visual_reading"),
         }
         trace_item["display_text"] = self._trace_success_text("visual_reading", state, trace_item)
-        state.setdefault("trace", []).append(trace_item)
+        self._append_trace_item(state, trace_item)
         return [running_delta, self.trace_delta_payload(trace_item)]
+
+    def _append_trace_item(self, state: RetrievalGraphState, trace_item: dict[str, Any]) -> None:
+        """记录真实节点，并在节点完成/失败时立即通知诊断事件观察者。"""
+
+        state.setdefault("trace", []).append(trace_item)
+        trace_observer = getattr(self, "trace_observer", None)
+        if trace_observer is None:
+            return
+        try:
+            trace_observer(dict(trace_item))
+        except Exception:  # noqa: BLE001 - 诊断旁路不得影响问答主链路
+            logger.exception(
+                "问答 Trace 节点观察失败: run_id=%s step=%s status=%s",
+                state.get("raw", {}).get("run_id"),
+                trace_item.get("step"),
+                trace_item.get("status"),
+            )
 
     def _infer_trace_key(self, step: str, implementation: str) -> str:
         if implementation == "query_profile":
@@ -4484,6 +4561,14 @@ class RetrievalGraph:
         source_answer = state.get("answer") if answer is None else answer
         filtered = service.filter_for_user(str(source_answer or "").strip(), user)
         state["answer"] = filtered.safe_content
+        state.setdefault("raw", {})["sensitive_filter"] = {
+            "before_content": str(source_answer or "").strip(),
+            "after_content": filtered.safe_content,
+            "matched_rule_codes": list(filtered.matched_rule_codes),
+            "redaction_types": list(filtered.redaction_types),
+            "redaction_count": filtered.redaction_count,
+            "action": "redact" if filtered.redacted else "allow",
+        }
         combined_types = set(state.get("redaction_types", [])) | set(filtered.redaction_types)
         state["redaction_types"] = sorted(combined_types)
         state["redaction_count"] = int(state.get("redaction_count") or 0) + filtered.redaction_count

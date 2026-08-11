@@ -12,12 +12,13 @@ import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import { listProjects } from '@/api/projects';
-import { listQAAudits, listQAAuditSessions } from '@/api/system';
+import { getQADebugger, listQAAudits, listQAAuditSessions, type QADebuggerResult } from '@/api/system';
 import { listUsers } from '@/api/users';
 import botreeLogo from '@/assets/botree-logo.png';
 import AgentTracePanel from '@/components/AgentTracePanel.vue';
 import ChatRichContent from '@/components/ChatRichContent.vue';
 import CitationList from '@/components/CitationList.vue';
+import QATraceDataWorkbench from '@/components/QATraceDataWorkbench.vue';
 import TableActionButton from '@/components/TableActionButton.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import type {
@@ -31,6 +32,7 @@ import type {
   UserInfo,
 } from '@/types/api';
 import { formatDateTime } from '@/utils/format';
+import { PERMISSIONS } from '@/constants/permissions';
 
 type AuditTab = 'sessions' | 'details';
 type DetailDrawerTab = 'citations' | 'trace';
@@ -65,7 +67,15 @@ const optionLoading = ref(false);
 const selectedDetail = ref<QAAuditDetail | null>(null);
 const detailDrawerVisible = ref(false);
 const detailDrawerTab = ref<DetailDrawerTab>('citations');
-
+const debuggerVisible = ref(false);
+const debuggerLoading = ref(false);
+const debuggerResult = ref<QADebuggerResult | null>(null);
+const debuggerError = ref('');
+const debuggerLoadingMore = ref(false);
+const debuggerPageSize = 100;
+const debuggerHasMore = computed(() => (
+  (debuggerResult.value?.events.length || 0) < (debuggerResult.value?.events_total || 0)
+));
 const sessionColumns = computed(() => [
   { colKey: 'user', title: t('system.audit.field.user'), width: 120 },
   { colKey: 'project', title: t('system.audit.field.project'), width: 150 },
@@ -100,6 +110,44 @@ function createEmptyPageResult<T>(): PageResult<T> {
     page: 1,
     page_size: DEFAULT_PAGE_SIZE,
   };
+}
+
+async function openDebugger(row: QAAuditDetail) {
+  selectedDetail.value = row;
+  debuggerVisible.value = true;
+  debuggerError.value = '';
+  debuggerResult.value = null;
+  if (!row.trace_id) {
+    debuggerError.value = t('system.audit.debugger.missingTrace');
+    return;
+  }
+  debuggerLoading.value = true;
+  try {
+    debuggerResult.value = await getQADebugger(row.trace_id, 0, debuggerPageSize, true);
+  } catch (error) {
+    debuggerError.value = error instanceof Error ? error.message : t('system.audit.debugger.loadFailed');
+  } finally {
+    debuggerLoading.value = false;
+  }
+}
+
+async function loadMoreDebuggerEvents() {
+  if (!selectedDetail.value?.trace_id || !debuggerResult.value || debuggerLoadingMore.value || !debuggerHasMore.value) return;
+  debuggerLoadingMore.value = true;
+  try {
+    const next = await getQADebugger(
+      selectedDetail.value.trace_id,
+      debuggerResult.value.events.length,
+      debuggerPageSize,
+      true,
+    );
+    const knownIds = new Set(debuggerResult.value.events.map((event) => event.event_id));
+    debuggerResult.value.events.push(...next.events.filter((event) => !knownIds.has(event.event_id)));
+  } catch (error) {
+    debuggerError.value = error instanceof Error ? error.message : t('system.audit.debugger.loadFailed');
+  } finally {
+    debuggerLoadingMore.value = false;
+  }
 }
 
 function buildBaseFilters(page: number, pageSize: number): QAAuditFilters {
@@ -473,9 +521,14 @@ onMounted(async () => {
             {{ retrieverLabel(row.retrievers) }}
           </template>
           <template #operation="{ row }">
-            <TableActionButton :label="t('system.audit.action.viewDetail')" @click="openDetailDrawer(row)">
+            <t-space>
+              <TableActionButton :label="t('system.audit.action.viewDetail')" @click="openDetailDrawer(row)">
               <FileSearchIcon />
-            </TableActionButton>
+              </TableActionButton>
+              <TableActionButton v-permission="PERMISSIONS.SYSTEM_QA_AUDIT_DEBUG" :label="t('system.audit.debugger.open')" @click="openDebugger(row)">
+                <RefreshIcon />
+              </TableActionButton>
+            </t-space>
           </template>
         </t-table>
       </div>
@@ -578,6 +631,20 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+    </t-drawer>
+
+    <t-drawer v-model:visible="debuggerVisible" :header="t('system.audit.debugger.title')" size="min(1480px, 98vw)" :footer="false">
+      <t-loading :loading="debuggerLoading" show-overlay>
+        <t-alert v-if="debuggerError" theme="error" :message="debuggerError" />
+        <QATraceDataWorkbench
+          v-else-if="debuggerResult"
+          :result="debuggerResult"
+          :question="selectedDetail?.question || undefined"
+          :answer="selectedDetail?.answer || undefined"
+          :feedback-status="selectedDetail?.feedback_status || null"
+          @load-more="loadMoreDebuggerEvents"
+        />
+      </t-loading>
     </t-drawer>
   </div>
 </template>
@@ -846,6 +913,31 @@ onMounted(async () => {
 
 .qa-detail-related-body {
   padding-top: 12px;
+}
+
+.debugger-node-tabs {
+  margin-top: 8px;
+}
+
+.debugger-payload-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.debugger-payload {
+  max-height: 420px;
+  overflow: auto;
+  border-radius: 6px;
+  padding: 12px;
+  background: #f8fafc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.debugger-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
 }
 
 @media (max-width: 640px) {

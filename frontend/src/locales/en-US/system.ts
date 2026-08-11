@@ -360,6 +360,26 @@ export default {
     },
   },
   audit: {
+    debugger: {
+      title: 'Q&A Debugger',
+      open: 'View Trace',
+      missingTrace: 'No complete Trace is available for this answer',
+      loadFailed: 'Failed to load Trace',
+      eventCount: '{count} events',
+      loadPayload: 'Load node details',
+      loadMore: 'Load more nodes',
+      copy: 'Copy',
+      section: {
+        summary: 'Summary',
+        input: 'Input',
+        output: 'Output',
+        effective_config: 'Effective config',
+        candidates: 'Candidates/Evidence',
+        decisions: 'Decisions',
+        errors: 'Errors',
+        raw: 'Raw JSON',
+      },
+    },
     title: {
       sessions: 'User Conversations',
       details: 'Q&A Details',

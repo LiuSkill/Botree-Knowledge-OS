@@ -188,6 +188,56 @@ def test_llm_service_caps_evidence_judge_timeout_and_sanitizes_timeout(monkeypat
         db.close()
 
 
+def test_llm_model_route_contains_final_prompt_config_and_observable_response(monkeypatch) -> None:
+    """模型路由审计信息应包含本次真实请求和可观测响应，且不包含认证头。"""
+
+    db = make_session()
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "id": "completion-1",
+                "model": "qwen3.5-plus",
+                "choices": [{"message": {"content": "最终答案"}}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 4},
+            }
+
+    try:
+        service = LLMService(db)
+        monkeypatch.setattr(
+            service,
+            "_runtime_config",
+            lambda model_type, config=None: RuntimeModelConfig(  # noqa: ARG005
+                provider="qwen_api",
+                model_name="qwen3.5-plus",
+                api_base="https://dashscope.example/v1",
+                api_key="secret",
+                model_type=model_type,
+            ),
+        )
+        monkeypatch.setattr("app.services.llm_service.requests.post", lambda *args, **kwargs: FakeResponse())
+
+        answer = service.chat(
+            [{"role": "system", "content": "系统提示"}, {"role": "user", "content": "最终 Prompt"}],
+            model_type="answer_llm",
+            max_tokens=512,
+        )
+        route = service.model_route("answer", "基于证据回答")
+
+        assert answer == "最终答案"
+        assert route["request"]["messages"][1]["content"] == "最终 Prompt"
+        assert route["request"]["max_completion_tokens"] == 512
+        assert route["response"]["choices"][0]["message"]["content"] == "最终答案"
+        assert route["response"]["usage"]["prompt_tokens"] == 12
+        assert "headers" not in route
+        assert "api_key" not in route
+    finally:
+        db.close()
+
+
 def test_llm_connection_test_payload_does_not_force_json_mode() -> None:
     service = object.__new__(LLMService)
     runtime_config = RuntimeModelConfig(
