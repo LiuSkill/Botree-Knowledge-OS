@@ -225,6 +225,8 @@ const FIELD_LABELS: Record<string, string> = {
   evidence_status: 'ai.trace.field.evidenceStatus',
   strong_evidence_count: 'ai.trace.field.strongEvidenceCount',
   weak_evidence_count: 'ai.trace.field.weakEvidenceCount',
+  retained_evidence_count: 'ai.trace.field.retainedEvidenceCount',
+  linked_image_count: 'ai.trace.field.linkedImageCount',
   exact_text_search: 'ai.trace.field.exactTextSearch',
   executed_retrievers: 'ai.trace.field.executedRetrievers',
   fallback_ladder: 'ai.trace.field.fallbackLadder',
@@ -277,6 +279,7 @@ const FIELD_LABELS: Record<string, string> = {
   task: 'ai.trace.field.task',
   task_type: 'ai.trace.field.taskType',
   user_id: 'ai.trace.field.userId',
+  visual_asset_count: 'ai.trace.field.visualAssetCount',
   visual_evidence: 'ai.trace.field.visualEvidence',
   answerability_status: 'ai.trace.field.answerabilityStatus',
   answered_intent_ids: 'ai.trace.field.answeredIntentIds',
@@ -341,10 +344,28 @@ const TRACE_STEP_LABELS: Record<string, string> = {
   数据检索规划: 'ai.trace.task.planner',
   检索召回与数据组装: 'ai.trace.task.retrieval',
   检索召回执行: 'ai.trace.task.retrieval',
+  补充检索: 'ai.trace.task.retryRetrieval',
   证据评估: 'ai.trace.task.evidenceJudge',
   资料证据有效性判断: 'ai.trace.task.evidenceJudge',
+  视觉图纸阅读: 'ai.trace.task.visualReading',
   回答生成: 'ai.trace.task.answerGenerator',
   多意图执行汇总: 'ai.trace.task.multiIntent',
+};
+
+const FAILED_STAGE_LABELS: Record<string, string> = {
+  理解问题: 'ai.trace.task.intent',
+  拆解查询: 'ai.trace.task.queryDecompose',
+  会话上下文化: 'ai.trace.task.sessionMemory',
+  规划检索方式: 'ai.trace.task.planner',
+  生成问题理解: 'ai.trace.task.questionUnderstanding',
+  解析问答策略: 'ai.trace.task.policyResolution',
+  检索资料: 'ai.trace.task.retrieval',
+  整理证据: 'ai.trace.task.evidenceJudge',
+  生成查询画像: 'ai.trace.task.queryProfile',
+  补充检索: 'ai.trace.task.retryRetrieval',
+  阅读图纸: 'ai.trace.task.visualReading',
+  生成回答: 'ai.trace.task.answerGenerator',
+  执行步骤: 'ai.trace.generatedStep',
 };
 
 const traceItems = computed<TraceViewItem[]>(() => {
@@ -405,7 +426,10 @@ function traceStepKey(step: AgentTraceStep, index: number): string {
 
 function traceStepTitle(step: AgentTraceStep): string {
   const rawTitle = step.step || step.implementation || t('ai.trace.generatedStep');
-  return translatedValue(TRACE_STEP_LABELS[rawTitle] || localizeKnownCodes(rawTitle));
+  const title = translatedValue(TRACE_STEP_LABELS[rawTitle] || TASK_LABELS[rawTitle] || localizeKnownCodes(rawTitle));
+  if (!usesWrongDisplayLanguage(title)) return title;
+  const fallbackTitle = translatedValue(TASK_LABELS[rawTextValue(step.implementation)] || t('ai.trace.generatedStep'));
+  return usesWrongDisplayLanguage(fallbackTitle) ? t('ai.trace.generatedStep') : fallbackTitle;
 }
 
 function tagTheme(status?: string): 'primary' | 'success' | 'danger' {
@@ -456,6 +480,13 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+type PhraseReplacement = [RegExp, string | ((match: string, ...captures: string[]) => string)];
+
+function replaceKnownPhrase(text: string, [pattern, replacement]: PhraseReplacement): string {
+  if (typeof replacement === 'string') return text.replace(pattern, replacement);
+  return text.replace(pattern, (...args: unknown[]) => replacement(String(args[0]), ...args.slice(1, -2).map(String)));
+}
+
 function localizeKnownCodes(text: string): string {
   const labels = {
     ...PROFILE_LABELS,
@@ -468,11 +499,33 @@ function localizeKnownCodes(text: string): string {
     ...PROVIDER_LABELS,
     ...VALUE_LABELS,
   };
-  const phraseReplacements: Array<[RegExp, string]> = [
+  const phraseReplacements: PhraseReplacement[] = [
     [/已完成会话上下文化/g, t('ai.trace.phrase.sessionContextCompleted')],
     [/已生成问题理解/g, t('ai.trace.phrase.questionUnderstandingGenerated')],
     [/已解析最终策略/g, t('ai.trace.phrase.finalPolicyResolved')],
     [/已生成数据检索规划/g, t('ai.trace.phrase.retrievalPlanGenerated')],
+    [/回答已生成/g, t('ai.trace.summary.answerGenerated')],
+    [/已直接回答/g, t('ai.trace.summary.directAnswerGenerated')],
+    [/已执行/g, t('ai.trace.executed')],
+    [/未命中有效资料/g, t('ai.trace.summary.noRetrievalHits')],
+    [/证据已足够或缺少补充检索建议，未执行补充检索/g, t('ai.trace.summary.retrySkipped')],
+    [/已补充检索\s*(\d+)\s*个查询[：:]\s*/g, (_match, count) => `${t('ai.trace.summary.retryQueries', { count })}: `],
+    [/已输入\s*(\d+)\s*张图纸图片给视觉模型/g, (_match, count) => t('ai.trace.summary.visualImagesSubmitted', { count })],
+    [/仅基于项目资料中的弱证据输出有限回答/g, t('ai.trace.summary.answerBasisWeakProject')],
+    [/仅基于项目资料中的部分证据输出受限回答/g, t('ai.trace.summary.answerBasisPartialProject')],
+    [/资料存在冲突，仅输出冲突说明和可核对证据/g, t('ai.trace.summary.answerBasisConflict')],
+    [/未引用知识库资料，基于通用知识回答/g, t('ai.trace.summary.answerBasisGeneral')],
+    [/项目资料无有效证据，拒绝使用通用知识编造项目事实/g, t('ai.trace.summary.answerBasisProjectRefusal')],
+    [/知识库无有效证据，等待用户确认是否使用通用知识/g, t('ai.trace.summary.answerBasisGeneralConfirm')],
+    [/基于项目资料组织答案，行业知识仅作补充解释/g, t('ai.trace.summary.answerBasisProjectWithIndustry')],
+    [/基于 P&ID 图纸和项目资料组织答案/g, t('ai.trace.summary.answerBasisDrawingProject')],
+    [/基于项目资料组织答案/g, t('ai.trace.summary.answerBasisProject')],
+    [/未检索到行业知识库资料，基于模型通用知识回答/g, t('ai.trace.summary.answerBasisIndustryGeneral')],
+    [/基于行业基础知识库资料组织答案/g, t('ai.trace.summary.answerBasisIndustry')],
+    [/基于基础知识库资料组织答案/g, t('ai.trace.summary.answerBasisBase')],
+    [/未检索知识库，直接回复问候/g, t('ai.trace.summary.answerBasisDirectGreeting')],
+    [/未检索知识库，直接回答通用问题/g, t('ai.trace.summary.answerBasisDirectGeneral')],
+    [/证据复杂度较高[：:]?/g, t('ai.trace.summary.evidenceComplexityHigh')],
     [
       /基于\s*(?:Policy\s*Resolver|PolicyResolver)\s*(?:Resolved Task Type|resolved_task_type)\s*和\s*(?:Question\s*Understanding|QuestionUnderstanding)\s*(?:Retrieval Needs|retrieval_needs)\s*选择检索器/gi,
       t('ai.trace.phrase.retrieverSelectionBasis'),
@@ -483,10 +536,15 @@ function localizeKnownCodes(text: string): string {
     [/策略解析/g, t('ai.trace.phrase.policyResolution')],
     [/数据检索规划/g, t('ai.trace.phrase.retrievalPlanning')],
     [/检索召回与数据组装/g, t('ai.trace.task.retrieval')],
+    [/补充检索/g, t('ai.trace.task.retryRetrieval')],
     [/资料证据有效性判断/g, t('ai.trace.task.evidenceJudge')],
+    [/视觉图纸阅读/g, t('ai.trace.task.visualReading')],
+    [/图纸图片/g, t('ai.trace.phrase.drawingImages')],
     [/证据状态/g, t('ai.trace.field.evidenceStatus')],
     [/强证据/g, t('ai.trace.field.strongEvidenceCount')],
     [/弱证据/g, t('ai.trace.field.weakEvidenceCount')],
+    [/合并后保留/g, t('ai.trace.field.retainedEvidenceCount')],
+    [/关联/g, t('ai.trace.pair.relation')],
     [/语义检索/g, t('ai.trace.retriever.milvus')],
     [/关键词检索/g, t('ai.trace.retriever.keyword')],
     [/页级检索/g, t('ai.trace.retriever.pageIndex')],
@@ -507,19 +565,26 @@ function localizeKnownCodes(text: string): string {
     [/\btrue\b/g, t('ai.trace.phrase.true')],
     [/\bfalse\b/g, t('ai.trace.phrase.false')],
   ];
-  const replacedText = phraseReplacements
-    .reduce((result, [pattern, replacement]) => result.replace(pattern, replacement), text)
-    .replace(/\bintent-(\d+)-sub-(\d+)\b/g, (_match, intent: string, subQuestion: string) =>
-      t('ai.trace.phrase.subQuestionWithIndex', { intent, subQuestion }),
-    )
-    .replace(/\bintent-(\d+)\b/g, (_match, index: string) => t('ai.trace.phrase.intentWithIndex', { index }));
-  const localizedText = Object.entries(labels)
+  const codeLocalizedText = Object.entries(labels)
     .sort(([left], [right]) => right.length - left.length)
     .reduce((result, [code, label]) => {
       const pattern = new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(code)}(?=$|[^A-Za-z0-9_])`, 'g');
       return result.replace(pattern, `$1${translatedValue(label)}`);
-    }, replacedText);
+    }, text);
+  const localizedText = phraseReplacements
+    .reduce((result, replacement) => replaceKnownPhrase(result, replacement), codeLocalizedText)
+    .replace(/\bintent-(\d+)-sub-(\d+)\b/g, (_match, intent: string, subQuestion: string) =>
+      t('ai.trace.phrase.subQuestionWithIndex', { intent, subQuestion }),
+    )
+    .replace(/\bintent-(\d+)\b/g, (_match, index: string) => t('ai.trace.phrase.intentWithIndex', { index }));
   return locale.value === 'en-US' ? localizedText.replace(/[、，]/g, ', ') : localizedText;
+}
+
+function localizedTraceText(text: string, fallback = ''): string {
+  const sourceText = text.trim();
+  const shouldLocalize = hasCjkText(sourceText) || sourceText.includes('_');
+  const localized = locale.value === 'en-US' && !shouldLocalize ? sourceText : localizeKnownCodes(sourceText);
+  return usesWrongDisplayLanguage(localized) ? fallback : localized;
 }
 
 function readableLabel(key: string): string {
@@ -623,9 +688,9 @@ function modelRouteReason(step: AgentTraceStep): string {
   if (['rules', 'rules_fast_path', 'not_called'].includes(source)) return '';
   const reason = rawTextValue(route.reason);
   if (!reason) return '';
-  if (shouldShowRetrieverMetrics(step)) return localizeKnownCodes(reason);
+  if (shouldShowRetrieverMetrics(step)) return localizedTraceText(reason);
   const cleanedReason = reason.replace(/[，,；;]?\s*(evidence|hits|images|tables)\s*=\s*[\w.-]+/gi, '').trim();
-  return localizeKnownCodes(cleanedReason);
+  return localizedTraceText(cleanedReason);
 }
 
 function splitSummaryLines(text: string): string[] {
@@ -728,6 +793,82 @@ function evidenceSummaryView(text: string): TraceSummaryView | null {
   };
 }
 
+function visualReadingSummaryView(text: string): TraceSummaryView | null {
+  const match = text.match(/^已输入\s*(\d+)\s*张图纸图片给视觉模型$/);
+  if (!match) return null;
+  return {
+    lead: t('ai.trace.summary.visualImagesSubmitted', { count: match[1] }),
+    lines: [],
+    metrics: [
+      {
+        label: t('ai.trace.field.visualAssetCount'),
+        value: match[1],
+        suffix: t('ai.trace.unit.images'),
+      },
+    ],
+    pairs: [],
+    queries: [],
+  };
+}
+
+function answerSummaryView(text: string): TraceSummaryView | null {
+  const lines = splitSummaryLines(text);
+  if (!lines.length) return null;
+  const leadKey =
+    lines[0] === '回答已生成'
+      ? 'ai.trace.summary.answerGenerated'
+      : lines[0] === '已直接回答'
+        ? 'ai.trace.summary.directAnswerGenerated'
+        : '';
+  if (!leadKey) return null;
+  const detailLines = lines
+    .slice(1)
+    .map((line) => localizedTraceText(line, t('ai.trace.summary.answerBasisFallback')))
+    .filter(Boolean);
+  return {
+    lead: t(leadKey),
+    lines: detailLines,
+    metrics: [],
+    pairs: [],
+    queries: [],
+  };
+}
+
+function retryRetrievalSummaryView(text: string): TraceSummaryView | null {
+  if (text === '证据已足够或缺少补充检索建议，未执行补充检索') {
+    return {
+      lead: t('ai.trace.summary.retrySkipped'),
+      lines: [],
+      metrics: [],
+      pairs: [],
+      queries: [],
+    };
+  }
+  const match = text.match(/^已补充检索\s*(\d+)\s*个查询[：:]\s*(.+)$/);
+  if (!match) return null;
+  return {
+    lead: t('ai.trace.summary.retryQueries', { count: match[1] }),
+    lines: [localizedTraceText(match[2], '')].filter(Boolean),
+    metrics: [],
+    pairs: [],
+    queries: [],
+  };
+}
+
+function failedSummaryView(text: string): TraceSummaryView | null {
+  const match = text.match(/^(.+?)失败，请稍后重试$/);
+  if (!match) return null;
+  const stageText = translatedValue(FAILED_STAGE_LABELS[match[1]] || localizeKnownCodes(match[1]));
+  const stage = usesWrongDisplayLanguage(stageText) ? t('ai.trace.generatedStep') : stageText;
+  return {
+    lead: t('ai.trace.summary.stepFailed', { stage }),
+    lines: [],
+    metrics: [],
+    pairs: [],
+    queries: [],
+  };
+}
+
 function objectArray(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => asRecord(item)).filter((item): item is Record<string, unknown> => Boolean(item));
@@ -778,20 +919,57 @@ function fallbackLead(step: AgentTraceStep, metrics: TraceMetric[], pairs: Trace
   if (metrics.length) return t('ai.trace.summary.retrievalStats');
   if (pairs.some((item) => item.label === t('ai.trace.pair.select'))) return t('ai.trace.summary.retrieversSelected');
   if (step.status === 'running') return t('ai.trace.summary.running');
+  if (step.status === 'failed') return t('ai.trace.summary.stepFailed', { stage: traceStepTitle(step) });
   return t('ai.trace.executed');
+}
+
+function normalizeSummaryView(step: AgentTraceStep, view: TraceSummaryView): TraceSummaryView {
+  if (locale.value !== 'en-US') return view;
+  const metrics = view.metrics.map((metric) => ({
+    ...metric,
+    label: localizedTraceText(metric.label, metric.label),
+    suffix: localizedTraceText(metric.suffix, metric.suffix),
+  }));
+  const pairs = view.pairs
+    .map((pair) => ({
+      ...pair,
+      value: localizedTraceText(pair.value),
+    }))
+    .filter((pair) => Boolean(pair.value));
+  const fallback = fallbackLead(step, metrics, pairs);
+  const lead = localizedTraceText(view.lead, fallback) || fallback;
+  return {
+    ...view,
+    lead,
+    lines: view.lines.map((line) => localizedTraceText(line)).filter(Boolean),
+    metrics,
+    pairs,
+  };
 }
 
 function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
   const multiIntentView = multiIntentSummaryView(step);
-  if (multiIntentView) return multiIntentView;
+  if (multiIntentView) return normalizeSummaryView(step, multiIntentView);
 
   const rawSummaryText = stepSummary(step).trim();
   const evidenceView = evidenceSummaryView(rawSummaryText);
-  if (evidenceView) return evidenceView;
+  if (evidenceView) return normalizeSummaryView(step, evidenceView);
+
+  const visualReadingView = visualReadingSummaryView(rawSummaryText);
+  if (visualReadingView) return normalizeSummaryView(step, visualReadingView);
+
+  const answerView = answerSummaryView(rawSummaryText);
+  if (answerView) return normalizeSummaryView(step, answerView);
+
+  const retryRetrievalView = retryRetrievalSummaryView(rawSummaryText);
+  if (retryRetrievalView) return normalizeSummaryView(step, retryRetrievalView);
+
+  const failedView = failedSummaryView(rawSummaryText);
+  if (failedView) return normalizeSummaryView(step, failedView);
 
   const text = localizeKnownCodes(rawSummaryText);
   const queryView = querySummaryView(text);
-  if (queryView) return queryView;
+  if (queryView) return normalizeSummaryView(step, queryView);
 
   const lines = splitSummaryLines(text);
   const metrics = metricsFromDetails(step);
@@ -823,13 +1001,13 @@ function buildSummaryView(step: AgentTraceStep): TraceSummaryView {
     detailLines = detailLines.filter((line) => !line.toLowerCase().startsWith('retriever_hits'));
   }
 
-  return {
+  return normalizeSummaryView(step, {
     lead: detailLines.shift() || fallbackLead(step, effectiveMetrics, pairs),
     lines: detailLines,
     metrics: effectiveMetrics,
     pairs,
     queries: [],
-  };
+  });
 }
 </script>
 
