@@ -8,6 +8,5 @@
 
 set -e
 cd "$(dirname "$0")"
-alembic upgrade head
-alembic current --check-heads
+python -m app.scripts.migrate_database_on_startup
 uvicorn main:app --host 0.0.0.0 --port 8888 --reload
