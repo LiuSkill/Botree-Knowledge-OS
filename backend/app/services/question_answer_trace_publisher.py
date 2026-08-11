@@ -36,7 +36,9 @@ class QuestionAnswerTracePublisher:
             queue.enqueue(
                 "app.tasks.question_answer_trace_tasks.consume_question_answer_trace_event",
                 envelope,
-                job_id=f"qa-trace:{trace_id}:{event_id}",
+                # RQ 2.x 的自定义 Job ID 仅允许字母、数字、下划线和短横线。
+                # Trace 与事件 ID 均由系统生成，使用短横线连接仍能保证重复投递幂等。
+                job_id=f"qa-trace-{trace_id}-{event_id}",
             )
             logger.info(
                 "问答 Trace 事件投递完成: trace_id=%s event_id=%s status=queued elapsed_ms=%s",

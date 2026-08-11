@@ -29,6 +29,7 @@ COPY backend/alembic /app/alembic
 COPY backend/app /app/app
 COPY backend/main.py /app/main.py
 COPY backend/worker.py /app/worker.py
+COPY backend/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN mkdir -p \
     /app/storage/uploads \
@@ -36,8 +37,10 @@ RUN mkdir -p \
     /app/storage/page_index \
     /app/storage/mineru_output \
     /app/models \
-    /app/logs
+    /app/logs \
+    && chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8888
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8888"]

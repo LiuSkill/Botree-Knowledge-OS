@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -91,6 +92,18 @@ class FailingQueue:
         raise ConnectionError("queue unavailable")
 
 
+class RQCompatibleQueue:
+    """模拟新版 RQ 对自定义 Job ID 的字符约束。"""
+
+    def __init__(self) -> None:
+        self.job_id = ""
+
+    def enqueue(self, *_args: object, **kwargs: object) -> None:
+        self.job_id = str(kwargs.get("job_id") or "")
+        if re.fullmatch(r"[A-Za-z0-9_-]+", self.job_id) is None:
+            raise ValueError("Job ID must only contain letters, numbers, underscores and dashes")
+
+
 def test_trace_publish_failure_does_not_escape_to_question_answer_flow() -> None:
     """Trace 队列异常时，发布失败不得中断问答调用方。"""
 
@@ -99,6 +112,18 @@ def test_trace_publish_failure_does_not_escape_to_question_answer_flow() -> None
     published = publisher.publish({"trace_id": "trace-fail-open", "event_id": "event-1"})
 
     assert published is False
+
+
+def test_trace_publisher_uses_rq_compatible_idempotent_job_id() -> None:
+    """Trace Job ID 必须兼容新版 RQ，同时保持相同事件投递幂等。"""
+
+    queue = RQCompatibleQueue()
+    publisher = QuestionAnswerTracePublisher(queue=queue)
+
+    published = publisher.publish({"trace_id": "trace-001", "event_id": "event-001"})
+
+    assert published is True
+    assert queue.job_id == "qa-trace-trace-001-event-001"
 
 
 def test_out_of_order_terminal_event_stays_incomplete_until_sequence_is_contiguous() -> None:

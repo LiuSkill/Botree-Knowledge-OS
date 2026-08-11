@@ -8,4 +8,6 @@
 
 set -e
 cd "$(dirname "$0")"
+alembic upgrade head
+alembic current --check-heads
 uvicorn main:app --host 0.0.0.0 --port 8888 --reload
