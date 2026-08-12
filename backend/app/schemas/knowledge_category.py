@@ -16,6 +16,8 @@ class KnowledgeCategoryCreate(BaseModel):
     project_id: int | None = Field(default=None, description="项目ID，项目目录必填，企业分类为空")
     parent_id: int | None = Field(default=None, description="父分类ID")
     name: str = Field(..., min_length=1, max_length=100, description="分类名称")
+    name_zh: str | None = Field(default=None, min_length=1, max_length=100, description="分类中文名称")
+    name_en: str | None = Field(default=None, min_length=1, max_length=100, description="分类英文名称")
     code: str = Field(..., min_length=1, max_length=100, description="分类编码，同一范围内唯一")
     description: str | None = Field(default=None, description="分类说明")
     sort_order: int = Field(default=0, description="排序值")
@@ -28,6 +30,8 @@ class KnowledgeCategoryUpdate(BaseModel):
 
     parent_id: int | None = Field(default=None, description="父分类ID，空值表示根分类")
     name: str | None = Field(default=None, min_length=1, max_length=100, description="分类名称")
+    name_zh: str | None = Field(default=None, min_length=1, max_length=100, description="分类中文名称")
+    name_en: str | None = Field(default=None, min_length=1, max_length=100, description="分类英文名称")
     code: str | None = Field(default=None, min_length=1, max_length=100, description="分类编码")
     description: str | None = Field(default=None, description="分类说明")
     sort_order: int | None = Field(default=None, description="排序值")
@@ -43,6 +47,8 @@ class KnowledgeCategoryOut(BaseModel):
     project_id: int | None = None
     parent_id: int | None = None
     name: str
+    name_zh: str | None = None
+    name_en: str | None = None
     code: str
     description: str | None = None
     sort_order: int

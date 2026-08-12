@@ -241,6 +241,8 @@ CREATE TABLE IF NOT EXISTS knowledge_categories (
 	project_id INTEGER COMMENT '所属项目ID，项目分类关联projects.id，企业分类为空',
 	parent_id INTEGER COMMENT '父分类ID，关联knowledge_categories.id',
 	name VARCHAR(100) NOT NULL COMMENT '分类名称',
+	name_zh VARCHAR(100) COMMENT '分类中文名称',
+	name_en VARCHAR(100) COMMENT '分类英文名称',
 	code VARCHAR(100) NOT NULL COMMENT '分类编码，同一范围内唯一',
 	description TEXT COMMENT '分类说明',
 	sort_order INTEGER NOT NULL COMMENT '排序值，数值越小越靠前',

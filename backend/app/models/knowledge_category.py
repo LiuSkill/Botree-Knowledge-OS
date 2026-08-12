@@ -33,6 +33,8 @@ class KnowledgeCategory(TimestampMixin, Base):
         comment="父分类ID，关联knowledge_categories.id",
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="分类名称")
+    name_zh: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="分类中文名称")
+    name_en: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="分类英文名称")
     code: Mapped[str] = mapped_column(String(100), nullable=False, comment="分类/目录编码，项目目录按同一父目录唯一")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="分类说明")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序值，数值越小越靠前")

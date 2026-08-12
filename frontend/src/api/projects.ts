@@ -53,6 +53,8 @@ export interface ProjectListParams {
 export interface ProjectDirectoryPayload {
   parent_id?: number | null;
   name: string;
+  name_zh?: string | null;
+  name_en?: string | null;
   code: string;
   description?: string | null;
   sort_order?: number;
@@ -63,6 +65,8 @@ export interface ProjectDirectoryPayload {
 export interface ProjectDirectoryUpdatePayload {
   parent_id?: number | null;
   name?: string;
+  name_zh?: string | null;
+  name_en?: string | null;
   code?: string;
   description?: string | null;
   sort_order?: number;

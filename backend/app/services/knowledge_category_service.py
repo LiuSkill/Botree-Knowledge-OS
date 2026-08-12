@@ -20,6 +20,10 @@ from app.models.knowledge_category import KnowledgeCategory
 from app.models.user import User
 from app.repositories.knowledge_category_repository import KnowledgeCategoryRepository
 from app.schemas.knowledge_category import KnowledgeCategoryCreate, KnowledgeCategoryUpdate
+from app.services.knowledge_category_translation_service import (
+    KnowledgeCategoryTranslationService,
+    TranslatedCategoryNames,
+)
 from app.services.project_service import ProjectService
 from app.services.system_service import SystemService
 
@@ -88,12 +92,15 @@ class KnowledgeCategoryService:
         self._ensure_code_unique(payload.scope_type, payload.code, project_id, parent_id=unique_parent_id)
         default_security_level = normalize_security_level(payload.default_security_level, default=DEFAULT_SECURITY_LEVEL)
         ensure_security_level_access(operator, default_security_level)
+        translated_names = self._complete_translated_names(payload.name, payload.name_zh, payload.name_en)
 
         category = KnowledgeCategory(
             scope_type=payload.scope_type,
             project_id=project_id,
             parent_id=payload.parent_id,
             name=payload.name.strip(),
+            name_zh=translated_names.name_zh,
+            name_en=translated_names.name_en,
             code=payload.code.strip(),
             description=payload.description,
             sort_order=payload.sort_order,
@@ -145,8 +152,17 @@ class KnowledgeCategoryService:
                 exclude_id=category.id,
                 parent_id=category.parent_id if category.scope_type == "project" else _UNSET_PARENT,
             )
-        if payload.name is not None:
-            category.name = payload.name.strip()
+        name_changed = payload.name is not None and payload.name.strip() != category.name
+        if payload.name is not None or "name_zh" in payload.model_fields_set or "name_en" in payload.model_fields_set:
+            source_name = payload.name.strip() if payload.name is not None else category.name
+            translated_names = self._complete_translated_names(
+                source_name,
+                payload.name_zh if "name_zh" in payload.model_fields_set or name_changed else category.name_zh,
+                payload.name_en if "name_en" in payload.model_fields_set or name_changed else category.name_en,
+            )
+            category.name = source_name
+            category.name_zh = translated_names.name_zh
+            category.name_en = translated_names.name_en
         if payload.description is not None:
             category.description = payload.description
         if payload.sort_order is not None:
@@ -357,6 +373,8 @@ class KnowledgeCategoryService:
                 "project_id": category.project_id,
                 "parent_id": category.parent_id,
                 "name": category.name,
+                "name_zh": category.name_zh,
+                "name_en": category.name_en,
                 "code": category.code,
                 "description": category.description,
                 "sort_order": category.sort_order,
@@ -391,3 +409,17 @@ class KnowledgeCategoryService:
         for root in roots:
             accumulate(root)
         return roots
+
+    def _complete_translated_names(
+        self,
+        source_name: str,
+        name_zh: str | None = None,
+        name_en: str | None = None,
+    ) -> TranslatedCategoryNames:
+        """补齐分类中英文名称，统一入口便于项目目录和企业分类复用。"""
+
+        return KnowledgeCategoryTranslationService(self.db).complete_names(
+            source_name,
+            name_zh=name_zh,
+            name_en=name_en,
+        )

@@ -202,7 +202,10 @@ const BUILTIN_CATEGORY_KEYS_BY_CODE: Record<string, string> = {
   'base-regulation-environmental': 'environmentalRegulations',
 };
 
-type CategoryIdentity = Pick<KnowledgeCategory, 'name' | 'code'>;
+type CategoryIdentity = Pick<KnowledgeCategory, 'name' | 'code'> & {
+  name_zh?: string | null;
+  name_en?: string | null;
+};
 
 function projectDirectoryTranslationKey(category: CategoryIdentity, path: CategoryIdentity[] = [category]): string | undefined {
   const code = category.code.trim();
@@ -214,6 +217,17 @@ function projectDirectoryTranslationKey(category: CategoryIdentity, path: Catego
 function categoryTranslationKey(category: CategoryIdentity, path: CategoryIdentity[] = [category]): string | undefined {
   const builtinKey = BUILTIN_CATEGORY_KEYS_BY_CODE[category.code.trim()] || BUILTIN_CATEGORY_KEYS[category.name.trim()];
   return builtinKey ? `knowledge.category.builtin.${builtinKey}` : projectDirectoryTranslationKey(category, path);
+}
+
+function currentLocale(): 'zh-CN' | 'en-US' {
+  const htmlLocale = typeof document !== 'undefined' ? document.documentElement.lang : '';
+  return htmlLocale === 'en-US' ? 'en-US' : 'zh-CN';
+}
+
+function localizedDynamicCategoryName(category: CategoryIdentity): string {
+  const locale = currentLocale();
+  const preferredName = locale === 'en-US' ? category.name_en : category.name_zh;
+  return preferredName?.trim() || category.name;
 }
 
 /**
@@ -230,8 +244,9 @@ export function localizedCategoryLabel(
   translate: (key: string) => string,
   path: CategoryIdentity[] = [category],
 ): string {
+  translate('common.language.label');
   const key = categoryTranslationKey(category, path);
-  return key ? translate(key) : category.name;
+  return key ? translate(key) : localizedDynamicCategoryName(category);
 }
 
 export function localizedCategoryPath(path: string, translate: (key: string) => string): string {

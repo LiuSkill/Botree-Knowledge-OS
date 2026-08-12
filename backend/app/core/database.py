@@ -221,6 +221,7 @@ def migrate_database() -> None:
                     """
                     UPDATE knowledge_categories
                     SET
+                        name_zh = COALESCE(NULLIF(name_zh, ''), name),
                         default_security_level = COALESCE(NULLIF(default_security_level, ''), 'internal'),
                         is_deleted = COALESCE(is_deleted, 0)
                     """
@@ -936,6 +937,8 @@ def _add_project_directory_columns(connection, existing_columns: set[str]) -> No
     """为项目资料目录补齐默认密级和软删除字段。"""
 
     column_definitions = [
+        ("name_zh", "VARCHAR(100) COMMENT '分类中文名称'", "VARCHAR(100)"),
+        ("name_en", "VARCHAR(100) COMMENT '分类英文名称'", "VARCHAR(100)"),
         (
             "default_security_level",
             "VARCHAR(30) NOT NULL DEFAULT 'internal' COMMENT '目录默认密级'",
