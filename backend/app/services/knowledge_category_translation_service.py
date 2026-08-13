@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _CJK_PATTERN = re.compile(r"[\u3400-\u9fff]")
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.S)
+_LANGUAGE_NEUTRAL_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9&./+\-_\s]*$")
 _MAX_CATEGORY_NAME_LENGTH = 100
 
 
@@ -45,8 +46,8 @@ class KnowledgeCategoryTranslationService:
         if not source:
             return TranslatedCategoryNames(name_zh="", name_en="")
 
-        resolved_zh = self._clean_name(name_zh)
-        resolved_en = self._clean_name(name_en)
+        resolved_zh = self._valid_chinese_name(source, name_zh)
+        resolved_en = self._valid_english_name(name_en)
         if not resolved_zh and not resolved_en:
             if self._looks_chinese(source):
                 resolved_zh = source
@@ -63,6 +64,14 @@ class KnowledgeCategoryTranslationService:
             name_zh=self._clamp_name(resolved_zh or source),
             name_en=self._clamp_name(resolved_en or source),
         )
+
+    def needs_repair(self, source_name: str, *, name_zh: str | None = None, name_en: str | None = None) -> bool:
+        """判断双语名称是否缺失或仍停留在错误语种。"""
+
+        source = self._clean_name(source_name)
+        if not source:
+            return False
+        return not self._valid_chinese_name(source, name_zh) or not self._valid_english_name(name_en)
 
     def _translate(self, text: str, *, source_language: str, target_language: str) -> str | None:
         """调用 LLM 翻译短分类名；失败只影响译文字段，不阻断主业务。"""
@@ -131,6 +140,26 @@ class KnowledgeCategoryTranslationService:
     @staticmethod
     def _looks_chinese(text: str) -> bool:
         return bool(_CJK_PATTERN.search(text))
+
+    @classmethod
+    def _is_language_neutral(cls, text: str) -> bool:
+        return bool(_LANGUAGE_NEUTRAL_PATTERN.fullmatch(cls._clean_name(text)))
+
+    @classmethod
+    def _valid_chinese_name(cls, source_name: str, value: str | None) -> str:
+        cleaned = cls._clean_name(value)
+        if not cleaned:
+            return ""
+        if cls._looks_chinese(cleaned) or cls._is_language_neutral(cleaned):
+            return cleaned
+        return ""
+
+    @classmethod
+    def _valid_english_name(cls, value: str | None) -> str:
+        cleaned = cls._clean_name(value)
+        if not cleaned or cls._looks_chinese(cleaned):
+            return ""
+        return cleaned
 
     @staticmethod
     def _clean_name(value: str | None) -> str:

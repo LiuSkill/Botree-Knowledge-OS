@@ -31,6 +31,37 @@ logger = logging.getLogger(__name__)
 _UNSET_PARENT = object()
 
 VALID_CATEGORY_SCOPES = {"base", "project"}
+BUILTIN_BASE_CATEGORY_CODES = {
+    "base-theory",
+    "base-theoretical-knowledge",
+    "theoretical-knowledge",
+    "theory",
+    "base-process",
+    "base-process-leaching",
+    "base-process-extraction",
+    "base-process-crystallization",
+    "base-process-electrochemical",
+    "base-lab-report",
+    "base-lab-optimization",
+    "base-lab-analysis",
+    "base-lab-pilot",
+    "base-design-standard",
+    "base-design-process",
+    "base-design-equipment",
+    "base-design-safety",
+    "base-regulation",
+    "base-regulation-national",
+    "base-regulation-industry",
+    "base-regulation-environmental",
+}
+PROJECT_TEMPLATE_ROOT_CODES = {
+    root_code
+    for root_code, _root_name, _children in DEFAULT_PROJECT_DIRECTORY_TEMPLATE
+}
+PROJECT_TEMPLATE_CHILD_CODES_BY_ROOT = {
+    root_code: {child_code for child_code, _child_name in children}
+    for root_code, _root_name, children in DEFAULT_PROJECT_DIRECTORY_TEMPLATE
+}
 
 
 class KnowledgeCategoryService:
@@ -71,6 +102,7 @@ class KnowledgeCategoryService:
             ),
         )
         categories = self.repository.list_by_scope(scope_type, normalized_project_id)
+        self._repair_legacy_translated_names(categories)
         direct_counts = self.repository.count_documents_by_category(
             [category.id for category in categories],
             security_levels=allowed_security_levels(user_max_security_level(user)),
@@ -423,3 +455,46 @@ class KnowledgeCategoryService:
             name_zh=name_zh,
             name_en=name_en,
         )
+
+    def _repair_legacy_translated_names(self, categories: list[KnowledgeCategory]) -> None:
+        """懒修复历史分类双语字段，避免英文界面继续显示中文名称。"""
+
+        translator = KnowledgeCategoryTranslationService(self.db)
+        category_by_id = {category.id: category for category in categories}
+        repaired_count = 0
+        for category in categories:
+            if self._uses_static_frontend_translation(category, category_by_id):
+                continue
+            if not translator.needs_repair(category.name, name_zh=category.name_zh, name_en=category.name_en):
+                continue
+            translated_names = translator.complete_names(
+                category.name,
+                name_zh=category.name_zh,
+                name_en=category.name_en,
+            )
+            if category.name_zh == translated_names.name_zh and category.name_en == translated_names.name_en:
+                continue
+            category.name_zh = translated_names.name_zh
+            category.name_en = translated_names.name_en
+            repaired_count += 1
+        if repaired_count:
+            self.db.commit()
+            logger.info("legacy knowledge category translations repaired: count=%s", repaired_count)
+
+    @staticmethod
+    def _uses_static_frontend_translation(
+        category: KnowledgeCategory,
+        category_by_id: dict[int, KnowledgeCategory],
+    ) -> bool:
+        """内置分类和项目模板目录已有前端语言包，不需要懒补译。"""
+
+        if category.scope_type == "base":
+            return category.code in BUILTIN_BASE_CATEGORY_CODES
+        if category.scope_type != "project":
+            return False
+        if category.parent_id is None:
+            return category.code in PROJECT_TEMPLATE_ROOT_CODES
+        parent = category_by_id.get(category.parent_id)
+        if parent is None:
+            return False
+        return category.code in PROJECT_TEMPLATE_CHILD_CODES_BY_ROOT.get(parent.code, set())
