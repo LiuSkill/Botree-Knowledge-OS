@@ -117,7 +117,10 @@ const routeSummaryItems = computed(() => {
     { label: t('process.route.field.routeCode'), value: current.code },
     { label: t('process.route.field.routeName'), value: current.name },
     { label: t('process.route.field.inputMaterial'), value: detail.value?.input_material?.name || current.input_material_name || '-' },
-    { label: t('process.route.field.finalProduct'), value: detail.value?.final_product?.name || current.final_product_name || '-' },
+    {
+      label: t('process.route.field.finalProduct'),
+      value: detail.value?.representative_product?.name || detail.value?.final_product?.name || current.representative_product_name || current.final_product_name || '-',
+    },
     { label: t('process.route.field.version'), value: current.version },
     { label: t('common.field.status'), value: statusLabel(current.status) },
     { label: t('process.route.field.nodeQuantity'), value: String(editableNodes.value.length) },
@@ -132,6 +135,8 @@ const hasUnsavedNodeChanges = computed(() => {
     .map((item, index) => ({
       node_id: item.node_id,
       sort_order: index + 1,
+      option_group_code: normalizeOptionalText(item.option_group_code),
+      option_code: normalizeOptionalText(item.option_code),
       node_params_json: normalizeOptionalText(item.node_params_json),
       remark: normalizeOptionalText(item.remark),
     }));
@@ -187,7 +192,7 @@ async function loadOptions(force = false): Promise<void> {
   try {
     const [materials, products, outputs, consumables, publicServices] = await Promise.all([
       listProcessLibraryOptions('materials'),
-      listProcessLibraryOptions('products', { output_type: 'product' }),
+      listProcessLibraryOptions('products'),
       listProcessLibraryOptions('products'),
       listProcessLibraryOptions('consumables'),
       listProcessLibraryOptions('public-services'),
@@ -356,6 +361,8 @@ function buildRoutePayload(source: ProcessRouteDetail): ProcessRoutePayload {
     nodes: editableNodes.value.map((item, index) => ({
       node_id: Number(item.node_id),
       sort_order: index + 1,
+      option_group_code: normalizeOptionalText(item.option_group_code),
+      option_code: normalizeOptionalText(item.option_code),
       node_params_json: normalizeOptionalText(item.node_params_json),
       remark: normalizeOptionalText(item.remark),
     })),

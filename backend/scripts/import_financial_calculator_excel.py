@@ -80,11 +80,50 @@ CATEGORY_TO_OUTPUT_TYPE = {
     "产品": "product",
     "废固": "solid_waste",
     "废水": "wastewater",
+    "废气": "waste_gas",
+}
+
+TARGET_OUTPUT_CATEGORY_BY_NAME = {
+    "精制硫酸锂溶液": "li",
+    "工业级碳酸锂": "li",
+    "电池级碳酸锂": "li",
+    "电池级硫酸锰": "mn",
+    "粗制碳酸锰": "mn",
+    "电池级硫酸钴": "co",
+    "电池级硫酸镍": "ni",
+    "粗制海绵铜": "cu",
+    "粗制硫化铜": "cu",
+    "硫酸铜溶液": "cu",
+    "金属铜产品": "cu",
+    "石墨渣产品": "graphite",
+}
+
+ROUTE_OPTION_BY_NODE_NAME = {
+    "混酸焙烧": ("root_leach_path", "mixed_acid_roasting"),
+    "酸浸": ("root_leach_path", "acid_leaching"),
+    "水浸渣酸浸": ("water_leach_residue_path", "residue_acid_leaching"),
+    "氧化镍钴渣产品": ("water_leach_residue_path", "oxide_ni_co_slag_product"),
+    "石墨渣废固": ("graphite_handling", "untreated_solid_waste"),
+    "石墨干燥": ("graphite_handling", "drying"),
+    "除铜-铁粉法": ("copper_removal", "iron_powder"),
+    "除铜-硫化法": ("copper_removal", "sulfide"),
+    "除铜-萃取法": ("copper_removal", "extraction"),
+    "树脂除氟(PREL)": ("lithium_purification", "prel_resin_defluorination"),
+    "硫酸锂深度化学除杂": ("lithium_purification", "deep_chemical_purification"),
+    "MHP沉淀": ("nickel_cobalt_manganese_path", "mhp_precipitation"),
+    "P204萃取": ("nickel_cobalt_manganese_path", "p204_extraction"),
+    "工业级碳酸锂干燥包装": ("lithium_carbonate_finish", "industrial_drying"),
+    "碳化热析": ("lithium_carbonate_finish", "carbonation_thermal_decomposition"),
+    "锰溶液除杂": ("manganese_product_path", "manganese_solution_purification"),
+    "碳酸锰沉淀": ("manganese_product_path", "manganese_carbonate_precipitation"),
+    "BC196共萃": ("ni_co_separation", "bc196_coextraction"),
+    "C272萃取钴": ("ni_co_separation", "c272_cobalt_extraction"),
+    "P507萃取钴": ("ni_co_separation", "p507_cobalt_extraction"),
+    "P507萃镍镁": ("ni_co_separation", "p507_cobalt_extraction"),
 }
 
 NODE_WASTE_OUTPUTS_BY_OUTPUT_NAME = {
-    "废弃石墨渣": ("石墨干燥",),
-    "水解除杂渣(铁粉法)": ("水解除杂",),
+    "废弃石墨渣": ("石墨渣废固",),
     "水解除杂渣": ("水解除杂",),
     "硫酸锂深度除杂渣": ("硫酸锂深度化学除杂",),
     "锰溶液除杂渣": ("锰溶液除杂",),
@@ -103,6 +142,10 @@ NODE_WASTE_OUTPUTS_BY_OUTPUT_NAME = {
     "P507萃镍镁反铁废水": ("P507萃镍镁",),
     "P507萃钴反铁废水": ("P507萃取钴",),
 }
+OBSOLETE_OUTPUT_NAMES = {"水解除杂渣(铁粉法)"}
+NODE_PRODUCT_OUTPUTS_BY_OUTPUT_NAME = {
+    "石墨渣产品": ("石墨干燥",),
+}
 ACTIVATED_CARBON_OUTPUT_NAME = "活性炭渣"
 ACTIVATED_CARBON_RESOURCE_NAME = "活性炭"
 ACTIVATED_CARBON_EFFECTIVE_RATIO = Decimal("0.9")
@@ -117,6 +160,9 @@ NODE_CODE_BY_NAME = {
     "除铜-铁粉法": "B4",
     "除铜-硫化法": "B5",
     "除铜-萃取法": "B6",
+    "石墨渣废固": "B7",
+    "水浸渣酸浸": "B8",
+    "氧化镍钴渣产品": "B9",
     "水浸液化学除杂": "C1",
     "除铜-萃取&电积": "C2",
     "水解除杂": "C3",
@@ -136,6 +182,7 @@ NODE_CODE_BY_NAME = {
     "P507萃取钴": "F7",
     "P507萃镍镁": "F8",
     "硫酸钠蒸发&低温结晶(SX)": "F9",
+    "碳酸锰沉淀": "F10",
     "电池级碳酸锂干燥包装": "G1",
     "硫酸钠干燥包装(PREL)": "G2",
     "硫酸钠干燥包装(MHP)": "G3",
@@ -154,6 +201,39 @@ NODE_CODE_BY_NAME = {
 NODE_SORT_ORDER_BY_NAME = {
     name: index for index, name in enumerate(NODE_CODE_BY_NAME, start=1)
 }
+SYNTHETIC_ROUTE_NODE_NAMES = ("石墨渣废固", "水浸渣酸浸", "氧化镍钴渣产品", "碳酸锰沉淀")
+MUTUALLY_EXCLUSIVE_ROUTE_NODE_GROUPS = (
+    ("根级浸出工艺", ("混酸焙烧", "酸浸")),
+    ("水浸滤饼处理", ("水浸渣酸浸", "氧化镍钴渣产品")),
+    ("石墨渣处理", ("石墨渣废固", "石墨干燥")),
+    ("锂液除杂工艺", ("树脂除氟(PREL)", "硫酸锂深度化学除杂")),
+    ("碳酸锂产品工艺", ("工业级碳酸锂干燥包装", "碳化热析")),
+    ("镍钴锰主线", ("MHP沉淀", "P204萃取")),
+    ("锰产品工艺", ("锰溶液除杂", "碳酸锰沉淀")),
+    ("钴分离工艺", ("BC196共萃", "C272萃取钴", "P507萃取钴", "P507萃镍镁")),
+)
+
+SYNTHETIC_OUTPUT_ROWS: tuple[dict[str, Any], ...] = (
+    {
+        "row_index": 10039,
+        "code": "P39",
+        "legacy_code": "OUT_SYNTHETIC_PRODUCT_OXIDE_NI_CO_SLAG",
+        "output_type": "product",
+        "output_name": "氧化镍钴渣",
+        "spec": None,
+        "recovery_rate": Decimal("1"),
+        "balance_weight": Decimal("0"),
+        "unit": "t/t-BM",
+        "output_ratio": Decimal("1"),
+        "formula_type": "fixed",
+        "expression": None,
+        "scale_param": {
+            "source": "updated_route_drawing",
+            "synthetic": True,
+            "note": "水浸滤饼直接作为产品，产出系数待项目数据补齐",
+        },
+    },
+)
 
 GENERATED_ROUTE_CODE_PATTERN = re.compile(r"^[A-Z]\d+(?:-[A-Z]\d+)+$")
 
@@ -234,6 +314,41 @@ class ParsedWorkbook:
     outputs: list[OutputRow]
     formula_count: int
     error_count: int
+
+
+def append_synthetic_outputs(outputs: list[OutputRow]) -> None:
+    """补图纸中存在、但历史 Excel 产出表暂未维护的产品叶子。"""
+
+    existing_names = {row.output_name for row in outputs}
+    existing_codes = {row.code for row in outputs}
+    next_sort_order = max((row.sort_order for row in outputs), default=0) + 1
+    for row in SYNTHETIC_OUTPUT_ROWS:
+        if row["output_name"] in existing_names:
+            continue
+        code = str(row["code"])
+        if code in existing_codes:
+            code = f"P{len(outputs) + 1}"
+        outputs.append(
+            OutputRow(
+                row_index=int(row["row_index"]),
+                code=code,
+                legacy_code=str(row["legacy_code"]),
+                output_type=str(row["output_type"]),
+                output_name=str(row["output_name"]),
+                spec=row["spec"],
+                recovery_rate=row["recovery_rate"],
+                balance_weight=row["balance_weight"],
+                unit=str(row["unit"]),
+                output_ratio=row["output_ratio"],
+                formula_type=str(row["formula_type"]),
+                expression=row["expression"],
+                scale_param=dict(row["scale_param"]),
+                sort_order=next_sort_order,
+            )
+        )
+        existing_names.add(str(row["output_name"]))
+        existing_codes.add(code)
+        next_sort_order += 1
 
 
 def configure_logging() -> None:
@@ -436,6 +551,20 @@ def parse_workbook(source_path: Path) -> ParsedWorkbook:
             if coefficient is not None:
                 coefficients[(row_index, node.source_col)] = coefficient
 
+    existing_node_names = {node.name for node in nodes}
+    for node_name in SYNTHETIC_ROUTE_NODE_NAMES:
+        if node_name in existing_node_names:
+            continue
+        nodes.append(
+            NodeRow(
+                index=NODE_SORT_ORDER_BY_NAME[node_name],
+                code=NODE_CODE_BY_NAME[node_name],
+                name=node_name,
+                source_col=0,
+            )
+        )
+    nodes.sort(key=lambda node: node.index)
+
     outputs: list[OutputRow] = []
     current_category: str | None = None
     category_index: dict[str, int] = {}
@@ -499,6 +628,7 @@ def parse_workbook(source_path: Path) -> ParsedWorkbook:
                 sort_order=len(outputs) + 1,
             )
         )
+    append_synthetic_outputs(outputs)
 
     formula_count = 0
     error_count = 0
@@ -700,6 +830,8 @@ def upsert_product_output(
         "name": row.output_name,
         "type": row.output_type,
         "output_type": row.output_type,
+        "target_output_category": TARGET_OUTPUT_CATEGORY_BY_NAME.get(row.output_name),
+        "is_product_form": row.output_type in {"product", "byproduct"},
         "spec": row.spec,
         "unit": row.unit or "t/t-BM",
         "status": "enabled",
@@ -776,11 +908,6 @@ def build_node_waste_output_payloads(
         output = outputs_by_name.get(output_name)
         if output is None:
             continue
-        route_condition: dict[str, Any] = {}
-        if output_name == "水解除杂渣(铁粉法)":
-            route_condition["required_node_codes"] = [NODE_CODE_BY_NAME["除铜-铁粉法"]]
-        elif output_name == "水解除杂渣":
-            route_condition["excluded_node_codes"] = [NODE_CODE_BY_NAME["除铜-铁粉法"]]
         payloads.append(
             ProcessNodeOutputPayload(
                 product_id=product_ids[output.row_index],
@@ -794,7 +921,7 @@ def build_node_waste_output_payloads(
                     "node_output_role": "waste_treatment",
                     "binding_rule": "route_tree",
                     "node_name": node.name,
-                    "route_condition": route_condition,
+                    "route_condition": {},
                 },
                 source_template_id=batch_id,
                 balance_weight=output.balance_weight,
@@ -803,6 +930,37 @@ def build_node_waste_output_payloads(
                 is_main_product=False,
                 sort_order=len(payloads) + 1,
                 remark="节点三废产出",
+            )
+        )
+
+    for output_name, node_names in NODE_PRODUCT_OUTPUTS_BY_OUTPUT_NAME.items():
+        if node.name not in node_names:
+            continue
+        output = outputs_by_name.get(output_name)
+        if output is None:
+            continue
+        payloads.append(
+            ProcessNodeOutputPayload(
+                product_id=product_ids[output.row_index],
+                output_type=output.output_type,
+                output_per_ton=output.output_ratio,
+                formula_type=output.formula_type,
+                expression=output.expression,
+                scale_param={
+                    **output.scale_param,
+                    "source_sheet": "产出",
+                    "node_output_role": "product_output",
+                    "binding_rule": "route_tree",
+                    "node_name": node.name,
+                    "route_condition": {},
+                },
+                source_template_id=batch_id,
+                balance_weight=output.balance_weight,
+                treatment_cost=Decimal("0"),
+                unit=output.unit,
+                is_main_product=True,
+                sort_order=len(payloads) + 1,
+                remark="节点产品产出",
             )
         )
 
@@ -851,8 +1009,8 @@ def build_node_waste_output_payloads(
 def build_product_route_paths() -> dict[str, list[list[str]]]:
     """按技术线路树生成产品目标路线。
 
-    路线只使用已经在“消耗”Sheet 中存在、可维护消耗系数的工艺节点。图中仅作为
-    中间物流或废水废渣的叶子不在这里生成目标路线，避免出现没有系数来源的伪节点。
+    路线以图纸结构为准：少数仅用于表达互斥分支的逻辑节点允许没有 Excel 消耗列，
+    例如“石墨渣废固”和“碳酸锰沉淀”。
     """
 
     lithium_routes = {
@@ -878,10 +1036,22 @@ def build_product_route_paths() -> dict[str, list[list[str]]]:
         ],
     }
 
+    # 图纸中“酸浸”既是黑粉根路径的互斥选项，也出现在混酸焙烧后水浸渣的下游处理。
+    # 这里将混酸焙烧后的下游产出挂在“混酸焙烧 -> 水浸”前缀下，避免把根级 acid_leaching
+    # 选项误并入同一候选路线，同时保留 Li 与 Ni/Co/Mn/Cu 等叶子产出同属 A1 方案的结构。
+    acid_leach_graphite_waste_prefix = ["酸浸", "石墨渣废固"]
+    acid_leach_graphite_product_prefix = ["酸浸", "石墨干燥"]
     acid_leach_prefixes = [
-        ["酸浸"],
-        ["混酸焙烧", "水浸", "酸浸"],
+        acid_leach_graphite_waste_prefix,
+        acid_leach_graphite_product_prefix,
     ]
+    mixed_acid_residue_graphite_waste_prefix = ["混酸焙烧", "水浸", "水浸渣酸浸", "石墨渣废固"]
+    mixed_acid_residue_graphite_product_prefix = ["混酸焙烧", "水浸", "水浸渣酸浸", "石墨干燥"]
+    mixed_acid_residue_prefixes = [
+        mixed_acid_residue_graphite_waste_prefix,
+        mixed_acid_residue_graphite_product_prefix,
+    ]
+    downstream_prefixes = [*acid_leach_prefixes, *mixed_acid_residue_prefixes]
     copper_product_tails = {
         "粗制海绵铜": [["除铜-铁粉法"]],
         "粗制硫化铜": [["除铜-硫化法"]],
@@ -897,10 +1067,11 @@ def build_product_route_paths() -> dict[str, list[list[str]]]:
         "MHP滤饼产品": [["水解除杂", "除氟树脂", "MHP沉淀"]],
         "硫酸钠产品(MHP)": [["水解除杂", "除氟树脂", "MHP沉淀", "硫酸钠蒸发&低温结晶(MHP)", "硫酸钠干燥包装(MHP)"]],
         "电池级硫酸锰": [["水解除杂", "除氟树脂", "P204萃取", "锰溶液除杂", "C272萃锰", "硫酸锰蒸发结晶", "电池级硫酸锰干燥包装"]],
-        "粗制碳酸锰": [["水解除杂", "除氟树脂", "P204萃取", "锰溶液除杂"]],
+        "粗制碳酸锰": [["水解除杂", "除氟树脂", "P204萃取", "碳酸锰沉淀"]],
         "硫酸镍钴溶液": [["水解除杂", "除氟树脂", "P204萃取", "BC196共萃"]],
         "电池级硫酸钴": [
-            ["水解除杂", "除氟树脂", "P204萃取", "BC196共萃", "C272萃取钴", "硫酸钴蒸发结晶", "电池级硫酸钴干燥包装"],
+            ["水解除杂", "除氟树脂", "P204萃取", "BC196共萃", "硫酸钴蒸发结晶", "电池级硫酸钴干燥包装"],
+            ["水解除杂", "除氟树脂", "P204萃取", "C272萃取钴", "硫酸钴蒸发结晶", "电池级硫酸钴干燥包装"],
             ["水解除杂", "除氟树脂", "P204萃取", "P507萃取钴", "硫酸钴蒸发结晶", "电池级硫酸钴干燥包装"],
         ],
         "电池级硫酸镍": [
@@ -911,20 +1082,113 @@ def build_product_route_paths() -> dict[str, list[list[str]]]:
     }
 
     route_paths: dict[str, list[list[str]]] = dict(lithium_routes)
-    route_paths["石墨渣产品"] = [prefix + ["石墨干燥"] for prefix in acid_leach_prefixes]
+    route_paths["氧化镍钴渣"] = [["混酸焙烧", "水浸", "氧化镍钴渣产品"]]
+    route_paths["石墨渣产品"] = [
+        acid_leach_graphite_product_prefix,
+        mixed_acid_residue_graphite_product_prefix,
+    ]
 
     for output_name, tails in copper_product_tails.items():
-        route_paths[output_name] = [prefix + tail for prefix in acid_leach_prefixes for tail in tails]
+        route_paths[output_name] = [prefix + tail for prefix in downstream_prefixes for tail in tails]
 
     for output_name, tails in downstream_tails.items():
         route_paths[output_name] = [
             prefix + copper_tail + tail
-            for prefix in acid_leach_prefixes
+            for prefix in downstream_prefixes
             for copper_tail in copper_removal_tails
             for tail in tails
         ]
 
-    return route_paths
+    return {
+        output_name: [normalize_route_path(path) for path in paths]
+        for output_name, paths in route_paths.items()
+    }
+
+
+def normalize_route_path(path: list[str]) -> list[str]:
+    """按新图纸规则补必达节点，并拒绝同层级互斥工艺同时出现在一条路线中。"""
+
+    normalized = list(path)
+    if "混酸焙烧" in normalized and "混酸焙烧尾气处理" not in normalized:
+        insert_at = normalized.index("混酸焙烧") + 1
+        normalized.insert(insert_at, "混酸焙烧尾气处理")
+    if "混酸焙烧" in normalized and "水浸" not in normalized:
+        raise AppException(message="混酸焙烧路线必须同时包含混酸焙烧尾气处理和水浸节点")
+    for group_name, node_names in MUTUALLY_EXCLUSIVE_ROUTE_NODE_GROUPS:
+        selected_nodes = [node_name for node_name in node_names if node_name in normalized]
+        if len(selected_nodes) > 1:
+            raise AppException(
+                message=f"{group_name}属于同一互斥工艺选项组，不能同时生成在一条工艺路线中: {', '.join(selected_nodes)}"
+            )
+    return normalized
+
+
+def build_route_node_params(
+    node_name: str,
+    route_node_names: list[str] | None = None,
+    node_index: int | None = None,
+) -> str | None:
+    """为路线树预览提供图纸分叉语义，不改变成本计算的线性节点集合。"""
+
+    parent_acid_leach_code: str | None = None
+    has_later_copper_removal = False
+    if route_node_names is not None and node_index is not None:
+        for upstream_node_name in reversed(route_node_names[:node_index]):
+            if upstream_node_name == "水浸渣酸浸":
+                parent_acid_leach_code = "B8"
+                break
+            if upstream_node_name == "酸浸":
+                parent_acid_leach_code = "A2"
+                break
+        has_later_copper_removal = any(
+            downstream_node_name in {"除铜-铁粉法", "除铜-硫化法", "除铜-萃取法"}
+            for downstream_node_name in route_node_names[node_index + 1 :]
+        )
+
+    params_by_node_name: dict[str, dict[str, Any]] = {
+        "混酸焙烧尾气处理": {
+            "parent_node_code": "A1",
+            "parallel_group_code": "mixed_acid_primary_outputs",
+            "branch_role": "tail_gas_treatment",
+            "continues_route": False,
+        },
+        "水浸": {
+            "parent_node_code": "A1",
+            "parallel_group_code": "mixed_acid_primary_outputs",
+            "branch_role": "water_leach",
+            "continues_route": True,
+        },
+        "水浸渣酸浸": {
+            "parent_node_code": "B2",
+            "parallel_group_code": "water_leach_residue_outputs",
+            "branch_role": "residue_acid_leaching",
+            "continues_route": True,
+        },
+        "氧化镍钴渣产品": {
+            "parent_node_code": "B2",
+            "parallel_group_code": "water_leach_residue_outputs",
+            "branch_role": "oxide_ni_co_slag_product",
+            "continues_route": True,
+        },
+    }
+    if parent_acid_leach_code and node_name in {"石墨干燥", "石墨渣废固"}:
+        params_by_node_name[node_name] = {
+            "parent_node_code": parent_acid_leach_code,
+            "parallel_group_code": "acid_leach_primary_outputs",
+            "branch_role": "graphite_drying" if node_name == "石墨干燥" else "graphite_solid_waste",
+            "continues_route": not has_later_copper_removal,
+        }
+    if parent_acid_leach_code and node_name in {"除铜-铁粉法", "除铜-硫化法", "除铜-萃取法"}:
+        params_by_node_name[node_name] = {
+            "parent_node_code": parent_acid_leach_code,
+            "parallel_group_code": "acid_leach_primary_outputs",
+            "branch_role": "copper_removal",
+            "continues_route": True,
+        }
+    params = params_by_node_name.get(node_name)
+    if not params:
+        return None
+    return json.dumps(params, ensure_ascii=False, separators=(",", ":"))
 
 
 def build_route_definitions(parsed: ParsedWorkbook) -> list[RouteDefinition]:
@@ -1122,7 +1386,11 @@ def upsert_nodes(
             "node_type": "hydrometallurgy",
             "version": SOURCE_VERSION,
             "status": "enabled",
-            "description": f"工艺节点消耗系数配置，数据列 {node.source_col}",
+            "description": (
+                f"工艺节点消耗系数配置，数据列 {node.source_col}"
+                if node.source_col > 0
+                else "图纸逻辑节点，无Excel消耗系数"
+            ),
             "sort_order": node.index,
             "consumables": consumable_payloads,
             "public_services": public_service_payloads,
@@ -1169,8 +1437,13 @@ def upsert_route_definition(
         ProcessRouteNodePayload(
             node_id=node_ids_by_name[node_name],
             sort_order=index,
-            is_required=True,
-            condition_expression=None,
+            option_group_code=(ROUTE_OPTION_BY_NODE_NAME.get(node_name) or (None, None))[0],
+            option_code=(ROUTE_OPTION_BY_NODE_NAME.get(node_name) or (None, None))[1],
+            node_params_json=build_route_node_params(
+                node_name,
+                route_definition.node_names,
+                index - 1,
+            ),
         )
         for index, node_name in enumerate(route_definition.node_names, start=1)
     ]
@@ -1276,6 +1549,8 @@ def import_parsed_workbook(parsed: ParsedWorkbook) -> int:
 
         product_ids: dict[int, int] = {}
         for row in parsed.outputs:
+            if row.output_name in OBSOLETE_OUTPUT_NAMES:
+                continue
             result = upsert_product_output(db, service, operator, row)
             product_ids[row.row_index] = int(result["id"])
             success_count += 1

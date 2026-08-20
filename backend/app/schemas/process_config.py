@@ -19,7 +19,8 @@ ProcessRegionCode = Literal["asia", "europe", "americas"]
 ProcessCurrency = Literal["CNY", "EUR", "USD"]
 ProcessNodeType = Literal["pretreatment", "hydrometallurgy", "pyrometallurgy", "post_treatment"]
 ProcessFormulaType = Literal["fixed", "expression"]
-ProcessOutputType = Literal["product", "byproduct", "solid_waste", "wastewater"]
+ProcessOutputType = Literal["product", "byproduct", "solid_waste", "wastewater", "waste_gas"]
+ProcessTargetOutputCategory = Literal["li", "ni", "co", "mn", "cu", "graphite"]
 ProcessCalculationImportStatus = Literal["pending", "success", "failed", "partial_success"]
 
 
@@ -35,6 +36,9 @@ class _TrimTextMixin(BaseModel):
         "element_code",
         "element_name",
         "output_type",
+        "target_output_category",
+        "option_group_code",
+        "option_code",
         "output_name",
         "spec",
         "formula_type",
@@ -164,6 +168,8 @@ class ProcessProductCreate(ProcessLibraryBase):
 
 
     output_type: ProcessOutputType = Field(default="product", description="产出物类型")
+    target_output_category: ProcessTargetOutputCategory | None = Field(default=None, description="产品需求分类")
+    is_product_form: bool = Field(default=True, description="是否达到产品形态")
     spec: str | None = Field(default=None, max_length=100, description="规格")
     treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="处理成本")
 
@@ -173,6 +179,8 @@ class ProcessProductUpdate(ProcessLibraryUpdate):
 
 
     output_type: ProcessOutputType | None = Field(default=None, description="产出物类型")
+    target_output_category: ProcessTargetOutputCategory | None = Field(default=None, description="产品需求分类")
+    is_product_form: bool | None = Field(default=None, description="是否达到产品形态")
     spec: str | None = Field(default=None, max_length=100, description="规格")
     treatment_cost: Decimal | None = Field(default=None, ge=0, description="处理成本")
 
@@ -182,6 +190,8 @@ class ProcessProductOut(ProcessLibraryOut):
 
 
     output_type: ProcessOutputType = Field(default="product", description="产出物类型")
+    target_output_category: ProcessTargetOutputCategory | None = Field(default=None, description="产品需求分类")
+    is_product_form: bool = Field(default=True, description="是否达到产品形态")
     spec: str | None = Field(default=None, description="规格")
     treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="处理成本")
 
@@ -672,7 +682,7 @@ class ProcessRouteCreate(_TrimTextMixin):
     code: str = Field(..., min_length=1, max_length=100, description="路线编码")
     name: str = Field(..., min_length=1, max_length=150, description="路线名称")
     input_material_id: int = Field(..., gt=0, description="输入原料ID")
-    final_product_id: int = Field(..., gt=0, description="最终产品ID")
+    final_product_id: int = Field(..., gt=0, description="路线代表产品ID，兼容旧字段名")
     version: str = Field(default="V1", min_length=1, max_length=50, description="版本号")
     description: str | None = Field(default=None, description="描述信息")
     status: ProcessStatus = Field(default="enabled", description="状态")
@@ -686,7 +696,7 @@ class ProcessRouteUpdate(_TrimTextMixin):
     code: str | None = Field(default=None, min_length=1, max_length=100, description="路线编码")
     name: str | None = Field(default=None, min_length=1, max_length=150, description="路线名称")
     input_material_id: int | None = Field(default=None, gt=0, description="输入原料ID")
-    final_product_id: int | None = Field(default=None, gt=0, description="最终产品ID")
+    final_product_id: int | None = Field(default=None, gt=0, description="路线代表产品ID，兼容旧字段名")
     version: str | None = Field(default=None, min_length=1, max_length=50, description="版本号")
     description: str | None = Field(default=None, description="描述信息")
     status: ProcessStatus | None = Field(default=None, description="状态")
@@ -700,6 +710,7 @@ class ProcessRouteOut(ProcessRouteCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    representative_product_id: int | None = Field(default=None, description="路线代表产品ID")
     created_by: int | None = None
     updated_by: int | None = None
     is_deleted: bool = False
@@ -714,6 +725,8 @@ class ProcessRouteNodeCreate(_TrimTextMixin):
     route_id: int = Field(..., gt=0, description="路线ID")
     node_id: int = Field(..., gt=0, description="节点ID")
     sort_order: int = Field(default=0, ge=0, le=999999, description="排序值")
+    option_group_code: str | None = Field(default=None, max_length=100, description="互斥工艺选项组编码")
+    option_code: str | None = Field(default=None, max_length=100, description="已选工艺选项编码")
     node_params_json: str | None = Field(default=None, description="节点参数JSON")
     remark: str | None = Field(default=None, description="备注")
 
@@ -723,6 +736,8 @@ class ProcessRouteNodeUpdate(_TrimTextMixin):
 
     node_id: int | None = Field(default=None, gt=0, description="节点ID")
     sort_order: int | None = Field(default=None, ge=0, le=999999, description="排序值")
+    option_group_code: str | None = Field(default=None, max_length=100, description="互斥工艺选项组编码")
+    option_code: str | None = Field(default=None, max_length=100, description="已选工艺选项编码")
     node_params_json: str | None = Field(default=None, description="节点参数JSON")
     remark: str | None = Field(default=None, description="备注")
 
@@ -825,6 +840,8 @@ class ProcessProductCreateWithPrices(ProcessLibraryCreateWithPrices):
 
 
     output_type: ProcessOutputType = Field(default="product", description="产出物类型")
+    target_output_category: ProcessTargetOutputCategory | None = Field(default=None, description="产品需求分类")
+    is_product_form: bool = Field(default=True, description="是否达到产品形态")
     spec: str | None = Field(default=None, max_length=100, description="规格")
     treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="处理成本")
 
@@ -834,6 +851,8 @@ class ProcessProductUpdateWithPrices(ProcessLibraryUpdateWithPrices):
 
 
     output_type: ProcessOutputType | None = Field(default=None, description="产出物类型")
+    target_output_category: ProcessTargetOutputCategory | None = Field(default=None, description="产品需求分类")
+    is_product_form: bool | None = Field(default=None, description="是否达到产品形态")
     spec: str | None = Field(default=None, max_length=100, description="规格")
     treatment_cost: Decimal | None = Field(default=None, ge=0, description="处理成本")
 
@@ -843,6 +862,8 @@ class ProcessProductOutWithPrices(ProcessLibraryOutWithPrices):
 
 
     output_type: ProcessOutputType = Field(default="product", description="产出物类型")
+    target_output_category: ProcessTargetOutputCategory | None = Field(default=None, description="产品需求分类")
+    is_product_form: bool = Field(default=True, description="是否达到产品形态")
     spec: str | None = Field(default=None, description="规格")
     treatment_cost: Decimal = Field(default=Decimal("0"), ge=0, description="处理成本")
 
@@ -954,6 +975,8 @@ class ProcessRouteNodePayload(_TrimTextMixin):
 
     node_id: int = Field(..., gt=0, description="Node ID")
     sort_order: int = Field(default=0, ge=0, le=999999, description="Sort order")
+    option_group_code: str | None = Field(default=None, max_length=100, description="Option group code")
+    option_code: str | None = Field(default=None, max_length=100, description="Selected option code")
     node_params_json: str | None = Field(default=None, description="Node params JSON")
     remark: str | None = Field(default=None, description="Remark")
 
@@ -999,6 +1022,7 @@ class ProcessRouteListItemOut(ProcessRouteOut):
 
     input_material_name: str | None = Field(default=None, description="Input material name")
     final_product_name: str | None = Field(default=None, description="Final product name")
+    representative_product_name: str | None = Field(default=None, description="Representative product name")
     node_count: int = Field(default=0, ge=0, description="Node count")
 
 
@@ -1014,6 +1038,7 @@ class ProcessRouteDetailOut(BaseModel):
     route: ProcessRouteOut
     input_material: ProcessMaterialOutWithPrices
     final_product: ProcessProductOutWithPrices
+    representative_product: ProcessProductOutWithPrices
     nodes: list[ProcessRouteNodeDetailOut] = Field(default_factory=list, description="Route nodes")
 
 
@@ -1028,7 +1053,7 @@ class ProcessRouteTreeLibraryItemOut(BaseModel):
 
 
 class ProcessRouteTreeNodeOutputOut(BaseModel):
-    """路线树预览中的节点三废输出。"""
+    """路线树预览中的节点终端输出。"""
 
     id: int
     product_id: int
@@ -1046,7 +1071,8 @@ class ProcessRouteTreeNodeOut(BaseModel):
     node_type: ProcessNodeType
     version: str
     sort_order: int
-    outputs: list[ProcessRouteTreeNodeOutputOut] = Field(default_factory=list, description="节点三废输出")
+    node_params_json: str | None = Field(default=None, description="路线节点参数JSON")
+    outputs: list[ProcessRouteTreeNodeOutputOut] = Field(default_factory=list, description="节点终端输出")
 
 
 class ProcessRouteTreeRouteOut(BaseModel):
@@ -1059,6 +1085,7 @@ class ProcessRouteTreeRouteOut(BaseModel):
     sort_order: int
     input_material: ProcessRouteTreeLibraryItemOut
     final_product: ProcessRouteTreeLibraryItemOut
+    representative_product: ProcessRouteTreeLibraryItemOut
     nodes: list[ProcessRouteTreeNodeOut] = Field(default_factory=list, description="路线节点")
 
 

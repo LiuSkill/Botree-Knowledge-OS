@@ -41,6 +41,7 @@ from app.schemas.process_config import (  # noqa: E402
     ProcessMaterialCreateWithPrices,
     ProcessMaterialUpdateWithPrices,
     ProcessNodeCreateWithChildren,
+    ProcessNodeOutputPayload,
     ProcessNodeUpdateWithChildren,
     ProcessProductCreateWithPrices,
     ProcessPublicServiceCreateWithPrices,
@@ -588,6 +589,71 @@ def test_library_crud_persists_region_prices_and_options(db_session: Session) ->
         service.get_library("material", created["id"])
 
 
+def test_product_library_supports_output_semantics_for_targets_and_waste_gas(db_session: Session) -> None:
+    """Product library expresses target categories, product form, and waste-gas outputs."""
+
+    operator = seed_operator(db_session)
+    service = ProcessConfigService(db_session)
+
+    graphite_product = service.create_library(
+        "product",
+        ProcessProductCreateWithPrices(
+            code="GRAPHITE-DRIED",
+            name="Dried Graphite",
+            type="graphite",
+            description="Graphite after drying",
+            unit="t",
+            output_type="product",
+            target_output_category="graphite",
+            is_product_form=True,
+            status="enabled",
+            region_prices=region_prices(),
+        ),
+        operator,
+    )
+    untreated_graphite_slag = service.create_library(
+        "product",
+        ProcessProductCreateWithPrices(
+            code="GRAPHITE-SLAG",
+            name="Untreated Graphite Slag",
+            type="solid_waste",
+            description="Graphite slag before drying",
+            unit="t",
+            output_type="solid_waste",
+            is_product_form=False,
+            status="enabled",
+            region_prices=region_prices(),
+        ),
+        operator,
+    )
+    waste_gas = service.create_library(
+        "product",
+        ProcessProductCreateWithPrices(
+            code="ROAST-OFFGAS",
+            name="Mixed Acid Roasting Offgas",
+            type="waste_gas",
+            description="Waste gas from mixed acid roasting",
+            unit="Nm3",
+            output_type="waste_gas",
+            is_product_form=False,
+            status="enabled",
+            region_prices=region_prices(),
+        ),
+        operator,
+    )
+
+    assert graphite_product["target_output_category"] == "graphite"
+    assert graphite_product["is_product_form"] is True
+    assert untreated_graphite_slag["output_type"] == "solid_waste"
+    assert untreated_graphite_slag["target_output_category"] is None
+    assert untreated_graphite_slag["is_product_form"] is False
+    assert waste_gas["output_type"] == "waste_gas"
+
+    waste_gas_page = service.list_library("product", output_type="waste_gas", page=1, page_size=10)
+    assert waste_gas_page["total"] == 1
+    assert waste_gas_page["items"][0]["code"] == "ROAST-OFFGAS"
+
+
 def test_node_crud_persists_child_sections(db_session: Session) -> None:
     """Creating, updating and deleting a node keeps all child sections consistent."""
 
@@ -715,6 +781,7 @@ def test_route_crud_snapshot_copy_and_delete(db_session: Session) -> None:
     service = ProcessConfigService(db_session)
     material = create_material(service, operator, code="M-ROUTE")
     product = create_product(service, operator, code="P-ROUTE")
+    representative_product = create_product(service, operator, code="P-ROUTE-REP")
     consumable = create_consumable(service, operator, code="C-ROUTE")
     public_service = create_public_service(service, operator, code="S-ROUTE")
     first_node = service.create_node(
@@ -729,11 +796,15 @@ def test_route_crud_snapshot_copy_and_delete(db_session: Session) -> None:
     created = service.create_route(route_payload(material["id"], product["id"], [first_node["id"], second_node["id"]]), operator)
 
     assert created["route"]["code"] == "R001"
+    assert created["route"]["representative_product_id"] == product["id"]
+    assert created["representative_product"]["id"] == product["id"]
+    assert created["final_product"]["id"] == product["id"]
     assert len(created["nodes"]) == 2
     assert created["nodes"][0]["node"]["code"] == "N-ROUTE-1"
 
     page = service.list_routes(keyword="Route", status="enabled", page=1, page_size=10)
     assert page["total"] == 1
+    assert page["items"][0]["representative_product_name"] == product["name"]
     assert page["items"][0]["node_count"] == 2
 
     reordered = service.reorder_route_nodes(
@@ -752,6 +823,7 @@ def test_route_crud_snapshot_copy_and_delete(db_session: Session) -> None:
         created["route"]["id"],
         ProcessRouteUpdateWithNodes(
             name="Updated Route",
+            final_product_id=representative_product["id"],
             nodes=[
                 {"node_id": second_node["id"], "sort_order": 1, "node_params_json": {"recovery": "93%"}, "remark": "step 2"},
                 {"node_id": first_node["id"], "sort_order": 2, "node_params_json": {"recovery": "91%"}, "remark": "step 1"},
@@ -760,6 +832,7 @@ def test_route_crud_snapshot_copy_and_delete(db_session: Session) -> None:
         operator,
     )
     assert updated["route"]["name"] == "Updated Route"
+    assert updated["route"]["representative_product_id"] == representative_product["id"]
     assert updated["nodes"][0]["node"]["code"] == "N-ROUTE-2"
     assert json.loads(updated["nodes"][0]["node_params_json"])["recovery"] == "93%"
 
@@ -859,6 +932,130 @@ def test_route_enabled_validation_and_sort_order_rules(db_session: Session) -> N
             ),
             operator,
         )
+
+
+def test_route_rejects_multiple_selected_options_in_same_option_group(db_session: Session) -> None:
+    """A route can select only one reached process option from the same option group."""
+
+    operator = seed_operator(db_session)
+    service = ProcessConfigService(db_session)
+    material = create_material(service, operator, code="M-OPTION")
+    product = create_product(service, operator, code="P-OPTION")
+    consumable = create_consumable(service, operator, code="C-OPTION")
+    public_service = create_public_service(service, operator, code="S-OPTION")
+    mixed_acid_roast = service.create_node(
+        node_payload(material["id"], product["id"], consumable["id"], public_service["id"], code="N-MIXED-ACID", name="Mixed Acid Roasting"),
+        operator,
+    )
+    acid_leach = service.create_node(
+        node_payload(material["id"], product["id"], consumable["id"], public_service["id"], code="N-ACID-LEACH", name="Acid Leaching"),
+        operator,
+    )
+
+    with pytest.raises(AppException, match="互斥工艺选项组 pretreatment"):
+        service.create_route(
+            ProcessRouteCreateWithNodes(
+                code="R-OPTION-CONFLICT",
+                name="Conflicting Option Route",
+                input_material_id=material["id"],
+                final_product_id=product["id"],
+                status="enabled",
+                nodes=[
+                    {
+                        "node_id": mixed_acid_roast["id"],
+                        "sort_order": 1,
+                        "option_group_code": "pretreatment",
+                        "option_code": "mixed_acid_roasting",
+                    },
+                    {
+                        "node_id": acid_leach["id"],
+                        "sort_order": 2,
+                        "option_group_code": "pretreatment",
+                        "option_code": "acid_leaching",
+                    },
+                ],
+            ),
+            operator,
+        )
+
+
+def test_route_rejects_reached_option_group_without_selected_option(db_session: Session) -> None:
+    """A reached option group must state the selected option."""
+
+    operator = seed_operator(db_session)
+    service = ProcessConfigService(db_session)
+    material = create_material(service, operator, code="M-OPTION-MISSING")
+    product = create_product(service, operator, code="P-OPTION-MISSING")
+    consumable = create_consumable(service, operator, code="C-OPTION-MISSING")
+    public_service = create_public_service(service, operator, code="S-OPTION-MISSING")
+    node = service.create_node(
+        node_payload(material["id"], product["id"], consumable["id"], public_service["id"], code="N-OPTION-MISSING"),
+        operator,
+    )
+
+    with pytest.raises(AppException, match="互斥工艺选项组 pretreatment 已触达但未选择工艺选项"):
+        service.create_route(
+            ProcessRouteCreateWithNodes(
+                code="R-OPTION-MISSING",
+                name="Missing Option Route",
+                input_material_id=material["id"],
+                final_product_id=product["id"],
+                status="enabled",
+                nodes=[
+                    {
+                        "node_id": node["id"],
+                        "sort_order": 1,
+                        "option_group_code": "pretreatment",
+                    },
+                ],
+            ),
+            operator,
+        )
+
+
+def test_route_tree_preview_includes_waste_gas_outputs(db_session: Session) -> None:
+    """Route tree preview returns node terminal output leaves."""
+
+    operator = seed_operator(db_session)
+    service = ProcessConfigService(db_session)
+    material = create_material(service, operator, code="M-GAS-PREVIEW")
+    product = create_product(service, operator, code="P-GAS-PREVIEW")
+    waste_gas = service.create_library(
+        "product",
+        ProcessProductCreateWithPrices(
+            code="P-GAS-WASTE",
+            name="Offgas",
+            type="waste_gas",
+            unit="Nm3",
+            output_type="waste_gas",
+            is_product_form=False,
+            status="enabled",
+            region_prices=region_prices(),
+        ),
+        operator,
+    )
+    consumable = create_consumable(service, operator, code="C-GAS-PREVIEW")
+    public_service = create_public_service(service, operator, code="S-GAS-PREVIEW")
+    payload = node_payload(material["id"], product["id"], consumable["id"], public_service["id"], code="N-GAS-PREVIEW")
+    payload.outputs.append(
+        ProcessNodeOutputPayload(
+            product_id=waste_gas["id"],
+            output_type="waste_gas",
+            output_per_ton=Decimal("1.2"),
+            unit="Nm3/t-BM",
+            sort_order=2,
+        )
+    )
+    node = service.create_node(payload, operator)
+    route = service.create_route(route_payload(material["id"], product["id"], [node["id"]], code="R-GAS-PREVIEW"), operator)
+
+    preview = service.get_route_tree_preview(route["route"]["id"])
+
+    outputs = preview["routes"][0]["nodes"][0]["outputs"]
+    outputs_by_type = {output["output_type"]: output for output in outputs}
+    assert {"product", "waste_gas"}.issubset(outputs_by_type)
+    assert outputs_by_type["waste_gas"]["product"]["code"] == "P-GAS-WASTE"
+    assert outputs_by_type["product"]["product"]["code"] == "P-GAS-PREVIEW"
 
 
 def test_code_unique_includes_soft_deleted_records(db_session: Session) -> None:

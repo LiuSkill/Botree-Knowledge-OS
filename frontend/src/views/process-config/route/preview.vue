@@ -113,14 +113,30 @@ async function loadPreviewData(): Promise<void> {
   }
 }
 
+interface RouteNodeParams {
+  parent_node_code?: string;
+  continues_route?: boolean;
+}
+
+function parseRouteNodeParams(raw?: string | null): RouteNodeParams {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as RouteNodeParams;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function buildPreviewTree(routes: ProcessRouteTreeRoute[], activeRouteIds: Set<number>): RouteTreePreviewNodeData[] {
   const roots: RouteTreePreviewNodeData[] = [];
-  const renderedWasteKeys = new Set<string>();
+  const renderedTerminalKeys = new Set<string>();
   const orderedRoutes = routes.slice().sort((left, right) => left.sort_order - right.sort_order || left.id - right.id);
 
   orderedRoutes.forEach((routeDetail) => {
     const isCurrentRoute = activeRouteIds.has(routeDetail.id);
     const material = routeDetail.input_material;
+    const nodesByCode = new Map<string, RouteTreePreviewNodeData>();
     let cursor = ensureChild(roots, `material:${material.code}`, () => ({
       key: `material:${material.code}`,
       label: material.name,
@@ -138,8 +154,10 @@ function buildPreviewTree(routes: ProcessRouteTreeRoute[], activeRouteIds: Set<n
       .slice()
       .sort((left, right) => left.sort_order - right.sort_order || left.route_node_id - right.route_node_id)
       .forEach((node) => {
-        cursor = ensureChild(cursor.children, `node:${node.code}`, () => ({
-          key: `${cursor.key}>node:${node.code}`,
+        const nodeParams = parseRouteNodeParams(node.node_params_json);
+        const parent = nodeParams.parent_node_code ? nodesByCode.get(nodeParams.parent_node_code) || cursor : cursor;
+        const treeNode = ensureChild(parent.children, `node:${node.code}`, () => ({
+          key: `${parent.key}>node:${node.code}`,
           label: node.name,
           code: node.code,
           meta: node.version,
@@ -147,13 +165,17 @@ function buildPreviewTree(routes: ProcessRouteTreeRoute[], activeRouteIds: Set<n
           active: isCurrentRoute,
           children: [],
         }));
+        nodesByCode.set(node.code, treeNode);
         if (isCurrentRoute) {
-          cursor.active = true;
+          treeNode.active = true;
         }
-        appendWasteOutputs(cursor, node, renderedWasteKeys, isCurrentRoute);
+        appendTerminalOutputs(treeNode, node, renderedTerminalKeys, isCurrentRoute);
+        if (nodeParams.continues_route !== false) {
+          cursor = treeNode;
+        }
       });
 
-    const product = routeDetail.final_product;
+    const product = routeDetail.representative_product || routeDetail.final_product;
     const productNode = ensureChild(cursor.children, `product:${product.code}`, () => ({
       key: `${cursor.key}>product:${product.code}`,
       label: product.name,
@@ -183,25 +205,36 @@ function ensureChild(
   return created;
 }
 
-function appendWasteOutputs(
+function appendTerminalOutputs(
   parent: RouteTreePreviewNodeData,
   node: ProcessRouteTreeNode,
-  renderedWasteKeys: Set<string>,
+  renderedTerminalKeys: Set<string>,
   isCurrentRoute: boolean,
 ): void {
   node.outputs
-    .filter((output) => output.output_type === 'solid_waste' || output.output_type === 'wastewater')
+    .filter((output) =>
+      ['product', 'byproduct', 'solid_waste', 'wastewater', 'waste_gas'].includes(output.output_type),
+    )
     .forEach((output) => {
       const product = output.product;
-      const wasteKey = `${node.code}:${output.output_type}:${product?.code || output.product_id}`;
-      if (!isCurrentRoute && renderedWasteKeys.has(wasteKey)) return;
-      renderedWasteKeys.add(wasteKey);
-      ensureChild(parent.children, `waste:${output.product_id}`, () => ({
-        key: `${parent.key}>waste:${output.product_id}`,
+      const productKey = product?.code || String(output.product_id);
+      const outputKind = output.output_type === 'product' || output.output_type === 'byproduct' ? 'product' : 'waste';
+      const terminalKey = `${node.code}:${output.output_type}:${productKey}`;
+      if (!isCurrentRoute && renderedTerminalKeys.has(terminalKey)) return;
+      renderedTerminalKeys.add(terminalKey);
+      ensureChild(parent.children, `${outputKind}:${productKey}`, () => ({
+        key: `${parent.key}>${outputKind}:${productKey}`,
         label: product?.name || `#${output.product_id}`,
         code: product?.code || null,
-        meta: output.output_type === 'solid_waste' ? t('process.route.preview.solidWaste') : t('process.route.preview.wastewater'),
-        kind: 'waste',
+        meta:
+          output.output_type === 'product' || output.output_type === 'byproduct'
+            ? product?.unit || ''
+            : output.output_type === 'solid_waste'
+            ? t('process.route.preview.solidWaste')
+            : output.output_type === 'waste_gas'
+              ? t('process.route.preview.wasteGas')
+              : t('process.route.preview.wastewater'),
+        kind: outputKind,
         active: isCurrentRoute,
         children: [],
       }));

@@ -2,12 +2,18 @@ import type { ProcessRegionCode, ProcessRegionCurrency } from '@/views/process-c
 
 export type CalculatorSortCriteria = 'npv' | 'irr' | 'ebitda' | 'payback_period' | 'capex';
 export type DecimalValue = string | number;
+export type TargetOutputCategory = 'li' | 'ni' | 'co' | 'mn' | 'cu' | 'graphite';
 
 export interface CalculatorLibraryOption {
   id: number;
   code: string;
   name: string;
   unit: string;
+}
+
+export interface CalculatorTargetOutputCategoryOption {
+  code: TargetOutputCategory;
+  name: string;
 }
 
 export interface CalculatorRegionOption {
@@ -19,6 +25,7 @@ export interface CalculatorRegionOption {
 export interface ProcessCalculatorOptions {
   materials: CalculatorLibraryOption[];
   target_products: CalculatorLibraryOption[];
+  target_output_categories: CalculatorTargetOutputCategoryOption[];
   regions: CalculatorRegionOption[];
   sort_criteria: Array<{ code: CalculatorSortCriteria; name: string }>;
   defaults: {
@@ -37,7 +44,9 @@ export interface CalculatorMaterialInput {
 
 export interface ProcessCalculatorRequest {
   materials: CalculatorMaterialInput[];
-  target_products: number[];
+  target_products?: number[];
+  target_output_categories?: TargetOutputCategory[];
+  selected_options?: Record<string, string>;
   region_code: ProcessRegionCode;
   currency: ProcessRegionCurrency;
   tax_rate: DecimalValue;
@@ -58,6 +67,19 @@ export interface CalculatorRouteNodeRef {
   name: string;
   version: string;
   sort_order: number;
+  option_group_code?: string | null;
+  option_code?: string | null;
+  node_params_json?: string | null;
+  outputs: CalculatorRouteNodeOutputRef[];
+}
+
+export interface CalculatorRouteNodeOutputRef {
+  id: number;
+  product_id: number;
+  product_code?: string | null;
+  product_name?: string | null;
+  output_name: string;
+  output_type: string;
 }
 
 export interface CalculatorRouteRef {
@@ -74,7 +96,7 @@ export interface CalculatorRouteRef {
   nodes: CalculatorRouteNodeRef[];
 }
 
-export type CalculatorRouteTreeNodeKind = 'material' | 'node' | 'product';
+export type CalculatorRouteTreeNodeKind = 'material' | 'node' | 'product' | 'waste';
 
 export interface CalculatorRouteTreeNode {
   key: string;
@@ -106,6 +128,8 @@ export interface CalculatorSchemeSummary {
   scheme_code: string;
   routes: CalculatorRouteRef[];
   node_codes: string[];
+  selected_options: Record<string, string>;
+  output_summary: CalculatorAmountItem[];
   is_complete: boolean;
   warnings: string[];
   metrics: CalculatorMetrics;
@@ -153,6 +177,7 @@ export interface ProcessCalculatorResult {
   calculation_id: string;
   matched_routes: CalculatorSchemeSummary[];
   recommended_route?: CalculatorSchemeSummary | null;
+  no_route_reason?: string | null;
   product_outputs: CalculatorAmountItem[];
   consumable_costs: CalculatorAmountItem[];
   public_service_costs: CalculatorAmountItem[];

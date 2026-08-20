@@ -55,7 +55,14 @@ class ProcessCalculatorRepository:
         )
         return {"materials": materials, "products": products}
 
-    def load_calculation_data(self, material_ids: set[int], product_ids: set[int], region_code: str) -> dict[str, list[Any]]:
+    def load_calculation_data(
+        self,
+        material_ids: set[int],
+        product_ids: set[int],
+        region_code: str,
+        *,
+        include_all_material_routes: bool = False,
+    ) -> dict[str, list[Any]]:
         """按输入集合批量加载全部依赖，禁止在 Service 循环内访问数据库。"""
 
         materials = list(
@@ -77,15 +84,17 @@ class ProcessCalculatorRepository:
                 )
             ).all()
         )
+        route_conditions = [
+            ProcessRoute.input_material_id.in_(material_ids),
+            ProcessRoute.is_deleted.is_(False),
+            ProcessRoute.status == "enabled",
+        ]
+        if not include_all_material_routes:
+            route_conditions.append(ProcessRoute.final_product_id.in_(product_ids))
         routes = list(
             self.db.scalars(
                 select(ProcessRoute)
-                .where(
-                    ProcessRoute.input_material_id.in_(material_ids),
-                    ProcessRoute.final_product_id.in_(product_ids),
-                    ProcessRoute.is_deleted.is_(False),
-                    ProcessRoute.status == "enabled",
-                )
+                .where(*route_conditions)
                 .order_by(ProcessRoute.sort_order.asc(), ProcessRoute.id.asc())
             ).all()
         )
@@ -107,7 +116,8 @@ class ProcessCalculatorRepository:
         output_product_ids = {
             item.product_id for item in node_outputs if item.product_id is not None
         } | {item.product_id for item in calculation_outputs if item.product_id is not None}
-        all_product_ids = sorted(product_ids | output_product_ids)
+        route_product_ids = {route.final_product_id for route in routes}
+        all_product_ids = sorted(product_ids | output_product_ids | route_product_ids)
         products = self._list_active(ProcessProduct, all_product_ids)
         consumables = self._list_active(ProcessConsumable, consumable_ids)
         service_libraries = self._list_active(ProcessPublicService, public_service_ids)

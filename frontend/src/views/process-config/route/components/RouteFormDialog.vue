@@ -59,6 +59,9 @@ const submitText = computed(() => (props.mode === 'create' ? t('process.route.ac
 const statusOptions = computed(() =>
   PROCESS_ROUTE_STATUS_OPTIONS.map((item) => ({ ...item, label: t(processStatusLocaleKey(item.value)) })),
 );
+const representativeProductOptions = computed(() =>
+  props.productOptions.filter((item) => item.output_type === 'product' || item.output_type === 'byproduct'),
+);
 
 watch(
   () => [props.visible, props.mode, props.route] as const,
@@ -89,6 +92,8 @@ function resetForm(): void {
         route_node_id: item.id,
         node_id: item.node_id,
         sort_order: index + 1,
+        option_group_code: item.option_group_code || null,
+        option_code: item.option_code || null,
         node_params_json: item.node_params_json || '',
         remark: item.remark || '',
       })),
@@ -140,6 +145,8 @@ function buildPayload(): ProcessRoutePayload {
     nodes: form.nodes.map((row, index) => ({
       node_id: Number(row.node_id),
       sort_order: index + 1,
+      option_group_code: normalizeOptionalText(row.option_group_code),
+      option_code: normalizeOptionalText(row.option_code),
       node_params_json: normalizeOptionalText(row.node_params_json),
       remark: normalizeOptionalText(row.remark),
     })),
@@ -220,7 +227,7 @@ function formulaTypeLabel(value: string): string {
             <t-form-item :label="t('process.route.field.finalProduct')" required-mark>
               <t-select v-model="form.final_product_id" filterable clearable :placeholder="t('process.route.placeholder.finalProduct')">
                 <t-option
-                  v-for="item in productOptions"
+                  v-for="item in representativeProductOptions"
                   :key="item.id"
                   :label="`${item.code} / ${item.name}`"
                   :value="item.id"
@@ -251,7 +258,7 @@ function formulaTypeLabel(value: string): string {
           <div class="route-form__section-head"><div class="route-form__section-title">{{ t('process.route.section.calculationOutputs') }}</div><t-button size="small" variant="outline" @click="addOutput">{{ t('process.route.action.addOutput') }}</t-button></div>
           <div class="route-output-table"><t-table row-key="sort_order" bordered size="small" table-layout="fixed" :columns="outputColumns" :data="outputRows">
             <template #product_id="{ row }"><t-select v-model="row.product_id" filterable><t-option v-for="item in productOptions" :key="item.id" :label="`${item.code} / ${item.name}`" :value="item.id" /></t-select></template>
-            <template #output_type="{ row }"><t-select v-model="row.output_type"><t-option :label="outputTypeLabel('product')" value="product" /><t-option :label="outputTypeLabel('byproduct')" value="byproduct" /></t-select></template>
+            <template #output_type="{ row }"><t-select v-model="row.output_type"><t-option :label="outputTypeLabel('product')" value="product" /><t-option :label="outputTypeLabel('byproduct')" value="byproduct" /><t-option :label="outputTypeLabel('solid_waste')" value="solid_waste" /><t-option :label="outputTypeLabel('wastewater')" value="wastewater" /><t-option :label="outputTypeLabel('waste_gas')" value="waste_gas" /></t-select></template>
             <template #output_ratio="{ row }"><t-input-number v-model="row.output_ratio" :min="0" :decimal-places="6" theme="normal" /></template>
             <template #unit="{ row }"><t-input v-model="row.unit" /></template>
             <template #recovery_rate="{ row }"><t-input-number v-model="row.recovery_rate" :min="0" :decimal-places="6" theme="normal" /></template>

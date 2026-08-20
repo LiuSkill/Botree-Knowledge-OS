@@ -165,6 +165,7 @@ export const PROCESS_LIBRARY_TYPE_OPTIONS_MAP: Partial<Record<ProcessConfigModul
     { label: '\u526f\u4ea7\u7269', value: 'byproduct' },
     { label: '\u5e9f\u56fa', value: 'solid_waste' },
     { label: '\u5e9f\u6c34', value: 'wastewater' },
+    { label: '\u5e9f\u6c14', value: 'waste_gas' },
   ],
   consumables: [
     { label: '\u5316\u5b66\u54c1', value: 'chemical' },

@@ -4,6 +4,7 @@ export type ProcessNodeType = 'pretreatment' | 'hydrometallurgy' | 'pyrometallur
 
 export type NodeDecimalValue = string | number;
 export type ProcessFormulaType = 'fixed' | 'expression';
+export type ProcessOutputType = 'product' | 'byproduct' | 'solid_waste' | 'wastewater' | 'waste_gas';
 
 export interface ProcessLibraryOptionItem {
   id: number;
@@ -71,7 +72,7 @@ export interface ProcessNodeLaborPayload {
 export interface ProcessNodeOutputPayload {
   product_id: number | null;
   output_per_ton: NodeDecimalValue;
-  output_type: 'product' | 'byproduct' | 'solid_waste' | 'wastewater';
+  output_type: ProcessOutputType;
   formula_type: ProcessFormulaType;
   expression?: string | null;
   treatment_cost: NodeDecimalValue;

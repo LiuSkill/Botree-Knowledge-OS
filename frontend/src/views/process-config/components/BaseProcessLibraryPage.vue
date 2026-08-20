@@ -74,6 +74,7 @@ const PROCESS_TYPE_KEY_BY_VALUE: Record<string, string> = {
   byproduct: 'byproduct',
   solid_waste: 'solidWaste',
   wastewater: 'wastewater',
+  waste_gas: 'wasteGas',
   chemical: 'chemical',
   reagent: 'reagent',
   utility: 'utility',

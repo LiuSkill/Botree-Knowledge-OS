@@ -18,15 +18,21 @@ import { useRoute, useRouter } from 'vue-router';
 import { calculateProcessFinancialModel, getProcessCalculatorOptions } from '@/api/process-config';
 import { PERMISSIONS } from '@/constants/permissions';
 import RouteSchemeMindMap from '@/views/process-config/calculator/components/RouteSchemeMindMap.vue';
+import {
+  buildCalculatorPayload,
+  groupOutputSummary,
+  noRouteReasonText,
+  numberValue,
+  targetCategorySelectOptions,
+} from '@/views/process-config/calculator/helpers';
 import type {
-  CalculatorAmountItem,
-  CalculatorMaterialInput,
   CalculatorSchemeSummary,
   CalculatorSortCriteria,
   DecimalValue,
   ProcessCalculatorOptions,
   ProcessCalculatorRequest,
   ProcessCalculatorResult,
+  TargetOutputCategory,
 } from '@/views/process-config/calculator/types';
 import { processUnitLabel, type ProcessRegionCode, type ProcessRegionCurrency } from '@/views/process-config/types';
 
@@ -70,7 +76,7 @@ const expansionInitialized = ref(false);
 
 const form = reactive({
   materials: [{ amount: 5000, unit: 't' }] as MaterialFormRow[],
-  targetProducts: [] as number[],
+  targetOutputCategories: [] as TargetOutputCategory[],
   regionCode: 'asia' as ProcessRegionCode,
   currency: 'CNY' as ProcessRegionCurrency,
   taxRatePercent: 25,
@@ -95,6 +101,8 @@ const regionCurrencyOptions = computed(() =>
 const sortCriteriaLabel = computed(() => {
   return sortCriteriaText(form.sortCriteria);
 });
+
+const targetCategoryOptions = computed(() => targetCategorySelectOptions(options.value?.target_output_categories || []));
 
 const headlineMetrics = computed<MetricItem[]>(() => {
   if (!result.value) return [];
@@ -139,6 +147,8 @@ const warningSummary = computed(() => {
   const visible = warnings.slice(0, 5).join('；');
   return warnings.length > 5 ? t('process.calculator.warningMore', { visible, count: warnings.length - 5 }) : visible;
 });
+
+const emptyReasonText = computed(() => noRouteReasonText(result.value?.no_route_reason, t('process.calculator.noRouteFallback')));
 
 const amountColumns = computed(() => [
   { colKey: 'name', title: t('process.calculator.table.item'), minWidth: 180 },
@@ -202,7 +212,7 @@ async function handleCalculate(): Promise<void> {
     MessagePlugin.warning(t('process.calculator.message.materialRequired'));
     return;
   }
-  if (!form.targetProducts.length) {
+  if (!form.targetOutputCategories.length) {
     MessagePlugin.warning(t('process.calculator.message.productRequired'));
     return;
   }
@@ -222,35 +232,12 @@ async function handleCalculate(): Promise<void> {
 }
 
 function buildPayload(): ProcessCalculatorRequest {
-  const materials: CalculatorMaterialInput[] = form.materials.map((item) => ({
-    material_id: item.material_id as number,
-    amount: item.amount,
-    unit: item.unit,
-  }));
-  const advancedParams: ProcessCalculatorRequest['advanced_params'] = {
-    other_opex: form.otherOpex,
-    annual_growth_rate: form.annualGrowthPercent / 100,
-  };
-  if (form.baseCapacity !== undefined && form.scaleParamN !== undefined) {
-    advancedParams.base_capacity = form.baseCapacity;
-    advancedParams.scale_param_n = form.scaleParamN;
-  }
-  return {
-    materials,
-    target_products: [...form.targetProducts],
-    region_code: form.regionCode,
-    currency: form.currency,
-    tax_rate: form.taxRatePercent / 100,
-    discount_rate: form.discountRatePercent / 100,
-    period_years: form.periodYears,
-    sort_criteria: form.sortCriteria,
-    advanced_params: advancedParams,
-  };
+  return buildCalculatorPayload(form);
 }
 
 function resetCalculator(): void {
   form.materials.splice(0, form.materials.length, { amount: 5000, unit: 't' });
-  form.targetProducts = [];
+  form.targetOutputCategories = [];
   form.regionCode = 'asia';
   form.currency = 'CNY';
   form.baseCapacity = undefined;
@@ -297,11 +284,22 @@ function previewScheme(row: CalculatorSchemeSummary): void {
 }
 
 function routeProducts(row: CalculatorSchemeSummary): string {
-  return row.routes.map((route) => route.final_product_name).join(t('common.separator.list'));
+  const names = row.output_summary
+    .filter((item) => item.output_type === 'product' || item.output_type === 'byproduct')
+    .map((item) => item.name);
+  return (names.length ? names : row.routes.map((route) => route.final_product_name)).join(t('common.separator.list'));
 }
 
 function routeNames(row: CalculatorSchemeSummary): string {
   return row.routes.map((route) => route.name).join(' / ');
+}
+
+function routeOutputGroups(scheme: CalculatorSchemeSummary) {
+  const groups = groupOutputSummary(scheme.output_summary);
+  return [
+    { key: 'revenue', title: t('process.calculator.section.revenueOutputs'), items: groups.revenueOutputs },
+    { key: 'waste', title: t('process.calculator.section.wasteOutputs'), items: groups.wasteOutputs },
+  ];
 }
 
 function opexBarWidth(value: DecimalValue): string {
@@ -320,13 +318,9 @@ function outputTypeLabel(type?: string | null): string {
       byproduct: t('process.calculator.outputType.byproduct'),
       solid_waste: t('process.calculator.outputType.solidWaste'),
       wastewater: t('process.calculator.outputType.wastewater'),
+      waste_gas: t('process.calculator.outputType.wasteGas'),
     }[type || ''] || '-'
   );
-}
-
-function numberValue(value?: DecimalValue | null): number {
-  const number = Number(value ?? 0);
-  return Number.isFinite(number) ? number : 0;
 }
 
 function formatMoney(value?: DecimalValue | null): string {
@@ -408,12 +402,12 @@ function sortCriteriaText(code: CalculatorSortCriteria): string {
 
           <section class="input-group">
             <div class="group-heading"><strong>{{ t('process.calculator.targetProduct') }}</strong></div>
-            <t-select v-model="form.targetProducts" multiple filterable clearable :placeholder="t('process.calculator.targetProductPlaceholder')">
+            <t-select v-model="form.targetOutputCategories" multiple clearable :placeholder="t('process.calculator.targetProductPlaceholder')">
               <t-option
-                v-for="item in options?.target_products || []"
-                :key="item.id"
-                :label="`${item.code} / ${item.name}`"
-                :value="item.id"
+                v-for="item in targetCategoryOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
               />
             </t-select>
           </section>
@@ -480,6 +474,12 @@ function sortCriteriaText(code: CalculatorSortCriteria): string {
       </div>
 
       <template v-else>
+        <div v-if="result.no_route_reason && !result.matched_routes.length" class="empty-result empty-result--reason">
+          <span class="empty-icon"><ChartIcon /></span>
+          <strong>{{ t('process.calculator.noRouteTitle') }}</strong>
+          <p>{{ emptyReasonText }}</p>
+        </div>
+
         <section v-if="result.recommended_route" class="recommendation-band">
           <div class="recommendation-copy">
             <div class="recommendation-kicker">
@@ -576,6 +576,21 @@ function sortCriteriaText(code: CalculatorSortCriteria): string {
                   <div><span>IRR</span><strong>{{ formatPercent(scheme.metrics.irr) }}</strong></div>
                   <div><span>EBITDA</span><strong>{{ formatMoney(scheme.metrics.ebitda) }}</strong></div>
                   <div><span>{{ t('process.calculator.metric.payback') }}</span><strong>{{ formatYears(scheme.metrics.payback_period) }}</strong></div>
+                </div>
+
+                <div class="route-output-summary">
+                  <div
+                    v-for="group in routeOutputGroups(scheme)"
+                    :key="group.key"
+                    class="route-output-group"
+                  >
+                    <h3>{{ group.title }}</h3>
+                    <div class="route-output-tags">
+                      <t-tag v-for="item in group.items" :key="`${group.key}-${item.code || item.name}`" variant="light" size="small">
+                        {{ item.name }} · {{ outputTypeLabel(item.output_type) }} · {{ formatAmount(item.amount, item.unit) }}
+                      </t-tag>
+                    </div>
+                  </div>
                 </div>
 
                 <div v-if="index === 0" class="route-detail-section">
@@ -889,6 +904,20 @@ function sortCriteriaText(code: CalculatorSortCriteria): string {
 .empty-result strong {
   font-size: 14px;
   font-weight: 500;
+}
+
+.empty-result--reason {
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.empty-result--reason p {
+  max-width: 520px;
+  margin: 0;
+  color: #5f6f84;
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .empty-icon {
@@ -1227,6 +1256,33 @@ function sortCriteriaText(code: CalculatorSortCriteria): string {
 .route-metrics .primary span,
 .route-metrics .primary strong {
   color: #1d4ed8;
+}
+
+.route-output-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid #edf1f7;
+  background: #fbfcfe;
+}
+
+.route-output-group {
+  min-width: 0;
+}
+
+.route-output-group h3 {
+  margin: 0 0 8px;
+  color: #4b5d73;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.route-output-tags {
+  display: flex;
+  min-height: 24px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .route-card-footer {

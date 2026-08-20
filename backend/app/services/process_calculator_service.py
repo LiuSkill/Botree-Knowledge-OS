@@ -40,11 +40,50 @@ REGIONS: tuple[dict[str, str], ...] = (
 REGION_CURRENCY = {item["code"]: item["currency"] for item in REGIONS}
 MAX_ROUTES_PER_PRODUCT = 5
 MAX_ROUTE_COMBINATIONS = 100
+MAX_OPTION_PROFILES = 5000
 MAX_RESULT_SCHEMES = 3
 ZERO = Decimal("0")
 ONE = Decimal("1")
 MONEY_QUANT = Decimal("0.01")
 AMOUNT_QUANT = Decimal("0.000001")
+WASTE_OUTPUT_TYPES = ("solid_waste", "wastewater", "waste_gas")
+PRODUCT_OUTPUT_TYPES = ("product", "byproduct")
+TERMINAL_OUTPUT_TYPES = (*PRODUCT_OUTPUT_TYPES, *WASTE_OUTPUT_TYPES)
+TARGET_OUTPUT_CATEGORY_OPTIONS: tuple[dict[str, str], ...] = (
+    {"code": "li", "name": "Li 产品"},
+    {"code": "ni", "name": "Ni 产品"},
+    {"code": "co", "name": "Co 产品"},
+    {"code": "mn", "name": "Mn 产品"},
+    {"code": "cu", "name": "Cu 产品"},
+    {"code": "graphite", "name": "石墨产品"},
+)
+# 兼容旧工艺路线数据：历史 route_node 未写 option 字段时，按图纸关键节点编码反推互斥工艺选项。
+NODE_OPTION_FALLBACKS: dict[str, tuple[str, str]] = {
+    "A1": ("root_leach_path", "mixed_acid_roasting"),
+    "A2": ("root_leach_path", "acid_leaching"),
+    "B8": ("water_leach_residue_path", "residue_acid_leaching"),
+    "B9": ("water_leach_residue_path", "oxide_ni_co_slag_product"),
+    "B3": ("graphite_handling", "drying"),
+    "B4": ("copper_removal", "iron_powder"),
+    "B5": ("copper_removal", "sulfide"),
+    "B6": ("copper_removal", "extraction"),
+    "B7": ("graphite_handling", "untreated_solid_waste"),
+    "D1": ("lithium_purification", "prel_resin_defluorination"),
+    "D2": ("lithium_purification", "deep_chemical_purification"),
+    "E3": ("nickel_cobalt_manganese_path", "mhp_precipitation"),
+    "E4": ("nickel_cobalt_manganese_path", "p204_extraction"),
+    "F1": ("lithium_carbonate_finish", "industrial_drying"),
+    "F2": ("lithium_carbonate_finish", "carbonation_thermal_decomposition"),
+    "F5": ("manganese_product_path", "manganese_solution_purification"),
+    "F6": ("ni_co_separation", "bc196_coextraction"),
+    "F7": ("ni_co_separation", "p507_cobalt_extraction"),
+    "F8": ("ni_co_separation", "p507_cobalt_extraction"),
+    "F10": ("manganese_product_path", "manganese_carbonate_precipitation"),
+    "G5": ("ni_co_separation", "c272_cobalt_extraction"),
+}
+MIXED_ACID_NODE_CODE = "A1"
+MIXED_ACID_TAIL_GAS_NODE_CODE = "B1"
+MIXED_ACID_WATER_LEACH_NODE_CODE = "B2"
 
 
 class ProcessCalculatorService:
@@ -59,6 +98,7 @@ class ProcessCalculatorService:
         result = ProcessCalculatorOptionsOut(
             materials=[self._library_option(item) for item in data["materials"]],
             target_products=[self._library_option(item) for item in data["products"]],
+            target_output_categories=list(TARGET_OUTPUT_CATEGORY_OPTIONS),
             regions=list(REGIONS),
             sort_criteria=[
                 {"code": "npv", "name": "净现值最高"},
@@ -82,18 +122,47 @@ class ProcessCalculatorService:
         self._validate_region_currency(payload.region_code, payload.currency)
         material_ids = {item.material_id for item in payload.materials}
         product_ids = set(payload.target_products)
-        data = self.repository.load_calculation_data(material_ids, product_ids, payload.region_code)
+        category_mode = bool(payload.target_output_categories)
+        data = self.repository.load_calculation_data(
+            material_ids,
+            product_ids,
+            payload.region_code,
+            include_all_material_routes=category_mode,
+        )
         self._validate_master_data(payload, data)
+        context = self._build_context(payload, data)
 
         material_order = [item.material_id for item in payload.materials]
-        grouped_routes = self._group_candidate_routes(material_order, payload.target_products, data["routes"])
-        combinations = list(self._route_combinations(material_order, payload.target_products, grouped_routes))
-        if not combinations:
-            raise AppException("未找到能够覆盖全部目标产品的启用工艺路线")
-
-        context = self._build_context(payload, data)
-        details = [self._calculate_scheme(combo, context) for combo in combinations]
-        details.sort(key=lambda item: self._scheme_sort_key(item["summary"], payload.sort_criteria))
+        if category_mode:
+            combinations = list(self._category_route_combinations(material_order, data["routes"], context))
+            if not combinations:
+                result = self._build_result(
+                    calculation_id,
+                    [],
+                    None,
+                    no_route_reason="所选工艺选项没有匹配到合法候选工艺路线",
+                )
+                return result.model_dump(mode="json")
+            details = [self._calculate_scheme(combo, context) for combo in combinations]
+            details = [item for item in details if self._matches_target_output_categories(item, context)]
+            if not details:
+                result = self._build_result(
+                    calculation_id,
+                    [],
+                    None,
+                    no_route_reason="候选工艺路线未同时满足所选目标产出类别",
+                )
+                return result.model_dump(mode="json")
+        else:
+            grouped_routes = self._group_candidate_routes(material_order, payload.target_products, data["routes"])
+            combinations = list(self._route_combinations(material_order, payload.target_products, grouped_routes))
+            if not combinations:
+                raise AppException("未找到能够覆盖全部目标产品的启用工艺路线")
+            details = [self._calculate_scheme(combo, context) for combo in combinations]
+        if category_mode:
+            details.sort(key=lambda item: self._category_scheme_sort_key(item, context, payload.sort_criteria))
+        else:
+            details.sort(key=lambda item: self._scheme_sort_key(item["summary"], payload.sort_criteria))
         # 所有候选组合先参与排序，再截取前三条，避免前端截断导致推荐结果失真。
         ranked_details = details[:MAX_RESULT_SCHEMES]
         recommended = ranked_details[0] if ranked_details else None
@@ -161,6 +230,166 @@ class ProcessCalculatorService:
             count += 1
             yield combination
 
+    def _category_route_combinations(
+        self,
+        material_ids: list[int],
+        routes: list[ProcessRoute],
+        context: dict[str, Any],
+    ) -> Iterable[tuple[ProcessRoute, ...]]:
+        selected_options = context["payload"].selected_options
+        routes_by_material: dict[int, list[tuple[ProcessRoute, dict[str, str]]]] = defaultdict(list)
+        for route in routes:
+            options = self._route_selected_options(route, context)
+            if options is None:
+                continue
+            if not self._route_options_match_user_selection(options, selected_options):
+                continue
+            routes_by_material[route.input_material_id].append((route, options))
+
+        route_groups: list[list[tuple[ProcessRoute, ...]]] = []
+        for material_id in material_ids:
+            material_groups = self._complete_material_candidate_groups(
+                routes_by_material.get(material_id, []),
+                selected_options,
+                context,
+            )
+            if not material_groups:
+                return
+            route_groups.append(material_groups)
+        count = 0
+        for combination in product(*route_groups):
+            if count >= MAX_ROUTE_COMBINATIONS:
+                break
+            count += 1
+            yield tuple(route for group in combination for route in group)
+
+    def _complete_material_candidate_groups(
+        self,
+        routes_with_options: list[tuple[ProcessRoute, dict[str, str]]],
+        selected_options: dict[str, str],
+        context: dict[str, Any],
+    ) -> list[tuple[ProcessRoute, ...]]:
+        candidate_options = self._candidate_option_profiles(routes_with_options, selected_options)
+        result: list[tuple[ProcessRoute, ...]] = []
+        seen_route_sets: set[tuple[int, ...]] = set()
+        for profile in candidate_options:
+            routes = [
+                route
+                for route, route_options in routes_with_options
+                if self._route_options_are_subset(route_options, profile)
+            ]
+            route_ids = tuple(sorted(route.id for route in routes))
+            if not route_ids or route_ids in seen_route_sets:
+                continue
+            seen_route_sets.add(route_ids)
+            result.append(tuple(routes))
+        target_categories = set(context["payload"].target_output_categories)
+        if target_categories:
+            result.sort(
+                key=lambda routes: self._category_group_score(routes, context, target_categories),
+                reverse=True,
+            )
+        return result[:MAX_ROUTE_COMBINATIONS]
+
+    @staticmethod
+    def _category_group_score(
+        routes: tuple[ProcessRoute, ...],
+        context: dict[str, Any],
+        target_categories: set[str],
+    ) -> tuple[int, int, int]:
+        categories = {
+            product.target_output_category
+            for route in routes
+            if (product := context["products"].get(route.final_product_id)) is not None
+            and product.target_output_category
+        }
+        return (len(categories & target_categories), -len(categories - target_categories), -len(routes))
+
+    def _candidate_option_profiles(
+        self,
+        routes_with_options: list[tuple[ProcessRoute, dict[str, str]]],
+        selected_options: dict[str, str],
+    ) -> list[dict[str, str]]:
+        profiles: list[dict[str, str]] = [dict(selected_options)]
+        seen_profiles = {self._option_profile_key(selected_options)}
+        for _, options in routes_with_options:
+            for existing_profile in list(profiles):
+                profile = self._merge_route_options(existing_profile, options)
+                if profile is None:
+                    continue
+                profile_key = self._option_profile_key(profile)
+                if profile_key in seen_profiles:
+                    continue
+                seen_profiles.add(profile_key)
+                profiles.append(profile)
+                if len(profiles) >= MAX_OPTION_PROFILES:
+                    break
+            if len(profiles) >= MAX_OPTION_PROFILES:
+                break
+        candidates = list(profiles)
+        maximal_profiles = [
+            profile
+            for profile in candidates
+            if not any(
+                profile != other and self._route_options_are_subset(profile, other)
+                for other in candidates
+            )
+        ]
+        return maximal_profiles[:MAX_OPTION_PROFILES]
+
+    @staticmethod
+    def _option_profile_key(profile: dict[str, str]) -> tuple[tuple[str, str], ...]:
+        return tuple(sorted(profile.items()))
+
+    @staticmethod
+    def _merge_route_options(base_options: dict[str, str], route_options: dict[str, str]) -> dict[str, str] | None:
+        merged = dict(base_options)
+        for group_code, option_code in route_options.items():
+            existing = merged.get(group_code)
+            if existing is not None and existing != option_code:
+                return None
+            merged[group_code] = option_code
+        return merged
+
+    def _profile_is_covered_by_existing_profile(self, profile: dict[str, str], profiles: list[dict[str, str]]) -> bool:
+        return any(self._route_options_are_subset(profile, existing) for existing in profiles)
+
+    @staticmethod
+    def _route_options_are_subset(route_options: dict[str, str], candidate_options: dict[str, str]) -> bool:
+        return all(candidate_options.get(group_code) == option_code for group_code, option_code in route_options.items())
+
+    def _route_selected_options(self, route: ProcessRoute, context: dict[str, Any]) -> dict[str, str] | None:
+        result: dict[str, str] = {}
+        node_codes: set[str] = set()
+        for relation in context["route_nodes"].get(route.id, []):
+            node = context["nodes"].get(relation.node_id)
+            node_code = node.code if node else None
+            if node_code:
+                node_codes.add(node_code)
+            option_group_code = relation.option_group_code
+            option_code = relation.option_code
+            if not option_group_code:
+                fallback = NODE_OPTION_FALLBACKS.get(node_code or "")
+                if not fallback:
+                    continue
+                option_group_code, option_code = fallback
+            elif not option_code:
+                return None
+            existing = result.get(option_group_code)
+            if existing is not None and existing != option_code:
+                return None
+            result[option_group_code] = option_code
+        if MIXED_ACID_NODE_CODE in node_codes and (
+            MIXED_ACID_TAIL_GAS_NODE_CODE not in node_codes
+            or MIXED_ACID_WATER_LEACH_NODE_CODE not in node_codes
+        ):
+            return None
+        return result
+
+    @staticmethod
+    def _route_options_match_user_selection(route_options: dict[str, str], selected_options: dict[str, str]) -> bool:
+        return all(route_options.get(group_code) == option_code for group_code, option_code in selected_options.items())
+
     def _build_context(self, payload: ProcessCalculatorRequest, data: dict[str, list[Any]]) -> dict[str, Any]:
         route_nodes: dict[int, list[Any]] = defaultdict(list)
         for item in data["route_nodes"]:
@@ -195,12 +424,13 @@ class ProcessCalculatorService:
 
     def _calculate_scheme(self, routes: tuple[ProcessRoute, ...], context: dict[str, Any]) -> dict[str, Any]:
         warnings: list[str] = []
+        context["active_routes"] = routes
         unique_node_ids, node_materials = self._collect_nodes(routes, context["route_nodes"])
         node_amounts = {
             node_id: sum((context["material_amount_t"][material_id] for material_id in material_ids), ZERO)
             for node_id, material_ids in node_materials.items()
         }
-        product_outputs = self._calculate_product_outputs(routes, context, warnings)
+        product_outputs = self._calculate_product_outputs(routes, context, warnings, unique_node_ids, node_amounts)
         consumable_costs = self._calculate_relation_costs(
             unique_node_ids, node_amounts, context, warnings, relation_key="node_consumables"
         )
@@ -243,15 +473,18 @@ class ProcessCalculatorService:
             discounted_payback_period=self._ratio(discounted_payback),
         )
         route_refs = self._route_refs(routes, context)
+        output_summary = self._build_output_summary(product_outputs, waste_outputs)
         summary = CalculatorSchemeSummary(
             scheme_code=" + ".join(route.code for route in routes),
             routes=route_refs,
             node_codes=[context["nodes"][node_id].code for node_id in unique_node_ids if node_id in context["nodes"]],
+            selected_options=self._scheme_selected_options(routes, context),
+            output_summary=output_summary,
             is_complete=not warnings,
             warnings=self._dedupe(warnings),
             metrics=metrics,
         )
-        return {
+        detail = {
             "summary": summary,
             "product_outputs": product_outputs,
             "consumable_costs": consumable_costs,
@@ -262,6 +495,65 @@ class ProcessCalculatorService:
             "cash_flows": cash_flows,
             "calculation_parameters": calculation_parameters,
         }
+        context.pop("active_routes", None)
+        return detail
+
+    def _build_output_summary(
+        self,
+        product_outputs: list[CalculatorAmountItem],
+        waste_outputs: list[CalculatorAmountItem],
+    ) -> list[CalculatorAmountItem]:
+        return [*product_outputs, *waste_outputs]
+
+    def _scheme_selected_options(self, routes: tuple[ProcessRoute, ...], context: dict[str, Any]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for route in routes:
+            route_options = self._route_selected_options(route, context)
+            if route_options:
+                result.update(route_options)
+        return result
+
+    def _matches_target_output_categories(self, detail: dict[str, Any], context: dict[str, Any]) -> bool:
+        required_categories = set(context["payload"].target_output_categories)
+        if not required_categories:
+            return True
+        matched_categories = self._scheme_output_categories(detail["summary"], context)
+        return required_categories.issubset(matched_categories)
+
+    def _category_scheme_sort_key(
+        self,
+        detail: dict[str, Any],
+        context: dict[str, Any],
+        criteria: str,
+    ) -> tuple[Any, ...]:
+        """目标类别模式下先按结构贴合度推荐，再在同类候选中使用财务指标排序。"""
+
+        required_categories = set(context["payload"].target_output_categories)
+        matched_categories = self._scheme_output_categories(detail["summary"], context)
+        extra_categories = matched_categories - required_categories
+        return (
+            len(required_categories - matched_categories),
+            len(extra_categories),
+            len(detail["summary"].routes),
+            self._scheme_sort_key(detail["summary"], criteria),
+        )
+
+    def _scheme_output_categories(
+        self,
+        summary: CalculatorSchemeSummary,
+        context: dict[str, Any],
+    ) -> set[str]:
+        matched_categories: set[str] = set()
+        for item in summary.output_summary:
+            if item.output_type not in PRODUCT_OUTPUT_TYPES or item.id is None:
+                continue
+            product_library = context["products"].get(item.id)
+            if not product_library or not product_library.is_product_form:
+                continue
+            category = product_library.target_output_category
+            if category:
+                matched_categories.add(category)
+        return matched_categories
 
     def _collect_nodes(
         self,
@@ -284,13 +576,16 @@ class ProcessCalculatorService:
         routes: tuple[ProcessRoute, ...],
         context: dict[str, Any],
         warnings: list[str],
+        node_ids: list[int],
+        node_amounts: dict[int, Decimal],
     ) -> list[CalculatorAmountItem]:
         result: list[CalculatorAmountItem] = []
+        seen_product_ids: set[int] = set()
         for route in routes:
             outputs = [
                 item
                 for item in context["calculation_outputs"].get(route.id, [])
-                if item.output_type in ("product", "byproduct")
+                if item.output_type in PRODUCT_OUTPUT_TYPES and self._is_product_form_output(item.product_id, context)
             ]
             if not outputs:
                 outputs = self._fallback_node_product_outputs(route, context)
@@ -305,7 +600,7 @@ class ProcessCalculatorService:
                         warnings.append(f"{output.output_name} 使用表达式系数且没有可用的结构化数值")
                     else:
                         warnings.append(f"{output.output_name} 的产出系数未配置")
-                    continue
+                    ratio = ZERO
                 if output.formula_type == "expression":
                     warnings.append(f"{output.output_name} 使用已导入的结构化系数，未执行原表达式")
                 if output.recovery_rate <= 0:
@@ -331,6 +626,57 @@ class ProcessCalculatorService:
                         route_id=route.id,
                     )
                 )
+                if output.product_id is not None:
+                    seen_product_ids.add(output.product_id)
+        result.extend(self._calculate_node_product_outputs(node_ids, node_amounts, context, warnings, seen_product_ids))
+        return result
+
+    def _calculate_node_product_outputs(
+        self,
+        node_ids: list[int],
+        node_amounts: dict[int, Decimal],
+        context: dict[str, Any],
+        warnings: list[str],
+        seen_product_ids: set[int],
+    ) -> list[CalculatorAmountItem]:
+        result: list[CalculatorAmountItem] = []
+        for node_id in node_ids:
+            for output in context["node_outputs"].get(node_id, []):
+                if output.output_type not in PRODUCT_OUTPUT_TYPES or not self._is_product_form_output(output.product_id, context):
+                    continue
+                if output.product_id in seen_product_ids:
+                    continue
+                library = context["products"].get(output.product_id)
+                name = library.name if library else f"节点产出物{output.product_id}"
+                coefficient = self._parameter_value(context, f"node_product_output:{output.id}:coefficient", output.output_per_ton)
+                if coefficient <= 0:
+                    if output.formula_type == "expression":
+                        warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}表达式没有可用的结构化数值")
+                    else:
+                        warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}产出系数未配置")
+                    continue
+                if output.formula_type == "expression":
+                    warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}使用已导入的结构化系数")
+                amount = node_amounts[node_id] * coefficient
+                amount_unit = self._coefficient_output_unit(output.unit)
+                unit_price, revenue = self._priced_amount(
+                    "product", output.product_id, amount, amount_unit, context, warnings, name
+                )
+                result.append(
+                    CalculatorAmountItem(
+                        id=output.product_id,
+                        code=getattr(library, "code", None),
+                        name=name,
+                        output_type=output.output_type,
+                        amount=self._amount(amount),
+                        unit=amount_unit,
+                        unit_price=unit_price,
+                        cost=self._money(revenue),
+                        node_id=node_id,
+                    )
+                )
+                if output.product_id is not None:
+                    seen_product_ids.add(output.product_id)
         return result
 
     def _fallback_node_product_outputs(self, route: ProcessRoute, context: dict[str, Any]) -> list[Any]:
@@ -338,11 +684,16 @@ class ProcessCalculatorService:
         result: list[Any] = []
         for relation in relations:
             for output in context["node_outputs"].get(relation.node_id, []):
-                if output.output_type in ("product", "byproduct") and (
-                    output.product_id == route.final_product_id or output.is_main_product
-                ):
+                if output.output_type in PRODUCT_OUTPUT_TYPES and self._is_product_form_output(output.product_id, context):
                     result.append(_NodeOutputAdapter(output, context["products"].get(output.product_id)))
         return result
+
+    @staticmethod
+    def _is_product_form_output(product_id: int | None, context: dict[str, Any]) -> bool:
+        if product_id is None:
+            return True
+        product_library = context["products"].get(product_id)
+        return product_library is None or bool(product_library.is_product_form)
 
     def _calculate_relation_costs(
         self,
@@ -401,33 +752,41 @@ class ProcessCalculatorService:
         warnings: list[str],
     ) -> list[CalculatorAmountItem]:
         result: list[CalculatorAmountItem] = []
+        result.extend(self._calculate_route_waste_outputs(context, warnings))
         for node_id in node_ids:
             for output in context["node_outputs"].get(node_id, []):
-                if output.output_type not in ("solid_waste", "wastewater"):
+                if output.output_type not in WASTE_OUTPUT_TYPES:
                     continue
                 library = context["products"].get(output.product_id)
                 name = library.name if library else f"节点产出物{output.product_id}"
                 coefficient = self._parameter_value(context, f"waste_output:{output.id}:coefficient", output.output_per_ton)
+                is_zero_waste_gas = coefficient <= 0 and output.output_type == "waste_gas"
                 if coefficient <= 0:
-                    if output.formula_type == "expression":
-                        warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}表达式没有可用的结构化数值")
+                    if is_zero_waste_gas:
+                        coefficient = ZERO
                     else:
-                        warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}产出系数未配置")
-                    continue
-                if output.formula_type == "expression":
+                        if output.formula_type == "expression":
+                            warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}表达式没有可用的结构化数值")
+                        else:
+                            warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}产出系数未配置")
+                        continue
+                if output.formula_type == "expression" and not is_zero_waste_gas:
                     warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}使用已导入的结构化系数")
                 amount = node_amounts[node_id] * coefficient
                 amount_unit = self._coefficient_output_unit(output.unit)
-                treatment_cost, total_cost = self._waste_treatment_cost(
-                    output,
-                    library,
-                    amount,
-                    amount_unit,
-                    context,
-                    warnings,
-                    name,
-                )
-                if treatment_cost is None:
+                if is_zero_waste_gas:
+                    treatment_cost, total_cost = ZERO, ZERO
+                else:
+                    treatment_cost, total_cost = self._waste_treatment_cost(
+                        output,
+                        library,
+                        amount,
+                        amount_unit,
+                        context,
+                        warnings,
+                        name,
+                    )
+                if treatment_cost is None and not is_zero_waste_gas:
                     warnings.append(f"节点 {context['nodes'][node_id].code} 的{name}未配置处理单价")
                 result.append(
                     CalculatorAmountItem(
@@ -443,6 +802,73 @@ class ProcessCalculatorService:
                     )
                 )
         return result
+
+    def _calculate_route_waste_outputs(self, context: dict[str, Any], warnings: list[str]) -> list[CalculatorAmountItem]:
+        result: list[CalculatorAmountItem] = []
+        for route in context.get("active_routes", ()):
+            route_amount = context["material_amount_t"][route.input_material_id]
+            for output in context["calculation_outputs"].get(route.id, []):
+                if output.output_type not in WASTE_OUTPUT_TYPES:
+                    continue
+                coefficient = self._parameter_value(context, f"waste_route_output:{output.id}:ratio", output.output_ratio)
+                is_zero_waste_gas = coefficient <= 0 and output.output_type == "waste_gas"
+                if coefficient <= 0:
+                    if is_zero_waste_gas:
+                        coefficient = ZERO
+                    else:
+                        warnings.append(f"{output.output_name} 的三废产出系数未配置")
+                        coefficient = ZERO
+                amount = route_amount * coefficient
+                amount_unit = self._coefficient_output_unit(output.unit)
+                library = context["products"].get(output.product_id) if output.product_id else None
+                if is_zero_waste_gas:
+                    treatment_cost, total_cost = ZERO, ZERO
+                else:
+                    treatment_cost, total_cost = self._route_waste_treatment_cost(
+                        output,
+                        library,
+                        amount,
+                        amount_unit,
+                        context,
+                        warnings,
+                        output.output_name,
+                    )
+                if treatment_cost is None and not is_zero_waste_gas:
+                    warnings.append(f"{output.output_name} 未配置处理单价")
+                result.append(
+                    CalculatorAmountItem(
+                        id=output.product_id,
+                        code=getattr(library, "code", None),
+                        name=output.output_name,
+                        output_type=output.output_type,
+                        amount=self._amount(amount),
+                        unit=amount_unit,
+                        unit_price=self._money(treatment_cost) if treatment_cost is not None else None,
+                        cost=self._money(total_cost),
+                        route_id=route.id,
+                    )
+                )
+        return result
+
+    def _route_waste_treatment_cost(
+        self,
+        output: ProcessCalculationOutput,
+        library: Any | None,
+        amount: Decimal,
+        amount_unit: str,
+        context: dict[str, Any],
+        warnings: list[str],
+        name: str,
+    ) -> tuple[Decimal | None, Decimal]:
+        regional_price = context["prices"].get(("product", output.product_id))
+        if regional_price is not None and regional_price.unit_price > 0:
+            return self._priced_amount("product", output.product_id, amount, amount_unit, context, warnings, name)
+        treatment_cost = self._parameter_value(context, f"waste_route_output:{output.id}:treatment_price", output.treatment_cost)
+        if treatment_cost <= 0 and library is not None:
+            treatment_cost = library.treatment_cost
+        if treatment_cost <= 0:
+            return None, ZERO
+        return self._money(treatment_cost), amount * treatment_cost
 
     def _calculate_labor_costs(
         self,
@@ -643,6 +1069,8 @@ class ProcessCalculatorService:
         for item in [*product_outputs, *waste_outputs]:
             converted = self._try_mass_convert(item.amount, item.unit, "t")
             if converted is None:
+                if item.output_type == "waste_gas" and item.amount <= ZERO:
+                    continue
                 excluded.append(f"{item.name}({item.unit})")
                 continue
             output_mass_t += converted
@@ -735,16 +1163,21 @@ class ProcessCalculatorService:
                     if price:
                         add(f"price:{owner_type}:{owner_id}", "区域单价", f"{library.name if library else owner_id}单价", price.unit_price, f"{price.currency}/{price.unit}")
             for output in context["node_outputs"].get(node_id, []):
-                if output.output_type not in ("solid_waste", "wastewater"):
-                    continue
                 library = context["products"].get(output.product_id)
                 name = library.name if library else str(output.product_id)
-                add(f"waste_output:{output.id}:coefficient", "三废产出", name, output.output_per_ton, output.unit)
-                price = context["prices"].get(("product", output.product_id))
-                if price:
-                    add(f"price:product:{output.product_id}", "处理单价", f"{name}处理费", price.unit_price, f"{price.currency}/{price.unit}")
-                else:
-                    add(f"waste_output:{output.id}:treatment_price", "处理单价", f"{name}处理费", output.treatment_cost, context["payload"].currency)
+                if output.output_type in PRODUCT_OUTPUT_TYPES:
+                    add(f"node_product_output:{output.id}:coefficient", "节点产品产出", name, output.output_per_ton, output.unit)
+                    price = context["prices"].get(("product", output.product_id))
+                    if price:
+                        add(f"price:product:{output.product_id}", "区域单价", f"{name}单价", price.unit_price, f"{price.currency}/{price.unit}")
+                    continue
+                if output.output_type in WASTE_OUTPUT_TYPES:
+                    add(f"waste_output:{output.id}:coefficient", "三废产出", name, output.output_per_ton, output.unit)
+                    price = context["prices"].get(("product", output.product_id))
+                    if price:
+                        add(f"price:product:{output.product_id}", "处理单价", f"{name}处理费", price.unit_price, f"{price.currency}/{price.unit}")
+                    else:
+                        add(f"waste_output:{output.id}:treatment_price", "处理单价", f"{name}处理费", output.treatment_cost, context["payload"].currency)
             for equipment in context["node_equipment"].get(node_id, []):
                 asset = context["assets"].get(equipment.asset_id) if getattr(equipment, "asset_id", None) else None
                 equipment_name = asset.name if asset else equipment.equipment_name
@@ -785,6 +1218,10 @@ class ProcessCalculatorService:
                     name=context["nodes"][item.node_id].name,
                     version=context["nodes"][item.node_id].version,
                     sort_order=item.sort_order,
+                    option_group_code=item.option_group_code,
+                    option_code=item.option_code,
+                    node_params_json=item.node_params_json,
+                    outputs=self._route_node_output_refs(item.node_id, context),
                 )
                 for item in context["route_nodes"].get(route.id, [])
                 if item.node_id in context["nodes"]
@@ -806,11 +1243,30 @@ class ProcessCalculatorService:
             )
         return result
 
+    def _route_node_output_refs(self, node_id: int, context: dict[str, Any]) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for output in context["node_outputs"].get(node_id, []):
+            if output.output_type not in TERMINAL_OUTPUT_TYPES:
+                continue
+            product_library = context["products"].get(output.product_id)
+            result.append(
+                {
+                    "id": output.id,
+                    "product_id": output.product_id,
+                    "product_code": getattr(product_library, "code", None),
+                    "product_name": getattr(product_library, "name", None),
+                    "output_name": getattr(product_library, "name", None) or f"节点产出物{output.product_id}",
+                    "output_type": output.output_type,
+                }
+            )
+        return result
+
     def _build_result(
         self,
         calculation_id: str,
         details: list[dict[str, Any]],
         recommended: dict[str, Any] | None,
+        no_route_reason: str | None = None,
     ) -> ProcessCalculatorResultOut:
         summaries = [item["summary"] for item in details]
         if recommended is None:
@@ -818,6 +1274,7 @@ class ProcessCalculatorService:
                 calculation_id=calculation_id,
                 matched_routes=summaries,
                 recommended_route=None,
+                no_route_reason=no_route_reason,
                 product_outputs=[],
                 consumable_costs=[],
                 public_service_costs=[],
@@ -840,6 +1297,7 @@ class ProcessCalculatorService:
             calculation_id=calculation_id,
             matched_routes=summaries,
             recommended_route=recommended["summary"],
+            no_route_reason=no_route_reason,
             product_outputs=recommended["product_outputs"],
             consumable_costs=recommended["consumable_costs"],
             public_service_costs=recommended["public_service_costs"],

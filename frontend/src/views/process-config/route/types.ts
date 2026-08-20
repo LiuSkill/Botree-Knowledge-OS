@@ -1,10 +1,12 @@
 import type { PermissionCode } from '@/constants/permissions';
 import type { ProcessLibraryItem, ProcessLibraryStatus } from '@/views/process-config/types';
-import type { ProcessNodeDetail, ProcessNodeItem } from '@/views/process-config/node/types';
+import type { ProcessNodeDetail, ProcessNodeItem, ProcessOutputType } from '@/views/process-config/node/types';
 
 export interface ProcessRouteNodePayload {
   node_id: number | null;
   sort_order: number;
+  option_group_code?: string | null;
+  option_code?: string | null;
   node_params_json?: string | null;
   remark?: string | null;
 }
@@ -23,7 +25,7 @@ export interface ProcessRoutePayload {
 }
 
 export interface ProcessCalculationOutputPayload {
-  output_type: 'product' | 'byproduct' | 'solid_waste' | 'wastewater';
+  output_type: ProcessOutputType;
   product_id: number | null;
   output_name: string;
   spec?: string | null;
@@ -49,6 +51,7 @@ export interface ProcessRouteItem {
   name: string;
   input_material_id: number;
   final_product_id: number;
+  representative_product_id?: number | null;
   version: string;
   description?: string | null;
   status: ProcessLibraryStatus;
@@ -56,6 +59,7 @@ export interface ProcessRouteItem {
   remark?: string | null;
   input_material_name?: string | null;
   final_product_name?: string | null;
+  representative_product_name?: string | null;
   node_count: number;
   created_by?: number | null;
   updated_by?: number | null;
@@ -68,6 +72,8 @@ export interface ProcessRouteNode {
   route_id: number;
   node_id: number;
   sort_order: number;
+  option_group_code?: string | null;
+  option_code?: string | null;
   node_params_json?: string | null;
   remark?: string | null;
   is_deleted?: boolean;
@@ -84,6 +90,7 @@ export interface ProcessRouteDetail {
   route: ProcessRouteItem;
   input_material: ProcessLibraryItem;
   final_product: ProcessLibraryItem;
+  representative_product?: ProcessLibraryItem;
   nodes: ProcessRouteNodeDetail[];
 }
 
@@ -142,6 +149,8 @@ export interface RouteEditableNode {
   route_node_id?: number;
   node_id: number | null;
   sort_order: number;
+  option_group_code?: string | null;
+  option_code?: string | null;
   node_params_json?: string | null;
   remark?: string | null;
 }
@@ -185,7 +194,7 @@ export interface ProcessRouteTreeLibraryItem {
 export interface ProcessRouteTreeNodeOutput {
   id: number;
   product_id: number;
-  output_type: 'product' | 'byproduct' | 'solid_waste' | 'wastewater';
+  output_type: ProcessOutputType;
   product?: ProcessRouteTreeLibraryItem | null;
 }
 
@@ -197,6 +206,7 @@ export interface ProcessRouteTreeNode {
   node_type: string;
   version: string;
   sort_order: number;
+  node_params_json?: string | null;
   outputs: ProcessRouteTreeNodeOutput[];
 }
 
@@ -208,6 +218,7 @@ export interface ProcessRouteTreeRoute {
   sort_order: number;
   input_material: ProcessRouteTreeLibraryItem;
   final_product: ProcessRouteTreeLibraryItem;
+  representative_product?: ProcessRouteTreeLibraryItem;
   nodes: ProcessRouteTreeNode[];
 }
 

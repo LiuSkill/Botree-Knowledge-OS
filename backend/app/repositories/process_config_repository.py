@@ -277,12 +277,12 @@ class ProcessRouteRepository:
         outputs = (
             list(
                 self.db.scalars(
-                    select(ProcessNodeOutput)
-                    .where(
-                        ProcessNodeOutput.node_id.in_(node_ids),
-                        ProcessNodeOutput.output_type.in_(("solid_waste", "wastewater")),
-                        ProcessNodeOutput.is_deleted.is_(False),
-                    )
+                select(ProcessNodeOutput)
+                .where(
+                    ProcessNodeOutput.node_id.in_(node_ids),
+                    ProcessNodeOutput.output_type.in_(("product", "byproduct", "solid_waste", "wastewater", "waste_gas")),
+                    ProcessNodeOutput.is_deleted.is_(False),
+                )
                     .order_by(ProcessNodeOutput.node_id.asc(), ProcessNodeOutput.sort_order.asc(), ProcessNodeOutput.id.asc())
                 ).all()
             )

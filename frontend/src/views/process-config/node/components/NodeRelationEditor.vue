@@ -232,6 +232,7 @@ function emitRows(): void {
           <t-select :model-value="getField(row, 'output_type')" @update:model-value="(value: RelationFieldValue) => updateField(row, 'output_type', value)">
             <t-option :label="outputTypeLabel('product')" value="product" /><t-option :label="outputTypeLabel('byproduct')" value="byproduct" />
             <t-option :label="outputTypeLabel('solid_waste')" value="solid_waste" /><t-option :label="outputTypeLabel('wastewater')" value="wastewater" />
+            <t-option :label="outputTypeLabel('waste_gas')" value="waste_gas" />
           </t-select>
         </template>
         <template #treatment_cost="{ row }">

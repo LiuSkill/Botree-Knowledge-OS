@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 
 import type {
+  CalculatorRouteNodeRef,
   CalculatorRouteRef,
   CalculatorRouteTreeNodeKind,
   CalculatorSchemeSummary,
@@ -60,8 +61,25 @@ function ensureChild(
   return child;
 }
 
+interface RouteNodeParams {
+  parent_node_code?: string;
+  continues_route?: boolean;
+}
+
+function parseRouteNodeParams(raw?: string | null): RouteNodeParams {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as RouteNodeParams;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function appendRoute(roots: RouteTreeNode[], route: CalculatorRouteRef): void {
   const materialCode = route.input_material_code || String(route.input_material_id);
+  const nodesByCode = new Map<string, RouteTreeNode>();
+  const renderedTerminalKeys = new Set<string>();
   let cursor = ensureChild(
     roots,
     `material:${materialCode}`,
@@ -75,7 +93,14 @@ function appendRoute(roots: RouteTreeNode[], route: CalculatorRouteRef): void {
     .sort((left, right) => left.sort_order - right.sort_order)
     .forEach((node) => {
       const nodeCode = node.code || String(node.id);
-      cursor = ensureChild(cursor.children, `node:${nodeCode}`, node.name, nodeCode, 'node', cursor.key);
+      const nodeParams = parseRouteNodeParams(node.node_params_json);
+      const parent = nodeParams.parent_node_code ? nodesByCode.get(nodeParams.parent_node_code) || cursor : cursor;
+      const treeNode = ensureChild(parent.children, `node:${nodeCode}`, node.name, nodeCode, 'node', parent.key);
+      nodesByCode.set(nodeCode, treeNode);
+      appendTerminalOutputs(treeNode, node, renderedTerminalKeys);
+      if (nodeParams.continues_route !== false) {
+        cursor = treeNode;
+      }
     });
 
   const productCode = route.final_product_code || String(route.final_product_id);
@@ -87,6 +112,28 @@ function appendRoute(roots: RouteTreeNode[], route: CalculatorRouteRef): void {
     'product',
     cursor.key,
   );
+}
+
+function appendTerminalOutputs(parent: RouteTreeNode, node: CalculatorRouteNodeRef, renderedTerminalKeys: Set<string>): void {
+  (node.outputs || [])
+    .filter((output) =>
+      ['product', 'byproduct', 'solid_waste', 'wastewater', 'waste_gas'].includes(output.output_type),
+    )
+    .forEach((output) => {
+      const outputCode = output.product_code || String(output.product_id);
+      const outputKind = output.output_type === 'product' || output.output_type === 'byproduct' ? 'product' : 'waste';
+      const terminalKey = `${node.code}:${output.output_type}:${outputCode}`;
+      if (renderedTerminalKeys.has(terminalKey)) return;
+      renderedTerminalKeys.add(terminalKey);
+      ensureChild(
+        parent.children,
+        `${outputKind}:${outputCode}`,
+        output.product_name || output.output_name,
+        outputCode,
+        outputKind,
+        parent.key,
+      );
+    });
 }
 
 function buildTree(routes: CalculatorRouteRef[]): RouteTreeNode[] {
@@ -256,6 +303,13 @@ const treeLayout = computed(() => buildLayout(buildTree(props.scheme.routes)));
   color: #c93636;
   background: #fff6f6;
   box-shadow: inset 3px 0 0 #e05252;
+}
+
+.scheme-tree-node--waste {
+  border-color: #d69b48;
+  color: #8f5c12;
+  background: #fff8ec;
+  box-shadow: inset 3px 0 0 #d48806;
 }
 
 .scheme-tree-node--product .scheme-tree-node-code {

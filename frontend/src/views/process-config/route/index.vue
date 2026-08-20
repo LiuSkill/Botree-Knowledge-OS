@@ -112,13 +112,17 @@ const columns = computed(() => [
   { colKey: 'code', title: t('process.route.field.routeCode'), width: 150, ellipsis: true },
   { colKey: 'name', title: t('process.route.field.routeName'), minWidth: 170, ellipsis: true },
   { colKey: 'input_material_name', title: t('process.route.field.inputMaterial'), width: 150, ellipsis: true },
-  { colKey: 'final_product_name', title: t('process.route.field.finalProduct'), width: 150, ellipsis: true },
+  { colKey: 'representative_product_name', title: t('process.route.field.finalProduct'), width: 150, ellipsis: true },
   { colKey: 'version', title: t('common.field.version'), width: 110 },
   { colKey: 'node_count', title: t('process.route.field.nodeCount'), width: 90, align: 'center' as const },
   { colKey: 'status', title: t('common.field.status'), width: 100, align: 'center' as const },
   { colKey: 'updated_at', title: t('common.field.updatedAt'), width: 170 },
   { colKey: 'operation', title: t('common.field.operation'), width: 272, fixed: 'right' as const },
 ]);
+
+const representativeProductOptions = computed(() =>
+  productOptions.value.filter((item) => item.output_type === 'product' || item.output_type === 'byproduct'),
+);
 
 const statCards = computed(() => [
   { label: t('process.route.stat.total'), value: stats.total, theme: 'primary' },
@@ -220,7 +224,7 @@ async function loadOptions(force = false): Promise<void> {
   try {
     const [materials, products, nodes] = await Promise.all([
       listProcessLibraryOptions('materials'),
-      listProcessLibraryOptions('products', { output_type: 'product' }),
+      listProcessLibraryOptions('products'),
       loadAllNodeOptions(),
     ]);
     materialOptions.value = materials;
@@ -404,7 +408,7 @@ function formatAverage(value: number): string {
       </t-form-item>
       <t-form-item v-permission="permissions.view" :label="t('process.route.field.finalProduct')">
         <t-select v-model="filters.final_product_id" class="filter-select" clearable filterable :placeholder="t('process.route.placeholder.allProducts')" @change="handleSearch">
-          <t-option v-for="item in productOptions" :key="item.id" :label="`${item.code} / ${item.name}`" :value="item.id" />
+          <t-option v-for="item in representativeProductOptions" :key="item.id" :label="`${item.code} / ${item.name}`" :value="item.id" />
         </t-select>
       </t-form-item>
       <t-form-item v-permission="permissions.view" :label="t('common.field.status')">
@@ -461,8 +465,8 @@ function formatAverage(value: number): string {
         <template #input_material_name="{ row }">
           {{ row.input_material_name || '-' }}
         </template>
-        <template #final_product_name="{ row }">
-          {{ row.final_product_name || '-' }}
+        <template #representative_product_name="{ row }">
+          {{ row.representative_product_name || row.final_product_name || '-' }}
         </template>
         <template #status="{ row }">
           <t-tag size="small" variant="light" :theme="statusTheme(row.status)">{{ statusLabel(row.status) }}</t-tag>

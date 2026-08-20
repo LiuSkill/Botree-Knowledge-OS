@@ -13,6 +13,7 @@ const PROCESS_OUTPUT_TYPE_KEY_BY_VALUE: Record<string, string> = {
   byproduct: 'byproduct',
   solid_waste: 'solidWaste',
   wastewater: 'wastewater',
+  waste_gas: 'wasteGas',
 };
 
 export function processStatusLocaleKey(status: ProcessLibraryStatus): string {

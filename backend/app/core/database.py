@@ -10,6 +10,7 @@ Database Infrastructure
 import json
 import logging
 from collections.abc import Generator
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,8 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 database_url = settings.effective_database_url
 connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+OBSOLETE_PROCESS_DEFAULT_PRODUCT_CODES = {"P19", "P38"}
+OBSOLETE_PROCESS_DEFAULT_PRODUCT_NAMES = {"水解除杂渣(铁粉法)"}
 TASK_MODEL_DEFAULTS = (
     ("intent", "intent_llm_model", "llm"),
     ("planner", "planner_llm_model", "llm"),
@@ -116,6 +119,7 @@ def init_database() -> None:
         seed_project_categories(db)
         seed_model_config(db)
         seed_process_config_defaults(db)
+        sync_mixed_acid_residue_route_defaults(db)
         seed_process_support_library_defaults(db)
         seed_sensitive_content(db)
         from app.services.process_price_default_service import ProcessPriceDefaultService
@@ -299,6 +303,8 @@ def migrate_database() -> None:
 
         if "process_labor_costs" in table_names:
             _make_process_labor_legacy_columns_insert_compatible(connection, inspector)
+
+        _add_process_route_semantic_columns(connection, inspector)
 
         if "chat_sessions" not in table_names:
             return
@@ -904,6 +910,48 @@ def _make_process_labor_legacy_columns_insert_compatible(connection, inspector) 
     if currency_column and currency_column.get("default") is None:
         connection.execute(
             text("ALTER TABLE process_labor_costs MODIFY COLUMN currency VARCHAR(10) NOT NULL DEFAULT 'EUR'")
+        )
+
+
+def _add_process_route_semantic_columns(connection, inspector) -> None:
+    """补齐完整多产出工艺路线需要的产品分类和互斥选项字段。"""
+
+    table_names = set(inspector.get_table_names())
+    if "process_products" in table_names:
+        product_columns = {column["name"] for column in inspector.get_columns("process_products")}
+        _add_column_if_missing(
+            connection,
+            product_columns,
+            "process_products",
+            "target_output_category",
+            "VARCHAR(30) COMMENT '产品需求分类: li/ni/co/mn/cu/graphite'",
+            "VARCHAR(30)",
+        )
+        _add_column_if_missing(
+            connection,
+            product_columns,
+            "process_products",
+            "is_product_form",
+            "BOOLEAN NOT NULL DEFAULT TRUE COMMENT '是否达到产品形态'",
+            "BOOLEAN NOT NULL DEFAULT 1",
+        )
+    if "process_route_nodes" in table_names:
+        route_node_columns = {column["name"] for column in inspector.get_columns("process_route_nodes")}
+        _add_column_if_missing(
+            connection,
+            route_node_columns,
+            "process_route_nodes",
+            "option_group_code",
+            "VARCHAR(100) COMMENT '互斥工艺选项组编码'",
+            "VARCHAR(100)",
+        )
+        _add_column_if_missing(
+            connection,
+            route_node_columns,
+            "process_route_nodes",
+            "option_code",
+            "VARCHAR(100) COMMENT '已选工艺选项编码'",
+            "VARCHAR(100)",
         )
 
 
@@ -1619,6 +1667,8 @@ def seed_process_config_defaults(db: Session) -> None:
         item = ProcessProduct(
             **_seed_library_fields(row),
             output_type=row.get("output_type") or "product",
+            target_output_category=row.get("target_output_category"),
+            is_product_form=bool(row.get("is_product_form", True)),
             spec=row.get("spec"),
             treatment_cost=_seed_decimal(row.get("treatment_cost")),
             created_by=operator_id,
@@ -1697,6 +1747,8 @@ def seed_process_config_defaults(db: Session) -> None:
                     route_id=route.id,
                     node_id=child_node.id,
                     sort_order=int(child.get("sort_order") or 0),
+                    option_group_code=child.get("option_group_code"),
+                    option_code=child.get("option_code"),
                     node_params_json=child.get("node_params_json"),
                     remark=child.get("remark"),
                     is_deleted=False,
@@ -1736,6 +1788,663 @@ def seed_process_config_defaults(db: Session) -> None:
         len(node_map),
         len(data.get("routes", [])),
     )
+
+
+def sync_mixed_acid_residue_route_defaults(db: Session) -> None:
+    """增量同步新图纸的产品分类和混酸焙烧下游默认路线。"""
+
+    from app.models.process_config import (
+        ProcessCalculationOutput,
+        ProcessConsumable,
+        ProcessMaterial,
+        ProcessNode,
+        ProcessNodeOutput,
+        ProcessProduct,
+        ProcessPublicService,
+        ProcessRegionPrice,
+        ProcessRoute,
+        ProcessRouteNode,
+    )
+
+    defaults_path = Path(__file__).with_name("process_config_defaults.json")
+    if not defaults_path.exists():
+        logger.warning("工艺配置默认数据文件不存在，跳过混酸焙烧下游路线补齐: %s", defaults_path)
+        return
+    data = json.loads(defaults_path.read_text(encoding="utf-8"))
+    admin = db.scalar(select(User).where(User.username == settings.default_admin_username))
+    operator_id = admin.id if admin else None
+
+    product_defaults = {row["code"]: row for row in data.get("products", [])}
+    existing_products = {
+        product.code: product
+        for product in db.scalars(select(ProcessProduct).where(ProcessProduct.code.in_(product_defaults))).all()
+    }
+
+    def add_product_region_prices(product: ProcessProduct, rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            db.add(
+                ProcessRegionPrice(
+                    owner_type="product",
+                    owner_id=product.id,
+                    region_code=row["region_code"],
+                    region_name=row["region_name"],
+                    currency=row["currency"],
+                    unit_price=_seed_decimal(row.get("unit_price")),
+                    unit=row["unit"],
+                    status=row.get("status") or "enabled",
+                    created_by=operator_id,
+                    updated_by=operator_id,
+                    is_deleted=False,
+                )
+            )
+
+    updated_products = 0
+    for code, row in product_defaults.items():
+        product = existing_products.get(code)
+        if product is None:
+            product = ProcessProduct(
+                **_seed_library_fields(row),
+                output_type=row.get("output_type") or "product",
+                target_output_category=row.get("target_output_category"),
+                is_product_form=bool(row.get("is_product_form", True)),
+                spec=row.get("spec"),
+                treatment_cost=_seed_decimal(row.get("treatment_cost")),
+                created_by=operator_id,
+                updated_by=operator_id,
+                is_deleted=False,
+            )
+            db.add(product)
+            db.flush()
+            existing_products[code] = product
+            add_product_region_prices(product, row.get("region_prices", []))
+            updated_products += 1
+            continue
+        next_output_type = row.get("output_type") or "product"
+        next_category = row.get("target_output_category")
+        next_is_product_form = bool(row.get("is_product_form", True))
+        product_fields = {
+            **_seed_library_fields(row),
+            "output_type": next_output_type,
+            "target_output_category": next_category,
+            "is_product_form": next_is_product_form,
+            "spec": row.get("spec"),
+            "treatment_cost": _seed_decimal(row.get("treatment_cost")),
+        }
+        changed = False
+        for field, value in product_fields.items():
+            if getattr(product, field) != value:
+                setattr(product, field, value)
+                changed = True
+        if (
+            not changed
+            and not product.is_deleted
+        ):
+            continue
+        product.is_deleted = False
+        product.deleted_at = None
+        product.updated_by = operator_id
+        updated_products += 1
+
+    obsolete_products = _soft_delete_obsolete_default_products(db, ProcessProduct, operator_id)
+
+    if updated_products or obsolete_products:
+        db.flush()
+    obsolete_product_ids = _load_obsolete_default_product_ids(db, ProcessProduct)
+
+    material_map = {
+        item.code: item
+        for item in db.scalars(select(ProcessMaterial).where(ProcessMaterial.is_deleted.is_(False))).all()
+    }
+    product_map = {
+        item.code: item
+        for item in db.scalars(select(ProcessProduct).where(ProcessProduct.is_deleted.is_(False))).all()
+    }
+    consumable_map = {
+        item.code: item
+        for item in db.scalars(select(ProcessConsumable).where(ProcessConsumable.is_deleted.is_(False))).all()
+    }
+    service_map = {
+        item.code: item
+        for item in db.scalars(select(ProcessPublicService).where(ProcessPublicService.is_deleted.is_(False))).all()
+    }
+    existing_nodes_by_code = {
+        item.code: item
+        for item in db.scalars(select(ProcessNode)).all()
+    }
+    node_map = {
+        code: item
+        for code, item in existing_nodes_by_code.items()
+        if not item.is_deleted
+    }
+    synced_nodes = 0
+    synced_node_outputs = 0
+    for row in data.get("nodes", []):
+        if row["code"] in node_map:
+            synced_nodes += _sync_default_node_fields(node_map[row["code"]], row, operator_id)
+            synced_node_outputs += _sync_default_node_outputs(
+                db,
+                node_map[row["code"]],
+                row,
+                product_map,
+                obsolete_product_ids,
+                operator_id,
+                ProcessNodeOutput,
+            )
+            continue
+        node = existing_nodes_by_code.get(row["code"])
+        if node is None:
+            node = ProcessNode(code=row["code"], created_by=operator_id)
+            db.add(node)
+        synced_nodes += _sync_default_node_fields(node, row, operator_id)
+        db.flush()
+        node_map[node.code] = node
+        existing_nodes_by_code[node.code] = node
+        _seed_process_node_children(db, node, row, material_map, product_map, consumable_map, service_map)
+        synced_nodes += 1
+
+    route_defaults = list(data.get("routes", []))
+    if not route_defaults:
+        return
+    route_codes = [row["code"] for row in route_defaults]
+    existing_routes = {
+        route.code: route
+        for route in db.scalars(select(ProcessRoute).where(ProcessRoute.code.in_(route_codes))).all()
+    }
+    node_code_by_id = {node.id: node.code for node in node_map.values()}
+    product_code_by_id = {product.id: product.code for product in product_map.values()}
+    synced_routes = 0
+
+    for row in route_defaults:
+        material = material_map.get(row.get("input_material_code"))
+        product = product_map.get(row.get("final_product_code"))
+        if material is None or product is None:
+            logger.warning("跳过工艺路线同步，原料或最终产品不存在: route_code=%s", row.get("code"))
+            continue
+        route = existing_routes.get(row["code"])
+        if route is not None and not route.is_deleted and _route_matches_default(
+            db,
+            route,
+            row,
+            node_code_by_id,
+            product_code_by_id,
+        ):
+            continue
+        if route is None:
+            route = ProcessRoute(
+                code=row["code"],
+                name=row["name"],
+                input_material_id=material.id,
+                final_product_id=product.id,
+                version=row.get("version") or "V1",
+                description=row.get("description"),
+                status=row.get("status") or "enabled",
+                sort_order=int(row.get("sort_order") or 0),
+                remark=row.get("remark"),
+                created_by=operator_id,
+                updated_by=operator_id,
+                is_deleted=False,
+            )
+            db.add(route)
+            db.flush()
+            existing_routes[route.code] = route
+        else:
+            _soft_delete_route_children(db, route.id)
+        route.name = row["name"]
+        route.input_material_id = material.id
+        route.final_product_id = product.id
+        route.version = row.get("version") or "V1"
+        route.description = row.get("description")
+        route.status = row.get("status") or "enabled"
+        route.sort_order = int(row.get("sort_order") or 0)
+        route.remark = row.get("remark")
+        route.updated_by = operator_id
+        route.is_deleted = False
+        route.deleted_at = None
+
+        for child in row.get("nodes", []):
+            child_node = node_map.get(child.get("node_code"))
+            if child_node is None:
+                logger.warning("跳过工艺路线节点同步，节点不存在: route_code=%s node_code=%s", route.code, child.get("node_code"))
+                continue
+            db.add(
+                ProcessRouteNode(
+                    route_id=route.id,
+                    node_id=child_node.id,
+                    sort_order=int(child.get("sort_order") or 0),
+                    option_group_code=child.get("option_group_code"),
+                    option_code=child.get("option_code"),
+                    node_params_json=child.get("node_params_json"),
+                    remark=child.get("remark"),
+                    is_deleted=False,
+                )
+            )
+        for child in row.get("calculation_outputs", []):
+            child_product = product_map.get(child.get("product_code")) if child.get("product_code") else None
+            db.add(
+                ProcessCalculationOutput(
+                    route_id=route.id,
+                    output_type=child["output_type"],
+                    product_id=child_product.id if child_product else None,
+                    output_name=child["output_name"],
+                    spec=child.get("spec"),
+                    formula_type=child.get("formula_type") or "fixed",
+                    recovery_rate=_seed_decimal(child.get("recovery_rate")),
+                    balance_weight=_seed_decimal(child.get("balance_weight")),
+                    unit=child["unit"],
+                    output_ratio=_seed_decimal(child.get("output_ratio")),
+                    expression=child.get("expression"),
+                    scale_param=child.get("scale_param"),
+                    treatment_cost=_seed_decimal(child.get("treatment_cost")),
+                    sort_order=int(child.get("sort_order") or 0),
+                    remark=child.get("remark"),
+                    created_by=operator_id,
+                    updated_by=operator_id,
+                    is_deleted=False,
+                )
+            )
+        synced_routes += 1
+
+    cleaned_routes = _soft_delete_legacy_invalid_mixed_acid_routes(db, node_code_by_id, operator_id)
+    cleaned_obsolete_routes = _soft_delete_obsolete_generated_routes(
+        db,
+        {row["code"] for row in route_defaults},
+        operator_id,
+    )
+    if updated_products or obsolete_products or synced_nodes or synced_node_outputs or synced_routes or cleaned_routes or cleaned_obsolete_routes:
+        db.flush()
+        logger.info(
+            "工艺图纸默认语义增量同步完成: products=%s obsolete_products=%s nodes=%s node_outputs=%s routes=%s",
+            updated_products,
+            obsolete_products,
+            synced_nodes,
+            synced_node_outputs,
+            synced_routes,
+        )
+        if cleaned_routes:
+            logger.info("Cleaned legacy invalid mixed acid routes: routes=%s", cleaned_routes)
+        if cleaned_obsolete_routes:
+            logger.info("Cleaned obsolete generated process routes: routes=%s", cleaned_obsolete_routes)
+
+
+def _sync_default_node_fields(node: Any, row: dict[str, Any], operator_id: int | None) -> int:
+    """按最新图纸回写默认节点主数据，避免旧库继续展示历史节点名称。"""
+
+    fields = {
+        "name": row["name"],
+        "node_type": row["node_type"],
+        "staff": _seed_decimal(row.get("staff")),
+        "area": _seed_decimal(row.get("area")),
+        "description": row.get("description"),
+        "status": row.get("status") or "enabled",
+        "version": row.get("version") or "V1",
+        "sort_order": int(row.get("sort_order") or 0),
+        "remark": row.get("remark"),
+    }
+    changed = False
+    for field, value in fields.items():
+        if getattr(node, field) != value:
+            setattr(node, field, value)
+            changed = True
+    if node.is_deleted:
+        node.is_deleted = False
+        node.deleted_at = None
+        changed = True
+    if changed and hasattr(node, "updated_by"):
+        node.updated_by = operator_id
+    return 1 if changed else 0
+
+
+def _sync_default_node_outputs(
+    db: Session,
+    node: Any,
+    row: dict[str, Any],
+    product_map: dict[str, Any],
+    obsolete_product_ids: set[int],
+    operator_id: int | None,
+    node_output_model: Any,
+) -> int:
+    """补齐默认节点三废叶子，避免旧库中已存在节点缺少输出分支。"""
+
+    synced = 0
+    expected_keys: set[tuple[int, str]] = set()
+    for child in row.get("outputs", []):
+        product = product_map.get(child.get("product_code"))
+        if product is None:
+            logger.warning("跳过节点产出同步，产出物不存在: node_code=%s product_code=%s", node.code, child.get("product_code"))
+            continue
+        output_type = child.get("output_type") or "product"
+        expected_keys.add((product.id, output_type))
+        matching_outputs = list(
+            db.scalars(
+                select(node_output_model)
+                .where(
+                    node_output_model.node_id == node.id,
+                    node_output_model.product_id == product.id,
+                    node_output_model.output_type == output_type,
+                )
+                .order_by(node_output_model.is_deleted.asc(), node_output_model.id.asc())
+            ).all()
+        )
+        existing = next(
+            (item for item in matching_outputs if not item.is_deleted and _is_default_generated_node_output(item)),
+            None,
+        ) or next((item for item in matching_outputs if not item.is_deleted), None)
+        if existing is None:
+            existing = next(iter(matching_outputs), None)
+        if existing is None:
+            existing = node_output_model(node_id=node.id, product_id=product.id)
+            if hasattr(existing, "created_by"):
+                existing.created_by = operator_id
+            db.add(existing)
+        else:
+            synced += _soft_delete_duplicate_default_node_outputs(
+                matching_outputs,
+                existing,
+                operator_id,
+            )
+        existing.output_type = output_type
+        existing.output_per_ton = _seed_decimal(child.get("output_per_ton"))
+        existing.formula_type = child.get("formula_type") or "fixed"
+        existing.expression = child.get("expression")
+        existing.scale_param = child.get("scale_param")
+        existing.balance_weight = _seed_decimal(child.get("balance_weight"))
+        existing.treatment_cost = _seed_decimal(child.get("treatment_cost"))
+        existing.unit = child["unit"]
+        existing.is_main_product = bool(child.get("is_main_product"))
+        existing.sort_order = int(child.get("sort_order") or 0)
+        existing.remark = child.get("remark")
+        if hasattr(existing, "updated_by"):
+            existing.updated_by = operator_id
+        existing.is_deleted = False
+        existing.deleted_at = None
+        synced += 1
+    synced += _soft_delete_obsolete_default_node_outputs(
+        db,
+        node,
+        expected_keys,
+        obsolete_product_ids,
+        operator_id,
+        node_output_model,
+    )
+    return synced
+
+
+def _soft_delete_obsolete_default_products(
+    db: Session,
+    product_model: Any,
+    operator_id: int | None,
+) -> int:
+    """软删除已从默认图纸移除的产出物，避免旧库继续参与路线汇总。"""
+
+    obsolete_products = db.scalars(
+        select(product_model).where(
+            (
+                product_model.code.in_(OBSOLETE_PROCESS_DEFAULT_PRODUCT_CODES)
+            )
+            | (
+                product_model.name.in_(OBSOLETE_PROCESS_DEFAULT_PRODUCT_NAMES)
+            )
+        )
+    ).all()
+    deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    synced = 0
+    for product in obsolete_products:
+        if product.is_deleted:
+            continue
+        product.is_deleted = True
+        product.deleted_at = deleted_at
+        product.status = "disabled"
+        if hasattr(product, "updated_by"):
+            product.updated_by = operator_id
+        synced += 1
+    return synced
+
+
+def _load_obsolete_default_product_ids(
+    db: Session,
+    product_model: Any,
+) -> set[int]:
+    """找出已从默认图纸移除的产物 ID，用于清理旧节点输出绑定。"""
+
+    return set(
+        db.scalars(
+            select(product_model.id).where(
+                (
+                    product_model.code.in_(OBSOLETE_PROCESS_DEFAULT_PRODUCT_CODES)
+                )
+                | (
+                    product_model.name.in_(OBSOLETE_PROCESS_DEFAULT_PRODUCT_NAMES)
+                )
+            )
+        ).all()
+    )
+
+
+def _soft_delete_duplicate_default_node_outputs(
+    outputs: list[Any],
+    keeper: Any,
+    operator_id: int | None,
+) -> int:
+    """清理旧库里同一节点、同一产物、同一类型的重复默认产出。"""
+
+    synced = 0
+    deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    keeper_id = getattr(keeper, "id", None)
+    for output in outputs:
+        if output.is_deleted:
+            continue
+        if output is keeper or (keeper_id is not None and getattr(output, "id", None) == keeper_id):
+            continue
+        output.is_deleted = True
+        output.deleted_at = deleted_at
+        if hasattr(output, "updated_by"):
+            output.updated_by = operator_id
+        synced += 1
+    return synced
+
+
+def _soft_delete_obsolete_default_node_outputs(
+    db: Session,
+    node: Any,
+    expected_keys: set[tuple[int, str]],
+    obsolete_product_ids: set[int],
+    operator_id: int | None,
+    node_output_model: Any,
+) -> int:
+    """清理旧版默认图纸残留的节点产出，保留用户手工新增的非默认输出。"""
+
+    synced = 0
+    deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    existing_outputs = db.scalars(
+        select(node_output_model).where(
+            node_output_model.node_id == node.id,
+            node_output_model.is_deleted.is_(False),
+        )
+    ).all()
+    for output in existing_outputs:
+        output_key = (output.product_id, output.output_type)
+        if output_key in expected_keys:
+            continue
+        if output.product_id not in obsolete_product_ids and not _is_default_generated_node_output(output):
+            continue
+        output.is_deleted = True
+        output.deleted_at = deleted_at
+        if hasattr(output, "updated_by"):
+            output.updated_by = operator_id
+        synced += 1
+    return synced
+
+
+def _is_default_generated_node_output(output: Any) -> bool:
+    try:
+        scale_param = json.loads(output.scale_param or "{}")
+    except (TypeError, ValueError):
+        return False
+    return (
+        scale_param.get("source_sheet") == "产出"
+        and scale_param.get("binding_rule") in {"route_tree", "activated_carbon_consumption"}
+    )
+
+
+def _soft_delete_legacy_invalid_mixed_acid_routes(
+    db: Session,
+    node_code_by_id: dict[int, str],
+    operator_id: int | None,
+) -> int:
+    from app.models.process_config import ProcessRoute, ProcessRouteNode
+
+    deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    cleaned_routes = 0
+    routes = db.scalars(
+        select(ProcessRoute).where(
+            ProcessRoute.is_deleted.is_(False),
+            ProcessRoute.status == "enabled",
+        )
+    ).all()
+    for route in routes:
+        route_nodes = list(
+            db.scalars(
+                select(ProcessRouteNode)
+                .where(ProcessRouteNode.route_id == route.id, ProcessRouteNode.is_deleted.is_(False))
+                .order_by(ProcessRouteNode.sort_order.asc(), ProcessRouteNode.id.asc())
+            ).all()
+        )
+        node_codes = {node_code_by_id.get(item.node_id) for item in route_nodes}
+        if "A1" not in node_codes:
+            continue
+        if "A2" not in node_codes and "B1" in node_codes and "B2" in node_codes:
+            continue
+        route.is_deleted = True
+        route.deleted_at = deleted_at
+        route.updated_by = operator_id
+        _soft_delete_route_children(db, route.id)
+        cleaned_routes += 1
+    return cleaned_routes
+
+
+def _soft_delete_obsolete_generated_routes(
+    db: Session,
+    default_route_codes: set[str],
+    operator_id: int | None,
+) -> int:
+    from app.models.process_config import ProcessRoute
+
+    deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    cleaned_routes = 0
+    routes = db.scalars(
+        select(ProcessRoute).where(
+            ProcessRoute.is_deleted.is_(False),
+            ProcessRoute.status == "enabled",
+        )
+    ).all()
+    for route in routes:
+        if route.code in default_route_codes or not _is_generated_default_route_code(route.code):
+            continue
+        route.is_deleted = True
+        route.deleted_at = deleted_at
+        route.updated_by = operator_id
+        _soft_delete_route_children(db, route.id)
+        cleaned_routes += 1
+    return cleaned_routes
+
+
+def _is_generated_default_route_code(route_code: str) -> bool:
+    parts = route_code.split("-")
+    return len(parts) > 1 and all(part[:1].isalpha() and part[1:].isdigit() for part in parts)
+
+
+def _route_matches_default(
+    db: Session,
+    route: Any,
+    row: dict[str, Any],
+    node_code_by_id: dict[int, str],
+    product_code_by_id: dict[int, str],
+) -> bool:
+    from app.models.process_config import ProcessCalculationOutput, ProcessRouteNode
+
+    if (
+        route.name != row["name"]
+        or route.version != (row.get("version") or "V1")
+        or route.description != row.get("description")
+        or route.status != (row.get("status") or "enabled")
+        or int(route.sort_order or 0) != int(row.get("sort_order") or 0)
+        or product_code_by_id.get(route.final_product_id) != row.get("final_product_code")
+    ):
+        return False
+
+    route_nodes = list(
+        db.scalars(
+            select(ProcessRouteNode)
+            .where(ProcessRouteNode.route_id == route.id, ProcessRouteNode.is_deleted.is_(False))
+            .order_by(ProcessRouteNode.sort_order.asc(), ProcessRouteNode.id.asc())
+        ).all()
+    )
+    actual_nodes = [
+        (
+            node_code_by_id.get(item.node_id),
+            item.option_group_code,
+            item.option_code,
+            item.node_params_json,
+        )
+        for item in route_nodes
+    ]
+    expected_nodes = [
+        (
+            child.get("node_code"),
+            child.get("option_group_code"),
+            child.get("option_code"),
+            child.get("node_params_json"),
+        )
+        for child in row.get("nodes", [])
+    ]
+    if actual_nodes != expected_nodes:
+        return False
+
+    outputs = list(
+        db.scalars(
+            select(ProcessCalculationOutput)
+            .where(ProcessCalculationOutput.route_id == route.id, ProcessCalculationOutput.is_deleted.is_(False))
+            .order_by(ProcessCalculationOutput.sort_order.asc(), ProcessCalculationOutput.id.asc())
+        ).all()
+    )
+    actual_outputs = [
+        (
+            item.output_type,
+            product_code_by_id.get(item.product_id) if item.product_id else None,
+            item.output_name,
+            item.sort_order,
+        )
+        for item in outputs
+    ]
+    expected_outputs = [
+        (
+            child.get("output_type"),
+            child.get("product_code"),
+            child.get("output_name"),
+            int(child.get("sort_order") or 0),
+        )
+        for child in row.get("calculation_outputs", [])
+    ]
+    return actual_outputs == expected_outputs
+
+
+def _soft_delete_route_children(db: Session, route_id: int) -> None:
+    from app.models.process_config import ProcessCalculationOutput, ProcessRouteNode
+
+    deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    for relation in db.scalars(
+        select(ProcessRouteNode).where(ProcessRouteNode.route_id == route_id, ProcessRouteNode.is_deleted.is_(False))
+    ):
+        relation.is_deleted = True
+        relation.deleted_at = deleted_at
+    for output in db.scalars(
+        select(ProcessCalculationOutput).where(
+            ProcessCalculationOutput.route_id == route_id,
+            ProcessCalculationOutput.is_deleted.is_(False),
+        )
+    ):
+        output.is_deleted = True
+        output.deleted_at = deleted_at
 
 
 def seed_process_support_library_defaults(db: Session) -> None:

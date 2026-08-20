@@ -493,6 +493,7 @@ class ProcessConfigService:
                     "sort_order": route.sort_order,
                     "input_material": self._serialize_route_tree_library_item(material),
                     "final_product": self._serialize_route_tree_library_item(final_product),
+                    "representative_product": self._serialize_route_tree_library_item(final_product),
                     "nodes": [
                         self._serialize_route_tree_node(route_node, node_map, outputs_by_node_id, product_map)
                         for route_node in route_nodes_by_route_id.get(route.id, [])
@@ -936,6 +937,20 @@ class ProcessConfigService:
         sort_orders = [row.sort_order for row in nodes]
         if len(sort_orders) != len(set(sort_orders)):
             raise AppException("节点顺序不能重复")
+        selected_options: dict[str, str] = {}
+        for row in nodes:
+            group_code = row.option_group_code
+            option_code = row.option_code
+            if not group_code:
+                continue
+            if not option_code:
+                raise AppException(f"互斥工艺选项组 {group_code} 已触达但未选择工艺选项")
+            existing_option = selected_options.get(group_code)
+            if existing_option is None:
+                selected_options[group_code] = option_code
+                continue
+            if existing_option != option_code:
+                raise AppException(f"互斥工艺选项组 {group_code} 只能选择一个工艺选项")
 
     def _validate_unique_payload_field(self, rows: list[Any], field_name: str, message: str) -> None:
         seen: set[Any] = set()
@@ -980,6 +995,8 @@ class ProcessConfigService:
             ProcessRouteNodePayload(
                 node_id=route_node.node_id,
                 sort_order=route_node.sort_order,
+                option_group_code=route_node.option_group_code,
+                option_code=route_node.option_code,
                 node_params_json=route_node.node_params_json,
                 remark=route_node.remark,
             )
@@ -993,6 +1010,8 @@ class ProcessConfigService:
         return {
             "node_id": route_node.node_id,
             "sort_order": route_node.sort_order,
+            "option_group_code": route_node.option_group_code,
+            "option_code": route_node.option_code,
             "node_params_json": route_node.node_params_json,
             "remark": route_node.remark,
         }
@@ -1015,7 +1034,9 @@ class ProcessConfigService:
         return data
 
     def _serialize_route_base(self, route: ProcessRoute) -> dict[str, Any]:
-        return ProcessRouteOut.model_validate(route).model_dump(mode="json")
+        data = ProcessRouteOut.model_validate(route).model_dump(mode="json")
+        data["representative_product_id"] = route.final_product_id
+        return data
 
     def _serialize_route_node(self, route_node: ProcessRouteNode) -> dict[str, Any]:
         return ProcessRouteNodeOut.model_validate(route_node).model_dump(mode="json")
@@ -1029,6 +1050,7 @@ class ProcessConfigService:
             **self._serialize_route_base(route),
             "input_material_name": input_material.name if input_material else None,
             "final_product_name": final_product.name if final_product else None,
+            "representative_product_name": final_product.name if final_product else None,
             "node_count": len(repo.list_nodes(route.id)),
         }
         return ProcessRouteListItemOut.model_validate(data).model_dump(mode="json")
@@ -1060,6 +1082,9 @@ class ProcessConfigService:
             "final_product": ProcessProductOutWithPrices.model_validate(self._serialize_library(product_repo, final_product)).model_dump(
                 mode="json"
             ),
+            "representative_product": ProcessProductOutWithPrices.model_validate(
+                self._serialize_library(product_repo, final_product)
+            ).model_dump(mode="json"),
             "nodes": nodes,
         }
         return ProcessRouteDetailOut.model_validate(data).model_dump(mode="json")
@@ -1103,6 +1128,7 @@ class ProcessConfigService:
             "node_type": node.node_type,
             "version": node.version,
             "sort_order": route_node.sort_order,
+            "node_params_json": route_node.node_params_json,
             "outputs": outputs,
         }
 
@@ -1183,6 +1209,8 @@ class ProcessConfigService:
             data.update(
                 {
                     "output_type": getattr(item, "output_type", "product"),
+                    "target_output_category": getattr(item, "target_output_category", None),
+                    "is_product_form": getattr(item, "is_product_form", True),
                     "spec": getattr(item, "spec", None),
                     "treatment_cost": getattr(item, "treatment_cost", Decimal("0")),
                 }

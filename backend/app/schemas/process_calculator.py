@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.schemas.process_config import ProcessCurrency, ProcessRegionCode
+from app.schemas.process_config import ProcessCurrency, ProcessRegionCode, ProcessTargetOutputCategory
 
 
 CalculatorSortCriteria = Literal["npv", "irr", "ebitda", "payback_period", "capex"]
@@ -45,7 +45,9 @@ class ProcessCalculatorRequest(BaseModel):
     """快速财务测算入参。"""
 
     materials: list[CalculatorMaterialInput] = Field(..., min_length=1, max_length=10)
-    target_products: list[int] = Field(..., min_length=1, max_length=10)
+    target_products: list[int] = Field(default_factory=list, max_length=10)
+    target_output_categories: list[ProcessTargetOutputCategory] = Field(default_factory=list, max_length=6)
+    selected_options: dict[str, str] = Field(default_factory=dict, max_length=20)
     region_code: ProcessRegionCode
     currency: ProcessCurrency
     tax_rate: Decimal = Field(default=Decimal("0.25"), ge=0, le=1)
@@ -69,6 +71,12 @@ class ProcessCalculatorRequest(BaseModel):
             raise ValueError("materials 中不能重复选择同一原料")
         if len(self.target_products) != len(set(self.target_products)):
             raise ValueError("target_products 中不能重复选择同一产品")
+        if len(self.target_output_categories) != len(set(self.target_output_categories)):
+            raise ValueError("target_output_categories 中不能重复选择同一目标产出类别")
+        if not self.target_products and not self.target_output_categories:
+            raise ValueError("target_products 与 target_output_categories 至少填写一项")
+        if any(not key.strip() or not value.strip() for key, value in self.selected_options.items()):
+            raise ValueError("selected_options 的工艺选项组和选项编码不能为空")
         return self
 
 
@@ -77,6 +85,11 @@ class CalculatorLibraryOption(BaseModel):
     code: str
     name: str
     unit: str
+
+
+class CalculatorTargetOutputCategoryOption(BaseModel):
+    code: ProcessTargetOutputCategory
+    name: str
 
 
 class CalculatorRegionOption(BaseModel):
@@ -88,9 +101,19 @@ class CalculatorRegionOption(BaseModel):
 class ProcessCalculatorOptionsOut(BaseModel):
     materials: list[CalculatorLibraryOption]
     target_products: list[CalculatorLibraryOption]
+    target_output_categories: list[CalculatorTargetOutputCategoryOption] = Field(default_factory=list)
     regions: list[CalculatorRegionOption]
     sort_criteria: list[dict[str, str]]
     defaults: dict[str, Any]
+
+
+class CalculatorRouteNodeOutputRef(BaseModel):
+    id: int
+    product_id: int
+    product_code: str | None = None
+    product_name: str | None = None
+    output_name: str
+    output_type: str
 
 
 class CalculatorRouteNodeRef(BaseModel):
@@ -99,6 +122,10 @@ class CalculatorRouteNodeRef(BaseModel):
     name: str
     version: str
     sort_order: int
+    option_group_code: str | None = None
+    option_code: str | None = None
+    node_params_json: str | None = None
+    outputs: list[CalculatorRouteNodeOutputRef] = Field(default_factory=list)
 
 
 class CalculatorRouteRef(BaseModel):
@@ -176,6 +203,8 @@ class CalculatorSchemeSummary(BaseModel):
     scheme_code: str
     routes: list[CalculatorRouteRef]
     node_codes: list[str]
+    selected_options: dict[str, str] = Field(default_factory=dict)
+    output_summary: list[CalculatorAmountItem] = Field(default_factory=list)
     is_complete: bool
     warnings: list[str]
     metrics: CalculatorMetrics
@@ -185,6 +214,7 @@ class ProcessCalculatorResultOut(BaseModel):
     calculation_id: str
     matched_routes: list[CalculatorSchemeSummary]
     recommended_route: CalculatorSchemeSummary | None
+    no_route_reason: str | None = None
     product_outputs: list[CalculatorAmountItem]
     consumable_costs: list[CalculatorAmountItem]
     public_service_costs: list[CalculatorAmountItem]
