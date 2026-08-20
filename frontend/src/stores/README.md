@@ -2,7 +2,14 @@
 
 ## 功能
 
-存放 Zustand 状态管理模块。
+存放 Pinia 状态管理模块。
+
+## 模块清单
+
+- `stores/auth.ts`：当前用户、授权菜单、登录态与权限判断（`useAuthStore`）。
+- `stores/locale.ts`：界面语言偏好（`useLocaleStore`）。
+- `stores/actionMask.ts`：全局操作遮罩状态。
+- `stores/chatRun.ts`：AI 问答运行期状态。
 
 ## 调用关系
 
@@ -19,5 +26,6 @@
 ## 示例
 
 ```ts
-const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed);
+const authStore = useAuthStore();
+const hasAccess = authStore.hasMenuPermission('knowledge:view');
 ```

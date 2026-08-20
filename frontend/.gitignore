@@ -9,6 +9,8 @@ node_modules
 dist
 dist-ssr
 .npm-cache
+.npm-cache-local
+.vite
 *.tsbuildinfo
 *.local
 

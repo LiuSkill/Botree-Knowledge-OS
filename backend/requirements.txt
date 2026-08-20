@@ -1,3 +1,4 @@
+# 依赖声明与 Python 版本要求见 pyproject.toml；本文件为部署/Docker 安装源，两者应保持一致。
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 SQLAlchemy>=2.0.30

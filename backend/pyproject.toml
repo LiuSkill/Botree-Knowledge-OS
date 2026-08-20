@@ -1,0 +1,50 @@
+# Botree Knowledge OS Backend 项目声明
+#
+# 职责：
+# 1. 固定 Python 版本范围（>=3.11,<3.14；本地开发基于 3.13，Docker 镜像基于 3.11）。
+# 2. 声明运行时依赖（与 requirements.txt 保持一致；requirements.txt 作为部署/Docker 安装源，
+#    两者如有修改必须同步）。
+# 3. 提供 `pip install -e ./backend` 的可编辑安装方式。
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "botree-knowledge-backend"
+version = "0.1.0"
+description = "Botree Knowledge OS 企业知识管理与智能体应用平台后端"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "SQLAlchemy>=2.0.30",
+    "pymysql>=1.1.1",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.4.0",
+    "PyJWT>=2.8.0",
+    "python-multipart>=0.0.9",
+    "requests>=2.32.0",
+    "sentence-transformers>=2.7.0,<6.0.0",
+    "transformers>=4.57.0,<5.0.0",
+    "qwen-vl-utils>=0.0.14",
+    "torch>=2.3.0",
+    "torchvision>=0.28.0",
+    "accelerate>=0.31.0",
+    "python-docx>=1.1.2",
+    "pypdf>=4.2.0",
+    "pymilvus>=2.4.0",
+    "minio>=7.2.0",
+    "redis>=5.0.0",
+    "rq>=1.16.0",
+    "langgraph>=0.2.0",
+    "alembic>=1.13.0",
+    "beir>=2.0.0",
+    "openpyxl>=3.1.5",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

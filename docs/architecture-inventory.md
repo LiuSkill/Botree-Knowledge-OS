@@ -64,7 +64,7 @@ Nginx / FastAPI API
 
 ### 3.3 已知边界
 
-- `frontend/src/mocks/` 与 `frontend/src/stores/appStore.ts` 是早期 Mock 体系；当前只发现国际化工具仍引用 `useAppStore`，主要业务页面未使用这些 Mock 数据，属于遗留代码而非产品数据源。
+- 早期 Mock 体系（`frontend/src/mocks/`、`frontend/src/stores/appStore.ts`、`frontend/src/pages/`）已在工程卫生清理中移除；`src/stores/` 仅保留真实 Pinia 状态模块。
 - 未发现 `*.spec.*` 或 `*.test.*` 前端测试文件，前端质量门主要依赖 `vue-tsc` 和 Vite 构建。
 
 ## 4. 后端架构
@@ -208,7 +208,7 @@ chat completion
 - 知识授权：后端/数据结构和只读摘要存在，但缺少完整授权编辑产品闭环。
 - 前端质量体系：类型构建存在，缺少组件与 E2E 自动化测试。
 - 可观测性：数据库审计充分，进程日志、指标、集中告警和链路平台未形成完整闭环。
-- 遗留前端 Mock Store 仍在仓库中，与真实 API 架构并存。
+- 早期前端 Mock Store 已随工程卫生清理移除，前端状态统一由 Pinia 提供。
 
 ### 仅有设计或历史描述
 

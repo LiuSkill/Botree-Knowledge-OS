@@ -14,12 +14,9 @@ deploy/env/backend.env
 /storage/
 backend/*.db
 backend/tmp_*
-backend/storage/derived/
-backend/storage/page_index/
-backend/storage/mineru-output/
-backend/storage/process-calculation-imports/
-backend/storage/uploads/*
-backend/storage/smoke_uploads/
+backend/output/
+backend/logs/
+backend/storage/
 !backend/storage/uploads/.gitkeep
 eval/beir/datasets/
 eval/beir/reports/

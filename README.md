@@ -64,6 +64,8 @@ scripts/init_mysql.sql MySQL 初始化脚本
 
 ## 5. 启动方式
 
+Python 版本要求：`>=3.11,<3.14`（见 `backend/pyproject.toml`；本地开发基于 3.13 验证，Docker 镜像基于 3.11）。
+
 后端：
 
 ```bash
@@ -101,17 +103,16 @@ npm run dev
 
 烟测覆盖：登录、创建项目、上传项目资料、项目问答未选项目拦截、未审核问答不引用、提交审核、审核通过、解析、索引、项目问答和基础问答返回引用来源、问答审计记录。
 
-## 8. 当前简化实现
+## 8. 实现状态与简化边界
 
-- MVP 检索使用数据库关键词检索和结构化过滤，Milvus、知识图谱、网页搜索已预留模块边界。
-- 文档解析优先使用本地文本、PDF、DOCX 解析；MinerU 配置已接入，后续可替换为真实解析服务调用。
-- AI 回答当前使用可追溯证据摘要生成，模型配置已接入，后续可替换为真实 LLM 调用。
-- 外部用户授权保留数据结构和展示入口，细粒度授权编辑可在后续迭代完善。
+- 检索已接入 PageIndex、ripgrep、Milvus 向量、知识图谱与视觉索引等多路检索，经融合/重排与权限回查后输出证据；主要实现见 `backend/app/retrieval/` 与 `backend/app/langgraph/retrieval_graph.py`。
+- 文档解析支持本地文本/PDF/DOCX 与 MinerU 服务两种链路，Office 文档经 LibreOffice 转 PDF 后解析；MinerU 任务队列与异步状态已接入 RQ Worker。
+- AI 回答已接入真实 LLM（OpenAI-compatible / DashScope）与视觉模型，回答必须基于检索证据并携带可追溯引用；未配置真实模型时接口明确报错，不生成假回答或假索引。
+- 知识授权保留数据结构和授权摘要入口，细粒度授权编辑（原 `knowledge_base_permissions`）尚未形成管理闭环。
 
 ## 9. 后续开发建议
 
-- 接入真实 MinerU 解析队列和异步任务状态。
-- 接入 Embedding 模型与 Milvus，实现向量和关键词混合检索。
-- 基于 `graph_entities`、`graph_relations` 增加实体抽取和 GraphRAG 检索。
-- 增加 Alembic 迁移、生产级权限编辑和更完整的审计报表。
-- 增加 Playwright 端到端测试，覆盖前端主要操作链路。
+- 完善知识授权细粒度编辑闭环（当前仅摘要展示）。
+- 启用召回门禁（`RUNTIME_RECALL_GATE_ENABLED`）作为检索质量常态化门槛，并补充生产环境漂移监测。
+- 增加 Playwright 端到端测试与前端组件级测试，覆盖前端主要操作链路。
+- 规范化生产部署：启动建库与 Alembic 迁移解耦、统一日志落盘与轮转、常驻进程与备份恢复演练。
